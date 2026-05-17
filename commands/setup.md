@@ -68,6 +68,34 @@ This registers the MCP servers at user scope (available across all projects).
 mkdir -p ~/.claude/rules/delegator && cp ${CLAUDE_PLUGIN_ROOT}/rules/*.md ~/.claude/rules/delegator/
 ```
 
+## Step 3b: Optional Short Command Names
+
+The delegation commands ship with the plugin and are always available
+namespaced: `/claude-delegator:ask-gpt`, `:ask-gemini`, `:ask-both`,
+`:agree-both`.
+
+Offer the short, unnamespaced aliases (`/ask-gpt` etc.) by copying them into
+`~/.claude/commands/`.
+
+Use AskUserQuestion: "Also install short command names (/ask-gpt etc.) into
+~/.claude/commands?" Options: "Yes (recommended)" / "No, keep namespaced only".
+
+**If yes**, run (idempotent; never overwrites a pre-existing file - skips it
+with a notice so an unrelated command of the same name is left untouched):
+```bash
+mkdir -p ~/.claude/commands
+for c in ask-gpt ask-gemini ask-both agree-both; do
+  dest=~/.claude/commands/$c.md
+  if [ -e "$dest" ]; then
+    echo "skip $c: ~/.claude/commands/$c.md already exists (left untouched)"
+  else
+    cp "${CLAUDE_PLUGIN_ROOT}/commands/$c.md" "$dest" && echo "installed /$c"
+  fi
+done
+```
+
+**If no**, skip - the namespaced commands still work.
+
 ## Step 4: Verify Installation
 
 Run these checks and report results:
@@ -178,12 +206,12 @@ Options: "Yes, star the repo" / "No thanks"
 
 **If yes**: Check if `gh` CLI is available and run:
 ```bash
-gh api -X PUT /user/starred/jarrodwatts/claude-delegator
+gh api -X PUT /user/starred/antonbabenko/claude-delegator
 ```
 
 If `gh` is not available or the command fails, provide the manual link:
 ```
-https://github.com/jarrodwatts/claude-delegator
+https://github.com/antonbabenko/claude-delegator
 ```
 
 **If no**: Thank them and complete setup without starring.

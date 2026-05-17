@@ -7,13 +7,20 @@ GPT expert subagents for Claude Code. Five specialists that can analyze AND impl
 
 ![Claude Delegator in action](claude-delegator.png)
 
+> Maintained fork of [`jarrodwatts/claude-delegator`](https://github.com/jarrodwatts/claude-delegator)
+> (upstream currently inactive). Original work and MIT copyright by Jarrod
+> Watts; this fork adds backward-compatible changes only: Gemini bridge
+> timeout / trust-recovery / JSON-parsing robustness, a `GEMINI_DEFAULT_MODEL`
+> env override, and the bundled delegation commands below. Not an official
+> continuation of the upstream project.
+
 ## Install
 
 Inside a Claude Code instance, run the following commands:
 
 **Step 1: Add the marketplace**
 ```
-/plugin marketplace add jarrodwatts/claude-delegator
+/plugin marketplace add antonbabenko/claude-delegator
 ```
 
 **Step 2: Install the plugin**
@@ -29,6 +36,23 @@ Inside a Claude Code instance, run the following commands:
 Done! Claude now routes complex tasks to GPT experts automatically.
 
 > **Note**: Requires [Codex CLI](https://github.com/openai/codex) or [Gemini CLI](https://github.com/google/gemini-cli). Setup guides you through installation.
+
+## Commands
+
+Bundled with the plugin (available once installed):
+
+| Command | Purpose |
+|---------|---------|
+| `/claude-delegator:setup` | Configure Codex/Gemini MCP servers + orchestration rules |
+| `/claude-delegator:uninstall` | Remove MCP config, rules, and aliases |
+| `/claude-delegator:ask-gpt` | One-shot GPT (Codex) second opinion |
+| `/claude-delegator:ask-gemini` | One-shot Gemini second opinion |
+| `/claude-delegator:ask-both` | GPT + Gemini in parallel, synthesized |
+| `/claude-delegator:agree-both` | Iterate GPT + Gemini + Claude to consensus |
+
+`/setup` can also install short aliases (`/ask-gpt`, `/ask-gemini`,
+`/ask-both`, `/agree-both`) into `~/.claude/commands/` (opt-in; never
+overwrites an existing same-named command). `/uninstall` removes them.
 
 ---
 

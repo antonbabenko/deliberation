@@ -31,11 +31,22 @@ claude mcp remove --scope user gemini
 rm -rf ~/.claude/rules/delegator/
 ```
 
+## Remove Short Command Aliases (if installed)
+
+Only the four aliases that `/setup` may have copied; the namespaced
+`claude-delegator:*` commands are removed by uninstalling the plugin itself.
+```bash
+for c in ask-gpt ask-gemini ask-both agree-both; do
+  rm -f ~/.claude/commands/$c.md
+done
+```
+
 ## Confirm Completion
 
 ```
 ✓ Removed providers from MCP servers
 ✓ Removed rules from ~/.claude/rules/delegator/
+✓ Removed short command aliases from ~/.claude/commands/ (if present)
 
 To reinstall: /claude-delegator:setup
 ```
