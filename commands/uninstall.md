@@ -11,7 +11,7 @@ Remove claude-delegator from Claude Code.
 
 ## Confirm Removal
 
-**Question**: "Remove Codex/Gemini MCP configuration and plugin rules?"
+**Question**: "Remove Codex/Gemini/Grok MCP configuration and plugin rules?"
 **Options**:
 - "Yes, uninstall"
 - "No, cancel"
@@ -23,6 +23,7 @@ If cancelled, stop here.
 ```bash
 claude mcp remove --scope user codex
 claude mcp remove --scope user gemini
+claude mcp remove --scope user grok
 ```
 
 ## Remove Installed Rules
@@ -33,13 +34,13 @@ rm -rf ~/.claude/rules/delegator/
 
 ## Remove Short Command Aliases (if installed)
 
-Only the four aliases that `/setup` may have copied; the namespaced
+Only the aliases that `/setup` may have copied; the namespaced
 `claude-delegator:*` commands are removed by uninstalling the plugin itself.
 Ownership-aware: a copied alias is removed only if it is byte-identical to the
 plugin's bundled command (so an unrelated user-authored same-named command,
 which `/setup` would have skipped rather than overwritten, is left untouched).
 ```bash
-for c in ask-gpt ask-gemini ask-both consensus; do
+for c in ask-gpt ask-gemini ask-grok ask-all consensus grok-files; do
   dest=~/.claude/commands/$c.md
   src="${CLAUDE_PLUGIN_ROOT}/commands/$c.md"
   if [ ! -e "$dest" ]; then
@@ -50,6 +51,16 @@ for c in ask-gpt ask-gemini ask-both consensus; do
     echo "skip $c: ~/.claude/commands/$c.md differs from plugin copy (left untouched)"
   fi
 done
+
+# ask-both was renamed to ask-all in 1.7.0; the plugin no longer ships ask-both.md.
+# Remove a copied ask-both alias only when it carries the delegator fingerprint
+# (so a user-authored ask-both.md is left untouched).
+olddest=~/.claude/commands/ask-both.md
+if [ -e "$olddest" ] && grep -q "claude-delegator/claude-delegator" "$olddest" && grep -q "name: ask-both" "$olddest"; then
+  rm -f "$olddest" && echo "removed obsolete /ask-both (renamed to /ask-all)"
+elif [ -e "$olddest" ]; then
+  echo "skip ask-both: ~/.claude/commands/ask-both.md not recognized as a plugin alias (left untouched)"
+fi
 ```
 
 ## Confirm Completion

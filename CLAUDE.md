@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-A Claude Code plugin that provides GPT (via Codex CLI) and Gemini (via Gemini CLI) as specialized expert subagents. Five domain experts that can advise OR implement: Architect, Plan Reviewer, Scope Analyst, Code Reviewer, and Security Analyst.
+A Claude Code plugin that provides GPT (via Codex CLI), Gemini (via Gemini CLI), and Grok (via the xAI HTTP API) as specialized expert subagents. Five domain experts that can advise OR implement: Architect, Plan Reviewer, Scope Analyst, Code Reviewer, and Security Analyst. (Grok is advisory-only - it cannot edit files, but can read attached files via the xAI Files API.)
 
 ## Development Commands
 
@@ -19,7 +19,7 @@ claude --plugin-dir /path/to/claude-delegator
 /claude-delegator:uninstall
 ```
 
-No build step, no dependencies. Uses native MCP servers from Codex and Gemini CLIs.
+No build step, no dependencies. Codex exposes a native MCP server; Gemini and Grok use bundled zero-dependency Node bridges (`server/gemini/index.js`, `server/grok/index.js`).
 
 ## Architecture
 
@@ -44,7 +44,7 @@ User Request → Claude Code → [Match trigger → Select expert & provider]
 1. **Match trigger** - Check `rules/triggers.md` for semantic patterns
 2. **Read expert prompt** - Load from `prompts/[expert].md`
 3. **Build 7-section prompt** - Use format from `rules/delegation-format.md`
-4. **Call provider tool** - `mcp__codex__codex` or `mcp__gemini__gemini`
+4. **Call provider tool** - `mcp__codex__codex`, `mcp__gemini__gemini`, or `mcp__grok__grok`
 5. **Synthesize response** - Never show raw output; interpret and verify
 
 ### The 7-Section Delegation Format
@@ -83,7 +83,7 @@ Every expert can operate in **advisory** (`sandbox: read-only`) or **implementat
 
 ## Key Design Decisions
 
-1. **Native & Bridge MCP** - Codex has a native `mcp-server` command. Gemini requires an internal bridge (`server/gemini/index.js`) to expose its CLI via MCP.
+1. **Native & Bridge MCP** - Codex has a native `mcp-server` command. Gemini requires a bundled bridge (`server/gemini/index.js`) that wraps its CLI. Grok has no MCP or CLI server mode, so a bundled bridge (`server/grok/index.js`) wraps the xAI **Responses API** (`/v1/responses`) directly - advisory-only (no file editing), but it can READ attached files via the xAI Files API (`files:[{path|file_id|file_url}]`); uploads auto-expire (7-day default, `GROK_FILE_TTL_SECONDS`) and are prunable with `/grok-files` (`server/grok/files-admin.js`).
 2. **Single-shot + multi-turn** - Single-shot for advisory (full context per call), multi-turn via `threadId` for chained implementation and retries
 3. **Dual mode** - Any expert can advise or implement based on task
 4. **Synthesize, don't passthrough** - Claude interprets expert output, applies judgment

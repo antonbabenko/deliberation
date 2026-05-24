@@ -8,8 +8,8 @@
     {
       "name": "claude-delegator",
       "source": "./",
-      "description": "GPT expert subagents for Claude Code via Codex CLI. Five specialized experts: Architect, Plan Reviewer, Scope Analyst, Code Reviewer, Security Analyst.",
-      "version": "1.5.0",
+      "description": "GPT (Codex CLI), Gemini (bundled MCP bridge), and Grok (xAI HTTP bridge) expert subagents for Claude Code. Five specialized experts: Architect, Plan Reviewer, Scope Analyst, Code Reviewer, Security Analyst.",
+      "version": "1.8.0",
       "author": {
         "name": "Jarrod Watts",
         "url": "https://github.com/jarrodwatts"
@@ -23,6 +23,11 @@
         "codex",
         "gpt",
         "openai",
+        "gemini",
+        "google",
+        "grok",
+        "xai",
+        "files",
         "experts",
         "subagents",
         "orchestration"

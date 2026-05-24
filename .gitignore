@@ -9,3 +9,5 @@ coverage/
 
 # Node (handled in subdirs but good to have at root)
 node_modules/
+
+docs/

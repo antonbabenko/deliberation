@@ -29,6 +29,21 @@
       "experts": ["architect", "plan-reviewer", "scope-analyst", "code-reviewer", "security-analyst"],
       "strengths": ["reasoning", "large context", "code generation", "multimodal analysis"],
       "avoid": ["simple-operations", "trivial-decisions", "research", "first-attempt-fixes"]
+    },
+    "grok": {
+      "name": "Grok (xAI)",
+      "description": "xAI Grok models via bundled MCP bridge over the xAI HTTP API - advisory expert subagents",
+      "cli": null,
+      "api": "https://api.x.ai/v1/chat/completions",
+      "auth": "export XAI_API_KEY=xai-...",
+      "mcp": {
+        "type": "stdio",
+        "command": "node",
+        "args": ["${CLAUDE_PLUGIN_ROOT}/server/grok/index.js"]
+      },
+      "experts": ["architect", "plan-reviewer", "scope-analyst", "code-reviewer", "security-analyst"],
+      "strengths": ["reasoning", "architecture", "code-review", "security", "large context"],
+      "avoid": ["simple-operations", "trivial-decisions", "research", "first-attempt-fixes", "file-editing"]
     }
   }
 }

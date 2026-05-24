@@ -10,6 +10,10 @@ You have access to GPT experts via MCP tools. Use them strategically based on th
 | `mcp__codex__codex-reply` | GPT | Continue an existing session (multi-turn) |
 | `mcp__gemini__gemini` | Gemini | Start a new expert session |
 | `mcp__gemini__gemini-reply` | Gemini | Continue an existing session (multi-turn) |
+| `mcp__grok__grok` | Grok (xAI) | Start a new expert session (advisory-only; no file access) |
+| `mcp__grok__grok-reply` | Grok (xAI) | Continue a session (in-memory; lost on MCP restart) |
+
+> **Grok notes:** the Grok bridge talks to the xAI HTTP API, so it is advisory-only (it cannot edit files) and has no trusted-directory concept (no trust-recovery applies). It needs `XAI_API_KEY`; a missing key surfaces `errorKind: "missing-auth"`.
 
 ## Available Experts
 
@@ -119,7 +123,7 @@ For example, for Architect: `Read ${CLAUDE_PLUGIN_ROOT}/prompts/architect.md`
 
 ### Step 4: Notify User
 
-Status line is owned by each command file (see ask-gpt.md, ask-gemini.md, ask-both.md, agree-both.md). Commands print exactly one line immediately before the MCP tool dispatch:
+Status line is owned by each command file (see ask-gpt.md, ask-gemini.md, ask-grok.md, ask-all.md, consensus.md). Commands print exactly one line immediately before the MCP tool dispatch:
 
 - single-provider: `Codex working (typical 30-60s)...` or `Gemini working (typical 30-60s)...`
 - parallel: `Codex + Gemini working in parallel (typical 30-60s)...`

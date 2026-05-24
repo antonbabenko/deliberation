@@ -1,13 +1,13 @@
 ---
 name: consensus
-description: Iteratively converge GPT + Gemini + Claude on a plan/design until all three agree. Max 5 rounds. Best for plan refinement.
-allowed-tools: mcp__codex__codex, mcp__gemini__gemini, Read, Bash
+description: Iteratively converge GPT + Gemini + Grok + Claude on a plan/design until all four agree. Max 5 rounds. Best for plan refinement.
+allowed-tools: mcp__codex__codex, mcp__gemini__gemini, mcp__grok__grok, Read, Bash
 timeout: 900000
 ---
 
-# Consensus (GPT + Gemini + Claude convergence loop)
+# Consensus (GPT + Gemini + Grok + Claude convergence loop)
 
-Iterate up to 5 rounds. Each round refines the plan based on GPT + Gemini feedback. Stop when all three (Claude, GPT, Gemini) approve the current revision, or when 5 rounds are exhausted.
+Iterate up to 5 rounds. Each round refines the plan based on GPT + Gemini + Grok feedback. Stop when all four (Claude, GPT, Gemini, Grok) approve the current revision, or when 5 rounds are exhausted.
 
 ## Input
 
@@ -23,7 +23,7 @@ Plan, design, spec, or proposal to refine: $ARGUMENTS
 ## When NOT to use
 
 - One-off lookup or fact check (use `/ask-gpt` or `/ask-gemini`)
-- You only want a single independent opinion (use `/ask-both`)
+- You only want parallel one-shot opinions without the convergence loop (use `/ask-all`)
 - Time-sensitive work — this loop can take several minutes
 
 ## Workflow
@@ -51,7 +51,7 @@ Plan, design, spec, or proposal to refine: $ARGUMENTS
 4. Initialize state:
    - `plan` = original `$ARGUMENTS`
    - `round` = 0
-   - `history` = empty list of `{round, plan_diff_summary, gpt_verdict, gemini_verdict, claude_decision}`
+   - `history` = empty list of `{round, plan_diff_summary, gpt_verdict, gemini_verdict, grok_verdict, claude_decision}`
 5. Print:
    ```
    /consensus: starting consensus loop (max 5 rounds, expert=[Expert])
@@ -63,7 +63,7 @@ For each round R:
 
 1. **Print round header** before dispatching, so the user knows progress:
    ```
-   --- Round R/5 --- Codex + Gemini working in parallel (typical 30-60s)...
+   --- Round R/5 --- Codex + Gemini + Grok working in parallel (typical 30-60s)...
    ```
 
 2. **Build identical review prompt** (7-section format per `~/.claude/rules/delegator/delegation-format.md`). Include:
@@ -78,7 +78,7 @@ For each round R:
      **Recommendations** (nice-to-have; empty list = none): [bullets]
      **One-line bottom line**: [single sentence]
      ```
-3. **Parallel dispatch** - both calls in ONE message with two tool blocks. Identical prompt body, identical expert prompt:
+3. **Parallel dispatch** - all three calls in ONE message with three tool blocks. Identical prompt body, identical expert prompt:
    ```
    mcp__codex__codex({
      prompt: "[identical 7-section prompt for round R]",
@@ -94,35 +94,47 @@ For each round R:
      model: "auto-gemini-3",
      cwd: "[trusted cwd]"
    })
-   ```
 
-4. **Stream short status as each return arrives**. Do not wait until both are back to print anything. Examples:
+   mcp__grok__grok({
+     prompt: "[identical 7-section prompt for round R]",
+     "developer-instructions": "[expert prompt]",
+     sandbox: "read-only",
+     files: [{ path: "<file>" }]   // OPTIONAL - only when files are attached to the round
+   })
+   ```
+   **Files (optional):** if the plan under review references attached files, pass them to
+   Grok via `files:[{path}]` each round; GPT and Gemini read the named paths from their
+   trusted `cwd`.
+
+4. **Stream short status as each return arrives**. Do not wait until all are back to print anything. Examples:
    ```
    GPT (R{R}): APPROVE
    Gemini (R{R}): REQUEST CHANGES (3 critical)
+   Grok (R{R}): APPROVE
    ```
 
 5. **Parse verdicts and form Claude's own opinion**:
-   - Extract `Verdict`, `Critical issues`, `Recommendations` from each.
+   - Extract `Verdict`, `Critical issues`, `Recommendations` from each of the three reviewers.
    - For each critical issue: Claude marks it as `accept` (real problem, fix), `dismiss` (false positive - record why), or `defer` (legitimate but out of scope for this plan).
-   - Claude's own `verdict` is APPROVE if and only if there are zero accepted critical issues across both reviewers, AND Claude has no critical issues of its own.
+   - Claude's own `verdict` is APPROVE if and only if there are zero accepted critical issues across all three reviewers, AND Claude has no critical issues of its own.
 
-6. **Convergence check** - STOP the loop when ALL THREE are APPROVE:
+6. **Convergence check** - STOP the loop when ALL FOUR are APPROVE:
    - GPT verdict == APPROVE AND
    - Gemini verdict == APPROVE AND
+   - Grok verdict == APPROVE AND
    - Claude verdict == APPROVE (no accepted critical issues anywhere)
 
 7. **If not converged**:
-   - Compile the union of `accept`-ed critical issues from both reviewers plus any Claude found.
+   - Compile the union of `accept`-ed critical issues from all three reviewers plus any Claude found.
    - Revise the plan to address them. Be explicit about what changed and what was deliberately not changed.
-   - Record this round in `history` with: GPT verdict, Gemini verdict, Claude's per-issue decisions, the diff summary applied to the plan.
+   - Record this round in `history` with: GPT verdict, Gemini verdict, Grok verdict, Claude's per-issue decisions, the diff summary applied to the plan.
    - Print the revised plan ONLY if it has changed materially (don't spam on small wording tweaks).
    - Continue to round R+1.
-   - **Backoff after dual error**: if BOTH providers returned a provider-error in round R (not a regular REQUEST CHANGES verdict, but an MCP error or `result.isError`), wait 1-2 seconds before dispatching round R+1 to let transient API hiccups clear.
+   - **Backoff after multi error**: if MORE THAN ONE provider returned a provider-error in round R (not a regular REQUEST CHANGES verdict, but an MCP error or `result.isError`), wait 1-2 seconds before dispatching round R+1 to let transient API hiccups clear.
 
 8. **If round R == 5 and still not converged**:
    - Emit the final state with residual disagreements clearly labeled. Do not pretend convergence.
-   - Note which side (GPT, Gemini, or Claude) holds out on which issues.
+   - Note which side (GPT, Gemini, Grok, or Claude) holds out on which issues.
 
 ### Final output
 
@@ -134,10 +146,10 @@ For each round R:
 [full converged plan, or last revision]
 
 **Round history**:
-| Round | GPT | Gemini | Claude | Changes applied |
-| 1     | RC  | RC     | RC     | added rollback step, clarified ownership |
-| 2     | RC  | APPR   | APPR   | tightened error handling on step 3 |
-| 3     | APPR | APPR  | APPR   | - (no change; consensus reached) |
+| Round | GPT | Gemini | Grok | Claude | Changes applied |
+| 1     | RC  | RC     | RC   | RC     | added rollback step, clarified ownership |
+| 2     | RC  | APPR   | APPR | APPR   | tightened error handling on step 3 |
+| 3     | APPR | APPR  | APPR | APPR   | - (no change; consensus reached) |
 
 **Residual disagreements** (if any):
 - GPT (held out on R5): [issue + reason Claude dismissed it]
@@ -145,11 +157,11 @@ For each round R:
 
 ## Stability rules
 
-- **Always dispatch in parallel** - both MCP calls in the same message. Sequential doubles wall time.
+- **Always dispatch in parallel** - all three MCP calls in the same message. Sequential triples wall time.
 - **Single-shot per round** - fresh thread each call. Do NOT use `*-reply` with stored threadId. Cross-round state lives in the prompt body, not in provider memory. Avoids contamination if one provider went off track.
 - **Trusted `cwd` for Gemini** - run the Pre-flight cwd trust check from Setup step 3. NEVER switch folders; use skip-trust when supported, abort otherwise.
-- **Provider failure does not kill the loop** - if one provider errors (timeout, trust failure, transient API error), treat its verdict as `REQUEST CHANGES` with a note `"provider error: <truncated msg>"`. Continue the round. Loop can still converge if the surviving provider agrees with Claude.
-- **Pin Gemini model** - always `model: "auto-gemini-3"`.
+- **Provider failure does not kill the loop** - if a provider errors (timeout, trust failure, Grok `missing-auth`, transient API error), treat its verdict as `REQUEST CHANGES` with a note `"provider error: <truncated msg>"`. Continue the round. The loop can still converge if the surviving reviewers agree with Claude.
+- **Pin Gemini model** - always `model: "auto-gemini-3"`. Grok uses its bridge default (`GROK_DEFAULT_MODEL` or `grok-4.3`); no in-command pin.
 - **Hard cap at 5 rounds** - even if one reviewer is being stubborn, terminate. Diverging too many rounds usually means the plan has an unresolved ambiguity, not that the reviewer is wrong.
 - **Report as you go** - print a status line after each round dispatch and after each return. Long silences look like a hang.
 - **Synthesize, never paste raw** - reviewers' raw output never appears verbatim in the final report.

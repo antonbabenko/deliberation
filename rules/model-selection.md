@@ -1,17 +1,18 @@
 # Model Selection Guidelines
 
-GPT (Codex) and Gemini experts serve as specialized consultants for complex problems.
+GPT (Codex), Gemini, and Grok (xAI) experts serve as specialized consultants for complex problems.
 
 ## Provider Selection
 
 Before delegating, check which MCP tools are available in the current environment:
 
-1. **If both are available**: 
+1. **If multiple are available**:
    - Use **Gemini** for tasks requiring large context or multimodal analysis.
-   - Use **GPT (Codex)** for tasks where the user explicitly asked for "GPT" or "Codex".
+   - Use **GPT (Codex)** when the user explicitly asks for "GPT" or "Codex".
+   - Use **Grok (xAI)** when the user explicitly asks for "Grok". Grok is advisory-only (it cannot edit files), so never route file-editing / implementation tasks to it. It CAN read attached files (PDF/code/docs) via `files:[{path|file_id|file_url}]` on the `mcp__grok__grok` call.
    - Default to **Gemini** for general reasoning.
-2. **If only one is available**: Use the available provider regardless of the task type.
-3. **If neither is available**: Do not delegate; inform the user that they need to run `/claude-delegator:setup`.
+2. **If only one is available**: Use the available provider regardless of the task type (but Grok cannot implement file changes - only advise).
+3. **If none are available**: Do not delegate; inform the user that they need to run `/claude-delegator:setup`.
 
 ## Expert Directory
 

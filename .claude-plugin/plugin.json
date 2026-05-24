@@ -1,7 +1,7 @@
 {
   "name": "claude-delegator",
-  "description": "GPT (Codex CLI) and Gemini (bundled MCP bridge) expert subagents for Claude Code. Five specialized experts: Architect, Plan Reviewer, Scope Analyst, Code Reviewer, Security Analyst.",
-  "version": "1.6.0",
+  "description": "GPT (Codex CLI), Gemini (bundled MCP bridge), and Grok (xAI HTTP bridge) expert subagents for Claude Code. Five specialized experts: Architect, Plan Reviewer, Scope Analyst, Code Reviewer, Security Analyst.",
+  "version": "1.8.0",
   "author": {
     "name": "Jarrod Watts",
     "url": "https://github.com/jarrodwatts"
@@ -9,5 +9,5 @@
   "homepage": "https://github.com/antonbabenko/claude-delegator",
   "repository": "https://github.com/antonbabenko/claude-delegator",
   "license": "MIT",
-  "keywords": ["delegation", "mcp", "codex", "gpt", "openai", "gemini", "google", "experts", "subagents", "orchestration"]
+  "keywords": ["delegation", "mcp", "codex", "gpt", "openai", "gemini", "google", "grok", "xai", "files", "experts", "subagents", "orchestration"]
 }
