@@ -3,8 +3,8 @@
   "description": "GPT (Codex CLI), Gemini (bundled MCP bridge), and Grok (xAI HTTP bridge) expert subagents for Claude Code. Five specialized experts: Architect, Plan Reviewer, Scope Analyst, Code Reviewer, Security Analyst.",
   "version": "1.8.0",
   "author": {
-    "name": "Jarrod Watts",
-    "url": "https://github.com/jarrodwatts"
+    "name": "Anton Babenko",
+    "url": "https://github.com/antonbabenko"
   },
   "homepage": "https://github.com/antonbabenko/claude-delegator",
   "repository": "https://github.com/antonbabenko/claude-delegator",

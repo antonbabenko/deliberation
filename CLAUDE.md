@@ -89,6 +89,25 @@ Every expert can operate in **advisory** (`sandbox: read-only`) or **implementat
 4. **Synthesize, don't passthrough** - Claude interprets expert output, applies judgment
 5. **Proactive triggers** - Claude checks for delegation triggers on every message
 
+## Commit Conventions & Releases
+
+Releases are automated from Conventional Commits on `main`. Do not hand-edit version numbers.
+
+| Commit prefix | Version bump |
+|---------------|--------------|
+| `feat!:` or `BREAKING CHANGE:` | Major |
+| `feat:` | Minor |
+| `fix:` | Patch |
+| Other (`chore`, `docs`, `refactor`, ...) | Patch |
+
+`version.json` is the single source of truth. On merge to `main`, `automated-release.yml`
+bumps it, regenerates `CHANGELOG.md`, and runs `.github/release/pre-commit.js` to sync the
+version in `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, and
+`package.json`. After the release PR merges, `tag-release.yml` tags `vX.Y.Z`, publishes the
+GitHub Release, and nudges the `antonbabenko/agent-plugins` marketplace to re-pin. The
+`validate` check fails if any of those version fields drift from `version.json`. See
+CONTRIBUTING.md for the full flow.
+
 ## When NOT to Delegate
 
 - Simple syntax questions (answer directly)

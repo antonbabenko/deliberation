@@ -1,0 +1,85 @@
+name: Validate
+
+# Required status check for the PR-based release flow. The `main` ruleset
+# requires the "validate" check, which is why automated-release.yml routes the
+# version bump through a PR (a direct push would bypass this gate). Keep the job
+# name "validate" in sync with the branch ruleset's required-check name.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run bridge tests
+        run: node --test test/*.test.js
+
+      - name: Check version sync
+        run: |
+          node << 'EOF'
+          const fs = require('fs')
+          const SEMVER = /^\d+\.\d+\.\d+$/
+
+          function readJSON(p) {
+            try {
+              return JSON.parse(fs.readFileSync(p, 'utf8'))
+            } catch (e) {
+              console.error(`ERROR ${p}: ${e.message}`)
+              process.exit(1)
+            }
+          }
+
+          // version.json is the CI-owned source of truth.
+          const source = readJSON('version.json').version
+          if (!(typeof source === 'string' && SEMVER.test(source))) {
+            console.error(`ERROR version.json version is not valid semver: ${JSON.stringify(source)}`)
+            process.exit(1)
+          }
+
+          const checks = [
+            ['.claude-plugin/plugin.json', readJSON('.claude-plugin/plugin.json').version],
+            ['.claude-plugin/marketplace.json', (readJSON('.claude-plugin/marketplace.json').plugins || [])[0]?.version],
+            ['package.json', readJSON('package.json').version],
+          ]
+
+          let bad = false
+          for (const [label, value] of checks) {
+            // Require valid semver AND equality. Equality alone would pass when
+            // both are missing/empty.
+            if (!(typeof value === 'string' && SEMVER.test(value))) {
+              console.error(`ERROR ${label} version not valid semver: ${JSON.stringify(value)}`)
+              bad = true
+              continue
+            }
+            if (value !== source) {
+              console.error(`ERROR ${label}=${value} != version.json=${source}. CI owns these; do not hand-edit (see CLAUDE.md).`)
+              bad = true
+            } else {
+              console.log(`OK ${label} in sync (${value})`)
+            }
+          }
+          if (bad) process.exit(1)
+          console.log(`OK all version files in sync (${source})`)
+          EOF
+
+      - name: Summary
+        if: success()
+        run: |
+          echo "## Validation passed" >> "$GITHUB_STEP_SUMMARY"
+          echo "Bridge tests green and all version files in sync." >> "$GITHUB_STEP_SUMMARY"
