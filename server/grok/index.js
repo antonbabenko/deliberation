@@ -26,6 +26,11 @@ const VALID_SANDBOX_VALUES = new Set(["read-only", "workspace-write"]);
 // lifetime only; lost on restart (grok-reply then returns unknown-thread).
 const sessions = new Map();
 
+// NOTE: multi-turn assumes serial use per threadId. Two concurrent grok-reply
+// calls on the same thread would race on the read-then-set below (last write
+// wins). Acceptable for v1 -- every shipped caller (/ask-*, /consensus) is
+// single-shot and never replies to one thread in parallel.
+
 // --- MCP Protocol Helpers ---
 
 function sendResponse(id, result) {
@@ -59,6 +64,12 @@ function isNonEmptyString(value) {
 function truncate(str, max) {
   const s = String(str == null ? "" : str);
   return s.length > max ? s.slice(0, max) + "..." : s;
+}
+
+// F3: one structured stderr line per dispatched call. stderr ONLY -- stdout is
+// the JSON-RPC channel. Never logs payloads, the API key, or prompt text.
+function logCall(cid, tool, outcome, ms) {
+  process.stderr.write(`[grok] ${cid} ${tool} -> ${outcome} in ${ms}ms\n`);
 }
 
 // --- Error Classification ---
@@ -290,6 +301,7 @@ const handlers = {
       if (!prior) {
         // Structured error (not a JSON-RPC error) so the orchestrator can react.
         const { errorKind, retryable } = classifyGrokError(null, "unknown-thread");
+        logCall((id != null) ? id : threadId, "grok-reply", errorKind, 0);
         if (shouldRespond) {
           sendResponse(id, {
             content: [{ type: "text", text: `Error: unknown threadId "${threadId}". Start a fresh grok call (in-memory sessions do not survive an MCP restart).` }],
@@ -306,6 +318,8 @@ const handlers = {
       return;
     }
 
+    const startedAt = Date.now();
+    let outcome = "ok";
     try {
       const text = await runGrok({
         messages,
@@ -327,6 +341,7 @@ const handlers = {
     } catch (e) {
       const errMsg = (e && e.message) || String(e);
       const { errorKind, retryable } = classifyGrokError(e && e.status, e && e.code);
+      outcome = errorKind;
       if (shouldRespond) {
         sendResponse(id, {
           content: [{ type: "text", text: `Error: ${errMsg}` }],
@@ -335,6 +350,10 @@ const handlers = {
           retryable,
         });
       }
+    } finally {
+      const cid = (id != null) ? id : (threadId != null ? threadId : "-");
+      const toolName = isNonEmptyString(name) ? name : "unknown";
+      logCall(cid, toolName, outcome, Date.now() - startedAt);
     }
   },
 
@@ -343,44 +362,80 @@ const handlers = {
 
 // --- Main Loop (Robust JSON-RPC stream handling) ---
 
+// Parse and dispatch a single newline-delimited JSON-RPC message. Shared by the
+// stdin 'data' loop and the clean-EOF tail flush, so a final line that arrives
+// without a trailing newline is still handled.
+async function processLine(line) {
+  if (!line.trim()) return;
+
+  let request;
+  try {
+    request = JSON.parse(line);
+  } catch (e) {
+    return; // ignore non-JSON noise
+  }
+
+  const shouldRespond = hasRequestId(request);
+  if (!isObject(request) || typeof request.method !== "string") {
+    if (shouldRespond) sendError(request.id, -32600, "Invalid Request");
+    return;
+  }
+
+  const handler = handlers[request.method];
+  if (!handler) {
+    if (shouldRespond) sendError(request.id, -32601, `Method not found: ${request.method}`);
+    return;
+  }
+
+  try {
+    await handler(request.id, request.params, shouldRespond);
+  } catch (e) {
+    if (shouldRespond) sendError(request.id, -32603, `Internal error: ${e.message}`);
+  }
+}
+
 let buffer = "";
 
 if (require.main === module) {
+  // F2: after an uncaught throw / rejection the process is in an undefined state
+  // (Node guarantees no safe resumption). Log the stack, then exit non-zero in
+  // the write callback (so the line is not truncated) and let the MCP host
+  // restart the bridge. In-memory sessions are already ephemeral across restarts.
+  process.on("uncaughtException", (e) => {
+    process.stderr.write(`[grok] fatal-guard uncaughtException: ${e && e.stack ? e.stack : String((e && e.message) || e)}\n`, () => process.exit(1));
+  });
+  process.on("unhandledRejection", (e) => {
+    process.stderr.write(`[grok] fatal-guard unhandledRejection: ${e && e.stack ? e.stack : String((e && e.message) || e)}\n`, () => process.exit(1));
+  });
+
+  // F2: a broken input pipe is terminal -- the bridge can no longer receive
+  // requests. Exit 1 after the stderr line flushes (exit from the write callback).
+  process.stdin.on("error", (e) => {
+    process.stderr.write(`[grok] stdin error (input pipe broken): ${String((e && e.message) || e)}\n`, () => process.exit(1));
+  });
+
   process.stdin.on("data", async (chunk) => {
     buffer += chunk.toString();
-    let lines = buffer.split("\n");
-    buffer = lines.pop(); // Keep partial line in buffer
-
-    for (const line of lines) {
-      if (!line.trim()) continue;
-
-      let request;
-      try {
-        request = JSON.parse(line);
-      } catch (e) {
-        // Ignore parse errors from noise
-        continue;
-      }
-
-      const shouldRespond = hasRequestId(request);
-      if (!isObject(request) || typeof request.method !== "string") {
-        if (shouldRespond) sendError(request.id, -32600, "Invalid Request");
-        continue;
-      }
-
-      const handler = handlers[request.method];
-      if (!handler) {
-        if (shouldRespond) sendError(request.id, -32601, `Method not found: ${request.method}`);
-        continue;
-      }
-
-      try {
-        await handler(request.id, request.params, shouldRespond);
-      } catch (e) {
-        if (shouldRespond) sendError(request.id, -32603, `Internal error: ${e.message}`);
-      }
-    }
+    const lines = buffer.split("\n");
+    buffer = lines.pop(); // keep any partial trailing line
+    for (const line of lines) await processLine(line);
   });
+
+  // F2: a clean EOF means the client is done. Flush a final line that arrived
+  // without a trailing newline, then let the event loop drain naturally -- any
+  // in-flight call finishes and flushes its stdout response, and the process
+  // exits 0 once no handles remain. No forced process.exit: that would truncate
+  // buffered stdout and could drop sibling lines from the same chunk.
+  let ended = false;
+  const onEnd = () => {
+    if (ended) return; // 'end' and 'close' can both fire; flush at most once
+    ended = true;
+    const tail = buffer;
+    buffer = "";
+    if (tail.trim()) processLine(tail);
+  };
+  process.stdin.on("end", onEnd);
+  process.stdin.on("close", onEnd);
 
   // Startup Check: the bridge needs global fetch (Node 18+). The API key is NOT
   // required at startup so the initialize handshake and missing-auth error path
@@ -391,6 +446,16 @@ if (require.main === module) {
   }
   if (!isNonEmptyString(process.env.XAI_API_KEY)) {
     console.error("[claude-delegator] warning: XAI_API_KEY is not set; grok calls will return errorKind:missing-auth until it is.");
+  }
+
+  // Test-only seams (never triggered in normal operation). They exercise the F2
+  // process-level guards from a child process where the real signals are hard to
+  // synthesize deterministically.
+  if (process.env.GROK_TEST_EMIT_STDIN_ERROR === "1") {
+    process.nextTick(() => process.stdin.emit("error", new Error("pipe boom (test seam)")));
+  }
+  if (process.env.GROK_TEST_THROW_ASYNC === "1") {
+    setTimeout(() => { throw new Error("async boom (test seam)"); }, 30);
   }
 }
 

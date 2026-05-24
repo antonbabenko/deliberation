@@ -233,3 +233,122 @@ test("G9: runGrok uses injected fetch (success, http error, missing key)", async
     (e) => e.code === "missing-auth"
   );
 });
+
+// --- Process-lifecycle + observability tests (F2 / F3) ---
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Accumulate the child's stderr so we can assert on the F3 log lines and the
+// F2 fatal-guard messages.
+function collectStderr(child) {
+  const ref = { text: "" };
+  child.stderr.on("data", (d) => (ref.text += d.toString()));
+  return ref;
+}
+
+// Resolve with the child's exit code (or signal) once it terminates.
+function waitExit(child) {
+  return new Promise((resolve) => {
+    child.on("exit", (code, signal) => resolve({ code, signal }));
+  });
+}
+
+test("G10: F3 emits one stderr correlation line per call; stdout stays JSON-RPC", async () => {
+  const { server, base } = await startMockXai((req, res, body) => {
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ choices: [{ message: { content: "ok" } }] }));
+  });
+  const child = startGrokBridge({ XAI_API_KEY: "test", XAI_API_BASE: base });
+  const rpc = rpcClient(child);
+  const err = collectStderr(child);
+  let stdout = "";
+  child.stdout.on("data", (d) => (stdout += d.toString()));
+  try {
+    await rpc.request({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+    await rpc.request({
+      jsonrpc: "2.0", id: 2, method: "tools/call",
+      params: { name: "grok", arguments: { prompt: "hi" } },
+    });
+    await sleep(20); // let the finally-block stderr write flush
+    assert.match(err.text, /^\[grok\] 2 grok -> ok in \d+ms$/m, "one ok correlation line for id 2");
+    assert.equal(stdout.includes("[grok]"), false, "stdout never carries the log prefix");
+  } finally {
+    child.stdin.end();
+    server.close();
+  }
+});
+
+test("G11: F2 uncaughtException is logged with a stack and exits non-zero", async () => {
+  // GROK_TEST_THROW_ASYNC schedules a real async throw ~30ms after start. After
+  // an uncaught throw the process state is undefined, so the bridge logs and
+  // exits 1 (the host then restarts it); it does NOT try to keep serving.
+  const child = startGrokBridge({ XAI_API_KEY: "test", GROK_TEST_THROW_ASYNC: "1" });
+  const err = collectStderr(child);
+  const { code } = await waitExit(child);
+  assert.equal(code, 1, "uncaught throw is fatal -> exit 1");
+  assert.match(err.text, /fatal-guard uncaughtException:.*async boom/s);
+});
+
+test("G12: F2 stdin 'error' (broken pipe) exits 1", async () => {
+  const child = startGrokBridge({ XAI_API_KEY: "test", GROK_TEST_EMIT_STDIN_ERROR: "1" });
+  const err = collectStderr(child);
+  const { code } = await waitExit(child);
+  assert.equal(code, 1, "broken input pipe is terminal");
+  assert.match(err.text, /stdin error \(input pipe broken\)/);
+});
+
+test("G13: F2 clean EOF drains an in-flight call, then exits 0", async () => {
+  // Mock holds the response so EOF lands while the call is in flight.
+  const { server, base } = await startMockXai((req, res) => {
+    setTimeout(() => {
+      try {
+        // Connection: close so the bridge's HTTP socket dies after the response
+        // and does not linger in the keep-alive pool, letting the process exit
+        // promptly once stdin has ended.
+        res.writeHead(200, { "content-type": "application/json", "connection": "close" });
+        res.end(JSON.stringify({ choices: [{ message: { content: "slow-ok" } }] }));
+      } catch (_) {}
+    }, 200);
+  });
+  const child = startGrokBridge({ XAI_API_KEY: "test", XAI_API_BASE: base });
+  const rpc = rpcClient(child);
+  const exited = waitExit(child);
+  try {
+    await rpc.request({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+    const callPromise = rpc.request({
+      jsonrpc: "2.0", id: 2, method: "tools/call",
+      params: { name: "grok", arguments: { prompt: "slow" } },
+    });
+    await sleep(50);          // call is now in flight (mock not resolved yet)
+    child.stdin.end();        // clean EOF arrives mid-call
+    const r = await callPromise;
+    assert.equal(r.result.content[0].text, "slow-ok", "in-flight response still delivered");
+    const { code } = await exited;
+    assert.equal(code, 0, "exits 0 after draining the in-flight call");
+  } finally {
+    server.close();
+  }
+});
+
+test("G14: a final line with no trailing newline is flushed on EOF", async () => {
+  const child = startGrokBridge({ XAI_API_KEY: "test" });
+  const exited = waitExit(child);
+  let resolve;
+  const got = new Promise((r) => (resolve = r));
+  let out = "";
+  child.stdout.on("data", (d) => {
+    out += d.toString();
+    for (const line of out.split("\n")) {
+      if (!line.trim()) continue;
+      try { const m = JSON.parse(line); if (m.id === 1) resolve(m); } catch (_) {}
+    }
+  });
+  // Write a complete request WITHOUT a trailing newline, then EOF. The bridge
+  // must flush the buffered tail line before draining.
+  child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }));
+  child.stdin.end();
+  const msg = await got;
+  assert.ok(msg.result, "EOF-flushed initialize is still answered");
+  const { code } = await exited;
+  assert.equal(code, 0, "exits 0 cleanly after the flush");
+});

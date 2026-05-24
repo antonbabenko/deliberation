@@ -51,7 +51,7 @@ Plan, design, spec, or proposal to refine: $ARGUMENTS
 4. Initialize state:
    - `plan` = original `$ARGUMENTS`
    - `round` = 0
-   - `history` = empty list of `{round, plan_diff_summary, gpt_verdict, gemini_verdict, claude_decision}`
+   - `history` = empty list of `{round, plan_diff_summary, gpt_verdict, gemini_verdict, grok_verdict, claude_decision}`
 5. Print:
    ```
    /consensus: starting consensus loop (max 5 rounds, expert=[Expert])

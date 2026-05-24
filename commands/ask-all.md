@@ -63,7 +63,19 @@ User question or topic: $ARGUMENTS
      sandbox: "read-only"
    })
    ```
-   If Grok returns `errorKind: "missing-auth"` (no `XAI_API_KEY`), note it inline and continue with the GPT + Gemini comparison — do not abort the whole command.
+   **Provider failure does not kill the command** (mirrors `consensus.md`): for ANY of the three providers, if the call returns `result.isError` or an MCP/transport error, do not abort. Render that provider's section as:
+   ```
+   **<Provider> bottom line:** UNAVAILABLE (<errorKind|"error">: <message truncated to 200 chars>)
+   ```
+   and continue the comparison with the surviving providers. Common cases: Grok `missing-auth` (no `XAI_API_KEY`), `rate-limit`, `timeout`, Gemini `trust`. Require **at least one** successful provider. If ALL THREE fail, skip the verdict comparison and emit exactly:
+   ```
+   ## All providers unavailable
+   - GPT: <errorKind|error>: <truncated msg>
+   - Gemini: <errorKind|error>: <truncated msg>
+   - Grok: <errorKind|error>: <truncated msg>
+
+   No second opinion could be obtained. Re-run after resolving the above (often: missing key, rate-limit, or restart Claude Code).
+   ```
 
 7. **Synthesize comparison** — output structure:
    ```
