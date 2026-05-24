@@ -1,3 +1,12 @@
+## [1.9.1](https://github.com/antonbabenko/claude-delegator/compare/v1.9.0...v1.9.1) (2026-05-24)
+
+
+### Bug Fixes
+
+* harden release PR lookup against a closed release/next PR ([#11](https://github.com/antonbabenko/claude-delegator/issues/11)) ([e911185](https://github.com/antonbabenko/claude-delegator/commit/e911185f51ca4f32741aa02e10d8be7dbd53b47e))
+
+
+
 # [1.9.0](https://github.com/antonbabenko/claude-delegator/compare/v1.6.0...v1.9.0) (2026-05-24)
 
 
