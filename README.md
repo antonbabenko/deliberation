@@ -182,7 +182,7 @@ Per-call parameters override these defaults. See [Codex CLI docs](https://github
 
 **Grok:** the bridge defaults to `grok-4.3`. Override per call with the `model` parameter, or globally with `GROK_DEFAULT_MODEL`. The endpoint defaults to `https://api.x.ai/v1`; override with `XAI_API_BASE`. Grok needs `XAI_API_KEY` in the bridge's environment and is advisory-only (it can read attached files, but cannot edit them).
 
-**Reasoning effort** is controllable: the bridge sends a `reasoning_effort` on every `/v1/responses` call, defaulting to **`xhigh`**. Override per call with the `reasoning_effort` parameter, or globally with the `GROK_REASONING_EFFORT` env var (for example `low`, `high`, `xhigh`); set it to `none` (or `off`) to omit the field entirely and let the model use its own default. Valid values depend on the chosen model - an unsupported value surfaces the xAI API error verbatim. Uploaded files auto-expire after `GROK_FILE_TTL_SECONDS` (default `604800` = 7 days, clamped 1h..30d); prune early with `/grok-files`.
+**Reasoning effort** is controllable: the bridge sends a `reasoning_effort` on every `/v1/responses` call, defaulting to **`high`**. Override per call with the `reasoning_effort` parameter, or globally with the `GROK_REASONING_EFFORT` env var (for example `low`, `medium`, `high`); set it to `none` (or `off`) to omit the field entirely and let the model use its own default. Valid values depend on the chosen model - an unsupported value surfaces the xAI API error verbatim. Uploaded files auto-expire after `GROK_FILE_TTL_SECONDS` (default `604800` = 7 days, clamped 1h..30d); prune early with `/grok-files`.
 
 ### Manual MCP Setup
 

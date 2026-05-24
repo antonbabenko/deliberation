@@ -396,9 +396,9 @@ test("G19: uploadFile refuses a path outside cwd (no exfiltration, fetch never c
   }
 });
 
-test("G20: resolveReasoningEffort defaults to xhigh and honors overrides", () => {
+test("G20: resolveReasoningEffort defaults to high and honors overrides", () => {
   delete process.env.GROK_REASONING_EFFORT;
-  assert.equal(grok.resolveReasoningEffort(undefined), "xhigh");
+  assert.equal(grok.resolveReasoningEffort(undefined), "high");
   assert.equal(grok.resolveReasoningEffort("low"), "low");
   assert.equal(grok.resolveReasoningEffort("  high "), "high");
   assert.equal(grok.resolveReasoningEffort("none"), null);
@@ -413,7 +413,7 @@ test("G20: resolveReasoningEffort defaults to xhigh and honors overrides", () =>
   }
 });
 
-test("G21: reasoning_effort is sent (default xhigh), overridable, and omittable", async () => {
+test("G21: reasoning_effort is sent (default high), overridable, and omittable", async () => {
   delete process.env.GROK_REASONING_EFFORT; // ensure the child inherits no override
   const bodies = [];
   const { server, base } = await startMock((req, res, body) => {
@@ -430,7 +430,7 @@ test("G21: reasoning_effort is sent (default xhigh), overridable, and omittable"
     await rpc.request({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "grok", arguments: { prompt: "a" } } });
     await rpc.request({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "grok", arguments: { prompt: "b", reasoning_effort: "low" } } });
     await rpc.request({ jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "grok", arguments: { prompt: "c", reasoning_effort: "none" } } });
-    assert.equal(bodies[0].reasoning_effort, "xhigh");
+    assert.equal(bodies[0].reasoning_effort, "high");
     assert.equal(bodies[1].reasoning_effort, "low");
     assert.equal("reasoning_effort" in bodies[2], false);
   } finally {

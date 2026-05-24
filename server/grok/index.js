@@ -14,7 +14,7 @@
  * Auth: XAI_API_KEY (env). Model: GROK_DEFAULT_MODEL (env) or grok-4.3.
  * Endpoint: XAI_API_BASE (env) or https://api.x.ai/v1.
  * File TTL: GROK_FILE_TTL_SECONDS (env) or 604800 (7 days).
- * Reasoning effort: GROK_REASONING_EFFORT (env) or "xhigh"; per-call reasoning_effort overrides.
+ * Reasoning effort: GROK_REASONING_EFFORT (env) or "high"; per-call reasoning_effort overrides.
  */
 
 const crypto = require("node:crypto");
@@ -45,7 +45,7 @@ const UPLOAD_PURPOSE = "assistants";
 
 // Reasoning effort: per-call value wins, then GROK_REASONING_EFFORT, then the
 // default. "", "none", or "off" omit the field so the model uses its own default.
-const DEFAULT_REASONING_EFFORT = "xhigh";
+const DEFAULT_REASONING_EFFORT = "high";
 function resolveReasoningEffort(perCall) {
   let raw = perCall;
   if (raw === undefined || raw === null) raw = process.env.GROK_REASONING_EFFORT;
@@ -396,7 +396,7 @@ const GROK_PROPERTIES = {
   prompt: { type: "string", description: "The delegation prompt" },
   "developer-instructions": { type: "string", description: "Expert system instructions (sent as a system message)" },
   model: { type: "string", description: "xAI model id. Defaults to GROK_DEFAULT_MODEL or grok-4.3.", default: DEFAULT_MODEL },
-  reasoning_effort: { type: "string", description: "Reasoning effort (e.g. low, high, xhigh). Defaults to GROK_REASONING_EFFORT or xhigh. Use 'none' to omit the field.", default: DEFAULT_REASONING_EFFORT },
+  reasoning_effort: { type: "string", description: "Reasoning effort (e.g. low, medium, high). Defaults to GROK_REASONING_EFFORT or high. Use 'none' to omit the field.", default: DEFAULT_REASONING_EFFORT },
   timeout: { type: "number", description: "Soft timeout in ms. 1..600000. Default 180000.", default: DEFAULT_TIMEOUT_MS },
   files: FILES_SCHEMA,
   sandbox: { type: "string", enum: ["read-only", "workspace-write"], default: "read-only", description: "Accepted for call-shape parity with other providers; ignored (Grok cannot edit files)." },
@@ -446,7 +446,7 @@ const handlers = {
               prompt: { type: "string", description: "Follow-up prompt" },
               files: FILES_SCHEMA,
               model: { type: "string", default: DEFAULT_MODEL },
-              reasoning_effort: { type: "string", default: DEFAULT_REASONING_EFFORT, description: "Reasoning effort; defaults to GROK_REASONING_EFFORT or xhigh. Use 'none' to omit." },
+              reasoning_effort: { type: "string", default: DEFAULT_REASONING_EFFORT, description: "Reasoning effort; defaults to GROK_REASONING_EFFORT or high. Use 'none' to omit." },
               timeout: { type: "number", default: DEFAULT_TIMEOUT_MS },
               cwd: { type: "string", description: "Base directory for relative file path uploads" },
             },

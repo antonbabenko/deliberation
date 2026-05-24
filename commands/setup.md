@@ -92,8 +92,8 @@ self-delete. To change it, also pass `--env GROK_FILE_TTL_SECONDS=<seconds>` (1h
 3600..2592000) on the `grok` registration, or export it in Claude Code's launch environment.
 Prune bridge-owned files early any time with `/grok-files prune --older-than <age>`.
 
-**Grok reasoning effort (optional):** defaults to `xhigh`. Override globally with
-`--env GROK_REASONING_EFFORT=<low|high|xhigh|none>` on the `grok` registration (or export it),
+**Grok reasoning effort (optional):** defaults to `high`. Override globally with
+`--env GROK_REASONING_EFFORT=<low|medium|high|none>` on the `grok` registration (or export it),
 or per call with the `reasoning_effort` parameter; `none` omits the field so the model uses its default.
 
 **Note:** To customise Codex behaviour, add CLI flags before `mcp-server`.
