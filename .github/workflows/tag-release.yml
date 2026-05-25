@@ -1,14 +1,14 @@
 name: Tag and Publish Release
 
 # Part B of the PR-based release flow (see automated-release.yml).
-# Runs after the `chore(release): vX.Y.Z` PR squash-merges to main. It tags the
-# merged main commit and publishes the GitHub Release. It never commits, so it
+# Runs after the `chore(release): vX.Y.Z` PR squash-merges to master. It tags the
+# merged master commit and publishes the GitHub Release. It never commits, so it
 # cannot start a release loop.
 
 on:
   push:
     branches:
-      - main
+      - master
 
 permissions:
   contents: write

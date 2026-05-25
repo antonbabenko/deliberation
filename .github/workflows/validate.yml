@@ -1,6 +1,6 @@
 name: Validate
 
-# Required status check for the PR-based release flow. The `main` ruleset
+# Required status check for the PR-based release flow. The `master` ruleset
 # requires the "validate" check, which is why automated-release.yml routes the
 # version bump through a PR (a direct push would bypass this gate). Keep the job
 # name "validate" in sync with the branch ruleset's required-check name.
@@ -8,7 +8,7 @@ name: Validate
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [master]
   workflow_dispatch:
 
 permissions:

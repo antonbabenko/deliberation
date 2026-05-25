@@ -91,7 +91,7 @@ Every expert can operate in **advisory** (`sandbox: read-only`) or **implementat
 
 ## Commit Conventions & Releases
 
-Releases are automated from Conventional Commits on `main`. Do not hand-edit version numbers.
+Releases are automated from Conventional Commits on `master`. Do not hand-edit version numbers.
 
 | Commit prefix | Version bump |
 |---------------|--------------|
@@ -100,7 +100,7 @@ Releases are automated from Conventional Commits on `main`. Do not hand-edit ver
 | `fix:` | Patch |
 | Other (`chore`, `docs`, `refactor`, ...) | Patch |
 
-`version.json` is the single source of truth. On merge to `main`, `automated-release.yml`
+`version.json` is the single source of truth. On merge to `master`, `automated-release.yml`
 bumps it, regenerates `CHANGELOG.md`, and runs `.github/release/pre-commit.js` to sync the
 version in `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, and
 `package.json`. After the release PR merges, `tag-release.yml` tags `vX.Y.Z`, publishes the

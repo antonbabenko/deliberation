@@ -86,7 +86,7 @@ Examples:
 Releases are automated from [Conventional Commits](https://www.conventionalcommits.org/).
 You never bump versions by hand.
 
-1. Merge a PR to `main`.
+1. Merge a PR to `master`.
 2. The release workflow reads the commits since the last release and computes the next
    version (`feat:` -> minor, `fix:` -> patch, `feat!:` / `BREAKING CHANGE:` -> major).
 3. It opens a `chore(release): vX.Y.Z` PR that updates `version.json`, `CHANGELOG.md`, and

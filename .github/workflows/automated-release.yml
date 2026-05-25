@@ -2,7 +2,7 @@ name: Automated Release
 
 # PR-based release flow (part A of two).
 #
-# Why a PR instead of a direct push: `main` has a ruleset requiring the
+# Why a PR instead of a direct push: `master` has a ruleset requiring the
 # "validate" status check. A direct push of the release commit is rejected, and
 # github-actions[bot] cannot be a ruleset bypass actor on a user-owned repo. So
 # the version bump goes through a PR whose required check actually runs.
@@ -15,12 +15,12 @@ name: Automated Release
 #   2. Repo Settings -> "Allow auto-merge" enabled (for `gh pr merge --auto`).
 #
 # This workflow (A) opens/refreshes the release PR. tag-release.yml (B) tags +
-# publishes after the PR merges to main.
+# publishes after the PR merges to master.
 
 on:
   push:
     branches:
-      - main
+      - master
   workflow_dispatch:
 
 permissions:
@@ -38,7 +38,7 @@ jobs:
     # Loop guard: do not re-release the merged release commit.
     if: ${{ github.event_name == 'workflow_dispatch' || !startsWith(github.event.head_commit.message, 'chore(release):') }}
     steps:
-      - name: Checkout main
+      - name: Checkout master
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
@@ -47,7 +47,7 @@ jobs:
       # The changelog action commits on the CURRENT branch then runs
       # `git push origin release/next`, so a local `release/next` ref must be
       # checked out; its internal `git pull --ff-only` also needs an upstream.
-      # Create release/next from main HEAD, publish it, and track it.
+      # Create release/next from master HEAD, publish it, and track it.
       - name: Prepare release branch
         run: |
           git push origin --delete release/next 2>/dev/null || true
@@ -99,7 +99,7 @@ jobs:
             gh pr edit "$PR" --title "chore(release): ${TAG}"
           else
             PR="$(gh pr create \
-              --base main \
+              --base master \
               --head release/next \
               --title "chore(release): ${TAG}" \
               --body "Automated release ${TAG}. Squash-merging publishes the tag and GitHub Release (tag-release.yml)." \
