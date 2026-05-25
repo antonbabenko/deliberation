@@ -76,16 +76,6 @@ function classifyGeminiError(errMsg, errCode) {
   const lower = msg.toLowerCase();
   if (errCode === "timeout") return { errorKind: "timeout", retryable: true };
   if (errCode === "parse")   return { errorKind: "parse",   retryable: false };
-  if (
-    lower.includes("trusted directory") ||
-    lower.includes("trust check") ||
-    lower.includes("not a trusted folder") ||
-    lower.includes("trusted folder")
-  ) {
-    // agy has no trusted-folder check in print mode, so this branch should
-    // never fire in practice. Kept harmless for back-compat; hint is benign.
-    return { errorKind: "trust", retryable: true, hint: "skip-trust" };
-  }
   if (msg.includes("(agy) not found")) return { errorKind: "missing-cli", retryable: false };
   if (lower.includes("aborterror") || lower.includes("aborted")) {
     return { errorKind: "upstream-abort", retryable: true };
@@ -154,7 +144,8 @@ async function runGemini(args, cwd, timeoutMs, recoveryGraceMs) {
       try { agyProcess.stderr.destroy(); } catch (_) {}
     }
     function timeoutError() {
-      const err = new Error("Gemini (agy) timed out after " + Math.round(t / 1000) + "s");
+      const tail = stderr && stderr.trim() ? "; last agy stderr: " + stderr.trim().slice(-500) : "";
+      const err = new Error("Gemini (agy) timed out after " + Math.round(t / 1000) + "s" + tail);
       err.code = "timeout";
       return err;
     }
@@ -314,8 +305,7 @@ const handlers = {
                 description: "Additional workspace dirs; maps to repeated --add-dir on the Antigravity CLI (agy)."
               },
               timeout: { type: "number", description: "Soft timeout in ms. 1..600000. Default 300000. On expiry the bridge drains the streamed stdout and recovers a late answer instead of failing.", default: DEFAULT_TIMEOUT_MS },
-              "recovery-grace": { type: "number", description: "Extra ms to keep agy alive after the soft timeout to drain a late answer from streamed stdout. 0..600000. Default 120000. 0 disables drain.", default: DEFAULT_RECOVERY_GRACE_MS },
-              "skip-trust": { type: "boolean", description: "Accepted for back-compat; agy has no trusted-folder check in print mode, so this is a no-op.", default: false }
+              "recovery-grace": { type: "number", description: "Extra ms to keep agy alive after the soft timeout to drain a late answer from streamed stdout. 0..600000. Default 120000. 0 disables drain.", default: DEFAULT_RECOVERY_GRACE_MS }
             },
             required: ["prompt"]
           }
@@ -336,8 +326,7 @@ const handlers = {
                 description: "Additional workspace dirs; maps to repeated --add-dir on the Antigravity CLI (agy)."
               },
               timeout: { type: "number", description: "Soft timeout in ms. 1..600000. Default 300000. On expiry the bridge drains the streamed stdout and recovers a late answer instead of failing.", default: DEFAULT_TIMEOUT_MS },
-              "recovery-grace": { type: "number", description: "Extra ms to keep agy alive after the soft timeout to drain a late answer from streamed stdout. 0..600000. Default 120000. 0 disables drain.", default: DEFAULT_RECOVERY_GRACE_MS },
-              "skip-trust": { type: "boolean", description: "Accepted for back-compat; agy has no trusted-folder check in print mode, so this is a no-op.", default: false }
+              "recovery-grace": { type: "number", description: "Extra ms to keep agy alive after the soft timeout to drain a late answer from streamed stdout. 0..600000. Default 120000. 0 disables drain.", default: DEFAULT_RECOVERY_GRACE_MS }
             },
             required: ["threadId", "prompt"]
           }
@@ -381,11 +370,6 @@ const handlers = {
         if (shouldRespond) sendError(id, -32602, "Invalid params: 'recovery-grace' must be a number >= 0 and <= 600000 milliseconds");
         return;
       }
-    }
-    // skip-trust is accepted for back-compat but produces no agy flag.
-    if (args["skip-trust"] !== undefined && typeof args["skip-trust"] !== "boolean") {
-      if (shouldRespond) sendError(id, -32602, "Invalid params: 'skip-trust' must be a boolean when provided");
-      return;
     }
     if (args["include-directories"] !== undefined) {
       if (!Array.isArray(args["include-directories"]) || args["include-directories"].length === 0) {
@@ -473,7 +457,7 @@ const handlers = {
     } catch (e) {
       const errMsg = (e && e.message) || String(e);
       const errCode = e && e.code;
-      const { errorKind, retryable, hint } = classifyGeminiError(errMsg, errCode);
+      const { errorKind, retryable } = classifyGeminiError(errMsg, errCode);
 
       if (shouldRespond) {
         sendResponse(id, {
@@ -481,7 +465,6 @@ const handlers = {
           isError: true,
           errorKind,
           retryable,
-          ...(hint ? { hint } : {}),
         });
       }
     }
