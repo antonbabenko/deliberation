@@ -67,6 +67,8 @@ User question or topic: $ARGUMENTS
 - **No contamination** — do not include prior GPT opinions in the Gemini prompt. Each expert reasons independently.
 - **Print status line** immediately before the MCP dispatch: `Gemini working (typical 30-60s)...`
 
+- **Final judgment is the orchestrator's** - the external model only advises. Claude reads its output, applies its own judgment, and is accountable for the synthesized answer shown to you. The model's raw verdict is not the final word.
+
 <!-- DO NOT DELETE: required fallback if plugin cache missing. See C1 in implementation plan. -->
 
 ## Inlined fallback - Architect

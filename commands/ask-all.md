@@ -111,6 +111,8 @@ User question or topic: $ARGUMENTS
 - **Disagreement is signal** — when the models diverge, treat it as a flag to dig deeper, not a tie to break by majority. Often more than one is partly wrong.
 - **Never paste raw output** — always synthesize.
 
+- **Final judgment is the orchestrator's** - the three models advise in parallel. Claude compares them, applies its own judgment, and is accountable for the synthesized recommendation. Agreement among models is input, not an automatic verdict.
+
 <!-- DO NOT DELETE: required fallback if plugin cache missing. See C1 in implementation plan. -->
 
 ## Inlined fallback - Architect
