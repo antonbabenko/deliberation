@@ -205,3 +205,4 @@ OUTPUT FORMAT:
 | Scope Analyst | Analysis + questions + risks | Refined requirements |
 | Code Reviewer | Issues + verdict | Fixes + verification |
 | Security Analyst | Vulnerabilities + risk rating | Hardening + verification |
+| Researcher | Findings + sources (cited or [unverified]) | Written findings doc |

@@ -12,7 +12,6 @@ and the Gemini recovery paths.
 - [Environment variables](#environment-variables)
 - [Manual MCP setup](#manual-mcp-setup)
 - [Multi-turn and retry](#multi-turn-and-retry)
-- [Gemini trust recovery](#gemini-trust-recovery)
 - [Gemini timeout recovery](#gemini-timeout-recovery)
 - [Grok files and cleanup](#grok-files-and-cleanup)
 - [Customizing expert prompts](#customizing-expert-prompts)
@@ -62,8 +61,7 @@ There is no `-m`/`--model` flag and no `-o json`. The model is read from
 `~/.gemini/settings.json` (`model.name`, default `auto-gemini-3`); the MCP `model`
 parameter is advisory only. The bridge default model is `auto-gemini-3`; override the
 default with `GEMINI_DEFAULT_MODEL`, or point at a different `agy` binary with
-`AGY_BIN`. `agy` print mode does not enforce folder trust, so `skip-trust` is a no-op
-(see [Gemini trust recovery](#gemini-trust-recovery)).
+`AGY_BIN`. `agy` print mode does not enforce folder trust.
 
 `agy` print-mode writes go to a scratch dir, so Gemini-via-agy is advisory-effective:
 it can read context to advise but cannot mutate the real workspace, even under
@@ -149,28 +147,6 @@ Implementation retries up to 3 attempts total (1 initial + 2 `*-reply` retries),
 then escalates to you. Retries reuse the `threadId` so the expert remembers the
 earlier attempts.
 
-## Gemini trust recovery
-
-`agy` print mode does not enforce trusted folders: it runs from any directory,
-trusted or not, without prompting. There is therefore nothing to recover from, and
-the `skip-trust` parameter is a no-op (accepted for backward compatibility,
-ignored). The `errorKind: "trust"` envelope below remains defined for compatibility
-but should not fire in practice:
-
-```json
-{
-  "content": [{ "type": "text", "text": "Error: <message>" }],
-  "isError": true,
-  "errorKind": "trust",
-  "retryable": true,
-  "hint": "skip-trust"
-}
-```
-
-`content` (the MCP text payload) is always present; `hint` is included only when
-set. Other failures use the same envelope with a different `errorKind` (for
-example `timeout`).
-
 ## Gemini timeout recovery
 
 `timeout` is a soft deadline (default 300000ms; Gemini 3 deep prompts run
@@ -198,6 +174,10 @@ Grok can read attached files. Pass `files: [{ path | file_id | file_url }]`:
 - `path` - a local file the bridge uploads to the xAI Files API, then references.
 - `file_id` - an already-uploaded xAI file id.
 - `file_url` - a public URL.
+
+A `path` resolves against the call's `cwd` (default = the server's cwd), so set `cwd`
+to the directory that contains the files - for a repo, the repo root - or the upload
+is refused as outside the working directory. Attach referenced local files by default.
 
 Uploads are tagged `claude-delegator-*` and carry an `expires_after` set by
 `GROK_FILE_TTL_SECONDS` (default `604800` = 7 days, clamped 1h..30d). List or prune

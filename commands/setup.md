@@ -281,6 +281,10 @@ Five experts available:
 │ Security Analyst │ "Is this authentication flow secure?"       │
 │                  │ "Harden this endpoint"                      │
 │                  │ → Vulnerabilities, threat modeling          │
+├──────────────────┼─────────────────────────────────────────────┤
+│ Researcher       │ "How do I use this library?"                │
+│                  │ "Find examples of X"                        │
+│                  │ → External libraries, docs, best practices  │
 └──────────────────┴─────────────────────────────────────────────┘
 
 Every expert can advise (read-only) OR implement (write).

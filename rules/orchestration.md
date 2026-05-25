@@ -10,10 +10,10 @@ You have access to GPT experts via MCP tools. Use them strategically based on th
 | `mcp__codex__codex-reply` | GPT | Continue an existing session (multi-turn) |
 | `mcp__gemini__gemini` | Gemini | Start a new expert session |
 | `mcp__gemini__gemini-reply` | Gemini | Continue an existing session (multi-turn) |
-| `mcp__grok__grok` | Grok (xAI) | Start a new expert session (advisory-only; no file access) |
+| `mcp__grok__grok` | Grok (xAI) | Start a new expert session (advisory-only; reads attached files) |
 | `mcp__grok__grok-reply` | Grok (xAI) | Continue a session (in-memory; lost on MCP restart) |
 
-> **Grok notes:** the Grok bridge talks to the xAI HTTP API, so it is advisory-only (it cannot edit files) and has no trusted-directory concept (no trust-recovery applies). It needs `XAI_API_KEY`; a missing key surfaces `errorKind: "missing-auth"`.
+> **Grok notes:** the Grok bridge talks to the xAI HTTP API, so it is advisory-only (it cannot edit files). It reads attached files via `files:[{path|file_id|file_url}]` - attach referenced local files by default and set `cwd` to the repo root so paths resolve (a path outside `cwd` is refused). It needs `XAI_API_KEY`; a missing key surfaces `errorKind: "missing-auth"`.
 
 ## Available Experts
 
@@ -24,6 +24,7 @@ You have access to GPT experts via MCP tools. Use them strategically based on th
 | **Scope Analyst** | Pre-planning, catching ambiguities | `${CLAUDE_PLUGIN_ROOT}/prompts/scope-analyst.md` |
 | **Code Reviewer** | Code quality, bugs, security issues | `${CLAUDE_PLUGIN_ROOT}/prompts/code-reviewer.md` |
 | **Security Analyst** | Vulnerabilities, threat modeling | `${CLAUDE_PLUGIN_ROOT}/prompts/security-analyst.md` |
+| **Researcher** | External library and source research | `${CLAUDE_PLUGIN_ROOT}/prompts/researcher.md` |
 
 ---
 
@@ -78,6 +79,7 @@ Before handling any request, check if an expert would help:
 | Vague/ambiguous requirements | Scope Analyst |
 | "Review this code", "find issues" | Code Reviewer |
 | Security concerns, "is this secure" | Security Analyst |
+| "How do I use [library]", "best practice for", "find examples of" | Researcher (prefer GPT/Gemini) |
 
 **If a signal matches → delegate to the appropriate expert.**
 
@@ -91,6 +93,7 @@ When user explicitly requests GPT/Codex or Gemini:
 |-----------|--------|
 | "ask GPT", "consult GPT", "ask codex" | Identify task type → route to appropriate expert |
 | "ask Gemini", "consult Gemini", "ask gemini" | Identify task type → route to appropriate expert |
+| "ask Grok", "consult Grok", "ask grox" | Identify task type → route to appropriate expert |
 | "ask GPT to review the architecture" | Delegate to Architect |
 | "have Gemini review this code" | Delegate to Code Reviewer |
 | "GPT security review" | Delegate to Security Analyst |
@@ -210,14 +213,6 @@ REQUIREMENTS:
 - Fix the error from the previous attempt
 - [Original requirements]
 ```
-
-### Trust Failure Recovery (Gemini only)
-
-Not applicable. The Antigravity CLI (agy) does not enforce trusted folders in print
-mode, and the bridge ignores the `skip-trust` param, so there is no trust-recovery
-dance to run. The `errorKind: "trust"` envelope stays defined for back-compat but
-should not fire in practice; if it ever does, surface it and escalate rather than
-retrying with skip-trust.
 
 ### Timeout Recovery (Gemini only)
 

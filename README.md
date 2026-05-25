@@ -1,6 +1,6 @@
 # Claude Delegator
 
-GPT (Codex), Gemini, and Grok (xAI) expert subagents for Claude Code. Five specialists that can analyze and implement: architecture, plan review, scope, code review, and security. Use any of the three providers, single-shot or multi-turn, advisory or implementation.
+GPT (Codex), Gemini, and Grok (xAI) expert subagents for Claude Code. Six specialists that can analyze and implement: architecture, plan review, scope, code review, security, and external research. Use any of the three providers, single-shot or multi-turn, advisory or implementation.
 
 [![License](https://img.shields.io/github/license/antonbabenko/claude-delegator?v=2)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/antonbabenko/claude-delegator?v=2)](https://github.com/antonbabenko/claude-delegator/stargazers)
@@ -15,7 +15,7 @@ You can use any subset of the three providers. The plugin detects which are conf
 
 | What you get | Why it matters |
 |--------------|----------------|
-| 5 domain experts | The right specialist for each problem type |
+| 6 domain experts | The right specialist for each problem type |
 | GPT, Gemini, or Grok | Use your preferred provider(s) |
 | Dual mode | Experts analyze (read-only) or implement (write) |
 | Auto-routing | Claude detects when to delegate from your request |
@@ -70,6 +70,7 @@ Bundled with the plugin (available once installed):
 | **Scope Analyst** | Catch ambiguities early | "What am I missing?" / "Clarify the scope" |
 | **Code Reviewer** | Find bugs, improve quality | "Review this PR" / "What's wrong with this?" |
 | **Security Analyst** | Vulnerabilities, threat modeling | "Is this secure?" / "Harden this endpoint" |
+| **Researcher** | External libraries, docs, best practices | "How do I use X?" / "Find examples of Y" |
 
 ### When experts help most
 
@@ -190,12 +191,8 @@ claude --plugin-dir /path/to/claude-delegator
 
 Claude Delegator started as a fork of [jarrodwatts/claude-delegator](https://github.com/jarrodwatts/claude-delegator) - credit to Jarrod Watts for the original solution and inspiration. Original work and MIT copyright are retained. This fork adds Grok support, Gemini bridge reliability (timeout and trust recovery), provider configuration overrides, and the bundled delegation commands. It is not an official continuation of the upstream project.
 
-Expert prompts are adapted from [oh-my-opencode](https://github.com/code-yeongyu/oh-my-opencode) by [@code-yeongyu](https://github.com/code-yeongyu).
+Expert prompts are adapted from [oh-my-openagent](https://github.com/code-yeongyu/oh-my-openagent) (snapshot `03eb9fff`, 2026-05-25).
 
 ## License
 
 MIT - see [LICENSE](LICENSE)
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=antonbabenko/claude-delegator&type=Date&v=2)](https://star-history.com/#antonbabenko/claude-delegator&Date)

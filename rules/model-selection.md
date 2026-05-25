@@ -9,8 +9,9 @@ Before delegating, check which MCP tools are available in the current environmen
 1. **If multiple are available**:
    - Use **Gemini** (Gemini 3 via the Antigravity CLI, `agy`) for tasks requiring large context or multimodal analysis. Gemini-via-agy is **advisory-effective**: agy print-mode writes are sandboxed to a scratch dir, so it can read context to advise but cannot mutate the real workspace. Prefer it for analysis/review over file-editing (`workspace-write` is best-effort).
    - Use **GPT (Codex)** when the user explicitly asks for "GPT" or "Codex".
-   - Use **Grok (xAI)** when the user explicitly asks for "Grok". Grok is advisory-only (it cannot edit files), so never route file-editing / implementation tasks to it. It CAN read attached files (PDF/code/docs) via `files:[{path|file_id|file_url}]` on the `mcp__grok__grok` call.
+   - Use **Grok (xAI)** when the user explicitly asks for "Grok". Grok is advisory-only (it cannot edit files), so never route file-editing / implementation tasks to it. It reads attached files (PDF/code/docs) via `files:[{path|file_id|file_url}]` on the `mcp__grok__grok` call - attach referenced local files by default, and set `cwd` to the directory that contains them (paths resolve against `cwd`; a path outside `cwd` is refused).
    - Default to **Gemini** for general reasoning.
+   - For **Researcher** (external library/docs research): prefer GPT or Gemini (tool-capable); route to Grok only when the user names it or attaches files, since Grok answers from knowledge and marks claims `[unverified]`.
 2. **If only one is available**: Use the available provider regardless of the task type (but Grok cannot implement file changes - only advise).
 3. **If none are available**: Do not delegate; inform the user that they need to run `/claude-delegator:setup`.
 
@@ -23,6 +24,7 @@ Before delegating, check which MCP tools are available in the current environmen
 | **Scope Analyst** | Requirements analysis | Catching ambiguities, pre-planning |
 | **Code Reviewer** | Code quality | Code review, finding bugs |
 | **Security Analyst** | Security | Vulnerabilities, threat modeling, hardening |
+| **Researcher** | External libraries and docs | Library usage, best practices, third-party source |
 
 ## Operating Modes
 
@@ -114,6 +116,24 @@ Every expert can operate in two modes:
 - Advisory: Threat summary, vulnerabilities, risk rating
 - Implementation: Vulnerabilities fixed, files modified, verification
 
+### Researcher
+
+**Specialty**: External libraries, frameworks, APIs, and open-source code
+
+**When to use**:
+- "How do I use [library]?" or "best practice for [framework feature]?"
+- "Why does [dependency] behave this way?"
+- Finding real-world usage examples
+- Working with unfamiliar packages
+
+**Philosophy**: Evidence over memory - cite what you can verify, mark the rest `[unverified]`, never fabricate links.
+
+**Provider routing**: prefer GPT or Gemini (tool-capable). Grok is advisory-only with no retrieval tools; route to it only when named or with attached files.
+
+**Output format**:
+- Advisory: Bottom line, evidence (cited or `[unverified]`), caveats
+- Implementation: Written findings document
+
 ## Codex Parameters Reference
 
 ### `mcp__codex__codex` (Start Session)
@@ -152,7 +172,6 @@ Every expert can operate in two modes:
 | `include-directories` | string[] | Extra dirs to include alongside `cwd`. Maps to repeated `--add-dir`. |
 | `timeout` | number (ms) | Soft timeout. 1..600000. Default 300000. On expiry the bridge keeps agy alive and drains buffered stdout (stdout-drain). |
 | `recovery-grace` | number (ms) | Extra drain budget after the soft timeout. 0..600000. Default 120000. 0 disables drain. |
-| `skip-trust` | boolean | No-op. agy print mode has no trusted-folder check, so the bridge ignores this param (accepted for back-compat). Default `false`. |
 
 ### `mcp__gemini__gemini-reply` (Continue Session)
 
@@ -165,7 +184,26 @@ Every expert can operate in two modes:
 | `include-directories` | string[] | Extra dirs to include alongside `cwd`. Maps to repeated `--add-dir`. |
 | `timeout` | number (ms) | Soft timeout. 1..600000. Default 300000. On expiry the bridge keeps agy alive and drains buffered stdout (stdout-drain). |
 | `recovery-grace` | number (ms) | Extra drain budget after the soft timeout. 0..600000. Default 120000. 0 disables drain. |
-| `skip-trust` | boolean | No-op. agy print mode has no trusted-folder check, so the bridge ignores this param (accepted for back-compat). Default `false`. |
+
+## Grok Parameters Reference
+
+### `mcp__grok__grok` (Start Session)
+
+| Parameter | Values | Notes |
+|-----------|--------|-------|
+| `prompt` | string | **Required.** The delegation prompt (use 7-section format) |
+| `developer-instructions` | string | Expert prompt injection (from `prompts/*.md`) |
+| `files` | array | Attach local files for Grok to read: `[{ path \| file_id \| file_url }]`. Attach referenced files by default. |
+| `cwd` | path | Base directory for resolving `files[].path`. Set it to the repo root that contains the files; a path outside `cwd` is refused. Defaults to the server cwd. |
+| `model` | e.g. `grok-4.3` | Defaults to `GROK_DEFAULT_MODEL` or `grok-4.3`. |
+| `reasoning_effort` | `low` \| `medium` \| `high` \| `none` | Defaults to `GROK_REASONING_EFFORT` or `high`. |
+
+### `mcp__grok__grok-reply` (Continue Session)
+
+| Parameter | Values | Notes |
+|-----------|--------|-------|
+| `threadId` | string | **Required.** Thread ID from a previous `grok` call (in-memory; lost on MCP restart) |
+| `prompt` | string | **Required.** Follow-up instruction |
 
 ### Response Format (both providers)
 
@@ -182,9 +220,8 @@ Error (Gemini bridge only - bridge sets `isError: true` and adds these fields):
 | Field | Type | Description |
 |-------|------|-------------|
 | `isError` | boolean | `true` on bridge-side failure. |
-| `errorKind` | `timeout` \| `parse` \| `trust` \| `missing-cli` \| `upstream-abort` \| `unknown` | Machine-readable category. |
+| `errorKind` | `timeout` \| `parse` \| `missing-cli` \| `upstream-abort` \| `unknown` | Machine-readable category. |
 | `retryable` | boolean | `true` means the orchestrator may retry; see `orchestration.md`. |
-| `hint` | `"skip-trust"` (when present) | Recovery action the orchestrator should apply on the next call. Only set today for `errorKind: "trust"`. |
 
 ## When NOT to Delegate
 

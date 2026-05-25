@@ -26,6 +26,7 @@ When a trigger matches:
 | **Scope Analyst** | Pre-planning analysis | Catching ambiguities before work starts |
 | **Code Reviewer** | Code quality, bugs | Reviewing code changes, finding issues |
 | **Security Analyst** | Vulnerabilities, threats | Security audits, hardening |
+| **Researcher** | External libraries, docs | Library usage, best practices, third-party source |
 
 ## Explicit Triggers (Highest Priority)
 
@@ -40,6 +41,7 @@ User explicitly requests delegation:
 | "analyze the scope" | Scope Analyst |
 | "review this code" | Code Reviewer |
 | "security review", "is this secure" | Security Analyst |
+| "research [library]", "how do I use [X]" | Researcher |
 
 ## Semantic Triggers (Intent Matching)
 
