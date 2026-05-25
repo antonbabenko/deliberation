@@ -1,3 +1,12 @@
+# [1.11.0](https://github.com/antonbabenko/claude-delegator/compare/v1.10.0...v1.11.0) (2026-05-25)
+
+
+### Features
+
+* migrate Gemini bridge to Antigravity CLI (agy) + Gemini 3 ([#16](https://github.com/antonbabenko/claude-delegator/issues/16)) ([44b5cd2](https://github.com/antonbabenko/claude-delegator/commit/44b5cd26b52231c429b1d78e19cc684ccb14948e))
+
+
+
 # [1.10.0](https://github.com/antonbabenko/claude-delegator/compare/v1.9.1...v1.10.0) (2026-05-25)
 
 
