@@ -1,3 +1,12 @@
+# [1.10.0](https://github.com/antonbabenko/claude-delegator/compare/v1.9.1...v1.10.0) (2026-05-25)
+
+
+### Features
+
+* **consensus:** arbiter-mediated bias hardening for /consensus + ask-* disclaimer ([#14](https://github.com/antonbabenko/claude-delegator/issues/14)) ([352902c](https://github.com/antonbabenko/claude-delegator/commit/352902c5806e620d4fe71c99aed705d77b5faea2))
+
+
+
 ## [1.9.1](https://github.com/antonbabenko/claude-delegator/compare/v1.9.0...v1.9.1) (2026-05-24)
 
 
