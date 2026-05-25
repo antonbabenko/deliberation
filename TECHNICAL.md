@@ -94,10 +94,13 @@ claude mcp remove gemini >/dev/null 2>&1 || true
 claude mcp add --transport stdio --scope user gemini -- node ${CLAUDE_PLUGIN_ROOT}/server/gemini/index.js
 
 # Grok (xAI) - API-based, advisory-only. Needs XAI_API_KEY.
-# --env persists the key in ~/.claude.json (plaintext); omit it if you prefer to
-# export XAI_API_KEY in Claude Code's launch environment instead.
+# Default registers WITHOUT --env, so the key is NOT written to ~/.claude.json;
+# export XAI_API_KEY in Claude Code's launch environment (e.g. your shell profile).
 claude mcp remove grok >/dev/null 2>&1 || true
-claude mcp add --transport stdio --scope user grok --env XAI_API_KEY="$XAI_API_KEY" -- node ${CLAUDE_PLUGIN_ROOT}/server/grok/index.js
+claude mcp add --transport stdio --scope user grok -- node ${CLAUDE_PLUGIN_ROOT}/server/grok/index.js
+# Alternative (persists the key in ~/.claude.json in plaintext): append
+#   --env XAI_API_KEY="$XAI_API_KEY"
+# before the `-- node ...` part of the command above.
 ```
 
 Verify:
