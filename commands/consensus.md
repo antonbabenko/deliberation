@@ -170,13 +170,24 @@ For each round R:
    - Emit the final state with residual disagreements clearly labeled. Do not pretend convergence.
    - Note which side (Claude blind, GPT, Gemini, or Grok) holds out on which issues.
 
+### Convergence confidence label
+
+Derive a one-word confidence label from the number of rounds the loop took to converge. The label appears in the Final output's outcome line. A plan that converges in round 1 is a stronger signal than a plan that needed every round to settle.
+
+- `high`   - converged in round 1
+- `medium` - converged in round 2 or 3
+- `low`    - converged in round 4 or 5
+- `none`   - UNRESOLVED after 5 rounds (no convergence to grade)
+
+This is a copy-only signal: it is computed at the end from `round`, does not affect the convergence rule itself, and never inflates an UNRESOLVED outcome into a converged one.
+
 ### Final output
 
 ```
 ## /consensus result
 
 **Mode**: arbiter-mediated consensus (external models vote; Claude adjudicates + synthesizes)
-**Outcome**: CONVERGED in N rounds | UNRESOLVED after 5 rounds
+**Outcome**: CONVERGED in N rounds (confidence: high|medium|low) | UNRESOLVED after 5 rounds (confidence: none)
 **Final plan**:
 [full converged plan, or last revision]
 
