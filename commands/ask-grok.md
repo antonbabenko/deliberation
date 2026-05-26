@@ -24,7 +24,7 @@ User question or topic: $ARGUMENTS
    - Default if unclear → Architect
 
 2. **Read expert prompt** via this resolution sequence:
-   1. Glob `~/.claude/plugins/cache/*claude-delegator/claude-delegator/*/prompts/[expert].md`. Pick the match with the highest semver version segment (the segment immediately after `claude-delegator/`, parsed as semver - not lexical string compare).
+   1. Glob `~/.claude/plugins/cache/*/claude-delegator/*/prompts/[expert].md`. Pick the match with the highest semver version segment (the segment immediately after `claude-delegator/`, parsed as semver - not lexical string compare).
    2. If no match, look up the inlined fallback under the heading `## Inlined fallback - [Expert]` in this command file (see end of this file).
    3. If neither found, abort with: `Error: claude-delegator plugin cache missing for expert "[Expert]". Run /plugin install claude-delegator or /reload-plugins.`
 
@@ -48,6 +48,37 @@ User question or topic: $ARGUMENTS
    refused. The bridge uploads it to the xAI Files API and references it. You may also pass
    `{ file_id }` (already uploaded) or `{ file_url }` (public URL). Uploaded files are tagged
    and auto-expire (default 7 days, `GROK_FILE_TTL_SECONDS`); prune early with `/grok-files`.
+
+   **Grok context parity (CRITICAL):** Grok cannot list, glob, or walk the repo - it only
+   sees files in the `files` array. For any open-ended, repo-wide question
+   ("improve this repo", "audit this code", "what are tradeoffs in our architecture"),
+   Grok will otherwise answer from the prompt text alone and produce abstract,
+   unciteable analysis. Whenever the prompt asks Grok to reason about the repo at all,
+   ALWAYS attach an orientation bundle:
+
+   1. Pick 2-6 high-signal files: project `CLAUDE.md` / `AGENTS.md` / `README.md` (if
+      present), top-level entrypoints (`main.tf`, `package.json`, `app.py`,
+      `Cargo.toml`, `pyproject.toml`, etc.), and any module the question is clearly
+      about.
+   2. Pass them as `files: [{ path: "CLAUDE.md" }, { path: "main.tf" }, ...]` with
+      `cwd` = repo root.
+   3. Keep total payload under 48 MB (the bridge limit). For huge repos, attach
+      `CLAUDE.md` + 1-3 anchor files (entrypoints, the module the question targets)
+      and let Grok ask follow-ups in its response instead of trying to ship a
+      file tree. Do NOT generate a temp file outside `cwd` (e.g. under `/tmp` or
+      `$TMPDIR`) and attach it - the Grok bridge refuses any `path` outside `cwd`
+      (containment check in the MCP server), so out-of-tree attachments will fail.
+      If a tree is genuinely needed, write it to a repo-local path
+      (e.g. `./.grok-tree.txt`, then delete after the call) so it satisfies the
+      `cwd` containment rule.
+   4. State the attached set in the prompt so Grok knows what evidence it has
+      ("Attached: CLAUDE.md, main.tf, app/app.py - reason from these.").
+   5. Fallback when `CLAUDE.md`/`AGENTS.md` is absent: substitute `README.md`,
+      then the top-level entrypoint inferred from project type (e.g. `package.json`
+      for Node, `pyproject.toml` for Python, `main.tf` for Terraform).
+
+   If you knowingly skip this for a repo-wide question, NOTE the asymmetry in the
+   synthesis ("Grok answered without repo files; discount its specificity").
 
 5. **Synthesize response** - never paste raw output. Extract:
    - Bottom-line recommendation

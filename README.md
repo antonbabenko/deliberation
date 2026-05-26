@@ -2,7 +2,7 @@
 
 Claude Code plugin for external model second opinions, multi-provider advisory review, and arbiter-mediated consensus across Codex, Gemini/Antigravity, Grok (xAI), and Claude. Seven experts (Architect, Plan Reviewer, Scope Analyst, Code Reviewer, Security Analyst, Researcher, and Debugger) run in advisory or implementation mode, single-shot or multi-turn.
 
-[![Claude Delegator in action](assets/agents.png)<br>Read blog post "One model is a guess. Three that agree is a plan."](https://builder.aws.com/content/3DtBiR4ua0qy7ybZMPzPmQ2SDMj/one-model-is-a-guess-three-that-agree-is-a-plan)
+[![Four chairs at the table: Claude, GPT, Gemini, Grok - one verdict you can ship](assets/agents.png)<br>One model is a guess. Three that agree is a plan. → read the blog post](https://builder.aws.com/content/3DtBiR4ua0qy7ybZMPzPmQ2SDMj/one-model-is-a-guess-three-that-agree-is-a-plan)
 
 <details>
 <summary>📸 See a full <code>/consensus</code> run: round 1 disagreement to round 5 convergence</summary>
@@ -17,6 +17,15 @@ Claude Code plugin for external model second opinions, multi-provider advisory r
 </details>
 
 ![Round 5: convergence reached](assets/round5.png)
+
+</details>
+
+<details>
+<summary>📸 See <code>/ask-all</code> stage a 2-round architect debate: three models, three verdicts, then each critiques the others - disagreement matrix included</summary>
+
+![/ask-all: three architects walk into a repo, two ship bugs walk out](assets/ask-all.png)
+
+When three models argue, the real bug reveals itself. Round 1 = independent top findings. Round 2 = each model dunks on the others' picks. The disagreement matrix shows where they diverge; the conclusion shows what to actually fix first.
 
 </details>
 
@@ -201,9 +210,7 @@ Contributions welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow, 
 
 Claude Delegator started as a fork of [jarrodwatts/claude-delegator](https://github.com/jarrodwatts/claude-delegator) - credit to Jarrod Watts for the original solution and inspiration. Original work and MIT copyright are retained. This fork adds Grok support, Gemini bridge reliability (timeout and trust recovery), provider configuration overrides, and the bundled delegation commands. It is not an official continuation of the upstream project.
 
-Expert prompts are adapted from [oh-my-openagent](https://github.com/code-yeongyu/oh-my-openagent) (snapshot `03eb9fff`, 2026-05-25).
-
-Additional expert patterns (the Debugger expert, code-review severity and diff-intent, and security status/remediation refinements) are adapted from the [PAL MCP server](https://github.com/BeehiveInnovations/pal-mcp-server) (Apache-2.0, snapshot `7afc7c1`, 2026-05-25).
+Expert prompts are adapted from [oh-my-openagent](https://github.com/code-yeongyu/oh-my-openagent) (snapshot `03eb9fff`, 2026-05-25) and [PAL MCP server](https://github.com/BeehiveInnovations/pal-mcp-server) (Apache-2.0, snapshot `7afc7c1`, 2026-05-25).
 
 ## License
 

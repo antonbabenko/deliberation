@@ -24,7 +24,7 @@ User question or topic: $ARGUMENTS
    - Default if unclear → Architect
 
 2. **Read expert prompt** via this resolution sequence:
-   1. Glob `~/.claude/plugins/cache/*claude-delegator/claude-delegator/*/prompts/[expert].md`. Pick the match with the highest semver version segment (the segment immediately after `claude-delegator/`, parsed as semver - not lexical string compare).
+   1. Glob `~/.claude/plugins/cache/*/claude-delegator/*/prompts/[expert].md`. Pick the match with the highest semver version segment (the segment immediately after `claude-delegator/`, parsed as semver - not lexical string compare).
    2. If no match, look up the inlined fallback under the heading `## Inlined fallback - [Expert]` in this command file (see end of this file).
    3. If neither found, abort with: `Error: claude-delegator plugin cache missing for expert "[Expert]". Run /plugin install claude-delegator or /reload-plugins.`
 

@@ -18,7 +18,7 @@ User question or topic: $ARGUMENTS
 1. **Identify expert** - match `$ARGUMENTS` against trigger patterns in `~/.claude/rules/delegator/triggers.md`. Use the **same expert role** for all three providers so verdicts are comparable. Default to Architect if unclear.
 
 2. **Read expert prompt** via this resolution sequence:
-   1. Glob `~/.claude/plugins/cache/*claude-delegator/claude-delegator/*/prompts/[expert].md`. Pick the match with the highest semver version segment (the segment immediately after `claude-delegator/`, parsed as semver - not lexical string compare).
+   1. Glob `~/.claude/plugins/cache/*/claude-delegator/*/prompts/[expert].md`. Pick the match with the highest semver version segment (the segment immediately after `claude-delegator/`, parsed as semver - not lexical string compare).
    2. If no match, look up the inlined fallback under the heading `## Inlined fallback - [Expert]` in this command file (see end of this file).
    3. If neither found, abort with: `Error: claude-delegator plugin cache missing for expert "[Expert]". Run /plugin install claude-delegator or /reload-plugins.`
 
@@ -81,6 +81,42 @@ User question or topic: $ARGUMENTS
    `file-too-large` / `missing-auth` only degrades Grok's section (UNAVAILABLE) - the others
    still answer.
 
+   **Grok context parity (CRITICAL):** GPT (Codex) and Gemini (agy) both walk the
+   filesystem at `cwd` via `sandbox: "read-only"` - they can `ls`, glob, and read any
+   file in the repo. Grok CANNOT. Grok only sees what is in the `files` array of the
+   MCP call. For any open-ended, repo-wide question ("improve this repo", "audit this
+   code", "what are tradeoffs in our architecture"), Grok will answer from the textual
+   architecture description alone and lose every round against GPT/Gemini who cite
+   real lines. To level the field, ALWAYS attach an orientation bundle to Grok when
+   no specific files are referenced:
+
+   1. Pick 2-6 high-signal files: project `CLAUDE.md` / `AGENTS.md` / `README.md`,
+      top-level entrypoints (`main.tf`, `package.json`, `app.py`, `Cargo.toml`,
+      `pyproject.toml`, etc.), and any module the question is clearly about.
+   2. Pass them as `files: [{ path: "CLAUDE.md" }, { path: "main.tf" }, ...]` with
+      `cwd` = repo root.
+   3. Keep total payload under 48 MB (the bridge limit). For huge repos, attach
+      `CLAUDE.md` + 1-3 anchor files (entrypoints, the module the question targets)
+      and let Grok ask follow-ups in its response instead of trying to ship a
+      file tree. Do NOT generate a temp file outside `cwd` (e.g. under `/tmp` or
+      `$TMPDIR`) and attach it - the Grok bridge refuses any `path` outside `cwd`
+      (containment check in the MCP server), so out-of-tree attachments will fail.
+      If a tree is genuinely needed, write it to a repo-local path
+      (e.g. `./.grok-tree.txt`, then delete after the call) so it satisfies the
+      `cwd` containment rule.
+   4. State the attached set in the prompt so Grok knows what evidence it has
+      ("Attached: CLAUDE.md, main.tf, app/app.py - reason from these.").
+   5. Fallback when `CLAUDE.md`/`AGENTS.md` is absent: substitute `README.md`,
+      then the top-level entrypoint inferred from project type (e.g. `package.json`
+      for Node, `pyproject.toml` for Python, `main.tf` for Terraform).
+
+   **Verification:** before sending the prompt, sanity-check that the `files` array
+   passed to `mcp__grok__grok` is non-empty for any repo-wide question. If it is
+   empty, either build the bundle or document the skip in the synthesis.
+
+   If you skip this for a whole-repo question, NOTE the asymmetry in the synthesis
+   ("Grok answered without repo files; discount its specificity").
+
 7. **Synthesize comparison** - output structure:
    ```
    ## Verdict comparison
@@ -101,7 +137,7 @@ User question or topic: $ARGUMENTS
 - **Identical prompts** - all three providers receive byte-identical input. No "GPT said..." leakage into the Gemini or Grok prompt, etc.
 - **Single-shot only** - never reuse `threadId` from prior calls. Each invocation creates three fresh threads.
 - **Parallel, not sequential** - all three MCP tool calls in one message. Sequential dispatch wastes wall time.
-- **Advisory only** - `sandbox: "read-only"` for all three. Grok has no filesystem access, so `/ask-all` is never an implementation command.
+- **Advisory only** - `sandbox: "read-only"` for all three. Grok cannot list or glob the repo (it sees only files passed in `files`), and the xAI HTTP bridge cannot edit files at all, so `/ask-all` is never an implementation command. For Grok context parity on whole-repo questions, see the "Grok context parity (CRITICAL)" block in step 6.
 - **Pin Gemini model** - always `model: "auto-gemini-3"`. Grok uses its bridge default (`GROK_DEFAULT_MODEL` or `grok-4.3`).
 - **Disagreement is signal** - when the models diverge, treat it as a flag to dig deeper, not a tie to break by majority. Often more than one is partly wrong.
 - **Never paste raw output** - always synthesize.

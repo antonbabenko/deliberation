@@ -35,7 +35,7 @@ Plan, design, spec, or proposal to refine: $ARGUMENTS
    - Security / threat modeling → Security Analyst
    - Code review of a concrete diff → Code Reviewer
 2. Read expert prompt ONCE via this resolution sequence:
-   1. Glob `~/.claude/plugins/cache/*claude-delegator/claude-delegator/*/prompts/[expert].md`. Pick the match with the highest semver version segment (the segment immediately after `claude-delegator/`, parsed as semver - not lexical string compare).
+   1. Glob `~/.claude/plugins/cache/*/claude-delegator/*/prompts/[expert].md`. Pick the match with the highest semver version segment (the segment immediately after `claude-delegator/`, parsed as semver - not lexical string compare).
    2. If no match, look up the inlined fallback under the heading `## Inlined fallback - [Expert]` in this command file (see end of this file).
    3. If neither found, abort with: `Error: claude-delegator plugin cache missing for expert "[Expert]". Run /plugin install claude-delegator or /reload-plugins.`
 
@@ -107,6 +107,35 @@ For each round R:
    **Files:** if the plan under review references local files, pass them to
    Grok via `files:[{path}]` each round with `cwd` = repo root (paths resolve against `cwd`;
    a path outside it is refused); GPT and Gemini read the named paths from their `cwd`.
+
+   **Grok context parity (CRITICAL):** GPT and Gemini walk the filesystem at `cwd`
+   under `sandbox: "read-only"`; Grok only sees files in the `files` array. For any
+   plan that asks reviewers to verify against the repo (cross-file invariants,
+   "audit this codebase", architectural claims), attach the same orientation bundle
+   to Grok EVERY round (same `files` payload so the comparison stays fair):
+   project `CLAUDE.md` / `AGENTS.md` if present, top-level entrypoints, and the
+   modules the plan touches - 2-6 files, under 48 MB total. Fallback when
+   `CLAUDE.md`/`AGENTS.md` is absent: substitute `README.md`, then the top-level
+   entrypoint inferred from project type. If you knowingly skip the bundle,
+   mark Grok's verdict as `ERRORED (context-starved)` so the convergence parser
+   (which keys on `ERRORED`, same format as `ERRORED (provider error: ...)` from
+   step 5) excludes it - never let an uninformed APPROVE drive convergence.
+
+   **Verification (scoped to plans that touch the repo):** if the plan asks
+   reviewers to verify against the repo, before each round's parallel dispatch
+   sanity-check that the `files` array passed to `mcp__grok__grok` is non-empty.
+   The default is to keep the bundle stable round-over-round so reviewer
+   comparisons stay fair. However, if iterative plan refinement adds or
+   changes which modules the plan touches, update the bundle to match the
+   new touch-set (otherwise Grok is frozen while GPT/Gemini can freely read
+   the new files via `cwd` - reintroducing the exact asymmetry this section
+   exists to prevent). Record the bundle change in `history[R].dismissals`
+   with reason `"bundle updated: plan touch-set changed"` so the audit trail
+   shows why round-over-round comparison shifted. If `files` would still be
+   empty after refresh, mark Grok `ERRORED (context-starved)` for that round.
+   For purely conceptual consensus loops (no repo files relevant to the
+   plan), the verification check does NOT apply - run Grok with an empty
+   `files` array as a normal parallel reviewer.
 
 5. **Stream short status as each return arrives**. Do not wait until all are back to print anything. Mark a provider that returned an MCP error or `result.isError` as ERRORED. Examples:
    ```

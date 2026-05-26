@@ -20,7 +20,7 @@ Sub-command + flags: $ARGUMENTS
 ## Workflow
 
 1. **Resolve the admin script** via this sequence:
-   1. Glob `~/.claude/plugins/cache/*claude-delegator/claude-delegator/*/server/grok/files-admin.js`;
+   1. Glob `~/.claude/plugins/cache/*/claude-delegator/*/server/grok/files-admin.js`;
       pick the highest-semver match.
    2. Fall back to `${CLAUDE_PLUGIN_ROOT}/server/grok/files-admin.js`.
    3. If neither exists, abort: `Error: claude-delegator plugin cache missing. Run /plugin install claude-delegator.`
