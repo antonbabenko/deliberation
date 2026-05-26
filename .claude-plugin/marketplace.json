@@ -9,7 +9,7 @@
       "name": "claude-delegator",
       "source": "./",
       "description": "GPT (Codex CLI), Gemini (bundled MCP bridge), and Grok (xAI HTTP bridge) expert subagents for Claude Code. Seven specialized experts: Architect, Plan Reviewer, Scope Analyst, Code Reviewer, Security Analyst, Researcher, Debugger.",
-      "version": "1.13.0",
+      "version": "1.13.1",
       "author": {
         "name": "Anton Babenko",
         "url": "https://github.com/antonbabenko"

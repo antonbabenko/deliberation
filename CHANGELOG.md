@@ -1,3 +1,12 @@
+## [1.13.1](https://github.com/antonbabenko/claude-delegator/compare/v1.13.0...v1.13.1) (2026-05-26)
+
+
+### Bug Fixes
+
+* correct stale "five experts" wording to reflect 7 ([#25](https://github.com/antonbabenko/claude-delegator/issues/25)) ([46f9d68](https://github.com/antonbabenko/claude-delegator/commit/46f9d687587f027d22343930b2625699938421ca)), closes [#22](https://github.com/antonbabenko/claude-delegator/issues/22)
+
+
+
 # [1.13.0](https://github.com/antonbabenko/claude-delegator/compare/v1.12.0...v1.13.0) (2026-05-26)
 
 
@@ -31,15 +40,6 @@
 ### Features
 
 * **consensus:** arbiter-mediated bias hardening for /consensus + ask-* disclaimer ([#14](https://github.com/antonbabenko/claude-delegator/issues/14)) ([352902c](https://github.com/antonbabenko/claude-delegator/commit/352902c5806e620d4fe71c99aed705d77b5faea2))
-
-
-
-## [1.9.1](https://github.com/antonbabenko/claude-delegator/compare/v1.9.0...v1.9.1) (2026-05-24)
-
-
-### Bug Fixes
-
-* harden release PR lookup against a closed release/next PR ([#11](https://github.com/antonbabenko/claude-delegator/issues/11)) ([e911185](https://github.com/antonbabenko/claude-delegator/commit/e911185f51ca4f32741aa02e10d8be7dbd53b47e))
 
 
 
