@@ -11,7 +11,7 @@
         "command": "codex",
         "args": ["-m", "gpt-5.3-codex", "mcp-server"]
       },
-      "experts": ["architect", "plan-reviewer", "scope-analyst", "code-reviewer", "security-analyst"],
+      "experts": ["architect", "plan-reviewer", "scope-analyst", "code-reviewer", "security-analyst", "researcher", "debugger"],
       "strengths": ["architecture", "code-review", "security", "requirements-analysis", "plan-validation"],
       "avoid": ["simple-operations", "trivial-decisions", "research", "first-attempt-fixes"]
     },
@@ -26,7 +26,7 @@
         "command": "node",
         "args": ["${CLAUDE_PLUGIN_ROOT}/server/gemini/index.js"]
       },
-      "experts": ["architect", "plan-reviewer", "scope-analyst", "code-reviewer", "security-analyst"],
+      "experts": ["architect", "plan-reviewer", "scope-analyst", "code-reviewer", "security-analyst", "researcher", "debugger"],
       "strengths": ["reasoning", "large context", "code generation", "multimodal analysis"],
       "avoid": ["simple-operations", "trivial-decisions", "research", "first-attempt-fixes"]
     },
@@ -41,7 +41,7 @@
         "command": "node",
         "args": ["${CLAUDE_PLUGIN_ROOT}/server/grok/index.js"]
       },
-      "experts": ["architect", "plan-reviewer", "scope-analyst", "code-reviewer", "security-analyst"],
+      "experts": ["architect", "plan-reviewer", "scope-analyst", "code-reviewer", "security-analyst", "researcher", "debugger"],
       "strengths": ["reasoning", "architecture", "code-review", "security", "large context"],
       "avoid": ["simple-operations", "trivial-decisions", "research", "first-attempt-fixes", "file-editing"]
     }
