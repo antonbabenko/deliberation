@@ -564,6 +564,9 @@ async function runWithFiles(args) {
         file_id: reuploaded.id,
         sourceCacheKey: reuploaded._cacheKey,
       };
+      // Track the fresh xAI file_id so uploadedFileIds in the MCP response
+      // reflects what this session actually uploaded after stale-id recovery.
+      if (!reuploaded._fromCache) ownedIds.push(reuploaded.id);
     }
 
     const out = await attempt(buildTurns(refs));

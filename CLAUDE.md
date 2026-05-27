@@ -85,11 +85,11 @@ Every expert can operate in **advisory** (`sandbox: read-only`) or **implementat
 
 ## Grok file access
 
-Grok reads attached files via `files[]` and resolves them under `roots[]` (top-level array of absolute directories) or `cwd`. Uploads are SHA-256 dedup-cached locally so identical content is never re-uploaded. Directory expansion via `{dir}` entries. See **[TECHNICAL.md: Grok files and cleanup](TECHNICAL.md#grok-files-and-cleanup)** for parameters, cross-repo usage, cache layout, and the `gc` cleanup subcommand.
+Grok reads attached files via `files[]` and resolves them under `roots[]` (top-level array of absolute directories) or `cwd`. Uploads are SHA-256 dedup-cached locally so repeated calls with the same content + API key + apiBase + filename skip the upload step. Directory expansion via `{dir}` entries. See **[TECHNICAL.md: Grok files and cleanup](TECHNICAL.md#grok-files-and-cleanup)** for parameters, cross-repo usage, cache layout, and the `gc` cleanup subcommand.
 
 ## Key Design Decisions
 
-1. **Native & Bridge MCP** - Codex has a native `mcp-server` command. Gemini requires a bundled bridge (`server/gemini/index.js`) that wraps the Antigravity CLI (`agy`) in print mode. Grok has no MCP or CLI server mode, so a bundled bridge (`server/grok/index.js`) wraps the xAI **Responses API** (`/v1/responses`) directly - advisory-only (no file editing), but it can READ attached files via the xAI Files API (`files:[{path|file_id|file_url}]`); uploads auto-expire (7-day default, `GROK_FILE_TTL_SECONDS`) and are prunable with `/grok-files` (`server/grok/files-admin.js`).
+1. **Native & Bridge MCP** - Codex has a native `mcp-server` command. Gemini requires a bundled bridge (`server/gemini/index.js`) that wraps the Antigravity CLI (`agy`) in print mode. Grok has no MCP or CLI server mode, so a bundled bridge (`server/grok/index.js`) wraps the xAI **Responses API** (`/v1/responses`) directly - advisory-only (no file editing), but it can READ attached files via the xAI Files API (`files:[{path|file_id|file_url|dir}]`, optional `roots[]`); uploads are SHA-256 dedup-cached locally, auto-expire (7-day default, `GROK_FILE_TTL_SECONDS`), and are managed with `/grok-files` (`server/grok/files-admin.js`: `list`/`prune`/`gc`). Details in [TECHNICAL.md § Grok files and cleanup](TECHNICAL.md#grok-files-and-cleanup).
 2. **Single-shot + multi-turn** - Single-shot for advisory (full context per call), multi-turn via `threadId` for chained implementation and retries
 3. **Dual mode** - Any expert can advise or implement based on task
 4. **Synthesize, don't passthrough** - Claude interprets expert output, applies judgment

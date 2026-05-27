@@ -90,7 +90,10 @@ This registers the MCP servers at user scope (available across all projects).
 **Grok file TTL (optional):** files Grok uploads default to a 7-day `expires_after` so they
 self-delete. To change it, export `GROK_FILE_TTL_SECONDS=<seconds>` (1h..30d, i.e. 3600..2592000)
 in Claude Code's launch environment, or add `--env GROK_FILE_TTL_SECONDS=<seconds>` on the `grok`
-registration. Prune bridge-owned files early any time with `/grok-files prune --older-than <age>`.
+registration. Manage uploads with `/grok-files`: `prune --older-than <age>` deletes remote
+bridge-owned files; `gc` reconciles the local SHA-256 cache (`~/.claude/cache/claude-delegator/grok-files.json`)
+with remote state. Set `XAI_DISABLE_FILE_CACHE=1` to bypass the cache layer (debugging). Full
+reference: [TECHNICAL.md § Grok files and cleanup](../TECHNICAL.md#grok-files-and-cleanup).
 
 **Grok reasoning effort (optional):** defaults to `high`. Override by exporting
 `GROK_REASONING_EFFORT=<low|medium|high|none>` in Claude Code's launch environment, or add

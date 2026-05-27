@@ -32,6 +32,20 @@ claude mcp remove --scope user grok
 rm -rf ~/.claude/rules/delegator/
 ```
 
+## Remove Local Grok File Cache (optional)
+
+The Grok bridge keeps a SHA-256 dedup cache at
+`~/.claude/cache/claude-delegator/grok-files.json`. It only holds upload metadata
+(no payload), but it is orphaned once the plugin is gone. Remove it explicitly:
+
+```bash
+rm -rf ~/.claude/cache/claude-delegator/
+```
+
+If you still have an `XAI_API_KEY` and want to also drain the remote uploads on
+xAI's side before uninstall, run `/grok-files prune --older-than 0s --yes` first
+(or `/grok-files gc` to discover what's already gone), then this `rm -rf`.
+
 ## Remove Short Command Aliases (if installed)
 
 Only the aliases that `/setup` may have copied; the namespaced

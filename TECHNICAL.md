@@ -226,9 +226,14 @@ twice across calls:
 - In-process Promise dedup (`withInflight`): concurrent uploads of the same content
   collapse into a single network call.
 - Cross-process safety: mkdir-based lock (`server/grok/lock.js`) with token-specific
-  owner markers + heartbeat + stale reclaim via atomic rename.
-- 404 mid-`/v1/responses` (stale xAI file id): the bridge evicts the cached row,
-  re-uploads from the original disk path, and retries the responses call **once**.
+  owner markers + stale reclaim via atomic rename. (`lock.heartbeat()` is provided
+  for long-running holders; cache writes complete sub-second so the 5s stale window
+  is not at risk and the bridge does not call it.)
+- Stale xAI file id mid-`/v1/responses`: when the responses call returns a 4xx
+  whose body names a `file_*` / `file-*` id from the current refs (and the ref has a
+  `sourcePath`), the bridge evicts the cached row, re-uploads from the original
+  disk path, and retries the responses call **once**. Errors that don't name a
+  known file id are surfaced unchanged.
 - `XAI_DISABLE_FILE_CACHE=1` (env) skips the cache layer entirely (debugging).
 
 Stored upload filenames are `claude-delegator-{sha256[:16]}-{basename}`. Uploads also
