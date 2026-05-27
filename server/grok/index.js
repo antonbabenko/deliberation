@@ -463,13 +463,18 @@ function resolvePathUnderRoots(p, roots, type) {
 
 const FILES_SCHEMA = {
   type: "array",
-  description: "Optional files to attach. Each item has EXACTLY ONE of: path (local file the bridge uploads), file_id (an already-uploaded xAI file id), or file_url (a public URL). Optional filename overrides the stored upload name.",
+  description: "Optional files to attach. Each item has EXACTLY ONE of: path (local file the bridge uploads), file_id (an already-uploaded xAI file id), file_url (a public URL), or dir (recursive directory expansion). Optional filename overrides the stored upload name (path entries only).",
   items: {
     type: "object",
     properties: {
-      path: { type: "string", description: "Local file path; bridge uploads it (resolved against cwd)" },
+      path: { type: "string", description: "Local file path; bridge uploads it (resolved against roots[] or cwd)" },
       file_id: { type: "string", description: "Existing xAI file id" },
       file_url: { type: "string", description: "Public URL to a file" },
+      dir: { type: "string", description: "Local directory to expand recursively (resolved against roots[] or cwd)" },
+      include: { type: "array", items: { type: "string" }, description: "POSIX glob patterns to include during dir expansion. Defaults to ['**/*']." },
+      exclude: { type: "array", items: { type: "string" }, description: "POSIX glob patterns to exclude during dir expansion. Defaults skip .git, node_modules, dist, build, .venv, **/*.lock, **/.next, **/.svelte-kit." },
+      maxFiles: { type: "number", description: "Hard cap on files per dir expansion. Default 50." },
+      maxBytes: { type: "number", description: "Hard cap on bytes per dir expansion. Default 134217728 (128 MB)." },
       filename: { type: "string", description: "Override stored filename for a path upload" },
     },
   },
@@ -493,10 +498,22 @@ function validateFiles(files) {
   if (!Array.isArray(files)) return "'files' must be an array when provided";
   for (const entry of files) {
     if (!isObject(entry)) return "each 'files' entry must be an object";
-    const keys = ["path", "file_id", "file_url"].filter((k) => entry[k] !== undefined);
-    if (keys.length !== 1) return "each 'files' entry needs exactly one of path, file_id, or file_url";
+    const keys = ["path", "file_id", "file_url", "dir"].filter((k) => entry[k] !== undefined);
+    if (keys.length !== 1) return "each 'files' entry needs exactly one of path, file_id, file_url, or dir";
     if (!isNonEmptyString(entry[keys[0]])) return `'files' entry ${keys[0]} must be a non-empty string`;
     if (entry.filename !== undefined && !isNonEmptyString(entry.filename)) return "'files' entry filename must be a non-empty string when provided";
+    if (entry.dir !== undefined) {
+      for (const list of [entry.include, entry.exclude]) {
+        if (list === undefined) continue;
+        if (!Array.isArray(list)) return "'files' entry include/exclude must be arrays";
+        for (const p of list) {
+          if (typeof p !== "string" || p.length === 0) return "include/exclude patterns must be non-empty strings";
+          if (p.includes("\\")) return `glob pattern "${p}" contains backslashes; v1 patterns are POSIX-only (use /)`;
+        }
+      }
+      if (entry.maxFiles !== undefined && (typeof entry.maxFiles !== "number" || entry.maxFiles <= 0)) return "'maxFiles' must be a positive number";
+      if (entry.maxBytes !== undefined && (typeof entry.maxBytes !== "number" || entry.maxBytes <= 0)) return "'maxBytes' must be a positive number";
+    }
   }
   return null;
 }
