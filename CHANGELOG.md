@@ -1,3 +1,12 @@
+# [1.15.0](https://github.com/antonbabenko/claude-delegator/compare/v1.14.0...v1.15.0) (2026-05-27)
+
+
+### Features
+
+* **grok:** file access v2 — content-hash cache, multi-root, dir expansion, gc ([#29](https://github.com/antonbabenko/claude-delegator/issues/29)) ([da15906](https://github.com/antonbabenko/claude-delegator/commit/da15906553b7e06bcbdd0922de45d139b56073c1))
+
+
+
 # [1.14.0](https://github.com/antonbabenko/claude-delegator/compare/v1.13.1...v1.14.0) (2026-05-26)
 
 
@@ -31,15 +40,6 @@
 ### Features
 
 * new experts + Researcher, Grok files/cwd, drop skip-trust, fix Gemini stdin stall ([#18](https://github.com/antonbabenko/claude-delegator/issues/18)) ([9b6be5f](https://github.com/antonbabenko/claude-delegator/commit/9b6be5f7367f014177c3ec3552de6503c9b26c25))
-
-
-
-# [1.11.0](https://github.com/antonbabenko/claude-delegator/compare/v1.10.0...v1.11.0) (2026-05-25)
-
-
-### Features
-
-* migrate Gemini bridge to Antigravity CLI (agy) + Gemini 3 ([#16](https://github.com/antonbabenko/claude-delegator/issues/16)) ([44b5cd2](https://github.com/antonbabenko/claude-delegator/commit/44b5cd26b52231c429b1d78e19cc684ccb14948e))
 
 
 
