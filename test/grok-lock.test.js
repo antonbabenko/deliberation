@@ -38,3 +38,48 @@ test("release removes our marker and rmdirs the lockDir", () => {
   const lockDir = `${base}.lock`;
   assert.equal(fs.existsSync(lockDir), false);
 });
+
+test("stale lock (mtime > 5s) is reclaimed", () => {
+  const base = tmpLockBase();
+  const lockDir = `${base}.lock`;
+  fs.mkdirSync(lockDir);
+  fs.writeFileSync(path.join(lockDir, "owner.deadbeef.txt"), "stale");
+  const past = (Date.now() - 6000) / 1000;
+  fs.utimesSync(lockDir, past, past);
+
+  const handle = lock.acquire(base, { maxWaitMs: 200 });
+  assert.ok(handle, "stale lock reclaimed");
+  lock.release(handle);
+});
+
+test("release after reclaim does not delete the reclaimer's lock", () => {
+  const base = tmpLockBase();
+  const lockDir = `${base}.lock`;
+
+  const a = lock.acquire(base, { maxWaitMs: 100 });
+
+  // Simulate reclaim: another process added its own marker.
+  const reclaimerMarker = path.join(lockDir, "owner.cafebabe1234567890abcdef12345678.txt");
+  fs.writeFileSync(reclaimerMarker, "reclaimer");
+
+  lock.release(a);
+
+  assert.equal(fs.existsSync(lockDir), true, "reclaimer's lockDir still exists");
+  assert.equal(fs.existsSync(reclaimerMarker), true, "reclaimer's marker still exists");
+  assert.equal(fs.existsSync(a.markerPath), false, "A's marker removed");
+
+  fs.rmSync(lockDir, { recursive: true, force: true });
+});
+
+test("heartbeat keeps mtime fresh so live lock is not reclaimed", () => {
+  const base = tmpLockBase();
+  const handle = lock.acquire(base, { maxWaitMs: 100 });
+  const past = (Date.now() - 6000) / 1000;
+  fs.utimesSync(handle.lockDir, past, past);
+
+  lock.heartbeat(handle);
+
+  const st = fs.statSync(handle.lockDir);
+  assert.ok(Date.now() - st.mtimeMs < 1000, "mtime refreshed by heartbeat");
+  lock.release(handle);
+});

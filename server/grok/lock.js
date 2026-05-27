@@ -52,4 +52,10 @@ function release(handle) {
   }
 }
 
-module.exports = { acquire, release, STALE_MS, POLL_MS };
+function heartbeat(handle) {
+  if (!handle) return;
+  const now = new Date();
+  try { fs.utimesSync(handle.lockDir, now, now); } catch (_) { /* lock vanished */ }
+}
+
+module.exports = { acquire, release, heartbeat, STALE_MS, POLL_MS };
