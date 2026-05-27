@@ -207,8 +207,25 @@ mcp__grok__grok({
 The bridge bundles a zero-dep glob walker (`server/grok/glob.js`) so you do not have
 to enumerate every file by hand:
 
-- `include` (default `["**/*"]`), `exclude` (defaults skip `.git`, `node_modules`,
-  `dist`, `build`, `.venv`, `**/*.lock`, `**/.next`, `**/.svelte-kit`).
+- `include` (default `["**/*"]`).
+- `exclude` is **appended** to the bridge's safe defaults (it does NOT replace
+  them). Defaults cover: VCS (`.git`); JS/Node (`node_modules`, `dist`, `build`,
+  `out`, `.next`, `.svelte-kit`, `.nuxt`, `.turbo`, `.cache`, `.parcel-cache`,
+  `.pnpm-store`); Yarn Berry (`.yarn/cache`, `.yarn/unplugged`); lockfiles
+  (`**/*.lock`); Python (`.venv`, `venv`, `__pycache__`, `.tox`, `.pytest_cache`,
+  `.mypy_cache`, `.ruff_cache`, `.ipynb_checkpoints`, `.eggs`, `htmlcov`);
+  coverage (`coverage`, `.nyc_output`); Rust/Java/Gradle (`target`, `.gradle`);
+  Go/PHP (`vendor`); Terraform (`.terraform`, `.terragrunt-cache`); plus
+  security: `**/*.tfstate*`, granular `.env` variants (keeps `.env.example`
+  readable), `.ssh/**`, SSH keypairs (`id_rsa`, `id_ed25519`, `id_ecdsa`,
+  `id_dsa` and `.pub`), and `**/*.pem`/`**/*.key`.
+- To replace defaults entirely instead of appending, set `excludeReset: true`
+  on the same `{dir}` entry. `excludeReset` is validated as a strict boolean by
+  `validateFiles`; non-boolean values are rejected. Use only when reviewing
+  files defaults would block (e.g., Terraform state in a security audit, or
+  legitimate `.pem` public certs). Tradeoff is explicit: the bridge prefers a
+  false positive (blocking a legitimate `.pem`) over a false negative
+  (leaking a private key).
 - `maxFiles` (default 50), `maxBytes` (default 128 MB). Exceeding either throws a
   hard error with counts - no silent truncation.
 - Walker is symlink-safe: dirs are pruned **before** descent; symlinks to dirs are

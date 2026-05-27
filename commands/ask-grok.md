@@ -47,10 +47,14 @@ User question or topic: $ARGUMENTS
    **Files:** attach the local files Grok should read by default in `files`. Each entry
    is EXACTLY ONE of `{ path }` (local file; delivery controlled by `mode` — default
    uploads to the xAI Files API), `{ file_id }` (already uploaded), `{ file_url }`
-   (public URL), or `{ dir, include?, exclude?, maxFiles?, maxBytes? }`
-   (recursive directory expansion via the bundled glob
-   walker; defaults skip `.git`, `node_modules`, `dist`, `build`, `.venv`, lock files,
-   framework build dirs; hard caps `maxFiles=50` / `maxBytes=128MB`). Path/dir entries
+   (public URL), or `{ dir, include?, exclude?, excludeReset?, maxFiles?, maxBytes? }`
+   (recursive directory expansion via the bundled glob walker; caller `exclude`
+   is APPENDED to safe defaults that skip VCS, `node_modules`, `dist`/`build`/`out`,
+   modern Node build dirs, Yarn Berry caches, lockfiles, Python venv/cache dirs,
+   coverage, `target`/`vendor`, `.terraform`/`.terragrunt-cache`, plus security
+   patterns (`*.tfstate*`, `.env*`, `.ssh/**`, SSH keypairs, `*.pem`/`*.key`).
+   Set `excludeReset: true` to replace defaults entirely. Hard caps
+   `maxFiles=50` / `maxBytes=128MB`). Path/dir entries
    also accept `mode: "auto" | "inline" | "upload"` (default `"upload"`): **`"inline"`
    embeds the file as `input_text` so Grok reads it line-by-line** (use this for source
    code review — `input_file` references are searchable, not always fully read);

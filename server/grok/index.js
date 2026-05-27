@@ -59,9 +59,45 @@ const globMod = require("./glob.js");
 
 const DEFAULT_INCLUDE = ["**/*"];
 const DEFAULT_EXCLUDE = [
-  ".git", ".git/**", "node_modules", "node_modules/**",
-  "dist/**", "build/**", ".venv/**", "**/*.lock",
-  "**/.next/**", "**/.svelte-kit/**",
+  // VCS (bare = any-depth via (?:^|/) anchor in glob.js compile())
+  ".git",
+  // JS / Node ecosystems
+  "node_modules",
+  "**/dist/**", "**/build/**", "**/out/**",
+  "**/.next/**", "**/.svelte-kit/**", "**/.nuxt/**",
+  "**/.turbo/**", "**/.cache/**", "**/.parcel-cache/**",
+  "**/.pnpm-store/**",
+  // Yarn Berry caches (can run into thousands of files)
+  "**/.yarn/cache/**", "**/.yarn/unplugged/**", "**/.yarn/install-state.gz",
+  // Lockfiles
+  "**/*.lock",
+  // Python
+  "**/.venv/**", "**/venv/**",
+  "**/__pycache__/**",
+  "**/.tox/**", "**/.pytest_cache/**", "**/.mypy_cache/**", "**/.ruff_cache/**",
+  "**/.ipynb_checkpoints/**",
+  "**/.eggs/**", "**/htmlcov/**",
+  // Coverage
+  "**/coverage/**", "**/.nyc_output/**",
+  // Rust / Java / Gradle
+  "**/target/**", "**/.gradle/**",
+  // Go / PHP
+  "**/vendor/**",
+  // Terraform
+  "**/.terraform/**", "**/.terragrunt-cache/**",
+  // Security: Terraform state holds plaintext credentials and resource ARNs
+  "**/*.tfstate*", "**/.terraform.tfstate.lock.info",
+  // Security: dotenv (granular - keeps .env.example/.env.sample/.env.template readable)
+  "**/.env", "**/.env.local",
+  "**/.env.development", "**/.env.development.local", "**/.env.dev", "**/.env.dev.local",
+  "**/.env.production", "**/.env.production.local", "**/.env.prod", "**/.env.prod.local",
+  "**/.env.test", "**/.env.test.local",
+  "**/.env.staging", "**/.env.staging.local", "**/.env.stage", "**/.env.stage.local",
+  // Security: SSH config + private keys
+  "**/.ssh/**",
+  "**/id_rsa", "**/id_rsa.pub", "**/id_ed25519", "**/id_ed25519.pub",
+  "**/id_ecdsa", "**/id_ecdsa.pub", "**/id_dsa", "**/id_dsa.pub",
+  "**/*.pem", "**/*.key",
 ];
 const DEFAULT_MAX_FILES = 50;
 const DEFAULT_MAX_BYTES = 128 * 1024 * 1024;
@@ -450,7 +486,11 @@ async function resolveFiles(files, opts) {
       : [require("node:fs").realpathSync(opts.cwd || process.cwd())];
     const resolved = resolvePathUnderRoots(entry.dir.replace(/\\/g, "/"), rootList, "dir");
     const include = entry.include || DEFAULT_INCLUDE;
-    const exclude = entry.exclude || DEFAULT_EXCLUDE;
+    // Caller exclude is APPENDED to bridge defaults. Pass excludeReset: true to
+    // replace defaults entirely (e.g., security review of tfstate / private keys).
+    const exclude = entry.excludeReset === true
+      ? (entry.exclude || [])
+      : [...DEFAULT_EXCLUDE, ...(entry.exclude || [])];
     const maxFiles = entry.maxFiles || DEFAULT_MAX_FILES;
     const maxBytes = entry.maxBytes || DEFAULT_MAX_BYTES;
 
@@ -740,7 +780,8 @@ const FILES_SCHEMA = {
       file_url: { type: "string", description: "Public URL to a file" },
       dir: { type: "string", description: "Local directory to expand recursively (resolved against roots[] or cwd)" },
       include: { type: "array", items: { type: "string" }, description: "POSIX glob patterns to include during dir expansion. Defaults to ['**/*']." },
-      exclude: { type: "array", items: { type: "string" }, description: "POSIX glob patterns to exclude during dir expansion. Defaults skip .git, node_modules, dist, build, .venv, **/*.lock, **/.next, **/.svelte-kit." },
+      exclude: { type: "array", items: { type: "string" }, description: "Additional POSIX glob patterns APPENDED to the bridge's safe defaults (.git, node_modules, .terraform, target, vendor, __pycache__, .yarn caches, *.tfstate, .env*, SSH keys, *.pem, *.key, framework build/cache dirs). To replace defaults entirely instead of appending, set excludeReset: true on the same dir entry." },
+      excludeReset: { type: "boolean", description: "If true, caller's exclude REPLACES bridge defaults. If omitted or false (default), caller's exclude is APPENDED to defaults. Use only when reviewing files defaults would block (e.g., Terraform state in a security audit, or *.pem certificates)." },
       maxFiles: { type: "number", description: "Hard cap on files per dir expansion. Default 50." },
       maxBytes: { type: "number", description: "Hard cap on bytes per dir expansion. Default 134217728 (128 MB)." },
       filename: { type: "string", description: "Override stored filename for a path upload" },
@@ -775,6 +816,9 @@ function validateFiles(files) {
       if (typeof entry.mode !== "string") return "'files' entry mode must be a string when provided";
       if (!["auto", "inline", "upload"].includes(entry.mode)) return `'files' entry mode "${entry.mode}" must be one of: auto, inline, upload`;
       if (entry.file_id !== undefined || entry.file_url !== undefined) return "'files' entry mode applies only to path/dir entries (not file_id/file_url)";
+    }
+    if (entry.excludeReset !== undefined && typeof entry.excludeReset !== "boolean") {
+      return "'excludeReset' must be a boolean";
     }
     if (entry.dir !== undefined) {
       for (const list of [entry.include, entry.exclude]) {
