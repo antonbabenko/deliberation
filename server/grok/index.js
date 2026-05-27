@@ -376,6 +376,59 @@ async function runGrok({ turns, model, timeoutMs, apiKey, apiBase, fetchImpl, re
   return { text, output: Array.isArray(data.output) ? data.output : null };
 }
 
+// --- Multi-Root Path Resolution ---
+
+function validateRoots(roots) {
+  const fsx = require("node:fs");
+  if (!Array.isArray(roots) || roots.length === 0) {
+    throw new Error("'roots' must be a non-empty array of absolute directory paths");
+  }
+  for (const r of roots) {
+    if (typeof r !== "string" || r.length === 0) {
+      throw new Error("'roots' entries must be non-empty strings");
+    }
+    if (!path.isAbsolute(r)) {
+      throw new Error(`'roots' entry "${r}" must be an absolute path`);
+    }
+    let st;
+    try { st = fsx.statSync(r); }
+    catch (e) { throw new Error(`'roots' entry "${r}" does not exist: ${e.message}`); }
+    if (!st.isDirectory()) {
+      throw new Error(`'roots' entry "${r}" is not a directory`);
+    }
+  }
+}
+
+function resolvePathUnderRoots(p, roots, type) {
+  const fsx = require("node:fs");
+  const isAbs = path.isAbsolute(p);
+  for (const root of roots) {
+    const abs = isAbs ? p : path.join(root, p);
+    let realRoot, realAbs;
+    try { realRoot = fsx.realpathSync(root); } catch (_) { continue; }
+    try { realAbs = fsx.realpathSync(abs); } catch (_) { continue; }
+    const rel = path.relative(realRoot, realAbs);
+    if (rel !== "" && (rel.startsWith("..") || path.isAbsolute(rel))) continue;
+    let st;
+    try { st = fsx.statSync(realAbs); } catch (_) { continue; }
+    if (type === "file") {
+      if (!st.isFile()) continue;
+      return { root: realRoot, abs: realAbs, size: st.size };
+    }
+    if (type === "dir") {
+      // Multi-root fallback: continue scanning even if this root has a non-dir
+      // at that path. Only throw the "wrong type" error if NO root contains a
+      // directory there.
+      if (!st.isDirectory()) continue;
+      return { root: realRoot, abs: realAbs, size: 0 };
+    }
+  }
+  if (isAbs) {
+    throw new Error(`"${p}" is outside all declared roots: ${roots.join(", ")}`);
+  }
+  throw new Error(`"${p}" not found in any root: ${roots.join(", ")}`);
+}
+
 // --- Request Handlers ---
 
 const FILES_SCHEMA = {
@@ -672,3 +725,7 @@ if (typeof module !== "undefined" && module.exports) {
   module.exports.FILE_PREFIX = FILE_PREFIX;
   module.exports.FILE_TTL_SECONDS = FILE_TTL_SECONDS;
 }
+
+// Production exports (used by later tasks as well as tests)
+module.exports.validateRoots = validateRoots;
+module.exports.resolvePathUnderRoots = resolvePathUnderRoots;
