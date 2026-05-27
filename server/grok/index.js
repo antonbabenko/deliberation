@@ -735,7 +735,7 @@ const FILES_SCHEMA = {
   items: {
     type: "object",
     properties: {
-      path: { type: "string", description: "Local file path; bridge uploads it (resolved against roots[] or cwd)" },
+      path: { type: "string", description: "Local file path; bridge attaches it (resolved against roots[] or cwd). Delivery is controlled by mode: uploaded via the xAI Files API (default) or inlined as input_text." },
       file_id: { type: "string", description: "Existing xAI file id" },
       file_url: { type: "string", description: "Public URL to a file" },
       dir: { type: "string", description: "Local directory to expand recursively (resolved against roots[] or cwd)" },
