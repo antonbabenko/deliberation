@@ -22,4 +22,11 @@ function normalize(apiBase) {
   return `${proto}//${host}${pathname}`;
 }
 
-module.exports = { normalize, CACHE_DIR, CACHE_FILE, CACHE_VERSION };
+function buildCacheKey({ bytes, apiKey, apiBase, filename }) {
+  const contentHash = crypto.createHash("sha256").update(bytes).digest("hex");
+  const keyFp = crypto.createHash("sha256").update(String(apiKey)).digest("hex").slice(0, 16);
+  const baseNorm = normalize(apiBase);
+  return `${contentHash}@${keyFp}@${baseNorm}@${filename}`;
+}
+
+module.exports = { normalize, buildCacheKey, CACHE_DIR, CACHE_FILE, CACHE_VERSION };
