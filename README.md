@@ -1,6 +1,6 @@
 # Claude Delegator
 
-Claude Code plugin for external model second opinions, multi-provider advisory review, and arbiter-mediated consensus across Codex, Gemini/Antigravity, Grok (xAI), and Claude. Seven experts (Architect, Plan Reviewer, Scope Analyst, Code Reviewer, Security Analyst, Researcher, and Debugger) run in advisory or implementation mode, single-shot or multi-turn.
+Get a second opinion in Claude Code from GPT, Gemini, and Grok. Seven domain experts (Architect, Code Reviewer, Security Analyst, and four more) review your plans, find bugs, and debate edge cases until they agree.
 
 [![Four chairs at the table: Claude, GPT, Gemini, Grok - one verdict you can ship](assets/agents.png)<br>One model is a guess. Three that agree is a plan. → read the blog post](https://builder.aws.com/content/3DtBiR4ua0qy7ybZMPzPmQ2SDMj/one-model-is-a-guess-three-that-agree-is-a-plan)
 
@@ -31,7 +31,7 @@ When three models argue, the real bug reveals itself. Round 1 = independent top 
 
 ## What is Claude Delegator?
 
-Claude gains a team of GPT, Gemini, and Grok specialists over MCP: GPT through the Codex CLI's native MCP server, Gemini through a bundled MCP bridge, and Grok through a bundled bridge over the xAI HTTP API. Each expert has a distinct specialty and can advise or implement.
+Claude can ask GPT, Gemini, or Grok for help through MCP. The plugin handles the wiring for each provider so you just write the prompt. Each expert has a distinct specialty and can advise or implement.
 
 You can use any subset of the three providers. The plugin detects which are configured and routes accordingly.
 
@@ -65,6 +65,29 @@ Inside a Claude Code instance, run:
 Claude now routes complex tasks to your GPT, Gemini, and Grok experts.
 
 The canonical marketplace is [`antonbabenko/agent-plugins`](https://github.com/antonbabenko/agent-plugins) (above), which also bundles the other plugins.
+
+<details>
+<summary>Updating an existing install</summary>
+
+After editing plugin code or upgrading the plugin version:
+
+1. `/mcp`
+2. `gemini` → `Reconnect`
+3. `grok` → `Reconnect`
+
+No `claude` restart needed. Session context is preserved.
+
+Do NOT use `/reload-plugins` - it only applies a manifest diff and ignores source edits.
+
+</details>
+
+## Requirements
+
+You need at least one provider:
+
+- **Codex CLI** (GPT): `npm install -g @openai/codex`, then `codex login`.
+- **Antigravity CLI**: [Getting Started with Antigravity CLI](https://antigravity.google/docs/cli-getting-started) and [Migrating from Gemini CLI](https://antigravity.google/docs/gcli-migration), then run `agy` and login.
+- **Grok (xAI)**: no CLI to install; the bridge ships with the plugin (needs Node 18+). Set `XAI_API_KEY` (get a key at https://console.x.ai).
 
 ## Commands
 
@@ -120,46 +143,47 @@ Claude: routes to the Security Analyst, then synthesizes the findings.
 
 You can also ask explicitly: "Ask GPT to review this architecture", "Ask Gemini to...", or "Ask Grok to...". Each expert runs read-only for analysis or with write access to apply fixes, and Claude picks the mode from your request.
 
-The bundled commands give you direct control: `/ask-gpt`, `/ask-gemini`, `/ask-grok`, `/ask-all` (all three in parallel, synthesized), and `/consensus` (arbiter-mediated: the providers vote, Claude commits a blind verdict and adjudicates to agreement).
+Or invoke the slash commands directly - see Commands above.
 
-## How It Works
+## How /consensus and /ask-* keep models honest
 
-```
-You: "Is this authentication flow secure?"
-                |
-                v
-Claude: detects a security question, selects the Security Analyst
-                |
-                v
-   +-------------------------------------+
-   |  mcp__codex__codex /                |
-   |  mcp__gemini__gemini /              |
-   |  mcp__grok__grok                    |
-   |    -> Security Analyst prompt       |
-   |    -> expert analyzes your code     |
-   +-------------------------------------+
-                |
-                v
-Claude: "I found 3 issues..." (synthesizes, applies judgment)
-```
+`/ask-gpt`, `/ask-gemini`, `/ask-grok`, and `/ask-all` are the quick commands: each dispatches one or three external models, Claude reads the output, and you get one synthesized answer. Single shot, no loop, no peer round.
 
-- Each expert has a specialized system prompt (in `prompts/`).
-- Claude reads your request, picks the expert, and delegates over MCP.
-- Responses are synthesized, not passed through raw.
-- Multi-turn conversations preserve context via `threadId` for chained work, and implementation retries before escalating to you.
+`/consensus` is the heavy one. Same parallel dispatch, but with a peer-review round and a multi-round loop that stops only when the models agree. The cost: the orchestrator (Claude) writes the review prompt, casts a vote, decides which objections are real, and runs the loop. Left alone, that setup can quietly rubber-stamp its own plan. Four guards stop that.
 
-For the bridge internals, retry behavior, and recovery paths, see [TECHNICAL.md](TECHNICAL.md).
+![/consensus 3-stage flow](assets/consensus-flow-simple.png)
 
-## Bias hardening (`/consensus` + `/ask-*`)
+[See the detailed diagram with bias guards and per-model flow](assets/consensus-flow.png)
 
-`/consensus` has a built-in conflict of interest: Claude writes the review prompt, casts a vote, decides which objections are real, and runs the loop. Left alone, an orchestrator like that can quietly rubber-stamp its own plan. Four guards stop that:
+The four guards:
 
-- **Blind verdict.** Claude posts its own verdict (APPROVE / REQUEST CHANGES / REJECT) in a message sent *before* the one that calls the models. The pre-commitment is right there in the transcript, so Claude cannot reshape its opinion after seeing the panel.
-- **Arbiter-mediated, not majority vote.** The external models vote; Claude adjudicates and rewrites the plan between rounds. The command says so plainly instead of dressing it up as a democratic tally.
+- **Blind verdict.** Claude posts its own verdict (APPROVE / REQUEST CHANGES / REJECT) in a message sent *before* the one that calls the panel. The pre-commitment sits in the transcript, so Claude cannot reshape its opinion after seeing the others.
+- **Peer review.** Stage 2: each external model rates the OTHER models' answers blind, with identity stripped best-effort. Not-viable votes become candidate critical issues for the arbiter to weigh. Pattern adapted from [karpathy/llm-council](https://github.com/karpathy/llm-council).
 - **No self-approval.** A round converges only when every responding external approves and at least one external actually answered. Claude's own approval never carries a round by itself. A provider that errors (an unconfigured Grok returning `missing-auth`, for example) drops out of the count instead of jamming the loop.
 - **No silent dismissal.** Every critical issue that gets dismissed or deferred ships with a one-line reason in the final report, including the times Claude walks back one of its own blind objections.
 
-The single and parallel commands carry a lighter version of the same rule. `/ask-gpt`, `/ask-gemini`, `/ask-grok`, and `/ask-all` each state that the external model only advises: Claude reads the output, applies its own judgment, and owns the synthesized answer. When the models agree, that is input, not a verdict.
+The `/ask-*` commands carry a lighter version of the same rule. The external model only advises: Claude reads the output, applies its own judgment, and owns the synthesized answer. When the models agree, that is input, not a verdict.
+
+<details>
+<summary>Deep dive: how a single /consensus round actually runs</summary>
+
+Each `/consensus` round runs three stages:
+
+1. **Stage 1 - parallel verdicts.** Claude commits a blind verdict first; GPT, Gemini, and Grok review the plan in parallel and emit APPROVE / REQUEST CHANGES / REJECT plus a list of critical issues.
+2. **Stage 2 - blind cross-review (conditional).** Each external reviewer rates the OTHER reviewers' anonymized answers as viable or not-viable, with a one-line reason and a category. Reviewer identity is stripped best-effort (preamble plus self-references). House styles may still leak, so reviewers are instructed to score substance, not style. Not-viable votes become candidate critical issues for Stage 3.
+3. **Stage 3 - arbiter adjudication.** Claude reconciles Stage 1 verdicts, Stage 2 candidate issues, and its own blind verdict. For each issue it picks accept, dismiss (with reason), or defer. Then it revises the plan for the next round.
+
+The loop stops when all responding externals approve, zero critical issues remain accepted, and Claude adjudicates APPROVE. Hard cap at 5 rounds.
+
+**Stage 2 trigger.** Round 1 always. Round 2 onwards, Stage 2 fires only when Stage 1 has divergence OR the previous Stage 2 surfaced an arbiter-accepted not-viable issue (a one-round lookback that catches rubber-stamp convergence after a divergent round).
+
+**Stage 2 activation boundary.** Stage 2 is skipped on `sandbox: workspace-write` runs (Claude is writing code, not reviewing prose). Plan reviews that merely contain embedded diff text as prose still run Stage 2.
+
+**Cost ceiling.** Stage 2 adds at most about 60% to the call count in the worst case (5 rounds, Stage 2 firing every round). Typical convergence (2 to 3 rounds with partial Stage 2 fires) adds 25 to 50%.
+
+Scoring vocabulary and operator-visible debug details live in [TECHNICAL.md](TECHNICAL.md#consensus-flow-details).
+
+</details>
 
 ## Configuration
 
@@ -170,45 +194,7 @@ Every expert supports two modes, chosen automatically from your request:
 | Advisory | `read-only` | Analysis, recommendations, reviews |
 | Implementation | `workspace-write` | Making changes, fixing issues |
 
-Common defaults:
-
-- Codex (GPT) reads `~/.codex/config.toml` for its sandbox and approval defaults.
-- Gemini (via the Antigravity CLI `agy`) defaults to `auto-gemini-3`. The model is read from `~/.gemini/settings.json` (`model.name`); there is no per-call model flag (the MCP `model` param is advisory). Override the bridge default with `GEMINI_DEFAULT_MODEL`, or point at a different `agy` binary with `AGY_BIN`.
-- Grok defaults to `grok-4.3` and needs `XAI_API_KEY`; override with `GROK_DEFAULT_MODEL`.
-
-For the full environment-variable reference and manual MCP setup, see [TECHNICAL.md](TECHNICAL.md#environment-variables).
-
-## Updating the plugin
-
-After editing plugin code or upgrading the plugin version:
-
-1. `/mcp`
-2. `gemini` → `Reconnect`
-3. `grok` → `Reconnect`
-
-No `claude` restart needed. Session context is preserved.
-
-Do NOT use `/reload-plugins` - it only applies a manifest diff and ignores source edits.
-
-## Requirements
-
-You need at least one provider:
-
-- **Codex CLI** (GPT): `npm install -g @openai/codex`, then `codex login`.
-- **Antigravity CLI**: [Getting Started with Antigravity CLI](https://antigravity.google/docs/cli-getting-started) and [Migrating from Gemini CLI](https://antigravity.google/docs/gcli-migration), then run `agy` and login.
-- **Grok (xAI)**: no CLI to install; the bridge ships with the plugin (needs Node 18+). Set `XAI_API_KEY` (get a key at https://console.x.ai).
-
-## Troubleshooting
-
-| Issue | Solution |
-|-------|----------|
-| MCP server not found | Restart Claude Code after setup |
-| Provider not authenticated | Codex: `codex login`. Gemini: run `agy` once (or set `GOOGLE_API_KEY`). Grok: export `XAI_API_KEY` (else calls return `errorKind: missing-auth`) |
-| Tool not appearing | Run `claude mcp list` and verify registration |
-| Expert not triggered | Ask explicitly: "Ask GPT to review...", "Ask Gemini to review...", or "Ask Grok to review..." |
-| Gemini writes don't land in the workspace | Expected: `agy` print mode writes to a scratch dir, so Gemini-via-agy is advisory-effective (great for analysis and review, but it cannot mutate the real workspace). Use Codex for implementation. |
-
-`agy` print mode does not enforce folder trust, so there is no trust prompt to clear. Soft-timeout recovery (stdout-drain) is documented in [TECHNICAL.md](TECHNICAL.md#gemini-timeout-recovery).
+For provider defaults, environment variables, and manual MCP setup, see [TECHNICAL.md](TECHNICAL.md#environment-variables).
 
 ## Author
 
@@ -226,4 +212,4 @@ Expert prompts are adapted from [oh-my-openagent](https://github.com/code-yeongy
 
 ## License
 
-MIT - see [LICENSE](LICENSE)
+[MIT](LICENSE)

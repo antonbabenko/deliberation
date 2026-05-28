@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>How /consensus works — claude-delegator</title>
+  <style>
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: #ffffff;
+    }
+    .wrap { width: 1200px; height: 900px; margin: 0 auto; }
+    svg { display: block; }
+    text { dominant-baseline: middle; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+<svg viewBox="0 0 1200 900" width="1200" height="900" xmlns="http://www.w3.org/2000/svg">
+
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#94a3b8" />
+    </marker>
+    <marker id="arrow-green" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#10b981" />
+    </marker>
+    <marker id="arrow-red" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#ef4444" />
+    </marker>
+    <filter id="soft" x="-5%" y="-5%" width="110%" height="110%">
+      <feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-color="#0f172a" flood-opacity="0.05" />
+    </filter>
+  </defs>
+
+  <rect width="1200" height="900" fill="#ffffff" />
+
+  <text x="60" y="50" font-size="30" font-weight="700" fill="#0f172a">How /consensus works</text>
+  <text x="60" y="80" font-size="15" fill="#64748b">3-stage arbiter-mediated convergence loop - up to 5 rounds</text>
+  <line x1="60" y1="105" x2="1140" y2="105" stroke="#e2e8f0" stroke-width="1" />
+
+  <text x="60" y="140" font-size="12" font-weight="700" fill="#3b82f6" letter-spacing="2">STAGE 1 - PARALLEL VERDICTS</text>
+  <text x="60" y="162" font-size="14" fill="#0f172a">Claude posts a blind verdict, then GPT + Gemini + Grok review the plan in parallel.</text>
+
+  <rect x="60" y="180" width="200" height="100" rx="10" fill="#ffffff" stroke="#8b5cf6" stroke-width="2" filter="url(#soft)" />
+  <text x="75" y="206" font-size="13" font-weight="700" fill="#8b5cf6">Claude (blind)</text>
+  <text x="75" y="228" font-size="12" fill="#0f172a">Writes own verdict</text>
+  <text x="75" y="245" font-size="12" fill="#0f172a">+ critical issues</text>
+  <text x="75" y="265" font-size="11" fill="#64748b">before seeing externals</text>
+
+  <path d="M 265 230 L 290 230" stroke="#94a3b8" stroke-width="2" fill="none" marker-end="url(#arrow)" />
+
+  <rect x="295" y="180" width="190" height="100" rx="10" fill="#ffffff" stroke="#10b981" stroke-width="2" filter="url(#soft)" />
+  <text x="310" y="206" font-size="13" font-weight="700" fill="#10b981">GPT (Codex)</text>
+  <text x="310" y="230" font-size="12" fill="#0f172a">APPR / RC / REJECT</text>
+  <text x="310" y="252" font-size="12" fill="#0f172a">+ critical issues</text>
+
+  <rect x="495" y="180" width="190" height="100" rx="10" fill="#ffffff" stroke="#f59e0b" stroke-width="2" filter="url(#soft)" />
+  <text x="510" y="206" font-size="13" font-weight="700" fill="#f59e0b">Gemini</text>
+  <text x="510" y="230" font-size="12" fill="#0f172a">APPR / RC / REJECT</text>
+  <text x="510" y="252" font-size="12" fill="#0f172a">+ critical issues</text>
+
+  <rect x="695" y="180" width="190" height="100" rx="10" fill="#ffffff" stroke="#475569" stroke-width="2" filter="url(#soft)" />
+  <text x="710" y="206" font-size="13" font-weight="700" fill="#475569">Grok (xAI)</text>
+  <text x="710" y="230" font-size="12" fill="#0f172a">APPR / RC / REJECT</text>
+  <text x="710" y="252" font-size="12" fill="#0f172a">+ critical issues</text>
+
+  <rect x="915" y="180" width="220" height="100" rx="10" fill="#fef2f2" stroke="#ef4444" stroke-width="1.5" />
+  <text x="930" y="202" font-size="11" font-weight="700" fill="#ef4444">GUARD - Blind verdict</text>
+  <text x="930" y="226" font-size="11" fill="#7f1d1d">Claude posts its vote</text>
+  <text x="930" y="244" font-size="11" fill="#7f1d1d">BEFORE dispatching to</text>
+  <text x="930" y="262" font-size="11" fill="#7f1d1d">externals. Locked in</text>
+  <text x="930" y="276" font-size="11" fill="#7f1d1d">the transcript.</text>
+
+  <path d="M 600 295 L 600 330" stroke="#94a3b8" stroke-width="2" fill="none" marker-end="url(#arrow)" />
+  <text x="610" y="315" font-size="11" fill="#64748b">Stage 1 answers fan out as anonymized peers</text>
+
+  <text x="60" y="358" font-size="12" font-weight="700" fill="#f59e0b" letter-spacing="2">STAGE 2 - BLIND CROSS-REVIEW (CONDITIONAL)</text>
+  <text x="60" y="378" font-size="14" fill="#0f172a">Each external rates the OTHER 2 anonymized answers: viable or not-viable + category.</text>
+  <text x="60" y="396" font-size="12" fill="#64748b" font-style="italic">Fires R1 always; R2+ on Stage 1 divergence OR previous round had an accepted not-viable issue.</text>
+
+  <rect x="60" y="412" width="270" height="100" rx="10" fill="#ffffff" stroke="#10b981" stroke-width="2" filter="url(#soft)" />
+  <text x="75" y="436" font-size="13" font-weight="700" fill="#10b981">GPT reviews</text>
+  <text x="75" y="460" font-size="12" fill="#0f172a">Response A: viable / not-viable</text>
+  <text x="75" y="478" font-size="12" fill="#0f172a">Response B: viable / not-viable</text>
+  <text x="75" y="498" font-size="11" fill="#64748b">(its own answer excluded)</text>
+
+  <rect x="345" y="412" width="270" height="100" rx="10" fill="#ffffff" stroke="#f59e0b" stroke-width="2" filter="url(#soft)" />
+  <text x="360" y="436" font-size="13" font-weight="700" fill="#f59e0b">Gemini reviews</text>
+  <text x="360" y="460" font-size="12" fill="#0f172a">Response A: viable / not-viable</text>
+  <text x="360" y="478" font-size="12" fill="#0f172a">Response B: viable / not-viable</text>
+  <text x="360" y="498" font-size="11" fill="#64748b">(its own answer excluded)</text>
+
+  <rect x="630" y="412" width="270" height="100" rx="10" fill="#ffffff" stroke="#475569" stroke-width="2" filter="url(#soft)" />
+  <text x="645" y="436" font-size="13" font-weight="700" fill="#475569">Grok reviews</text>
+  <text x="645" y="460" font-size="12" fill="#0f172a">Response A: viable / not-viable</text>
+  <text x="645" y="478" font-size="12" fill="#0f172a">Response B: viable / not-viable</text>
+  <text x="645" y="498" font-size="11" fill="#64748b">(its own answer excluded)</text>
+
+  <rect x="915" y="412" width="220" height="100" rx="10" fill="#fef2f2" stroke="#ef4444" stroke-width="1.5" />
+  <text x="930" y="434" font-size="11" font-weight="700" fill="#ef4444">GUARD - Peer review</text>
+  <text x="930" y="458" font-size="11" fill="#7f1d1d">Identity stripped</text>
+  <text x="930" y="476" font-size="11" fill="#7f1d1d">(best-effort).</text>
+  <text x="930" y="494" font-size="11" fill="#7f1d1d">Not-viable becomes a</text>
+  <text x="930" y="508" font-size="11" fill="#7f1d1d">candidate issue for S3.</text>
+
+  <path d="M 600 525 L 600 560" stroke="#94a3b8" stroke-width="2" fill="none" marker-end="url(#arrow)" />
+  <text x="610" y="545" font-size="11" fill="#64748b">Stage 1 verdicts + Stage 2 candidate issues</text>
+
+  <text x="60" y="588" font-size="12" font-weight="700" fill="#14b8a6" letter-spacing="2">STAGE 3 - ARBITER ADJUDICATION</text>
+  <text x="60" y="608" font-size="14" fill="#0f172a">Claude reconciles everything and decides: accept, dismiss, or defer each issue. Then revises the plan.</text>
+
+  <rect x="60" y="624" width="380" height="170" rx="10" fill="#ffffff" stroke="#14b8a6" stroke-width="2" filter="url(#soft)" />
+  <text x="75" y="650" font-size="13" font-weight="700" fill="#14b8a6">Claude (arbiter)</text>
+  <text x="75" y="676" font-size="12" fill="#0f172a">Reads: Stage 1 verdicts + Stage 2 issues</text>
+  <text x="75" y="694" font-size="12" fill="#0f172a">+ own blind verdict from Stage 1.</text>
+  <text x="75" y="720" font-size="12" fill="#0f172a">For each issue:</text>
+  <text x="93" y="738" font-size="12" font-weight="600" fill="#0f172a">accept - dismiss (with reason) - defer</text>
+  <text x="75" y="762" font-size="12" fill="#0f172a">Revises plan if any issue accepted.</text>
+  <text x="75" y="780" font-size="11" fill="#64748b">Records dismissed and deferred issues in the final report.</text>
+
+  <polygon points="500,705 620,640 740,705 620,770" fill="#ffffff" stroke="#0f172a" stroke-width="2" filter="url(#soft)" />
+  <text x="620" y="685" font-size="12" font-weight="700" text-anchor="middle" fill="#0f172a">Converged?</text>
+  <text x="620" y="702" font-size="10" text-anchor="middle" fill="#64748b">all responding externals APPR</text>
+  <text x="620" y="716" font-size="10" text-anchor="middle" fill="#64748b">+ 0 accepted issues remain</text>
+  <text x="620" y="730" font-size="10" text-anchor="middle" fill="#64748b">+ Claude adjudicates APPR</text>
+
+  <path d="M 445 705 L 498 705" stroke="#94a3b8" stroke-width="2" fill="none" marker-end="url(#arrow)" />
+
+  <path d="M 740 705 L 802 705" stroke="#10b981" stroke-width="2.5" fill="none" marker-end="url(#arrow-green)" />
+  <text x="763" y="697" font-size="12" font-weight="700" fill="#10b981">YES</text>
+  <rect x="810" y="678" width="160" height="56" rx="28" fill="#10b981" filter="url(#soft)" />
+  <text x="890" y="710" font-size="15" font-weight="700" text-anchor="middle" fill="#ffffff">CONVERGED</text>
+
+  <rect x="985" y="624" width="155" height="80" rx="10" fill="#fef2f2" stroke="#ef4444" stroke-width="1.5" />
+  <text x="993" y="644" font-size="11" font-weight="700" fill="#ef4444">GUARD - No self-approval</text>
+  <text x="993" y="666" font-size="11" fill="#7f1d1d">Claude's vote alone</text>
+  <text x="993" y="682" font-size="11" fill="#7f1d1d">never converges a round.</text>
+  <text x="993" y="698" font-size="11" fill="#7f1d1d">At least 1 external APPR.</text>
+
+  <rect x="985" y="714" width="155" height="80" rx="10" fill="#fef2f2" stroke="#ef4444" stroke-width="1.5" />
+  <text x="993" y="734" font-size="11" font-weight="700" fill="#ef4444">GUARD - No silent dismissal</text>
+  <text x="993" y="756" font-size="11" fill="#7f1d1d">Every dismissed issue</text>
+  <text x="993" y="772" font-size="11" fill="#7f1d1d">ships with a one-line</text>
+  <text x="993" y="788" font-size="11" fill="#7f1d1d">reason in the report.</text>
+
+  <path d="M 620 770 L 620 815 L 32 815 L 32 195 L 56 195" stroke="#ef4444" stroke-width="2" stroke-dasharray="6,4" fill="none" marker-end="url(#arrow-red)" />
+  <text x="635" y="803" font-size="12" font-weight="700" fill="#ef4444">NO - next round</text>
+  <text x="22" y="510" font-size="11" font-weight="700" fill="#ef4444" transform="rotate(-90, 22, 510)">Up to 5 rounds (hard cap)</text>
+
+  <line x1="60" y1="845" x2="1140" y2="845" stroke="#e2e8f0" stroke-width="1" />
+  <text x="60" y="870" font-size="11" fill="#64748b">Stage 2 cross-review pattern adapted from</text>
+  <text x="288" y="870" font-size="11" font-weight="600" fill="#3b82f6">karpathy/llm-council</text>
+  <text x="392" y="870" font-size="11" fill="#64748b">- Stage 2 skipped when /consensus runs with sandbox: workspace-write.</text>
+  <text x="60" y="888" font-size="11" fill="#64748b">/ask-* commands run a single Stage 1 + Claude synthesizer (lighter version - external advises, Claude owns the answer).</text>
+
+</svg>
+</div>
+</body>
+</html>

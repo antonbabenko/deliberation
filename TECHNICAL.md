@@ -8,6 +8,7 @@ and the Gemini recovery paths.
 ## Contents
 
 - [Architecture](#architecture)
+- [Consensus flow details](#consensus-flow-details)
 - [Provider bridges](#provider-bridges)
 - [Environment variables](#environment-variables)
 - [Manual MCP setup](#manual-mcp-setup)
@@ -15,6 +16,7 @@ and the Gemini recovery paths.
 - [Gemini timeout recovery](#gemini-timeout-recovery)
 - [Grok files and cleanup](#grok-files-and-cleanup)
 - [Customizing expert prompts](#customizing-expert-prompts)
+- [Troubleshooting](#troubleshooting)
 - [Known limitations](#known-limitations)
 
 ## Architecture
@@ -30,6 +32,47 @@ delegates to a provider over MCP. Each provider reaches Claude Code differently:
   cannot edit files, but it can read attached files.
 
 Responses are synthesized by Claude, never passed through verbatim.
+
+End-to-end flow on a typical request:
+
+```
+You: "Is this authentication flow secure?"
+                |
+                v
+Claude: detects a security question, selects the Security Analyst
+                |
+                v
+   +-------------------------------------+
+   |  mcp__codex__codex /                |
+   |  mcp__gemini__gemini /              |
+   |  mcp__grok__grok                    |
+   |    -> Security Analyst prompt       |
+   |    -> expert analyzes your code     |
+   +-------------------------------------+
+                |
+                v
+Claude: "I found 3 issues..." (synthesizes, applies judgment)
+```
+
+- Each expert has a specialized system prompt (in `prompts/`).
+- Claude reads your request, picks the expert, and delegates over MCP.
+- Responses are synthesized, not passed through raw.
+- Multi-turn conversations preserve context via `threadId` for chained work, and implementation retries before escalating to you.
+
+## Consensus flow details
+
+The README's `## How /consensus and /ask-* keep models honest` section covers the 3-stage flow narrative inside a `<details>` block. The two reference pieces below live here so the README stays narrative:
+
+**Stage 2 scoring vocabulary** (the closed taxonomy `/consensus` uses for all critical-issue categories):
+
+- `security` - auth, secrets, injection, data exposure, privilege boundary
+- `correctness` - wrong behaviour, broken invariant, missing case, race condition
+- `scope` - undefined boundary, missing acceptance criteria, deliverable unclear
+- `ambiguity` - reference too vague to act on, contradictory steps, missing context
+- `performance` - latency, throughput, resource use, scaling limit
+- `ops` - rollback, observability, deploy, migration, on-call surface
+
+**Operator-visible debug.** The final `/consensus` report logs a Stage 2 shuffle mapping per round so you can audit which model rated which anonymized answer. The mapping lives in the final report only - reviewers never see it during Stage 2.
 
 ## Provider bridges
 
@@ -317,6 +360,18 @@ is a hard safety invariant on both paths - your own xAI files are never touched.
 Expert prompts live in `prompts/`. Each follows the same structure: role definition
 and context, advisory vs implementation modes, response-format guidance, and when
 to invoke or not invoke. Edit these to change expert behavior for your workflow.
+
+## Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| MCP server not found | Restart Claude Code after setup |
+| Provider not authenticated | Codex: `codex login`. Gemini: run `agy` once (or set `GOOGLE_API_KEY`). Grok: export `XAI_API_KEY` (else calls return `errorKind: missing-auth`) |
+| Tool not appearing | Run `claude mcp list` and verify registration |
+| Expert not triggered | Ask explicitly: "Ask GPT to review...", "Ask Gemini to review...", or "Ask Grok to review..." |
+| Gemini writes don't land in the workspace | Expected: `agy` print mode writes to a scratch dir, so Gemini-via-agy is advisory-effective (great for analysis and review, but it cannot mutate the real workspace). Use Codex for implementation. |
+
+`agy` print mode does not enforce folder trust, so there is no trust prompt to clear. Soft-timeout recovery (stdout-drain) is documented in [Gemini timeout recovery](#gemini-timeout-recovery).
 
 ## Known limitations
 

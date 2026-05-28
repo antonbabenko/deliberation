@@ -44,7 +44,10 @@ Plan, design, spec, or proposal to refine: $ARGUMENTS
 4. Initialize state:
    - `plan` = original `$ARGUMENTS`
    - `round` = 0
-   - `history` = empty list of `{round, plan_diff_summary, claude_blind_verdict, gpt_verdict, gemini_verdict, grok_verdict, claude_decision, dismissals, cat_hits, parse_fallbacks}`
+   - `history` = empty list of `{round, plan_diff_summary, claude_blind_verdict, gpt_verdict, gemini_verdict, grok_verdict, claude_decision, dismissals, cat_hits, parse_fallbacks, stage_2_status, stage_2_results, stage_2_shuffle}`
+     - `stage_2_status` is one of `fired` | `skip_no_div` | `skip_s1_quorum` | `skip_sandbox` | `err_quorum`.
+     - `stage_2_results` is `{matrix: {<reviewer-model-id>: {<answer-model-id>: {vote, category|null, reason}}}, accepted_nv_count, raw_nv_count}` when `stage_2_status == fired`; otherwise the reason string.
+     - `stage_2_shuffle` is `{<reviewer-model-id>: {A: <answer-model-id>, B?: <answer-model-id>}}` (operator-visible debug mapping; absent when Stage 2 did not fire).
 5. Print:
    ```
    /consensus: starting consensus loop (max 5 rounds, expert=[Expert])
@@ -87,7 +90,7 @@ For each round R:
    ```
    Claude blind (R{R}): APPROVE | REQUEST CHANGES | REJECT (N critical)
    ```
-   This is the orchestrator's PEER vote. Emitting it in an earlier message than the dispatch makes the pre-commitment visible in the transcript. Claude must NOT edit the blind verdict after seeing reviewers; it appears verbatim in the final report. (Claude's *adjudication* in step 6 is a separate, arbiter-role decision, recorded distinctly.)
+   This is the orchestrator's PEER vote. Emitting it in an earlier message than the dispatch makes the pre-commitment visible in the transcript. Claude must NOT edit the blind verdict after seeing reviewers; it appears verbatim in the final report. (Claude's *adjudication* in step 7 is a separate, arbiter-role decision, recorded distinctly.)
 
 4. **Parallel dispatch** - in the NEXT message, all three calls in ONE message with three tool blocks. Identical prompt body, identical expert prompt:
    ```
@@ -164,14 +167,93 @@ For each round R:
    Grok (R{R}): ERRORED (provider error: missing-auth)
    ```
 
-6. **Adjudicate (arbiter role) - reconcile issues against the blind verdict**:
-   - From each RESPONDING reviewer, extract `Verdict`, `Critical issues`, `Recommendations`. An ERRORED provider is excluded (see Convergence check); it contributes no verdict and no issues.
+6. **Stage 2 (blind cross-review, conditional)** - inserted between Stage 1 returns and arbiter adjudication. Stage 2 is **decision input only**: Stage 2 errors or skips never block convergence (the convergence rule in step 8 is unchanged).
+
+   **6a. Trigger check (deterministic).** Stage 2 fires iff EITHER:
+   - This is Round 1 (R == 1), OR
+   - Any responding external in the current round's Stage 1 returned non-APPR (REQUEST CHANGES or REJECT), OR
+   - The most recent prior Stage 2 that **fired with quorum AND completed arbiter adjudication** had >=1 ACCEPTED not-viable issue (lookback condition).
+
+   `SKIPPED` and `ERRORED` Stage 2 rounds do NOT reset the lookback. Only quorum-successful Stage 2 rounds with completed adjudication count as the lookback anchor (prevents partial-round reads).
+
+   If `/consensus` was invoked with `sandbox: workspace-write`, set `history[R].stage_2_status = "skip_sandbox"` and SKIP the rest of step 6 (Stage 2 is incompatible with the implementation path - anonymization leaks through patch style).
+
+   If the trigger condition is not met, set `history[R].stage_2_status = "skip_no_div"` and SKIP the rest of step 6.
+
+   **6b. Quorum check.** Stage 2 requires Stage 1 to have at least 2 responding externals. Count the externals whose Stage 1 verdict in step 5 was NOT `ERRORED`:
+   - If count < 2: set `history[R].stage_2_status = "skip_s1_quorum"` and SKIP the rest of step 6.
+   - If count == 2: 2-reviewer panel; both must respond in step 6d to count as quorum.
+   - If count == 3: 3-reviewer panel; quorum requires >=2 reviewers to respond in step 6d.
+
+   **6c. Anonymize and build the fan-out bundle.** For each Stage 1 responding external (the answer pool):
+   - Strip identity tells (best-effort): remove leading "As <Provider>, ..." preambles, normalize trailing whitespace, drop self-reference phrases. Do NOT touch the body content beyond preamble normalization.
+   - Each reviewer in the panel sees the OTHER (N-1) answers, with positions independently randomized per reviewer (so the same underlying answer may be `Response A` to one reviewer and `Response B` to another in the 3-reviewer case).
+   - Build and record `history[R].stage_2_shuffle` = `{<reviewer-model-id>: {A: <answer-model-id>, B?: <answer-model-id>}}`. This is operator-visible debug observability; reviewers do NOT receive this mapping.
+   - Reviewers receive only the original `$ARGUMENTS` (the user's request), the current plan revision (with a 1-line indicator: "Plan is round R revision"), and the anonymized peer answers. NO Stage 1 verdict metadata, NO full round history, NO dismissals from prior rounds.
+
+   **6d. Parallel dispatch to the panel.** One MCP call per reviewer, all dispatched in a single message with N parallel tool blocks. Reuse the existing expert `developer-instructions` (the same one Stage 1 used this round; do NOT swap experts). Each reviewer call uses a tighter 5-section Stage 2 prompt body:
+
+   ```
+   TASK: Score the anonymized peer answers below as viable or not-viable on substance, relative to the user's original request. Do NOT review your own answer (it is excluded).
+
+   INPUT:
+   - ORIGINAL USER REQUEST: [verbatim $ARGUMENTS to /consensus]
+   - Current plan (round R revision): [full current plan text]
+   - Anonymized peer answers:
+     Response A:
+     [anonymized answer body]
+     [Response B:
+     [anonymized answer body]]
+   - Scoring guidance: when judging viability, use the same closed taxonomy `/consensus` uses for issue categories: security | correctness | scope | ambiguity | performance | ops. For not-viable votes, select exactly one category.
+
+   OUTPUT FORMAT (strict):
+   Response A: viable - [one-line reason]            (if viable)
+   Response A: not-viable - [category] - [one-line reason]   (if not-viable)
+   [Response B: viable - [one-line reason]           (if viable)
+    Response B: not-viable - [category] - [one-line reason]  (if not-viable)]
+   Bottom line: [single sentence]
+
+   CONSTRAINTS:
+   - Score substance, ignore style. Anonymization is best-effort; do not try to deanonymize.
+   - Category is REQUIRED for not-viable; OMITTED for viable.
+   - `[category]` MUST be exactly one of: security, correctness, scope, ambiguity, performance, ops.
+   ```
+
+   Print a status line as each reviewer returns:
+   ```
+   Stage 2 [Provider] (R{R}): 0 NV | 1 NV | 2 NV | ERRORED
+   ```
+   where the NV count is the number of not-viable votes that reviewer cast.
+
+   **6e. Reviewer quorum re-check.** Count Stage 2 reviewers that returned without error:
+   - 3-reviewer panel: <2 responding -> set `history[R].stage_2_status = "err_quorum"`; no Stage 2 issues added this round.
+   - 2-reviewer panel: <2 responding (i.e., either errored) -> set `history[R].stage_2_status = "err_quorum"`; no Stage 2 issues added this round.
+   - If >=2 reviewers errored in this round, wait 1-2s before the next round dispatch (multi-error backoff; mirrors step 9's existing rule for Stage 1).
+
+   If quorum passes, set `history[R].stage_2_status = "fired"`.
+
+   **6f. Parse each reviewer's output, case-insensitive and bracket-tolerant.** For each response line:
+   - Accept both `[security]` and `security` for the category. Lowercase normalize before matching against the 6-cat enum.
+   - If the category is omitted on a not-viable vote OR not in the 6-cat enum, fall back to `ambiguity` and append `{source: "Stage 2: <reviewer-model-id> on <answer-position>", issue_excerpt: <one-line reason>, reason: "Stage 2: omitted/invalid category"}` to `history[R].parse_fallbacks` (same array Stage 1 already uses).
+
+   **6g. Build candidate critical issues from not-viable votes.** For each `Response X: not-viable - [category] - [reason]` from a reviewer:
+   - Resolve the answer-model-id via `history[R].stage_2_shuffle[<reviewer-model-id>][X]`.
+   - Construct candidate issue: `[Stage 2: <reviewer-model-id> on <answer-model-id>] [category] [one-line reason]`.
+   - Compute the weight tag: in the 3-reviewer panel, each answer is seen by exactly 2 reviewers, so weight is `(N of 2)` where N is the count of those 2 reviewers that marked the answer not-viable. In the 2-reviewer panel, each answer is seen by 1 reviewer; weight is `(1 of 1)` or `(0 of 1)`.
+   - Append every constructed candidate issue to `history[R].stage_2_results.matrix` AND to the pool of issues passed to step 7 (Adjudicate) below. The category goes through cat_hits the same way Stage 1 categories do.
+
+   Store the final structure: `history[R].stage_2_results = {matrix, accepted_nv_count: <to_be_filled_in_step_7>, raw_nv_count: <count_of_all_not_viable_votes_this_round>}`.
+
+7. **Adjudicate (arbiter role) - reconcile issues against the blind verdict**:
+   - From each RESPONDING Stage 1 reviewer, extract `Verdict`, `Critical issues`, `Recommendations`. An ERRORED provider is excluded (see Convergence check); it contributes no verdict and no Stage 1 issues.
+   - In ADDITION to Stage 1 issues, include any Stage 2 candidate issues from step 6g (when Stage 2 fired with quorum). Each Stage 2 candidate issue is a normal `{source, category, description}` entry where `source` is the string `"Stage 2: <reviewer-model-id> on <answer-model-id>"` and includes its weight tag `(N of M reviewers WHO SAW THIS ANSWER marked it not-viable)` appended to the description. Stage 2 issues participate in dismiss/accept/defer the same way Stage 1 issues do.
    - For each critical issue - whether raised by a reviewer OR by Claude's own blind verdict - record a decision WITH a one-line reason: `accept` (real problem, fix), `dismiss` (false positive - reason REQUIRED), or `defer` (out of scope - reason REQUIRED). Append every `dismiss`/`defer` to `history[R].dismissals`. **This includes Claude walking back one of its own blind critical issues** - that is a `dismiss` and needs a recorded reason too.
    - **Repeated-issue default**: if two or more sources (reviewers, or a reviewer plus Claude's blind verdict) raise substantially the same critical issue, `accept` it by default; only `dismiss` with a concrete factual reason ("out of scope" alone is not enough).
-   - **Category overlap signal**: after extracting categories from every responding reviewer plus Claude's blind verdict, build a `{category: source_count}` map counting how many DISTINCT sources raised at least one critical issue in each category. Store as `history[R].cat_hits`. Any category with `source_count >= 2` is a cross-source category hit and surfaces in the Round history table's `Cat hits` column. Cell format: comma-separated `category x<source_count>` entries, ordered by source_count descending then category name ascending; render `-` if no category reached the 2+ threshold. Example cell: `security x4, ops x2`. This is a reporting-only signal; it does not change the convergence rule.
+   - **Category overlap signal**: after extracting categories from every responding Stage 1 reviewer, every Stage 2 candidate issue (when Stage 2 fired), plus Claude's blind verdict, build a `{category: source_count}` map counting how many DISTINCT sources raised at least one critical issue in each category. Store as `history[R].cat_hits`. Any category with `source_count >= 2` is a cross-source category hit and surfaces in the Round history table's `Cat hits` column. Cell format: comma-separated `category x<source_count>` entries, ordered by source_count descending then category name ascending; render `-` if no category reached the 2+ threshold. Example cell: `security x4, ops x2`. This is a reporting-only signal; it does not change the convergence rule.
    - Claude's adjudicated verdict is APPROVE if and only if zero accepted critical issues remain anywhere (reviewers or Claude's blind verdict).
+   - After dismiss/accept/defer is complete: count how many Stage 2-source candidate issues were `accept`-ed this round and write the count back to `history[R].stage_2_results.accepted_nv_count`. The lookback condition in step 6a's trigger uses this count, NOT the raw not-viable vote count.
 
-7. **Convergence check** - the loop CONVERGES only when ALL of these hold:
+8. **Convergence check** - the loop CONVERGES only when ALL of these hold:
    - At least one external reviewer RESPONDED this round (not all errored), AND
    - Every RESPONDING external returned APPROVE (ERRORED providers are excluded from the bar - not counted as APPROVE or as REQUEST CHANGES), AND
    - No responding reviewer returned REJECT, AND
@@ -179,7 +261,7 @@ For each round R:
    - Claude's adjudicated verdict == APPROVE.
    A round in which ALL externals errored has no responding external and therefore CANNOT converge. If any responding reviewer returned REJECT, the result may NOT be labelled "consensus" even at round 5.
 
-8. **If not converged**:
+9. **If not converged**:
    - Compile the union of `accept`-ed critical issues from all responding reviewers plus any Claude found.
    - Revise the plan to address them. Be explicit about what changed and what was deliberately not changed.
    - Record this round in `history` with: Claude blind verdict, GPT/Gemini/Grok verdicts (or ERRORED), Claude's per-issue decisions + reasons, the diff summary applied to the plan.
@@ -187,7 +269,7 @@ For each round R:
    - Continue to round R+1.
    - **Backoff after multi error**: if MORE THAN ONE provider errored in round R, wait 1-2 seconds before dispatching round R+1 to let transient API hiccups clear.
 
-9. **If round R == 5 and still not converged**:
+10. **If round R == 5 and still not converged**:
    - Emit the final state with residual disagreements clearly labeled. Do not pretend convergence.
    - Note which side (Claude blind, GPT, Gemini, or Grok) holds out on which issues.
 
@@ -212,11 +294,25 @@ This is a copy-only signal: it is computed at the end from `round`, does not aff
 **Final plan**:
 [full converged plan, or last revision]
 
-**Round history** (CB = Claude blind verdict; reviewer cols use APPR/RC/REJ or ERR; Adj = Claude adjudicated; Cat hits = categories raised by 2+ sources this round):
-| Round | CB   | GPT  | Gemini | Grok | Adj  | Cat hits                | Changes applied |
-| 1     | RC   | RC   | RC     | RC   | RC   | security x4, ops x2     | added rollback step, clarified ownership |
-| 2     | RC   | RC   | APPR   | ERR  | RC   | correctness x2          | tightened error handling on step 3 |
-| 3     | APPR | APPR | APPR   | ERR  | APPR | -                       | - (Grok unconfigured; converged on responding externals) |
+**Round history** (CB = Claude blind verdict; reviewer cols use APPR/RC/REJ or ERR; Adj = Claude adjudicated; S2 = Stage 2 status; Cat hits = categories raised by 2+ sources this round):
+| Round | CB   | GPT  | Gemini | Grok | Adj  | S2                | Cat hits                | Changes applied |
+| 1     | RC   | RC   | RC     | RC   | RC   | fired (2 NV)      | security x4, ops x2     | added rollback step, clarified ownership |
+| 2     | RC   | RC   | APPR   | ERR  | RC   | fired (1 NV)      | correctness x2          | tightened error handling on step 3 |
+| 3     | APPR | APPR | APPR   | ERR  | APPR | skip (no div)     | -                       | - (Grok unconfigured; converged on responding externals) |
+
+S2 column cell values:
+- `fired (N NV)` - Stage 2 ran with quorum, surfaced N not-viable votes (raw count across all reviewers).
+- `skip (no div)` - Stage 2 skipped because Stage 1 had no non-APPR verdicts AND the lookback condition was false.
+- `skip (S1 quorum)` - Stage 2 skipped because fewer than 2 Stage 1 externals responded.
+- `skip (sandbox)` - Stage 2 skipped because /consensus was invoked with `sandbox: workspace-write`.
+- `ERR (quorum)` - Stage 2 reviewers below quorum (<2 responses).
+
+**Stage 2 shuffle mapping** (operator debug - per round, per reviewer; shows which `Response A`/`Response B` corresponded to which model in Stage 2):
+- [R{n}] {reviewer-model-id}: A = {answer-model-id}, B = {answer-model-id}
+- [R{n}] {reviewer-model-id}: A = {answer-model-id}     <- 2-responder panel
+- ...
+
+If Stage 2 did not fire in any round, render `**Stage 2 shuffle mapping**: none.`
 
 **Parse fallbacks** (reviewers that omitted a category tag; auto-parsed as `ambiguity`):
 - [R{n}] {source}: "{issue excerpt}" - reason: reviewer omitted category tag
@@ -243,6 +339,9 @@ If there were zero fallbacks across the whole loop, render `**Parse fallbacks**:
 - **Hard cap at 5 rounds** - even if one reviewer is being stubborn, terminate. Diverging too many rounds usually means the plan has an unresolved ambiguity, not that the reviewer is wrong.
 - **Report as you go** - print a status line after each round dispatch and after each return. Long silences look like a hang.
 - **Synthesize, never paste raw** - reviewers' raw output never appears verbatim in the final report.
+- **Stage 2 is decision input only** - Stage 2 fires conditionally (step 6); its candidate issues feed step 7's existing adjudication. Stage 2 status (`fired`/`skipped`/`errored`) does NOT participate in the convergence rule. The convergence rule in step 8 reads only Stage 1 verdicts + Claude's adjudication + accepted critical issues (from any source, Stage 1 or Stage 2 alike).
+- **Stage 2 anonymization is best-effort** - identity stripping removes preambles and self-references but model house styles may still leak. Reviewers are explicitly instructed to score substance and ignore style. The operator-visible shuffle mapping in the final report records ground truth for post-hoc audit.
+- **Stage 2 skips on workspace-write sandbox** - when `/consensus` is invoked with `sandbox: workspace-write` (Claude making code changes via consensus), step 6 sets `stage_2_status = "skip_sandbox"` and skips the entire Stage 2 sub-loop. Anonymization leaks too much on patches. Plan reviews that merely CONTAIN embedded diff text as prose still run Stage 2.
 
 ## Heuristics for Claude's per-issue decisions
 

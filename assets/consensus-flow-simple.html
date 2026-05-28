@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>How /consensus works (simple) — claude-delegator</title>
+  <style>
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: #ffffff;
+    }
+    .wrap { width: 1000px; height: 420px; margin: 0 auto; }
+    svg { display: block; }
+    text { dominant-baseline: middle; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+<svg viewBox="0 0 1000 420" width="1000" height="420" xmlns="http://www.w3.org/2000/svg">
+
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#94a3b8" />
+    </marker>
+    <marker id="arrow-red" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#ef4444" />
+    </marker>
+    <filter id="soft" x="-5%" y="-5%" width="110%" height="110%">
+      <feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-color="#0f172a" flood-opacity="0.05" />
+    </filter>
+  </defs>
+
+  <rect width="1000" height="420" fill="#ffffff" />
+
+  <text x="40" y="38" font-size="22" font-weight="700" fill="#0f172a">How /consensus works</text>
+  <text x="40" y="62" font-size="13" fill="#64748b">3 stages per round, repeats up to 5 rounds until the models agree</text>
+
+  <rect x="40" y="100" width="280" height="160" rx="12" fill="#ffffff" stroke="#3b82f6" stroke-width="2" filter="url(#soft)" />
+  <text x="60" y="125" font-size="11" font-weight="700" fill="#3b82f6" letter-spacing="2">STAGE 1</text>
+  <text x="60" y="152" font-size="17" font-weight="700" fill="#0f172a">Parallel verdicts</text>
+  <text x="60" y="184" font-size="13" fill="#0f172a">Claude posts a blind verdict,</text>
+  <text x="60" y="204" font-size="13" fill="#0f172a">then GPT + Gemini + Grok</text>
+  <text x="60" y="224" font-size="13" fill="#0f172a">review in parallel:</text>
+  <text x="60" y="244" font-size="13" font-weight="600" fill="#0f172a">APPR / RC / REJECT.</text>
+
+  <path d="M 325 180 L 355 180" stroke="#94a3b8" stroke-width="2.5" fill="none" marker-end="url(#arrow)" />
+
+  <rect x="360" y="100" width="280" height="160" rx="12" fill="#ffffff" stroke="#f59e0b" stroke-width="2" filter="url(#soft)" />
+  <text x="380" y="125" font-size="11" font-weight="700" fill="#f59e0b" letter-spacing="2">STAGE 2</text>
+  <text x="380" y="152" font-size="17" font-weight="700" fill="#0f172a">Blind cross-review</text>
+  <text x="380" y="184" font-size="13" fill="#0f172a">Each reviewer rates the OTHER</text>
+  <text x="380" y="204" font-size="13" fill="#0f172a">2 anonymized answers as</text>
+  <text x="380" y="224" font-size="13" fill="#0f172a">viable or not-viable.</text>
+  <text x="380" y="244" font-size="12" fill="#64748b" font-style="italic">(conditional - fires on disagreement)</text>
+
+  <path d="M 645 180 L 675 180" stroke="#94a3b8" stroke-width="2.5" fill="none" marker-end="url(#arrow)" />
+
+  <rect x="680" y="100" width="280" height="160" rx="12" fill="#ffffff" stroke="#14b8a6" stroke-width="2" filter="url(#soft)" />
+  <text x="700" y="125" font-size="11" font-weight="700" fill="#14b8a6" letter-spacing="2">STAGE 3</text>
+  <text x="700" y="152" font-size="17" font-weight="700" fill="#0f172a">Arbiter adjudicates</text>
+  <text x="700" y="184" font-size="13" fill="#0f172a">Claude reconciles everything:</text>
+  <text x="700" y="204" font-size="13" font-weight="600" fill="#0f172a">accept / dismiss / defer</text>
+  <text x="700" y="224" font-size="13" fill="#0f172a">each issue, revises plan.</text>
+  <text x="700" y="244" font-size="12" fill="#64748b">Converged? Stop. Else next round.</text>
+
+  <path d="M 820 270 L 820 305 L 20 305 L 20 180 L 40 180" stroke="#ef4444" stroke-width="2" stroke-dasharray="6,4" fill="none" marker-end="url(#arrow-red)" />
+  <text x="500" y="325" font-size="12" font-weight="700" text-anchor="middle" fill="#ef4444">If not converged, loop back - up to 5 rounds (hard cap)</text>
+
+  <line x1="40" y1="360" x2="960" y2="360" stroke="#e2e8f0" stroke-width="1" />
+  <text x="40" y="385" font-size="12" fill="#64748b">Stage 2 cross-review pattern adapted from</text>
+  <text x="289" y="385" font-size="12" font-weight="600" fill="#3b82f6">karpathy/llm-council</text>
+  <text x="40" y="405" font-size="12" fill="#64748b">Click the detailed version for bias guards and per-model flow.</text>
+
+</svg>
+</div>
+</body>
+</html>
