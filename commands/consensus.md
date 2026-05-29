@@ -1,7 +1,7 @@
 ---
 name: consensus
 description: Arbiter-mediated consensus - GPT + Gemini + Grok review while Claude commits a blind verdict, adjudicates, and synthesizes. Converges only with cross-model agreement. Max 5 rounds.
-allowed-tools: mcp__codex__codex, mcp__gemini__gemini, mcp__grok__grok, Read, Bash
+allowed-tools: mcp__codex__codex, mcp__gemini__gemini, mcp__grok__grok, mcp__openrouter__openrouter, mcp__openrouter__openrouter-list, Read, Bash
 timeout: 900000
 ---
 
@@ -52,6 +52,16 @@ Plan, design, spec, or proposal to refine: $ARGUMENTS
    ```
    /consensus: starting consensus loop (max 5 rounds, expert=[Expert])
    ```
+
+6. **Build the OpenRouter voting panel:**
+   - Read `~/.claude/claude-delegator/config.json` for `providers.*.enabled` (a built-in
+     with `enabled:false` is excluded from this run even if registered).
+   - Call `mcp__openrouter__openrouter-list`. If unavailable / `error` set, there are no
+     OpenRouter voices. Otherwise the voting panel = delegates with `consensus == true`
+     eligible for the chosen expert (`experts` absent = all; `[]` = none; else must include
+     the expert). NOT bounded by `maxFanout`.
+   - If the OpenRouter voting panel size is > 3, PRINT before the first dispatch:
+     `Warning: N OpenRouter voting models x up to 5 rounds x the inlined repo bundle = significant token cost.`
 
 ### Round loop (rounds 1..5)
 
@@ -160,6 +170,21 @@ For each round R:
    plan), the verification check does NOT apply - run Grok with an empty
    `files` array as a normal parallel reviewer.
 
+   For EACH OpenRouter voting-panel delegate, add a parallel tool block:
+   ```
+   mcp__openrouter__openrouter({
+     prompt: "[identical 7-section prompt for round R]",
+     "developer-instructions": "[expert prompt]",
+     alias: "[delegate alias]",
+     sandbox: "read-only",
+     cwd: "[repo root]",
+     files: [ /* SAME orientation bundle passed to Grok each round */ ]
+   })
+   ```
+   Each OpenRouter delegate is one independent external voice in the convergence count. An
+   errored delegate is marked `ERRORED` and excluded from the convergence bar (same as a
+   built-in), so a flaky model never blocks convergence.
+
 5. **Stream short status as each return arrives**. Do not wait until all are back to print anything. Mark a provider that returned an MCP error or `result.isError` as ERRORED. Examples:
    ```
    GPT (R{R}): APPROVE
@@ -260,6 +285,9 @@ For each round R:
    - Zero accepted critical issues remain (from any reviewer or from Claude's blind verdict), AND
    - Claude's adjudicated verdict == APPROVE.
    A round in which ALL externals errored has no responding external and therefore CANNOT converge. If any responding reviewer returned REJECT, the result may NOT be labelled "consensus" even at round 5.
+   "Externals" here means every responding enabled built-in (GPT/Gemini/Grok) AND every
+   responding OpenRouter voting-panel delegate. Each is one voice; ERRORED voices are
+   excluded from the bar.
 
 9. **If not converged**:
    - Compile the union of `accept`-ed critical issues from all responding reviewers plus any Claude found.
