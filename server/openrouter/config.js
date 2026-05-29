@@ -1,5 +1,7 @@
 "use strict";
 
+const fs = require("node:fs");
+
 const EXPERT_KEYS = new Set([
   "architect", "plan-reviewer", "scope-analyst", "code-reviewer",
   "security-analyst", "researcher", "debugger",
@@ -117,4 +119,39 @@ function fail(message) {
   return { ok: false, resolved: null, error: message };
 }
 
-module.exports = { validateConfig, EXPERT_KEYS, RESERVED_ALIAS, DEFAULT_API_BASE, DEFAULT_API_KEY_ENV };
+// Stat-gated reader: re-reads + re-validates only when the file mtime changes.
+// Never throws. Missing file => ok:true, disabled openrouter. Bad JSON => ok:false parse error.
+function makeConfigReader(filePath) {
+  let cachedMtimeMs = null;
+  let cachedResult = null;
+
+  function read() {
+    let text;
+    try {
+      text = fs.readFileSync(filePath, "utf8");
+    } catch (_) {
+      return { ok: true, error: null, resolved: { version: 1, providers: {}, openrouter: disabledOpenRouter() } };
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch (e) {
+      return { ok: false, resolved: null, error: `config JSON parse error: ${e.message}` };
+    }
+    return validateConfig(parsed);
+  }
+
+  return {
+    get() {
+      let mtimeMs = null;
+      try { mtimeMs = fs.statSync(filePath).mtimeMs; } catch (_) { mtimeMs = null; }
+      if (cachedResult === null || mtimeMs !== cachedMtimeMs) {
+        cachedResult = read();
+        cachedMtimeMs = mtimeMs;
+      }
+      return cachedResult;
+    },
+  };
+}
+
+module.exports = { validateConfig, makeConfigReader, EXPERT_KEYS, RESERVED_ALIAS, DEFAULT_API_BASE, DEFAULT_API_KEY_ENV };

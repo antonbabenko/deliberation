@@ -1,7 +1,7 @@
 "use strict";
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { validateConfig } = require("../server/openrouter/config.js");
+const { validateConfig, makeConfigReader } = require("../server/openrouter/config.js");
 
 function base() {
   return {
@@ -105,4 +105,49 @@ test("C12: invalid per-model override types are rejected", () => {
     const { ok } = validateConfig(c);
     assert.equal(ok, false, `override ${JSON.stringify(bad)} should be invalid`);
   }
+});
+
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+
+function tmpConfig(obj) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cdg-or-"));
+  const file = path.join(dir, "config.json");
+  fs.writeFileSync(file, JSON.stringify(obj));
+  return file;
+}
+
+test("C9: reader returns resolved config and re-reads on mtime change", () => {
+  const file = tmpConfig(base());
+  const reader = makeConfigReader(file);
+  const first = reader.get();
+  assert.equal(first.ok, true);
+  assert.equal(first.resolved.openrouter.models.length, 3);
+
+  const c2 = base();
+  c2.openrouter.models.push({ alias: "extra", model: "x/y" });
+  fs.writeFileSync(file, JSON.stringify(c2));
+  const future = new Date(Date.now() + 2000); // bump mtime; same-second writes can collide
+  fs.utimesSync(file, future, future);
+
+  const second = reader.get();
+  assert.equal(second.resolved.openrouter.models.length, 4);
+});
+
+test("C10: missing file => disabled openrouter, ok=true (graceful)", () => {
+  const reader = makeConfigReader(path.join(os.tmpdir(), "definitely-absent-cdg.json"));
+  const r = reader.get();
+  assert.equal(r.ok, true);
+  assert.equal(r.resolved.openrouter.enabled, false);
+});
+
+test("C11: malformed JSON => ok=false with parse error, no throw", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cdg-or-bad-"));
+  const file = path.join(dir, "config.json");
+  fs.writeFileSync(file, "{ not json ");
+  const reader = makeConfigReader(file);
+  const r = reader.get();
+  assert.equal(r.ok, false);
+  assert.match(r.error, /parse|json/i);
 });
