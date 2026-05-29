@@ -149,6 +149,22 @@ Use the 7-section format from `rules/delegation-format.md`.
 - Relevant code/files
 - Any previous attempts and their results (for retries)
 
+### Step 5.5: Concurrent prep, single dispatch
+
+Emit independent prep reads CONCURRENTLY, then dispatch in ONE message. Expert
+identification (Step 1) is *reasoning* on the request - it is not a tool read and happens
+BEFORE the prep message. Then fire every independent prep read (the expert-prompt Glob,
+plus any `~/.claude/claude-delegator/config.json` / `~/.codex/config.toml` /
+`~/.gemini/settings.json` / Grok env / `openrouter-list` reads a command needs) in ONE
+message as parallel tool blocks. Build the prompt, status line/block, and delegate set
+from those results, then dispatch all providers in ONE parallel message.
+
+Two reads stay serial: (a) a read whose INPUT depends on another read's OUTPUT (a genuine
+data dependency - e.g. `/ask-openrouter` must call `openrouter-list` before it can strip a
+model alias from `$ARGUMENTS`, and the stripped question determines the expert, which
+determines the Glob target); and (b) an interactive `AskUserQuestion` gate, which cannot
+run concurrently with reads. Everything else is concurrent.
+
 ### Step 6: Call the Expert
 ```typescript
 // Using Codex (GPT)
@@ -358,3 +374,4 @@ Trusted projects allow the expert full access within the sandbox policy.
 | Skip status line before MCP dispatch | ALWAYS print status line (see command files for wording) |
 | Retry without including error context | Include FULL history of what was tried |
 | Assume expert remembers across sessions | Use the appropriate `*-reply` tool for multi-turn; include full context for single-shot |
+| Serialize independent prep reads (Glob / config / list across separate turns) | Fire them in one parallel prep message, then dispatch (see Step 5.5) |

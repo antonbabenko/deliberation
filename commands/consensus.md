@@ -34,7 +34,7 @@ Plan, design, spec, or proposal to refine: $ARGUMENTS
    - Architecture / design tradeoffs → Architect
    - Security / threat modeling → Security Analyst
    - Code review of a concrete diff → Code Reviewer
-2. Read expert prompt ONCE via this resolution sequence:
+2. Read expert prompt ONCE via this resolution sequence (fire this `Glob` in the SAME parallel message as the step 6 concurrent-prep reads - see step 6):
    1. Glob `~/.claude/plugins/cache/*/claude-delegator/*/prompts/[expert].md`. Pick the match with the highest semver version segment (the segment immediately after `claude-delegator/`, parsed as semver - not lexical string compare).
    2. If no match, look up the inlined fallback under the heading `## Inlined fallback - [Expert]` in this command file (see end of this file).
    3. If neither found, abort with: `Error: claude-delegator plugin cache missing for expert "[Expert]". Run /plugin install claude-delegator or /reload-plugins.`
@@ -53,10 +53,10 @@ Plan, design, spec, or proposal to refine: $ARGUMENTS
    /consensus: starting consensus loop (max 5 rounds, expert=[Expert])
    ```
 
-6. **Build the OpenRouter voting panel:**
-   - Read `~/.claude/claude-delegator/config.json` for `providers.*.enabled` (a built-in
+6. **Concurrent prep + build the OpenRouter voting panel.** Run the prep ONCE in a single parallel message (concurrent prep, single dispatch): the expert-prompt `Glob` (step 2), `Read` `~/.claude/claude-delegator/config.json`, `mcp__openrouter__openrouter-list`, and the round-1 status-block sources - `Read` `~/.codex/config.toml`, `Read` `~/.gemini/settings.json`, `Bash` `echo "$GROK_DEFAULT_MODEL" "$GROK_REASONING_EFFORT"` - all in ONE message, not sequential turns. Build the panel + round-1 status block from those cached results (the `invalidModels` `AskUserQuestion` below is the one allowed serial gate):
+   - From the cached `~/.claude/claude-delegator/config.json` read, take `providers.*.enabled` (a built-in
      with `enabled:false` is excluded from this run even if registered).
-   - Call `mcp__openrouter__openrouter-list`. If unavailable / `error` set (a hard config
+   - From the cached `mcp__openrouter__openrouter-list` result: if unavailable / `error` set (a hard config
      failure - bad JSON, schema, version, or maxFanout), there are no OpenRouter voices.
      Otherwise the returned `delegates` are the valid models; `invalidModels` (if non-empty)
      are entries the bridge skipped per-entry (each `{ index, alias, reason, suggestedAlias? }`).
@@ -370,6 +370,7 @@ If there were zero fallbacks across the whole loop, render `**Parse fallbacks**:
 ## Stability rules
 
 - **Always dispatch in parallel** - all three MCP calls in the same message. Sequential triples wall time.
+- **Concurrent prep** - run the Setup prep (expert Glob + `config.json` + `openrouter-list` + the round-1 status sources `~/.codex/config.toml` / `~/.gemini/settings.json` / Grok env) in ONE parallel message before the round loop, not sequential turns. The `invalidModels` `AskUserQuestion` is the one allowed serial gate. See `rules/delegator/orchestration.md` Step 5.5.
 - **Single-shot per round** - fresh thread each call. Do NOT use `*-reply` with stored threadId. Cross-round state lives in the prompt body, not in provider memory. Avoids contamination if one provider went off track.
 - **`cwd` for Gemini** - use `process.cwd()` (Setup step 3). agy print mode needs no folder-trust pre-check, so there is nothing to abort on.
 - **Provider failure does not kill the loop** - if a provider errors (timeout, Grok `missing-auth`, transient API error), mark it ERRORED with a note `"provider error: <truncated msg>"` and EXCLUDE it from the convergence bar for that round (it counts as neither APPROVE nor REQUEST CHANGES). The loop still converges when every responding external and Claude APPROVE and at least one external responded. If ALL externals errored in a round, there is no responding external, so that round cannot converge.

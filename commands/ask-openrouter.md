@@ -57,3 +57,4 @@ is used.
 - Advisory only - OpenRouter has no filesystem access; route implementation tasks to
   Codex/Gemini.
 - Single delegate per call. For parallel multi-model opinions use `/ask-all`.
+- **Serial prep is correct here** - `openrouter-list` (step 1) MUST run before the expert-prompt `Glob` (step 3): alias-stripping consumes the list, the stripped question determines the expert, and the expert determines the `Glob` target. This is a genuine data dependency, so the two reads CANNOT be merged into one parallel block (unlike `/ask-all`). Do not "optimize" them together. See `rules/delegator/orchestration.md` Step 5.5.

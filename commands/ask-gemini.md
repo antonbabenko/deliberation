@@ -59,6 +59,7 @@ User question or topic: $ARGUMENTS
 - **Advisory by default** - use `sandbox: "read-only"` unless user explicitly asks for implementation.
 - **No contamination** - do not include prior GPT opinions in the Gemini prompt. Each expert reasons independently.
 - **Print status line** immediately before the MCP dispatch: `Gemini working (typical 30-60s)...`
+- **Concurrent prep, single dispatch** - prep here is a single expert-prompt `Glob` followed by one dispatch (a fixed status line, no per-delegate config reads). Keep it that way; do not pad the preamble with extra sequential round-trips. See `rules/delegator/orchestration.md` Step 5.5.
 
 - **Final judgment is the orchestrator's** - the external model only advises. Claude reads its output, applies its own judgment, and is accountable for the synthesized answer shown to you. The model's raw verdict is not the final word.
 
