@@ -1,11 +1,11 @@
 ---
 name: ask-all
-description: Ask GPT, Gemini, and Grok in parallel for independent second opinions, then synthesize and compare. Zero cross-contamination.
+description: Ask GPT, Gemini, Grok, and any configured OpenRouter models in parallel for independent second opinions, then synthesize and compare. Zero cross-contamination.
 allowed-tools: mcp__codex__codex, mcp__gemini__gemini, mcp__grok__grok, mcp__openrouter__openrouter, mcp__openrouter__openrouter-list, Read, Bash
 timeout: 300000
 ---
 
-# Ask All (GPT + Gemini + Grok)
+# Ask All (GPT + Gemini + Grok + OpenRouter)
 
 Parallel dispatch to GPT (Codex), Gemini, and Grok (xAI) for independent second opinions on the same question. Three fresh threads, none sees the others' output. Final synthesis compares verdicts and flags disagreement. Grok is advisory-only (HTTP API; it reads attached files via `files` but cannot edit), so all three run `read-only`.
 

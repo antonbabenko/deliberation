@@ -1,13 +1,13 @@
 ---
 name: setup
-description: Configure claude-delegator with Codex (GPT) or Gemini MCP servers
+description: Configure claude-delegator with Codex (GPT), Gemini, Grok, and OpenRouter MCP servers
 allowed-tools: Bash, Read, Write, Edit, AskUserQuestion
 timeout: 60000
 ---
 
 # Setup
 
-Configure GPT (via Codex) or Gemini as specialized expert subagents via native MCP. Seven domain experts that can advise OR implement.
+Configure GPT (via Codex), Gemini, Grok, and OpenRouter as specialized expert subagents via MCP. Seven domain experts that can advise OR implement (Grok and OpenRouter are advisory-only).
 
 ## Step 1: Check CLI Dependencies
 

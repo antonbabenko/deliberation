@@ -66,7 +66,7 @@ Inside a Claude Code instance, run:
 /claude-delegator:setup
 ```
 
-Claude now routes complex tasks to your GPT, Gemini, and Grok experts.
+Claude now routes complex tasks to your GPT, Gemini, Grok, and OpenRouter experts (Grok and OpenRouter advise; GPT and Gemini can also implement).
 
 The canonical marketplace is [`antonbabenko/agent-plugins`](https://github.com/antonbabenko/agent-plugins) (above), which also bundles the other plugins.
 

@@ -1,11 +1,11 @@
 ---
 name: consensus
-description: Arbiter-mediated consensus - GPT + Gemini + Grok review while Claude commits a blind verdict, adjudicates, and synthesizes. Converges only with cross-model agreement. Max 5 rounds.
+description: Arbiter-mediated consensus - GPT + Gemini + Grok (plus any configured OpenRouter delegates) review while Claude commits a blind verdict, adjudicates, and synthesizes. Converges only with cross-model agreement. Max 5 rounds.
 allowed-tools: mcp__codex__codex, mcp__gemini__gemini, mcp__grok__grok, mcp__openrouter__openrouter, mcp__openrouter__openrouter-list, Read, Bash
 timeout: 900000
 ---
 
-# Consensus (arbiter-mediated GPT + Gemini + Grok + Claude convergence loop)
+# Consensus (arbiter-mediated GPT + Gemini + Grok + OpenRouter + Claude convergence loop)
 
 Iterate up to 5 rounds. Each round refines the plan based on GPT + Gemini + Grok feedback. This is **arbiter-mediated consensus, not pure democracy**: the external models vote independently, but Claude (the orchestrator) authors the review prompt, adjudicates which critical issues are real, and rewrites the plan between rounds. To keep that power accountable, Claude commits a **blind verdict** before reading the reviewers (Round loop below), cannot reach consensus on its own vote alone (Convergence check below), and must show a reason for every dismissed issue. Stop when the convergence rule is met or when 5 rounds are exhausted.
 

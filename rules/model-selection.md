@@ -1,6 +1,6 @@
 # Model Selection Guidelines
 
-GPT (Codex), Gemini, and Grok (xAI) experts serve as specialized consultants for complex problems.
+GPT (Codex), Gemini, Grok (xAI), and OpenRouter experts serve as specialized consultants for complex problems. Grok and OpenRouter are advisory-only.
 
 ## Provider Selection
 
