@@ -1,7 +1,7 @@
 ---
 name: ask-gpt
 description: Get GPT (Codex) second opinion on a question or current work. Single-shot, advisory, no contamination.
-allowed-tools: mcp__codex__codex, Read, Bash
+allowed-tools: mcp__deliberation-codex__codex, Read, Bash
 timeout: 180000
 ---
 
@@ -15,7 +15,7 @@ User question or topic: $ARGUMENTS
 
 ## Workflow
 
-1. **Identify expert** - match `$ARGUMENTS` against trigger patterns in `~/.claude/rules/delegator/triggers.md`:
+1. **Identify expert** - match `$ARGUMENTS` against trigger patterns in `~/.claude/rules/deliberation/triggers.md`:
    - Architecture / design / tradeoffs → Architect
    - Plan validation → Plan Reviewer
    - Requirements / scope → Scope Analyst
@@ -24,18 +24,18 @@ User question or topic: $ARGUMENTS
    - Default if unclear → Architect
 
 2. **Read expert prompt** via this resolution sequence:
-   1. Glob `~/.claude/plugins/cache/*/claude-delegator/*/prompts/[expert].md`. Pick the match with the highest semver version segment (the segment immediately after `claude-delegator/`, parsed as semver - not lexical string compare).
+   1. Glob `~/.claude/plugins/cache/*/deliberation/*/prompts/[expert].md`. Pick the match with the highest semver version segment (the segment immediately after `deliberation/`, parsed as semver - not lexical string compare).
    2. If no match, look up the inlined fallback under the heading `## Inlined fallback - [Expert]` in this command file (see end of this file).
-   3. If neither found, abort with: `Error: claude-delegator plugin cache missing for expert "[Expert]". Run /plugin install claude-delegator or /reload-plugins.`
+   3. If neither found, abort with: `Error: deliberation plugin cache missing for expert "[Expert]". Run /plugin install deliberation or /reload-plugins.`
 
-3. **Build 7-section delegation prompt** per `~/.claude/rules/delegator/delegation-format.md`. Include:
+3. **Build 7-section delegation prompt** per `~/.claude/rules/deliberation/delegation-format.md`. Include:
    - Verbatim user question from `$ARGUMENTS`
    - Relevant code snippets / file paths from current conversation context
    - Any specific constraints user has mentioned this session
 
 4. **Call Codex** - single-shot, advisory:
    ```
-   mcp__codex__codex({
+   mcp__deliberation-codex__codex({
      prompt: "[7-section delegation prompt]",
      "developer-instructions": "[contents of expert prompt file]",
      sandbox: "read-only",
@@ -55,7 +55,7 @@ User question or topic: $ARGUMENTS
 - **Advisory by default** - use `sandbox: "read-only"` unless user explicitly asks for implementation.
 - **No contamination** - do not include prior Gemini opinions in the GPT prompt. Each expert reasons independently.
 - **Print status line** immediately before the MCP dispatch: `Codex working (typical 30-60s)...`
-- **Concurrent prep, single dispatch** - prep here is a single expert-prompt `Glob` followed by one dispatch (a fixed status line, no per-delegate config reads). Keep it that way; do not pad the preamble with extra sequential round-trips. See `rules/delegator/orchestration.md` Step 5.5.
+- **Concurrent prep, single dispatch** - prep here is a single expert-prompt `Glob` followed by one dispatch (a fixed status line, no per-delegate config reads). Keep it that way; do not pad the preamble with extra sequential round-trips. See `rules/deliberation/orchestration.md` Step 5.5.
 
 - **Final judgment is the orchestrator's** - the external model only advises. Claude reads its output, applies its own judgment, and is accountable for the synthesized answer shown to you. The model's raw verdict is not the final word.
 

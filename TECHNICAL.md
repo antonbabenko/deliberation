@@ -1,6 +1,6 @@
 # Technical Reference
 
-Advanced and internal details for Claude Delegator. For install and everyday use,
+Advanced and internal details for Deliberation. For install and everyday use,
 see the [README](README.md). This document covers the provider bridges, the full
 environment-variable reference, manual MCP setup, multi-turn and retry behavior,
 and the Gemini recovery paths.
@@ -44,9 +44,9 @@ Claude: detects a security question, selects the Security Analyst
                 |
                 v
    +-------------------------------------+
-   |  mcp__codex__codex /                |
-   |  mcp__gemini__gemini /              |
-   |  mcp__grok__grok                    |
+   |  mcp__deliberation-codex__codex /   |
+   |  mcp__deliberation-gemini__gemini / |
+   |  mcp__deliberation-grok__grok       |
    |    -> Security Analyst prompt       |
    |    -> expert analyzes your code     |
    +-------------------------------------+
@@ -116,7 +116,7 @@ it can read context to advise but cannot mutate the real workspace, even under
 A bundled zero-dependency Node bridge over the xAI Responses API
 (`/v1/responses`). It is advisory-only (it cannot edit files) but it can read
 attached files: pass `files: [{ path | file_id | file_url | dir }]` and the
-bridge delivers them per the `mode` setting — uploaded to the xAI Files API
+bridge delivers them per the `mode` setting - uploaded to the xAI Files API
 (default), inlined as `input_text` (for line-by-line reading of source files),
 or expanded via the bundled glob walker for directories. Resolution is against
 the top-level `roots: string[]` (first-root-wins) or `cwd` when `roots` is
@@ -147,8 +147,8 @@ Codex has no bridge environment variables: it ships its own native MCP server an
 reads `~/.codex/config.toml` directly. The **model** comes from the `model` key in
 that file by default (the Codex analog of `GEMINI_DEFAULT_MODEL` /
 `GROK_DEFAULT_MODEL`). Override it on the server with `-c model=<id>` on the
-`claude mcp add ... codex` registration, or per call with the `model` parameter of
-`mcp__codex__codex(...)`. See [Configuration in the README](README.md#configuration).
+`claude mcp add ... deliberation-codex` registration, or per call with the `model` parameter of
+`mcp__deliberation-codex__codex(...)`. See [Configuration in the README](README.md#configuration).
 
 ## Manual MCP setup
 
@@ -224,7 +224,7 @@ budget is exhausted, the call fails with `errorKind: "timeout"` (still
 
 Grok reads attached files via the `files[]` parameter. Each entry has EXACTLY ONE of:
 
-- `path` - a local file. Delivery is controlled by `mode` (default `"upload"` — bridge uploads to the xAI Files API; `"inline"` embeds as `input_text`; `"auto"` picks per heuristic — see "Inline vs upload delivery" below).
+- `path` - a local file. Delivery is controlled by `mode` (default `"upload"` - bridge uploads to the xAI Files API; `"inline"` embeds as `input_text`; `"auto"` picks per heuristic - see "Inline vs upload delivery" below).
 - `file_id` - an already-uploaded xAI file id (passed through, no upload).
 - `file_url` - a public URL (passed through).
 - `dir` - a local directory expanded recursively. Same `mode` rules; the walker
@@ -239,7 +239,7 @@ that escape via `realpath` are also refused. An oversize file (>48 MB) returns
 ### Cross-repo example
 
 ```js
-mcp__grok__grok({
+mcp__deliberation-grok__grok({
   prompt: "Compare the auth strategy in these two services.",
   cwd: "/Users/me/work/service-a",
   roots: ["/Users/me/work/service-a", "/Users/me/work/service-b"],
@@ -319,7 +319,7 @@ Uploads are deduplicated by SHA-256 content hash. A reuse hit requires the SAME 
 (see cache-key below); identical bytes uploaded under a different filename or a different
 key produce separate cache rows:
 
-- Cache file: `~/.claude/cache/claude-delegator/grok-files.json`
+- Cache file: `~/.claude/cache/deliberation/grok-files.json`
 - Cache key: `sha256(bytes)@sha256(XAI_API_KEY)[:16]@normalize(apiBase)@effectiveFilename`
   - Key rotation auto-invalidates entries (different `keyFp`).
   - Different `apiBase` (including port/protocol differences) → separate rows.
@@ -338,7 +338,7 @@ key produce separate cache rows:
   known file id are surfaced unchanged.
 - `XAI_DISABLE_FILE_CACHE=1` (env) skips the cache layer entirely (debugging).
 
-Stored upload filenames are `claude-delegator-{sha256[:16]}-{basename}`. Uploads also
+Stored upload filenames are `deliberation-{sha256[:16]}-{basename}`. Uploads also
 carry `expires_after` set by `GROK_FILE_TTL_SECONDS` (default `604800` = 7 days,
 clamped 1h..30d).
 
@@ -346,7 +346,7 @@ clamped 1h..30d).
 
 The bundled `server/grok/files-admin.js` supports three subcommands:
 
-- `list` - shows total xAI file count and every `claude-delegator-*` upload.
+- `list` - shows total xAI file count and every `deliberation-*` upload.
 - `prune --older-than <30m|24h|7d|seconds> [--yes]` - dry run by default; deletes
   **remote** bridge-owned files matched by filename prefix + age. Works without the
   local cache; safe for environments where the cache was lost or never existed.
@@ -358,7 +358,7 @@ The bundled `server/grok/files-admin.js` supports three subcommands:
   files). `--force-local-prune` drops ambiguous foreign rows anyway.
 
 `prune` and `gc` are complementary: `prune` is the remote-side cleaner; `gc` keeps
-the local cache aligned with remote state. The `claude-delegator-` filename prefix
+the local cache aligned with remote state. The `deliberation-` filename prefix
 is a hard safety invariant on both paths - your own xAI files are never touched.
 
 ## OpenRouter bridge
@@ -370,8 +370,8 @@ It is **advisory-only** - it cannot edit files or run shell commands.
 ### Configuration file
 
 The bridge and the fan-out commands (`/ask-all`, `/consensus`) read
-`~/.claude/claude-delegator/config.json` at call time. Override the path with
-`CLAUDE_DELEGATOR_CONFIG`. The file is stat-gated: the bridge re-reads it only when
+`~/.claude/deliberation/config.json` at call time. Override the path with
+`DELIBERATION_CONFIG`. The file is stat-gated: the bridge re-reads it only when
 the mtime changes, so edits to the `openrouter` block (models, flags, defaults) take
 effect immediately without restarting Claude Code or re-running `/setup`. Toggling a
 **built-in** provider (codex / gemini / grok) still requires `/setup` to re-register
@@ -440,7 +440,7 @@ rounds; you want the models reasoning, not improvising.
   for the requested expert; capped to `maxFanout` models (default 3).
 - **`/consensus`**: includes models where `consensus === true`; NOT subject to `maxFanout`.
   A warning is logged when more than 3 models enter a consensus round (cost).
-- **`openrouter-default`** is the reserved alias for the bare `mcp__openrouter__openrouter`
+- **`openrouter-default`** is the reserved alias for the bare `mcp__deliberation__openrouter`
   call and `/ask-openrouter` with no alias specified. It is the single-shot fallback only
   and is never included in fan-out or consensus.
 - Implementation tasks always route to Codex or Gemini, never to OpenRouter.
@@ -454,7 +454,7 @@ valid delegate and collects the bad ones into `invalidModels`. Only **top-level/
 problems hard-fail the whole config: malformed JSON, a non-object root, an unsupported
 `version`, or a non-integer/`< 1` `maxFanout`.
 
-`mcp__openrouter__openrouter-list` returns:
+`mcp__deliberation__openrouter-list` returns:
 
 ```jsonc
 {
@@ -511,7 +511,7 @@ Exceeding either cap returns a hard error with counts.
 
 ### Session model persistence
 
-A model alias is bound at the start of a session via `mcp__openrouter__openrouter`
+A model alias is bound at the start of a session via `mcp__deliberation__openrouter`
 and is preserved for the life of that `threadId`. `-reply` calls on the same thread
 always use the same model.
 
@@ -525,9 +525,9 @@ token count. There is no hard spend cap - the warning is informational only.
 
 | Tool | Purpose |
 |------|---------|
-| `mcp__openrouter__openrouter` | Start a new advisory session |
-| `mcp__openrouter__openrouter-reply` | Continue a session (multi-turn via threadId) |
-| `mcp__openrouter__openrouter-list` | List configured model aliases and their eligibility flags |
+| `mcp__deliberation__openrouter` | Start a new advisory session |
+| `mcp__deliberation__openrouter-reply` | Continue a session (multi-turn via threadId) |
+| `mcp__deliberation__openrouter-list` | List configured model aliases and their eligibility flags |
 
 ### Error kinds
 

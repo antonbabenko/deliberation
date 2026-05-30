@@ -1,7 +1,7 @@
 ---
 name: ask-grok
 description: Get Grok (xAI) second opinion on a question or current work. Single-shot, advisory, no contamination.
-allowed-tools: mcp__grok__grok, Read, Bash
+allowed-tools: mcp__deliberation-grok__grok, Read, Bash
 timeout: 180000
 ---
 
@@ -15,7 +15,7 @@ User question or topic: $ARGUMENTS
 
 ## Workflow
 
-1. **Identify expert** - match `$ARGUMENTS` against trigger patterns in `~/.claude/rules/delegator/triggers.md`:
+1. **Identify expert** - match `$ARGUMENTS` against trigger patterns in `~/.claude/rules/deliberation/triggers.md`:
    - Architecture / design / tradeoffs → Architect
    - Plan validation → Plan Reviewer
    - Requirements / scope → Scope Analyst
@@ -24,18 +24,18 @@ User question or topic: $ARGUMENTS
    - Default if unclear → Architect
 
 2. **Read expert prompt** via this resolution sequence:
-   1. Glob `~/.claude/plugins/cache/*/claude-delegator/*/prompts/[expert].md`. Pick the match with the highest semver version segment (the segment immediately after `claude-delegator/`, parsed as semver - not lexical string compare).
+   1. Glob `~/.claude/plugins/cache/*/deliberation/*/prompts/[expert].md`. Pick the match with the highest semver version segment (the segment immediately after `deliberation/`, parsed as semver - not lexical string compare).
    2. If no match, look up the inlined fallback under the heading `## Inlined fallback - [Expert]` in this command file (see end of this file).
-   3. If neither found, abort with: `Error: claude-delegator plugin cache missing for expert "[Expert]". Run /plugin install claude-delegator or /reload-plugins.`
+   3. If neither found, abort with: `Error: deliberation plugin cache missing for expert "[Expert]". Run /plugin install deliberation or /reload-plugins.`
 
-3. **Build 7-section delegation prompt** per `~/.claude/rules/delegator/delegation-format.md`. Include:
+3. **Build 7-section delegation prompt** per `~/.claude/rules/deliberation/delegation-format.md`. Include:
    - Verbatim user question from `$ARGUMENTS`
    - Relevant code snippets / file paths from current conversation context (attach local files Grok should read via `files` in step 4; inline small snippets directly)
    - Any specific constraints user has mentioned this session
 
 4. **Call Grok** - single-shot, advisory:
    ```
-   mcp__grok__grok({
+   mcp__deliberation-grok__grok({
      prompt: "[7-section delegation prompt]",
      "developer-instructions": "[contents of expert prompt file]",
      sandbox: "read-only",
@@ -110,9 +110,9 @@ User question or topic: $ARGUMENTS
 - **Files** - `files:[{path|file_id|file_url}]` attaches documents (PDF, code, md, csv, json, txt; <= 48 MB) to the query. Attach referenced local files by default and pass `cwd` = repo root so `path` entries resolve (a path outside `cwd` is refused). On `errorKind: "file-read"` / `"file-too-large"`, tell the user which file failed.
 - **No model pin in-command** - the bridge defaults to `GROK_DEFAULT_MODEL` (or `grok-4.3`). To change it, set `GROK_DEFAULT_MODEL` in the MCP server's environment rather than hardcoding a (drift-prone) id here.
 - **No contamination** - do not include prior GPT or Gemini opinions in the Grok prompt. Each expert reasons independently.
-- **Auth required** - Grok needs `XAI_API_KEY`. If the call returns `errorKind: "missing-auth"`, tell the user to `export XAI_API_KEY=xai-...` (or rerun `/claude-delegator:setup`) and restart Claude Code.
+- **Auth required** - Grok needs `XAI_API_KEY`. If the call returns `errorKind: "missing-auth"`, tell the user to `export XAI_API_KEY=xai-...` (or rerun `/deliberation:setup`) and restart Claude Code.
 - **Print status line** immediately before the MCP dispatch: `Grok working (typical 30-60s)...`
-- **Concurrent prep, single dispatch** - prep here is a single expert-prompt `Glob` followed by one dispatch (a fixed status line, no per-delegate config reads). Keep it that way; do not pad the preamble with extra sequential round-trips. See `rules/delegator/orchestration.md` Step 5.5.
+- **Concurrent prep, single dispatch** - prep here is a single expert-prompt `Glob` followed by one dispatch (a fixed status line, no per-delegate config reads). Keep it that way; do not pad the preamble with extra sequential round-trips. See `rules/deliberation/orchestration.md` Step 5.5.
 
 - **Final judgment is the orchestrator's** - the external model only advises. Claude reads its output, applies its own judgment, and is accountable for the synthesized answer shown to you. The model's raw verdict is not the final word.
 

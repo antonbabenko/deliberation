@@ -1,0 +1,9 @@
+{
+  "name": "@antonbabenko/deliberation-mcp",
+  "version": "0.1.0",
+  "description": "Deliberation for Claude Code and any MCP host - GPT, Gemini, Grok, and OpenRouter expert subagents.",
+  "bin": { "deliberation-mcp": "./index.js" },
+  "main": "./index.js",
+  "files": ["index.js"],
+  "license": "MIT"
+}

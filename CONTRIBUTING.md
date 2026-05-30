@@ -1,4 +1,4 @@
-# Contributing to claude-delegator
+# Contributing to deliberation
 
 Contributions welcome. This document covers how to contribute effectively.
 
@@ -8,15 +8,15 @@ Contributions welcome. This document covers how to contribute effectively.
 
 ```bash
 # Clone the repo
-git clone https://github.com/antonbabenko/claude-delegator
-cd claude-delegator
+git clone https://github.com/antonbabenko/deliberation
+cd deliberation
 
 # Run `claude` and install plugin in Claude Code
 claude
-/claude-delegator:setup
+/deliberation:setup
 
 # Or test your changes locally without reinstalling
-claude --plugin-dir /path/to/claude-delegator
+claude --plugin-dir /path/to/deliberation
 ```
 
 ---
@@ -36,7 +36,7 @@ claude --plugin-dir /path/to/claude-delegator
 ## Project Structure
 
 ```
-claude-delegator/
+deliberation/
 ├── .claude-plugin/         # Plugin manifest
 │   └── plugin.json
 ├── commands/               # Slash commands (/setup, /uninstall)
@@ -53,7 +53,7 @@ claude-delegator/
 
 ### Before Submitting
 
-1. **Test your changes** - Run `/claude-delegator:setup` and verify
+1. **Test your changes** - Run `/deliberation:setup` and verify
 2. **Update docs** - If you change behavior, update relevant docs
 3. **Keep commits atomic** - One logical change per commit
 
@@ -94,7 +94,7 @@ You never bump versions by hand.
 3. It opens a `chore(release): vX.Y.Z` PR that updates `version.json`, `CHANGELOG.md`, and
    the synced manifests, then auto-merges it once the `validate` check passes.
 4. On merge, a second workflow tags `vX.Y.Z` and publishes the GitHub Release.
-5. The `antonbabenko/agent-plugins` marketplace then re-pins `claude-delegator` to the new
+5. The `antonbabenko/agent-plugins` marketplace then re-pins `deliberation` to the new
    release (immediately if its dispatch token is set, otherwise within a day via cron).
 
 `version.json` is the single source of truth. `.claude-plugin/plugin.json`,
@@ -163,8 +163,8 @@ check fails if they drift.
 After changes, verify with actual MCP calls:
 
 1. Install the plugin in Claude Code
-2. Run `/claude-delegator:setup`
-3. Verify MCP tools are available (`mcp__codex__codex`)
+2. Run `/deliberation:setup`
+3. Verify MCP tools are available (`mcp__deliberation-codex__codex`)
 4. Test MCP tool calls via oracle delegation
 5. Verify responses are properly synthesized
 6. Test error cases (timeout, missing CLI)

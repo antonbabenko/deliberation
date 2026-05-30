@@ -1,0 +1,29 @@
+{
+  "mcpServers": {
+    "codex": {
+      "command": "codex",
+      "args": ["mcp-server"],
+      "type": "stdio"
+    },
+    "gemini": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/server/gemini/index.js"],
+      "type": "stdio"
+    },
+    "grok": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/server/grok/index.js"],
+      "type": "stdio"
+    },
+    "openrouter": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/server/openrouter/index.js"],
+      "type": "stdio"
+    },
+    "deliberation": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/server/mcp/index.js"],
+      "type": "stdio"
+    }
+  }
+}

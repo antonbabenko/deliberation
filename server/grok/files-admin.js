@@ -7,7 +7,7 @@
  *
  *   prune  - deletes REMOTE xAI files by filename prefix + created_at cutoff.
  *            Safe without the local cache.
- *   gc     - syncs the LOCAL cache (~/.claude/cache/claude-delegator/grok-files.json)
+ *   gc     - syncs the LOCAL cache (~/.claude/cache/deliberation/grok-files.json)
  *            with the remote file list via ONE paginated GET /v1/files. Prunes
  *            local rows whose fileId no longer exists remotely. Default scope:
  *            current XAI_API_KEY + XAI_API_BASE rows only. --all-keys widens;
@@ -17,7 +17,7 @@
  */
 
 const DEFAULT_API_BASE = process.env.XAI_API_BASE || "https://api.x.ai/v1";
-const DEFAULT_PREFIX = "claude-delegator-";
+const DEFAULT_PREFIX = "deliberation-";
 
 // Parse a human duration into seconds. Accepts Ns, Nm, Nh, Nd, or a plain
 // integer (seconds). Returns a non-negative number or throws on bad input.
@@ -235,7 +235,7 @@ async function main() {
   console.error(
     "Usage:\n" +
     "  files-admin.js list\n" +
-    "  files-admin.js prune --older-than <30m|24h|7d|seconds> [--yes] [--prefix claude-delegator-]\n" +
+    "  files-admin.js prune --older-than <30m|24h|7d|seconds> [--yes] [--prefix deliberation-]\n" +
     "  files-admin.js gc [--all-keys] [--force-local-prune]\n" +
     "\n" +
     "gc syncs the local cache with xAI: one paginated GET /v1/files; rows whose\n" +

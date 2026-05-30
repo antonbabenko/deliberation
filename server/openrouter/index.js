@@ -1,11 +1,12 @@
 #!/usr/bin/env node
+// @ts-nocheck -- legacy bridge; predates the strict typecheck gate (core-only). Opt-in is a separate pass.
 "use strict";
 
 /**
  * Claude Delegator - OpenRouter MCP Bridge
  *
  * Zero-dependency MCP server (JSON-RPC 2.0 over stdio) calling the OpenAI-compatible
- * POST {apiBase}/chat/completions endpoint. Config in ~/.claude/claude-delegator/config.json
+ * POST {apiBase}/chat/completions endpoint. Config in ~/.claude/deliberation/config.json
  * (stat-gated hot-reload). Advisory-only. Tools: openrouter, openrouter-reply, openrouter-list.
  */
 
@@ -69,8 +70,8 @@ async function callOpenRouter({ apiBase, apiKey, model, messages, reasoningEffor
 
   const headers = {
     "Content-Type": "application/json",
-    "HTTP-Referer": "https://github.com/antonbabenko/claude-delegator",
-    "X-Title": "claude-delegator",
+    "HTTP-Referer": "https://github.com/antonbabenko/deliberation",
+    "X-Title": "deliberation",
   };
   if (isNonEmptyString(apiKey)) headers["Authorization"] = `Bearer ${apiKey}`;
 
@@ -99,8 +100,7 @@ const { makeConfigReader } = require("./config.js");
 const { resolveAlias, RESERVED_ALIAS, askAllDelegates, consensusDelegates } = require("./routing.js");
 const { inlineFiles } = require("./files.js");
 
-const CONFIG_PATH = process.env.CLAUDE_DELEGATOR_CONFIG
-  || require("node:path").join(require("node:os").homedir(), ".claude", "claude-delegator", "config.json");
+const CONFIG_PATH = require("../../core/paths.js").resolveConfigPath();
 const configReader = makeConfigReader(CONFIG_PATH);
 
 // threadId -> { turns, model, apiBase, reasoningEffort, temperature }. In-memory,
@@ -164,7 +164,7 @@ const TOOL_PROPS = {
 const handlers = {
   initialize: (id, _p, respond) => {
     if (!respond) return;
-    sendResponse(id, { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "claude-delegator-openrouter", version: "1.0.0" } });
+    sendResponse(id, { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "deliberation-openrouter", version: "1.0.0" } });
   },
   "notifications/initialized": () => {},
   "tools/list": (id, _p, respond) => {

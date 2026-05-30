@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @ts-nocheck -- legacy bridge; predates the strict typecheck gate (core-only). Opt-in is a separate pass.
 
 /**
  * Claude Delegator - Gemini MCP Bridge
@@ -27,6 +28,32 @@ const VALID_SANDBOX_VALUES = new Set(["read-only", "workspace-write"]);
 // agy's --print-timeout takes a Go duration string ("420s"). Convert ms.
 function goDuration(ms) {
   return Math.ceil(ms / 1000) + "s";
+}
+
+// Build the agy argv for a one-shot (non-reply) run. MUST end with
+// "-p <prompt>" - runGemini does args.lastIndexOf("-p") to splice in
+// --print-timeout before the prompt tail. The live `gemini` handler uses this
+// so the server path and the core adapter share one assembly. model is accepted
+// but never reaches argv (agy reads the model from ~/.gemini/settings.json).
+// developerInstructions, when present, is folded into the prompt (agy print mode
+// has no system channel). The --conversation reply flag is NOT built here; that
+// stays in the gemini-reply handler branch.
+/**
+ * @param {{prompt:string, model?:string, includeDirs?:string[], sandbox?:string, developerInstructions?:string}} req
+ * @returns {string[]}
+ */
+function buildAgyArgs(req) {
+  const args = [];
+  // Sandbox / permissions mapping (default read-only -> --sandbox).
+  if (req.sandbox === "workspace-write") args.push("--dangerously-skip-permissions");
+  else args.push("--sandbox");
+  // Extra workspace dirs.
+  for (const d of req.includeDirs || []) args.push("--add-dir", d);
+  // Fold expert instructions into the prompt (no system channel in print mode).
+  let prompt = req.prompt;
+  if (req.developerInstructions) prompt = `${req.developerInstructions}\n\n${prompt}`;
+  args.push("-p", prompt); // "-p <prompt>" MUST be the tail
+  return args;
 }
 
 // --- MCP Protocol Helpers ---
@@ -232,7 +259,7 @@ async function runGemini(args, cwd, timeoutMs, recoveryGraceMs) {
           settled = true;
           clearTimers();
           process.stderr.write(
-            "[claude-delegator] recovered agy answer via stdout drain after soft timeout (" +
+            "[deliberation] recovered agy answer via stdout drain after soft timeout (" +
             Math.round((Date.now() - spawnStartMs) / 1000) + "s)\n"
           );
           return resolve({ response: out, threadId: resolveConversationId(effCwd) || "unknown", recovered: true });
@@ -247,7 +274,7 @@ async function runGemini(args, cwd, timeoutMs, recoveryGraceMs) {
         const threadId = resolveConversationId(effCwd);
         if (threadId == null) {
           process.stderr.write(
-            "[claude-delegator] no conversation id found for cwd " + effCwd +
+            "[deliberation] no conversation id found for cwd " + effCwd +
             "; returning threadId:\"unknown\" (resume will be unavailable)\n"
           );
         }
@@ -284,7 +311,7 @@ const handlers = {
     sendResponse(id, {
       protocolVersion: "2024-11-05",
       capabilities: { tools: {} },
-      serverInfo: { name: "claude-delegator-gemini", version: "1.6.0" }
+      serverInfo: { name: "deliberation-gemini", version: "1.6.0" }
     });
   },
 
@@ -417,10 +444,13 @@ const handlers = {
           return;
         }
 
-        agyArgs.push(...sandboxFlags, ...addDirFlags);
-        let prompt = args.prompt;
-        if (args["developer-instructions"]) prompt = `${args["developer-instructions"]}\n\n${prompt}`;
-        agyArgs.push("-p", prompt);
+        agyArgs.push(...buildAgyArgs({
+          prompt: args.prompt,
+          model: args.model,
+          includeDirs: args["include-directories"],
+          sandbox: args.sandbox,
+          developerInstructions: args["developer-instructions"],
+        }));
       } else if (name === "gemini-reply") {
         if (!isNonEmptyString(args.threadId)) {
           if (shouldRespond) sendError(id, -32602, "Invalid params: 'threadId' is required for gemini-reply");
@@ -537,4 +567,8 @@ if (typeof module !== "undefined" && module.exports) {
   module.exports.resolveConversationId = resolveConversationId;
   module.exports.goDuration = goDuration;
   module.exports.stdoutIsError = stdoutIsError;
+
+  // Production exports (used by core adapters as well as tests)
+  module.exports.runGemini = runGemini;
+  module.exports.buildAgyArgs = buildAgyArgs;
 }

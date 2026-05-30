@@ -1,9 +1,15 @@
 {
-  "name": "claude-delegator",
+  "name": "deliberation",
   "version": "1.18.0",
   "private": true,
   "scripts": {
     "test": "node --test test/*.test.js",
+    "typecheck": "tsc -p tsconfig.json",
+    "check": "npm run typecheck && npm test",
     "build:social": "npx -y playwright screenshot --viewport-size=1280,640 \"file://$(pwd)/assets/social-preview.html\" assets/social-preview.png"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
   }
 }

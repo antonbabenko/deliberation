@@ -101,7 +101,7 @@ function rpc(child) {
 
 test("O6: tools/list advertises openrouter, -reply, -list", async () => {
   const file = writeConfig({ version: 1, openrouter: { enabled: true, models: [{ alias: "m1", model: "a/b" }] } });
-  const child = startBridge({ CLAUDE_DELEGATOR_CONFIG: file });
+  const child = startBridge({ DELIBERATION_CONFIG: file });
   const c = rpc(child);
   try {
     await c.request({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
@@ -111,11 +111,23 @@ test("O6: tools/list advertises openrouter, -reply, -list", async () => {
   } finally { child.kill(); }
 });
 
+test("O6b: DELIBERATION_CONFIG env points the bridge at the configured delegate", async () => {
+  const file = writeConfig({ version: 1, openrouter: { enabled: true, models: [{ alias: "m1", model: "a/b" }] } });
+  const child = startBridge({ DELIBERATION_CONFIG: file });
+  const c = rpc(child);
+  try {
+    await c.request({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+    const r = await c.request({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "openrouter-list", arguments: {} } });
+    const payload = JSON.parse(r.result.content[0].text);
+    assert.deepEqual(payload.delegates.map((d) => d.alias), ["m1"]);
+  } finally { child.kill(); }
+});
+
 test("O7: openrouter-list returns delegates object in config order", async () => {
   const file = writeConfig({ version: 1, openrouter: { enabled: true, maxFanout: 4, defaultModel: "d/m", models: [
     { alias: "x", model: "a/x" }, { alias: "y", model: "a/y", experts: [] },
   ] } });
-  const child = startBridge({ CLAUDE_DELEGATOR_CONFIG: file });
+  const child = startBridge({ DELIBERATION_CONFIG: file });
   const c = rpc(child);
   try {
     await c.request({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
@@ -133,7 +145,7 @@ test("O7e: openrouter-list keeps valid delegates and reports a broken entry with
     { alias: "good", model: "a/good" },
     { alias: "qwen3.7-max", model: "qwen/qwen3.7-max" }, // illegal '.' in alias
   ] } });
-  const child = startBridge({ CLAUDE_DELEGATOR_CONFIG: file });
+  const child = startBridge({ DELIBERATION_CONFIG: file });
   const c = rpc(child);
   try {
     await c.request({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
@@ -155,7 +167,7 @@ test("O7b: openrouter-list resolves reasoning_effort (per-model > defaults > nul
       { alias: "override", model: "a/x", reasoning_effort: "high" },
       { alias: "inherit", model: "a/y" },
     ] } });
-  let child = startBridge({ CLAUDE_DELEGATOR_CONFIG: withDefaults });
+  let child = startBridge({ DELIBERATION_CONFIG: withDefaults });
   let c = rpc(child);
   try {
     await c.request({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
@@ -167,7 +179,7 @@ test("O7b: openrouter-list resolves reasoning_effort (per-model > defaults > nul
 
   // No defaults and no per-model value => null (always present).
   const noDefaults = writeConfig({ version: 1, openrouter: { enabled: true, models: [{ alias: "bare", model: "a/z" }] } });
-  child = startBridge({ CLAUDE_DELEGATOR_CONFIG: noDefaults });
+  child = startBridge({ DELIBERATION_CONFIG: noDefaults });
   c = rpc(child);
   try {
     await c.request({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
@@ -178,7 +190,7 @@ test("O7b: openrouter-list resolves reasoning_effort (per-model > defaults > nul
 
 test("O8: openrouter call with unknown alias => model-not-allowed", async () => {
   const file = writeConfig({ version: 1, openrouter: { enabled: true, models: [{ alias: "m1", model: "a/b" }] } });
-  const child = startBridge({ CLAUDE_DELEGATOR_CONFIG: file, OPENROUTER_API_KEY: "k" });
+  const child = startBridge({ DELIBERATION_CONFIG: file, OPENROUTER_API_KEY: "k" });
   const c = rpc(child);
   try {
     await c.request({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
@@ -190,7 +202,7 @@ test("O8: openrouter call with unknown alias => model-not-allowed", async () => 
 
 test("O9: allowRawModel:false rejects a raw model param", async () => {
   const file = writeConfig({ version: 1, openrouter: { enabled: true, allowRawModel: false, models: [{ alias: "m1", model: "a/b" }] } });
-  const child = startBridge({ CLAUDE_DELEGATOR_CONFIG: file, OPENROUTER_API_KEY: "k" });
+  const child = startBridge({ DELIBERATION_CONFIG: file, OPENROUTER_API_KEY: "k" });
   const c = rpc(child);
   try {
     await c.request({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
@@ -203,7 +215,7 @@ test("O9: allowRawModel:false rejects a raw model param", async () => {
 test("O10: end-to-end openrouter call via alias against a mock endpoint", async () => {
   const { server, base } = await startMock((req, res) => reply(res, 200, { choices: [{ message: { content: "delegated answer" } }] }));
   const file = writeConfig({ version: 1, openrouter: { enabled: true, apiBase: base, models: [{ alias: "m1", model: "a/b" }] } });
-  const child = startBridge({ CLAUDE_DELEGATOR_CONFIG: file, OPENROUTER_API_KEY: "k" });
+  const child = startBridge({ DELIBERATION_CONFIG: file, OPENROUTER_API_KEY: "k" });
   const c = rpc(child);
   try {
     await c.request({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
@@ -217,7 +229,7 @@ test("O11: openrouter-reply reuses the session model (no drift to default)", asy
   const seen = [];
   const { server, base } = await startMock((req, res, body) => { seen.push(JSON.parse(body).model); return reply(res, 200, { choices: [{ message: { content: "ok" } }] }); });
   const file = writeConfig({ version: 1, openrouter: { enabled: true, apiBase: base, defaultModel: "default/model", models: [{ alias: "llama", model: "meta/llama" }] } });
-  const child = startBridge({ CLAUDE_DELEGATOR_CONFIG: file, OPENROUTER_API_KEY: "k" });
+  const child = startBridge({ DELIBERATION_CONFIG: file, OPENROUTER_API_KEY: "k" });
   const c = rpc(child);
   try {
     await c.request({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
@@ -230,7 +242,7 @@ test("O11: openrouter-reply reuses the session model (no drift to default)", asy
 
 test("O12: non-array roots is rejected with -32602", async () => {
   const file = writeConfig({ version: 1, openrouter: { enabled: true, models: [{ alias: "m1", model: "a/b" }] } });
-  const child = startBridge({ CLAUDE_DELEGATOR_CONFIG: file, OPENROUTER_API_KEY: "k" });
+  const child = startBridge({ DELIBERATION_CONFIG: file, OPENROUTER_API_KEY: "k" });
   const c = rpc(child);
   try {
     await c.request({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
@@ -243,7 +255,7 @@ test("O13: openrouter-list returns object with error (not error envelope) on bad
   const dir = fsx.mkdtempSync(pathx.join(osx.tmpdir(), "cdg-orbad-"));
   const file = pathx.join(dir, "config.json");
   fsx.writeFileSync(file, "{ not json ");
-  const child = startBridge({ CLAUDE_DELEGATOR_CONFIG: file });
+  const child = startBridge({ DELIBERATION_CONFIG: file });
   const c = rpc(child);
   try {
     await c.request({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
@@ -265,7 +277,7 @@ test("O14: concurrent tools/call to one bridge run in parallel, not serialized",
   const file = writeConfig({ version: 1, openrouter: { enabled: true, apiBase: base, models: [
     { alias: "m1", model: "a/m1" }, { alias: "m2", model: "a/m2" },
   ] } });
-  const child = startBridge({ CLAUDE_DELEGATOR_CONFIG: file });
+  const child = startBridge({ DELIBERATION_CONFIG: file });
   const c = rpc(child);
   try {
     await c.request({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });

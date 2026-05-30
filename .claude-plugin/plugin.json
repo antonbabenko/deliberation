@@ -1,13 +1,13 @@
 {
-  "name": "claude-delegator",
-  "description": "GPT (Codex CLI), Gemini (bundled MCP bridge), and Grok (xAI HTTP bridge) expert subagents for Claude Code. Seven specialized experts: Architect, Plan Reviewer, Scope Analyst, Code Reviewer, Security Analyst, Researcher, Debugger.",
+  "name": "deliberation",
+  "description": "Use when you want a delegated second opinion or implementation from GPT (Codex), Gemini, Grok (xAI), or OpenRouter (config-driven, 400+ models) - seven expert subagents (Architect, Plan Reviewer, Scope Analyst, Code Reviewer, Security Analyst, Researcher, Debugger) and bundled ask-gpt/ask-gemini/ask-grok/ask-openrouter/ask-all/consensus commands, advisory (read-only) or implementation (write; Grok and OpenRouter are advisory-only).",
   "version": "1.18.0",
   "author": {
     "name": "Anton Babenko",
     "url": "https://github.com/antonbabenko"
   },
-  "homepage": "https://github.com/antonbabenko/claude-delegator",
-  "repository": "https://github.com/antonbabenko/claude-delegator",
+  "homepage": "https://github.com/antonbabenko/deliberation",
+  "repository": "https://github.com/antonbabenko/deliberation",
   "license": "MIT",
   "keywords": ["delegation", "mcp", "codex", "gpt", "openai", "gemini", "antigravity", "agy", "google", "grok", "xai", "files", "experts", "subagents", "orchestration"]
 }

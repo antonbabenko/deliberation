@@ -8,7 +8,7 @@ timeout: 120000
 # Grok Files (storage cleanup)
 
 List, prune, or gc the xAI files uploaded by the Grok bridge. Uploads are tagged with
-the filename prefix `claude-delegator-`, so the remote-side cleanup ONLY ever targets
+the filename prefix `deliberation-`, so the remote-side cleanup ONLY ever targets
 those - your own xAI files are never touched. Uploads also carry `expires_after`
 (default 7 days) so they self-delete; this command is for pruning orphans early,
 auditing what exists, or syncing the local SHA-256 cache with remote state.
@@ -22,10 +22,10 @@ Sub-command + flags: $ARGUMENTS
 ## Workflow
 
 1. **Resolve the admin script** via this sequence:
-   1. Glob `~/.claude/plugins/cache/*/claude-delegator/*/server/grok/files-admin.js`;
+   1. Glob `~/.claude/plugins/cache/*/deliberation/*/server/grok/files-admin.js`;
       pick the highest-semver match.
    2. Fall back to `${CLAUDE_PLUGIN_ROOT}/server/grok/files-admin.js`.
-   3. If neither exists, abort: `Error: claude-delegator plugin cache missing. Run /plugin install claude-delegator.`
+   3. If none exists, abort: `Error: deliberation plugin cache missing. Run /plugin install deliberation.`
 
 2. **Check auth**: the script needs `XAI_API_KEY` in the environment. If it is unset, tell the
    user to `export XAI_API_KEY=xai-...` and stop (the script will error otherwise).
@@ -34,10 +34,10 @@ Sub-command + flags: $ARGUMENTS
    ```bash
    node "<resolved files-admin.js>" $ARGUMENTS
    ```
-   - `list` - prints total file count and every `claude-delegator-*` upload (id, created, expires, name).
+   - `list` - prints total file count and every `deliberation-*` upload (id, created, expires, name).
    - `prune --older-than <30m|24h|7d|seconds>` - **dry run** by default; prints what it WOULD delete (remote files).
    - `prune --older-than <...> --yes` - actually deletes the matched bridge-owned **remote** files.
-   - `gc` - syncs the **local** SHA-256 cache (`~/.claude/cache/claude-delegator/grok-files.json`)
+   - `gc` - syncs the **local** SHA-256 cache (`~/.claude/cache/deliberation/grok-files.json`)
      with remote state via one paginated `GET /v1/files`. Prunes local rows whose `fileId` is no
      longer on xAI. Default scope: current `XAI_API_KEY` + `XAI_API_BASE` rows only.
    - `gc --all-keys` - widens the diff to foreign rows but leaves them when remote absence is
@@ -52,7 +52,7 @@ Sub-command + flags: $ARGUMENTS
 ## Rules
 
 - **Never** pass `--prefix ""` or any prefix that would match non-bridge files; the default
-  `claude-delegator-` prefix is the safety boundary for `prune`.
+  `deliberation-` prefix is the safety boundary for `prune`.
 - Always run `prune` as a dry run first and show the user the candidate list before suggesting `--yes`.
 - `gc` is read-modify-write under the cache lock; never edit the cache file by hand while a
   Grok bridge is running.

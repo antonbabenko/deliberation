@@ -6,19 +6,19 @@ You have access to GPT experts via MCP tools. Use them strategically based on th
 
 | Tool | Provider | Use For |
 |------|----------|---------|
-| `mcp__codex__codex` | GPT | Start a new expert session |
-| `mcp__codex__codex-reply` | GPT | Continue an existing session (multi-turn) |
-| `mcp__gemini__gemini` | Gemini | Start a new expert session |
-| `mcp__gemini__gemini-reply` | Gemini | Continue an existing session (multi-turn) |
-| `mcp__grok__grok` | Grok (xAI) | Start a new expert session (advisory-only; reads attached files) |
-| `mcp__grok__grok-reply` | Grok (xAI) | Continue a session (in-memory; lost on MCP restart) |
-| `mcp__openrouter__openrouter` | OpenRouter | Start a new advisory session (config-driven model alias) |
-| `mcp__openrouter__openrouter-reply` | OpenRouter | Continue a session (multi-turn via threadId) |
-| `mcp__openrouter__openrouter-list` | OpenRouter | List configured aliases and their eligibility flags |
+| `mcp__deliberation-codex__codex` | GPT | Start a new expert session |
+| `mcp__deliberation-codex__codex-reply` | GPT | Continue an existing session (multi-turn) |
+| `mcp__deliberation-gemini__gemini` | Gemini | Start a new expert session |
+| `mcp__deliberation-gemini__gemini-reply` | Gemini | Continue an existing session (multi-turn) |
+| `mcp__deliberation-grok__grok` | Grok (xAI) | Start a new expert session (advisory-only; reads attached files) |
+| `mcp__deliberation-grok__grok-reply` | Grok (xAI) | Continue a session (in-memory; lost on MCP restart) |
+| `mcp__deliberation-openrouter__openrouter` | OpenRouter | Start a new advisory session (config-driven model alias) |
+| `mcp__deliberation-openrouter__openrouter-reply` | OpenRouter | Continue a session (multi-turn via threadId) |
+| `mcp__deliberation-openrouter__openrouter-list` | OpenRouter | List configured aliases and their eligibility flags |
 
 > **Grok notes:** the Grok bridge talks to the xAI HTTP API, so it is advisory-only (it cannot edit files). It reads attached files via `files:[{path|file_id|file_url}]` - attach referenced local files by default and set `cwd` to the repo root so paths resolve (a path outside `cwd` is refused). It needs `XAI_API_KEY`; a missing key surfaces `errorKind: "missing-auth"`.
 
-> **OpenRouter notes:** the OpenRouter bridge is advisory-only (it cannot edit files). Model aliases are declared in `~/.claude/claude-delegator/config.json` and hot-reload without restarting. File attachment is text-inline only (`{path}`/`{dir}`; 256 KB per file, 1 MB aggregate). `/ask-all` fan-out is capped by `maxFanout` (default 3); `/consensus` is uncapped (warn if >3 models). Implementation tasks must route to Codex or Gemini.
+> **OpenRouter notes:** the OpenRouter bridge is advisory-only (it cannot edit files). Model aliases are declared in `~/.claude/deliberation/config.json` and hot-reload without restarting. File attachment is text-inline only (`{path}`/`{dir}`; 256 KB per file, 1 MB aggregate). `/ask-all` fan-out is capped by `maxFanout` (default 3); `/consensus` is uncapped (warn if >3 models). Implementation tasks must route to Codex or Gemini.
 
 ## Available Experts
 
@@ -40,7 +40,7 @@ Codex and Gemini support two delegation patterns:
 
 ### Single-Shot (Default)
 
-Use `mcp__codex__codex` or `mcp__gemini__gemini` for independent tasks. Each call starts a fresh session with no memory of previous calls. Include ALL relevant context in the delegation prompt.
+Use `mcp__deliberation-codex__codex` or `mcp__deliberation-gemini__gemini` for independent tasks. Each call starts a fresh session with no memory of previous calls. Include ALL relevant context in the delegation prompt.
 
 **Best for:** Advisory reviews, one-off analysis, independent implementation tasks.
 
@@ -50,7 +50,7 @@ Both providers support multi-turn interactions. The initial call returns a `thre
 
 ```typescript
 // Turn 1: Start session (Codex example)
-const result = mcp__codex__codex({
+const result = mcp__deliberation-codex__codex({
   prompt: "Implement input validation for the user endpoint",
   "developer-instructions": "[expert prompt]",
   cwd: "/path/to/project"
@@ -58,7 +58,7 @@ const result = mcp__codex__codex({
 // result includes threadId: "019c58e5-..."
 
 // Turn 2: Follow up with context preserved
-mcp__codex__codex-reply({
+mcp__deliberation-codex__codex-reply({
   threadId: "019c58e5-...",
   prompt: "Now add tests for the validation you just implemented"
 })
@@ -101,7 +101,7 @@ When user explicitly requests GPT/Codex, Gemini, Grok, or OpenRouter:
 | "ask GPT", "consult GPT", "ask codex" | Identify task type → route to appropriate expert |
 | "ask Gemini", "consult Gemini", "ask gemini" | Identify task type → route to appropriate expert |
 | "ask Grok", "consult Grok", "ask grox" | Identify task type → route to appropriate expert |
-| "ask OpenRouter", "use [alias]", "ask [alias]" | Advisory only - identify expert, call `mcp__openrouter__openrouter` with the named alias |
+| "ask OpenRouter", "use [alias]", "ask [alias]" | Advisory only - identify expert, call `mcp__deliberation-openrouter__openrouter` with the named alias |
 | "ask GPT to review the architecture" | Delegate to Architect |
 | "have Gemini review this code" | Delegate to Code Reviewer |
 | "GPT security review" | Delegate to Security Analyst |
@@ -154,7 +154,7 @@ Use the 7-section format from `rules/delegation-format.md`.
 Emit independent prep reads CONCURRENTLY, then dispatch in ONE message. Expert
 identification (Step 1) is *reasoning* on the request - it is not a tool read and happens
 BEFORE the prep message. Then fire every independent prep read (the expert-prompt Glob,
-plus any `~/.claude/claude-delegator/config.json` / `~/.codex/config.toml` /
+plus any `~/.claude/deliberation/config.json` / `~/.codex/config.toml` /
 `~/.gemini/settings.json` / Grok env / `openrouter-list` reads a command needs) in ONE
 message as parallel tool blocks. Build the prompt, status line/block, and delegate set
 from those results, then dispatch all providers in ONE parallel message.
@@ -168,7 +168,7 @@ run concurrently with reads. Everything else is concurrent.
 ### Step 6: Call the Expert
 ```typescript
 // Using Codex (GPT)
-mcp__codex__codex({
+mcp__deliberation-codex__codex({
   prompt: "[your 7-section delegation prompt with FULL context]",
   "developer-instructions": "[contents of the expert's prompt file]",
   sandbox: "[read-only or workspace-write based on mode]",
@@ -176,7 +176,7 @@ mcp__codex__codex({
 })
 
 // OR Using Gemini
-mcp__gemini__gemini({
+mcp__deliberation-gemini__gemini({
   prompt: "[your 7-section delegation prompt with FULL context]",
   "developer-instructions": "[contents of the expert's prompt file]",
   sandbox: "[read-only or workspace-write based on mode]",
@@ -184,10 +184,10 @@ mcp__gemini__gemini({
 })
 
 // OR Using OpenRouter (advisory-only; alias from config)
-mcp__openrouter__openrouter({
+mcp__deliberation-openrouter__openrouter({
   prompt: "[your 7-section delegation prompt with FULL context]",
   "developer-instructions": "[contents of the expert's prompt file]",
-  alias: "[model alias from ~/.claude/claude-delegator/config.json]",
+  alias: "[model alias from ~/.claude/deliberation/config.json]",
   cwd: "[current working directory]"
 })
 ```
@@ -220,10 +220,10 @@ Escalate to user
 
 ```typescript
 // Attempt 1 (Codex or Gemini)
-const result = mcp__codex__codex({ ... }) // or mcp__gemini__gemini
+const result = mcp__deliberation-codex__codex({ ... }) // or mcp__deliberation-gemini__gemini
 
 // Attempt 2 (context preserved - expert remembers attempt 1)
-mcp__codex__codex-reply({ // or mcp__gemini__gemini-reply
+mcp__deliberation-codex__codex-reply({ // or mcp__deliberation-gemini__gemini-reply
   threadId: result.threadId,
   prompt: `The previous implementation failed verification.
 Error: [exact error message]
@@ -280,7 +280,7 @@ User: "What are the tradeoffs of Redis vs in-memory caching?"
 
 **Step 5-6**:
 ```typescript
-mcp__codex__codex({
+mcp__deliberation-codex__codex({
   prompt: `TASK: Analyze tradeoffs between Redis and in-memory caching for [context].
 EXPECTED OUTCOME: Clear recommendation with rationale.
 CONTEXT: [user's situation, full details]
@@ -300,7 +300,7 @@ First attempt failed with "TypeError: Cannot read property 'x' of undefined"
 
 **Attempt 1 (initial call):**
 ```typescript
-const result = mcp__codex__codex({
+const result = mcp__deliberation-codex__codex({
   prompt: `TASK: Add input validation to the user registration endpoint.
 
 CONTEXT:
@@ -320,7 +320,7 @@ REQUIREMENTS:
 
 **Attempt 2 (retry via multi-turn):**
 ```typescript
-mcp__codex__codex-reply({
+mcp__deliberation-codex__codex-reply({
   threadId: result.threadId,
   prompt: `The previous implementation failed verification.
 Error: TypeError: Cannot read property 'x' of undefined at line 45

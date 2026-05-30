@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @ts-nocheck -- legacy bridge; predates the strict typecheck gate (core-only). Opt-in is a separate pass.
 
 /**
  * Claude Delegator - Grok (xAI) MCP Bridge
@@ -14,7 +15,7 @@
  *   - dir entries are expanded by the bundled glob walker (./glob.js) with
  *     prune-before-descend, symlink-safe containment, and maxFiles/maxBytes caps.
  *   - Uploads are SHA-256 deduplicated via the local cache at
- *     ~/.claude/cache/claude-delegator/grok-files.json (./cache.js). Cache key
+ *     ~/.claude/cache/deliberation/grok-files.json (./cache.js). Cache key
  *     scopes by content + API key + normalised apiBase + effective filename.
  *   - Cross-process cache safety via mkdir-based lock with token-specific
  *     owner markers and heartbeat (./lock.js).
@@ -50,7 +51,7 @@ const FILE_TTL_SECONDS = resolveFileTtl();
 const MAX_FILE_BYTES = 48 * 1024 * 1024;
 // Filename prefix marks bridge-owned uploads so cleanup never touches the
 // user's own xAI files. Flat (no slashes/colons) to avoid filename mangling.
-const FILE_PREFIX = "claude-delegator-";
+const FILE_PREFIX = "deliberation-";
 const UPLOAD_PURPOSE = "assistants";
 
 const cacheModule = require("./cache.js");
@@ -560,7 +561,7 @@ async function resolveFiles(files, opts) {
 // and/or `.status`. `fetchImpl` is injectable for tests.
 async function runGrok({ turns, model, timeoutMs, apiKey, apiBase, fetchImpl, reasoningEffort }) {
   if (!isNonEmptyString(apiKey)) {
-    const e = new Error("XAI_API_KEY is not set. Export it (export XAI_API_KEY=xai-...) or rerun /claude-delegator:setup.");
+    const e = new Error("XAI_API_KEY is not set. Export it (export XAI_API_KEY=xai-...) or rerun /deliberation:setup.");
     e.code = "missing-auth";
     throw e;
   }
@@ -842,7 +843,7 @@ const handlers = {
     sendResponse(id, {
       protocolVersion: "2024-11-05",
       capabilities: { tools: {} },
-      serverInfo: { name: "claude-delegator-grok", version: "1.8.0" }
+      serverInfo: { name: "deliberation-grok", version: "1.8.0" }
     });
   },
 
@@ -1084,7 +1085,7 @@ if (require.main === module) {
     process.exit(1);
   }
   if (!isNonEmptyString(process.env.XAI_API_KEY)) {
-    console.error("[claude-delegator] warning: XAI_API_KEY is not set; grok calls will return errorKind:missing-auth until it is.");
+    console.error("[deliberation] warning: XAI_API_KEY is not set; grok calls will return errorKind:missing-auth until it is.");
   }
 }
 

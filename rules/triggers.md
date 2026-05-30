@@ -150,19 +150,19 @@ OpenRouter and Grok are always advisory - never route implementation tasks to th
 
 ```typescript
 // Architect analyzing (advisory via Codex)
-mcp__codex__codex({
+mcp__deliberation-codex__codex({
   prompt: "Analyze tradeoffs of Redis vs in-memory caching",
   sandbox: "read-only"
 })
 
 // Architect implementing (implementation via Gemini)
-mcp__gemini__gemini({
+mcp__deliberation-gemini__gemini({
   prompt: "Refactor the caching layer to use Redis",
   sandbox: "workspace-write"
 })
 
 // Security Analyst reviewing (advisory via OpenRouter)
-mcp__openrouter__openrouter({
+mcp__deliberation-openrouter__openrouter({
   prompt: "Review this auth flow for vulnerabilities",
   alias: "gpt-4-or",
   cwd: "/path/to/project"
@@ -170,7 +170,7 @@ mcp__openrouter__openrouter({
 })
 
 // Security Analyst hardening (implementation via Codex - not OpenRouter)
-mcp__codex__codex({
+mcp__deliberation-codex__codex({
   prompt: "Fix the SQL injection vulnerability in user.ts",
   sandbox: "workspace-write"
 })

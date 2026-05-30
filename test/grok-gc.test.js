@@ -23,7 +23,7 @@ test("gc prunes local rows whose fileId is absent from remote list", async () =>
     },
   });
 
-  const fakeFetch = async () => ({ ok: true, text: async () => JSON.stringify({ data: [{ id: "file_alive", filename: "claude-delegator-foo", created_at: 1 }] }) });
+  const fakeFetch = async () => ({ ok: true, text: async () => JSON.stringify({ data: [{ id: "file_alive", filename: "deliberation-foo", created_at: 1 }] }) });
 
   const result = await admin.gc({
     cacheFile: p,
@@ -65,7 +65,7 @@ test("gc default skips foreign keyFp rows", async () => {
       "FOREIGN": { fileId: "file_other", size: 1, filename: "b", uploadedAt: 1, expiresAt: 9999999999, apiBase, keyFp: "00000000beefbeef" },
     },
   });
-  const fakeFetch = async () => ({ ok: true, text: async () => JSON.stringify({ data: [{ id: "file_alive", filename: "claude-delegator-x", created_at: 1 }] }) });
+  const fakeFetch = async () => ({ ok: true, text: async () => JSON.stringify({ data: [{ id: "file_alive", filename: "deliberation-x", created_at: 1 }] }) });
   const result = await admin.gc({
     cacheFile: p,
     apiKey: "xai-CURRENT",

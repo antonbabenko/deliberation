@@ -455,8 +455,8 @@ test("G16: parseOlderThan understands s/m/h/d and plain seconds", () => {
 test("G17: selectPrunable keeps only prefixed files older than the cutoff", () => {
   const now = 1_000_000; // epoch seconds
   const files = [
-    { id: "a", filename: "claude-delegator-1-old.txt", created_at: now - 1000 },   // prefixed + old -> prune
-    { id: "b", filename: "claude-delegator-2-new.txt", created_at: now - 10 },     // prefixed + new -> keep
+    { id: "a", filename: "deliberation-1-old.txt", created_at: now - 1000 },   // prefixed + old -> prune
+    { id: "b", filename: "deliberation-2-new.txt", created_at: now - 10 },     // prefixed + new -> keep
     { id: "c", filename: "user-doc.pdf", created_at: now - 100000 },               // not prefixed -> keep
   ];
   const out = admin.selectPrunable(files, { cutoffEpochSec: now - 100 });
@@ -474,8 +474,8 @@ test("G18: prune lists, filters, and deletes only prunable ids when not a dry ru
     if (opts.method === "GET") {
       return { ok: true, status: 200, text: async () => JSON.stringify({
         data: [
-          { id: "old", filename: "claude-delegator-x.txt", created_at: nowSec - 100000 },
-          { id: "fresh", filename: "claude-delegator-y.txt", created_at: nowSec - 1 },
+          { id: "old", filename: "deliberation-x.txt", created_at: nowSec - 100000 },
+          { id: "fresh", filename: "deliberation-y.txt", created_at: nowSec - 1 },
           { id: "theirs", filename: "report.pdf", created_at: 1 },
         ],
         pagination_token: null,

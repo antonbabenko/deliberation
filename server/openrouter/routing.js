@@ -1,3 +1,4 @@
+// @ts-nocheck -- legacy bridge; predates the strict typecheck gate (core-only). Opt-in is a separate pass.
 "use strict";
 
 // NOTE: askAllDelegates/consensusDelegates/eligibleForExpert are the canonical
