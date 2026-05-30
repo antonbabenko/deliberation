@@ -2,7 +2,7 @@
 /** @typedef {import("./types.js").Provider} Provider */
 
 /**
- * A configured OpenRouter model entry from ~/.claude/claude-delegator/config.json.
+ * A configured OpenRouter model entry from ~/.claude/deliberation/config.json.
  * @typedef {Object} OrModel
  * @property {string}  alias
  * @property {string}  model
