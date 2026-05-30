@@ -8,7 +8,7 @@
     {
       "name": "deliberation",
       "source": "./",
-      "description": "GPT (Codex CLI), Gemini, Grok (xAI), and OpenRouter (400+ models) expert subagents for Claude Code and any MCP host. Seven experts (Architect, Plan Reviewer, Scope Analyst, Code Reviewer, Security Analyst, Researcher, Debugger) that advise or implement across delegation, code review, and architecture.",
+      "description": "Use when you want a delegated second opinion or implementation from GPT (Codex), Gemini, Grok (xAI), or OpenRouter (config-driven, 400+ models) - seven expert subagents (Architect, Plan Reviewer, Scope Analyst, Code Reviewer, Security Analyst, Researcher, Debugger) and bundled ask-gpt/ask-gemini/ask-grok/ask-openrouter/ask-all/consensus commands, advisory (read-only) or implementation (write; Grok and OpenRouter are advisory-only).",
       "version": "1.18.0",
       "author": {
         "name": "Anton Babenko",
