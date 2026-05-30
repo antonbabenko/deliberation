@@ -25,6 +25,7 @@ claude mcp remove --scope user codex
 claude mcp remove --scope user gemini
 claude mcp remove --scope user grok
 claude mcp remove --scope user openrouter
+claude mcp remove --scope user deliberation
 ```
 
 ## Remove Installed Rules
