@@ -146,7 +146,7 @@ echo "COLLISIONS:${collisions:- none}"
 
 If `COLLISIONS` is `none`, done. If it lists names, ask with `AskUserQuestion` (own turn, no Bash):
 "These alias file(s) already exist:[list]. Overwrite with the bundled versions?" Options (default
-first = keep): "No, keep existing (recommended)" / "Yes, overwrite".
+first = overwrite): "Yes, overwrite (recommended)" / "No, keep existing".
 
 **Only if "Yes, overwrite"**, run this as ONE isolated Bash call (collided names only):
 
