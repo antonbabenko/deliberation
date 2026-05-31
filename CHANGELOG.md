@@ -1,3 +1,10 @@
+## [2.3.0](https://github.com/antonbabenko/deliberation/compare/v2.2.0...v2.3.0) (2026-05-31)
+
+
+### Features
+
+* deliberation-setup bin + standalone AGENTS.md + per-host rule snippets ([#71](https://github.com/antonbabenko/deliberation/issues/71)) ([0869376](https://github.com/antonbabenko/deliberation/commit/086937692ba722314da8d55df404cdaf608f97c9))
+
 ## [2.2.0](https://github.com/antonbabenko/deliberation/compare/v2.1.0...v2.2.0) (2026-05-31)
 
 
@@ -25,11 +32,4 @@
 ### Bug Fixes
 
 * **core:** drop core->server bridge import so core is self-contained ([#62](https://github.com/antonbabenko/deliberation/issues/62)) ([7043c56](https://github.com/antonbabenko/deliberation/commit/7043c564784a796e2d946e1f9d3cd3e48967d71a))
-
-## [2.0.1](https://github.com/antonbabenko/deliberation/compare/v2.0.0...v2.0.1) (2026-05-30)
-
-
-### Bug Fixes
-
-* **commands:** resolve plugin root without CLAUDE_PLUGIN_ROOT ([#58](https://github.com/antonbabenko/deliberation/issues/58)) ([34f89ad](https://github.com/antonbabenko/deliberation/commit/34f89ad31291eeb629644399fcedef264b4b765a))
 
