@@ -7,8 +7,7 @@
  *
  * Zero-dependency MCP server (JSON-RPC 2.0 over stdio) calling the OpenAI-compatible
  * POST {apiBase}/chat/completions endpoint. Config in ~/.config/deliberation/config.json
- * (canonical; legacy ~/.claude/deliberation/config.json still read for back-compat;
- * override with DELIBERATION_CONFIG; stat-gated hot-reload). Advisory-only.
+ * (override with DELIBERATION_CONFIG; stat-gated hot-reload). Advisory-only.
  * Tools: openrouter, openrouter-reply, openrouter-list.
  */
 

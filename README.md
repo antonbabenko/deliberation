@@ -37,8 +37,8 @@ Each expert has a distinct specialty and can advise or implement.
 
 You can use any subset of the providers. The plugin detects which are configured and routes
 accordingly. OpenRouter is advisory-only and config-driven: models are declared in
-`~/.config/deliberation/config.json` (canonical; legacy `~/.claude/deliberation/config.json`
-still read for back-compat) and hot-reload without restarting Claude Code.
+`~/.config/deliberation/config.json` (Windows: `%APPDATA%\deliberation\config.json`; override
+with `DELIBERATION_CONFIG`) and hot-reload without restarting Claude Code.
 
 | What you get | Why it matters |
 |--------------|----------------|
@@ -97,7 +97,7 @@ Add this to your host's MCP config (most hosts use the `mcpServers` key):
 }
 ```
 
-The `env` block is how you set provider keys outside Claude Code. GPT and Gemini do not read keys here - they use the `codex` and `agy` CLIs (logged in separately), so drop those lines if you only use GPT/Gemini. `XAI_API_KEY` enables Grok; `OPENROUTER_API_KEY` enables OpenRouter (which also needs models declared in `~/.config/deliberation/config.json` - the canonical XDG path, Windows `%APPDATA%\deliberation\config.json`; the legacy `~/.claude/deliberation/config.json` is still read for back-compat - or point elsewhere with `DELIBERATION_CONFIG`). The one-click buttons above cannot carry secrets - add the `env` block by hand after installing.
+The `env` block is how you set provider keys outside Claude Code. GPT and Gemini do not read keys here - they use the `codex` and `agy` CLIs (logged in separately), so drop those lines if you only use GPT/Gemini. `XAI_API_KEY` enables Grok; `OPENROUTER_API_KEY` enables OpenRouter (which also needs models declared in `~/.config/deliberation/config.json` - the canonical XDG path, Windows `%APPDATA%\deliberation\config.json` - or point elsewhere with `DELIBERATION_CONFIG`). The one-click buttons above cannot carry secrets - add the `env` block by hand after installing.
 
 Per-host config location and the key it expects:
 
@@ -113,11 +113,11 @@ Per-host config location and the key it expects:
 | Zed | `settings.json` | `context_servers` |
 | Cline | the extension's MCP settings (Cline panel -> MCP Servers) | `mcpServers` |
 
-Provider prerequisites are the same as the plugin (see [Requirements](#requirements)): the Codex CLI for GPT, `agy` for Gemini, `XAI_API_KEY` for Grok, and `OPENROUTER_API_KEY` plus `~/.config/deliberation/config.json` for OpenRouter (canonical; legacy `~/.claude/deliberation/config.json` still read for back-compat; override the config path with `DELIBERATION_CONFIG`).
+Provider prerequisites are the same as the plugin (see [Requirements](#requirements)): the Codex CLI for GPT, `agy` for Gemini, `XAI_API_KEY` for Grok, and `OPENROUTER_API_KEY` plus `~/.config/deliberation/config.json` for OpenRouter (Windows: `%APPDATA%\deliberation\config.json`; override the config path with `DELIBERATION_CONFIG`).
 
 Tools exposed: `ask-all`, `consensus`, `ask-gpt` / `ask-gemini` / `ask-grok` / `ask-openrouter`, and the seven experts (`architect`, `plan-reviewer`, `scope-analyst`, `code-reviewer`, `security-analyst`, `researcher`, `debugger`).
 
-The package also ships a `deliberation-setup` bin. Run it once with `npx -y --package @antonbabenko/deliberation-mcp deliberation-setup` to write a starter `~/.config/deliberation/config.json` (canonical; it never overwrites an existing one, and migrates a legacy `~/.claude/deliberation/config.json` to the canonical path if it finds one). The plain `npx -y @antonbabenko/deliberation-mcp` form runs the default bin (the server), which is what your MCP host launches. For host rule wiring, see [`AGENTS.md`](AGENTS.md) and the per-host snippets in [`examples/`](examples/).
+The package also ships a `deliberation-setup` bin. Run it once with `npx -y --package @antonbabenko/deliberation-mcp deliberation-setup` to write a starter `~/.config/deliberation/config.json` (it never overwrites an existing one). The plain `npx -y @antonbabenko/deliberation-mcp` form runs the default bin (the server), which is what your MCP host launches. For host rule wiring, see [`AGENTS.md`](AGENTS.md) and the per-host snippets in [`examples/`](examples/).
 
 </details>
 
@@ -128,7 +128,7 @@ You need at least one provider:
 - **Codex CLI** (GPT): `npm install -g @openai/codex`, then `codex login`.
 - **Antigravity CLI**: [Getting Started with Antigravity CLI](https://antigravity.google/docs/cli-getting-started) and [Migrating from Gemini CLI](https://antigravity.google/docs/gcli-migration), then run `agy` and login.
 - **Grok (xAI)**: no CLI to install; the bridge ships with the plugin (needs Node 18+). Set `XAI_API_KEY` (get a key at https://console.x.ai).
-- **OpenRouter**: no CLI; the bridge ships with the plugin (needs Node 18+). Set `OPENROUTER_API_KEY` (get a key at https://openrouter.ai/keys), then declare models in `~/.config/deliberation/config.json` (canonical; legacy `~/.claude/deliberation/config.json` still read for back-compat). Works with any OpenAI-compatible endpoint (Ollama, vLLM, LM Studio, HuggingFace Inference) - auth is skipped automatically when the key env var is empty.
+- **OpenRouter**: no CLI; the bridge ships with the plugin (needs Node 18+). Set `OPENROUTER_API_KEY` (get a key at https://openrouter.ai/keys), then declare models in `~/.config/deliberation/config.json` (Windows: `%APPDATA%\deliberation\config.json`; override with `DELIBERATION_CONFIG`). Works with any OpenAI-compatible endpoint (Ollama, vLLM, LM Studio, HuggingFace Inference) - auth is skipped automatically when the key env var is empty.
 
 ## Commands
 
@@ -239,9 +239,8 @@ Every expert supports two modes, chosen automatically from your request:
 ### OpenRouter config
 
 OpenRouter models are declared in `~/.config/deliberation/config.json` - the canonical
-XDG path (Windows: `%APPDATA%\deliberation\config.json`). The legacy
-`~/.claude/deliberation/config.json` is still read for back-compat, and you can override
-the path with `DELIBERATION_CONFIG`. The file is the live single source of
+XDG path (Windows: `%APPDATA%\deliberation\config.json`). You can override the path
+with `DELIBERATION_CONFIG`. The file is the live single source of
 truth: changes to the `openrouter` block hot-reload without restarting Claude Code.
 Toggling a built-in provider (codex / gemini / grok) still requires `/setup`.
 
@@ -306,9 +305,7 @@ For provider defaults, environment variables, and manual MCP setup, see [TECHNIC
 
 1. Move your config to the canonical path: `mkdir -p ~/.config/deliberation && mv
    ~/.claude/claude-delegator/config.json ~/.config/deliberation/config.json` (or set
-   `DELIBERATION_CONFIG` to a custom path; `CLAUDE_DELEGATOR_CONFIG` is no longer read). A
-   config left at the legacy `~/.claude/deliberation/config.json` is still read for back-compat,
-   and `/deliberation:setup` migrates it to the canonical path for you.
+   `DELIBERATION_CONFIG` to a custom path; `CLAUDE_DELEGATOR_CONFIG` is no longer read).
 2. Re-run `/deliberation:setup` to register the renamed MCP servers. The old bare
    `codex`/`gemini`/`grok`/`openrouter` registrations are not auto-removed. If you had them,
    remove each one (the CLI takes one name per call):

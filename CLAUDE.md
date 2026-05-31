@@ -86,7 +86,7 @@ Retries use multi-turn (`*-reply` with `threadId`) so the expert remembers previ
 | `prompts/*.md` | Expert personalities | Injected via `developer-instructions` |
 | `commands/*.md` | Slash commands | `/setup`, `/uninstall` |
 | `config/providers.json` | Provider metadata | Not used at runtime |
-| `~/.config/deliberation/config.json` | OpenRouter model config | Live SSOT; stat-gated hot-reload. Canonical XDG path (Windows: `%APPDATA%\deliberation\config.json`); legacy `~/.claude/deliberation/config.json` still read for back-compat; override with `DELIBERATION_CONFIG` |
+| `~/.config/deliberation/config.json` | OpenRouter model config | Live SSOT; stat-gated hot-reload. Canonical XDG path (Windows: `%APPDATA%\deliberation\config.json`); override with `DELIBERATION_CONFIG` |
 
 > Expert prompts adapted from [oh-my-opencode](https://github.com/code-yeongyu/oh-my-opencode)
 
@@ -117,7 +117,7 @@ CLAUDE.md into it. Per-host rule snippets live in `examples/`.
 | **Researcher** | `prompts/researcher.md` | External libraries, docs, best practices | "how do I use X", "find examples of Y" |
 | **Debugger** | `prompts/debugger.md` | Root-cause analysis, minimal fixes | "why does this crash", "debug this failing test" |
 
-Every expert can operate in **advisory** (`sandbox: read-only`) or **implementation** (`sandbox: workspace-write`) mode based on the task. OpenRouter models are always advisory - per-model expert eligibility is controlled by the `experts` field in `~/.config/deliberation/config.json` (canonical; legacy `~/.claude/deliberation/config.json` still read for back-compat).
+Every expert can operate in **advisory** (`sandbox: read-only`) or **implementation** (`sandbox: workspace-write`) mode based on the task. OpenRouter models are always advisory - per-model expert eligibility is controlled by the `experts` field in `~/.config/deliberation/config.json` (Windows: `%APPDATA%\deliberation\config.json`; override with `DELIBERATION_CONFIG`).
 
 ## Grok file access
 
@@ -125,7 +125,7 @@ Grok reads attached files via `files[]` and resolves them under `roots[]` (top-l
 
 ## Key Design Decisions
 
-1. **Native & Bridge MCP** - Codex has a native `mcp-server` command. Gemini requires a bundled bridge (`server/gemini/index.js`) that wraps the Antigravity CLI (`agy`) in print mode. Grok has no MCP or CLI server mode, so a bundled bridge (`server/grok/index.js`) wraps the xAI **Responses API** (`/v1/responses`) directly - advisory-only (no file editing), but it can READ attached files (`files:[{path|file_id|file_url|dir}]`, optional `roots[]`, per-entry `mode` for upload-vs-inline delivery); uploaded files are SHA-256 dedup-cached locally, auto-expire (7-day default, `GROK_FILE_TTL_SECONDS`), and are managed with `/grok-files` (`server/grok/files-admin.js`: `list`/`prune`/`gc`). Details in [TECHNICAL.md § Grok files and cleanup](TECHNICAL.md#grok-files-and-cleanup). OpenRouter uses a bundled bridge (`server/openrouter/index.js`) that calls any OpenAI-compatible `POST {apiBase}/chat/completions` endpoint - advisory-only, text-inline file attachment only (`{path}`/`{dir}`; no upload path), config-driven via `~/.config/deliberation/config.json` (canonical; legacy `~/.claude/deliberation/config.json` still read for back-compat). Details in [TECHNICAL.md § OpenRouter bridge](TECHNICAL.md#openrouter-bridge).
+1. **Native & Bridge MCP** - Codex has a native `mcp-server` command. Gemini requires a bundled bridge (`server/gemini/index.js`) that wraps the Antigravity CLI (`agy`) in print mode. Grok has no MCP or CLI server mode, so a bundled bridge (`server/grok/index.js`) wraps the xAI **Responses API** (`/v1/responses`) directly - advisory-only (no file editing), but it can READ attached files (`files:[{path|file_id|file_url|dir}]`, optional `roots[]`, per-entry `mode` for upload-vs-inline delivery); uploaded files are SHA-256 dedup-cached locally, auto-expire (7-day default, `GROK_FILE_TTL_SECONDS`), and are managed with `/grok-files` (`server/grok/files-admin.js`: `list`/`prune`/`gc`). Details in [TECHNICAL.md § Grok files and cleanup](TECHNICAL.md#grok-files-and-cleanup). OpenRouter uses a bundled bridge (`server/openrouter/index.js`) that calls any OpenAI-compatible `POST {apiBase}/chat/completions` endpoint - advisory-only, text-inline file attachment only (`{path}`/`{dir}`; no upload path), config-driven via `~/.config/deliberation/config.json` (Windows: `%APPDATA%\deliberation\config.json`; override with `DELIBERATION_CONFIG`). Details in [TECHNICAL.md § OpenRouter bridge](TECHNICAL.md#openrouter-bridge).
 2. **Single-shot + multi-turn** - Single-shot for advisory (full context per call), multi-turn via `threadId` for chained implementation and retries
 3. **Dual mode** - Any expert can advise or implement based on task
 4. **Synthesize, don't passthrough** - Claude interprets expert output, applies judgment

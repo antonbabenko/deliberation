@@ -80,8 +80,8 @@ User question or topic: $ARGUMENTS
    2. Pass them as `files: [{ path: "CLAUDE.md", mode: "auto" }, { path: "main.tf", mode: "auto" }, { dir: "src", include: ["**/*.ts"], mode: "auto" }, ...]`
       with `cwd` = repo root. `mode: "auto"` is strongly recommended for source-code
       review — it inlines text files so Grok reads them line-by-line instead of
-      treating them as searchable attachments (the default `"upload"` is back-compat
-      with v2.0; explicitly say `"inline"` to force inline regardless of size). For
+      treating them as searchable attachments (the default `"upload"` matches the
+      v2.0 behavior; explicitly say `"inline"` to force inline regardless of size). For
       cross-repo questions, pass `roots: [repoA, repoB]` and either relative paths
       (first root holding the file wins) or absolute paths (must resolve under one
       of the roots). With `roots` you NO LONGER need to put every attachment under

@@ -3,7 +3,7 @@
 
 /**
  * A configured OpenRouter model entry from the deliberation config
- * (canonical ~/.config/deliberation/config.json; legacy ~/.claude/deliberation/config.json still read for back-compat).
+ * (~/.config/deliberation/config.json; override with DELIBERATION_CONFIG).
  * @typedef {Object} OrModel
  * @property {string}  alias
  * @property {string}  model

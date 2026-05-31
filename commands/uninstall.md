@@ -53,17 +53,16 @@ echo "Removed MCP registrations (user scope)."
 rm -rf "$HOME/.claude/rules/deliberation/" 2>/dev/null || true
 echo "Removed rules dir."
 
-# --- Grok dedup cache; metadata only, safe to drop. Canonical XDG + legacy ~/.claude. ---
+# --- Grok dedup cache; metadata only, safe to drop. Canonical XDG. ---
 # Mirror core/paths.js: a RELATIVE XDG_CACHE_HOME is ignored (else rm -rf would
-# target a path relative to $PWD). CLAUDE_CONFIG_DIR scopes only the legacy base.
+# target a path relative to $PWD) and the default ~/.cache used.
 if [ -n "${XDG_CACHE_HOME:-}" ] && [ "${XDG_CACHE_HOME#/}" != "${XDG_CACHE_HOME}" ]; then
   CACHE_BASE="$XDG_CACHE_HOME"
 else
   CACHE_BASE="$HOME/.cache"
 fi
 rm -rf "$CACHE_BASE/deliberation/" 2>/dev/null || true
-rm -rf "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/cache/deliberation/" 2>/dev/null || true
-echo "Removed Grok file cache (canonical + legacy)."
+echo "Removed Grok file cache."
 
 # --- short command aliases: remove ONLY if byte-identical to the bundled command ---
 removed=""; kept=""
@@ -102,6 +101,5 @@ only cleans up the user-scope MCP registrations, rules, cache, and copied aliase
   uninstalling, run `/grok-files prune --older-than 0s --yes` (or `/grok-files gc` to see what is
   already gone) BEFORE Step 2.
 - Config is left in place - it holds your OpenRouter model setup and API-key env names. Remove it
-  manually if you want a full wipe. Check both the canonical `~/.config/deliberation/config.json`
-  (Windows: `%APPDATA%\deliberation\config.json`) and the legacy `~/.claude/deliberation/config.json`
-  (still read for back-compat).
+  manually if you want a full wipe: `~/.config/deliberation/config.json` (Windows:
+  `%APPDATA%\deliberation\config.json`), or the path set by `DELIBERATION_CONFIG`.

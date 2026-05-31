@@ -37,7 +37,7 @@ Sub-command + flags: $ARGUMENTS
    - `list` - prints total file count and every `deliberation-*` upload (id, created, expires, name).
    - `prune --older-than <30m|24h|7d|seconds>` - **dry run** by default; prints what it WOULD delete (remote files).
    - `prune --older-than <...> --yes` - actually deletes the matched bridge-owned **remote** files.
-   - `gc` - syncs the **local** SHA-256 cache (`~/.cache/deliberation/grok-files.json`; canonical, legacy `~/.claude/cache/deliberation/grok-files.json` still read for back-compat)
+   - `gc` - syncs the **local** SHA-256 cache (`~/.cache/deliberation/grok-files.json`; Windows `%LOCALAPPDATA%\deliberation\grok-files.json`, override with `DELIBERATION_CACHE`)
      with remote state via one paginated `GET /v1/files`. Prunes local rows whose `fileId` is no
      longer on xAI. Default scope: current `XAI_API_KEY` + `XAI_API_BASE` rows only.
    - `gc --all-keys` - widens the diff to foreign rows but leaves them when remote absence is

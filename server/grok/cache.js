@@ -4,14 +4,11 @@
 const path = require("node:path");
 const os = require("node:os");
 const crypto = require("node:crypto");
-const { mkdirSync, readFileSync, writeFileSync, renameSync, existsSync } = require("node:fs");
+const { mkdirSync, readFileSync, writeFileSync, renameSync } = require("node:fs");
 const lock = require("./lock.js");
 
-// Read path (with legacy fallback) vs write path (canonical only). Reads honor an
-// existing legacy cache; writes always target canonical, so the first persist
-// migrates a legacy cache to canonical and stops mutating ~/.claude.
+// Single cache path: DELIBERATION_CACHE override else the canonical XDG path.
 const CACHE_FILE = require("../../core/paths.js").resolveGrokCachePath();
-const CACHE_WRITE_FILE = require("../../core/paths.js").resolveGrokCachePath({ forWrite: true });
 const CACHE_DIR = path.dirname(CACHE_FILE);
 const CACHE_VERSION = 1;
 
@@ -73,15 +70,8 @@ function withInflight(key, worker) {
   return p;
 }
 
-function readTargetFor(file) {
-  if (file === CACHE_FILE && existsSync(CACHE_WRITE_FILE)) {
-    return CACHE_WRITE_FILE;
-  }
-  return file;
-}
-
 function lookup(file, key, { apiBase, keyFp } = {}) {
-  const data = readCache(readTargetFor(file));
+  const data = readCache(file);
   const entry = data.entries[key];
   if (!entry) return null;
   const now = Math.floor(Date.now() / 1000);
@@ -91,27 +81,17 @@ function lookup(file, key, { apiBase, keyFp } = {}) {
   return entry;
 }
 
-// Resolve where a persist should WRITE. The legacy cache is read-only, so a
-// write always targets canonical (CACHE_WRITE_FILE). When the caller passes a
-// custom `file` (e.g. tests, DELIBERATION_CACHE), honor it: only the default
-// legacy read path is redirected to canonical.
-function writeTargetFor(file) {
-  return file === CACHE_FILE ? CACHE_WRITE_FILE : file;
-}
-
 async function store(file, key, entry) {
   if (!file) return;
-  const writeFile = writeTargetFor(file);
-  const handle = lock.acquire(writeFile, { maxWaitMs: 1000 });
+  const handle = lock.acquire(file, { maxWaitMs: 1000 });
   if (!handle) {
     process.stderr.write("[grok] cache lock contention; skipping persist\n");
     return;
   }
   try {
-    // Read from the read path (may be legacy), write to the canonical target.
-    const data = readCache(readTargetFor(file));
+    const data = readCache(file);
     data.entries[key] = entry;
-    writeCache(writeFile, data);
+    writeCache(file, data);
   } finally {
     lock.release(handle);
   }
@@ -119,18 +99,17 @@ async function store(file, key, entry) {
 
 async function evict(file, fileId) {
   if (!file) return;
-  const writeFile = writeTargetFor(file);
-  const handle = lock.acquire(writeFile, { maxWaitMs: 1000 });
+  const handle = lock.acquire(file, { maxWaitMs: 1000 });
   if (!handle) return;
   try {
-    const data = readCache(readTargetFor(file));
+    const data = readCache(file);
     for (const k of Object.keys(data.entries)) {
       if (data.entries[k].fileId === fileId) delete data.entries[k];
     }
-    writeCache(writeFile, data);
+    writeCache(file, data);
   } finally {
     lock.release(handle);
   }
 }
 
-module.exports = { normalize, buildCacheKey, readCache, writeCache, withInflight, lookup, store, evict, CACHE_DIR, CACHE_FILE, CACHE_WRITE_FILE, CACHE_VERSION };
+module.exports = { normalize, buildCacheKey, readCache, writeCache, withInflight, lookup, store, evict, CACHE_DIR, CACHE_FILE, CACHE_VERSION };
