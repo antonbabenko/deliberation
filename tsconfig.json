@@ -13,5 +13,5 @@
     "types": ["node"]
   },
   "include": ["core/**/*.js", "server/mcp/**/*.js", "test/core-*.test.js"],
-  "exclude": ["node_modules"]
+  "exclude": ["node_modules", "server/mcp/dist"]
 }

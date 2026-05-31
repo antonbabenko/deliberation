@@ -2,8 +2,14 @@
   "name": "@antonbabenko/deliberation-mcp",
   "version": "0.1.0",
   "description": "Deliberation for Claude Code and any MCP host - GPT, Gemini, Grok, and OpenRouter expert subagents.",
-  "bin": { "deliberation-mcp": "./index.js" },
-  "main": "./index.js",
-  "files": ["index.js"],
+  "mcpName": "io.github.antonbabenko/deliberation",
+  "bin": { "deliberation-mcp": "./dist/index.js" },
+  "main": "./dist/index.js",
+  "files": ["dist/"],
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "prepack": "esbuild index.js --bundle --platform=node --target=node18 --format=cjs --outfile=dist/index.js"
+  },
+  "devDependencies": { "esbuild": "^0.28.0" },
   "license": "MIT"
 }

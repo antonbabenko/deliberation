@@ -2,6 +2,9 @@
   "name": "deliberation",
   "version": "2.0.1",
   "private": true,
+  "workspaces": [
+    "server/mcp"
+  ],
   "scripts": {
     "test": "node --test test/*.test.js",
     "typecheck": "tsc -p tsconfig.json",
