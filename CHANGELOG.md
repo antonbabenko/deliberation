@@ -1,3 +1,10 @@
+## [2.0.2](https://github.com/antonbabenko/deliberation/compare/v2.0.1...v2.0.2) (2026-05-31)
+
+
+### Bug Fixes
+
+* **core:** drop core->server bridge import so core is self-contained ([#62](https://github.com/antonbabenko/deliberation/issues/62)) ([7043c56](https://github.com/antonbabenko/deliberation/commit/7043c564784a796e2d946e1f9d3cd3e48967d71a))
+
 ## [2.0.1](https://github.com/antonbabenko/deliberation/compare/v2.0.0...v2.0.1) (2026-05-30)
 
 
@@ -29,11 +36,4 @@
 ### Features
 
 * **openrouter:** add OpenRouter as a config-driven advisory provider ([#40](https://github.com/antonbabenko/deliberation/issues/40)) ([51bff5b](https://github.com/antonbabenko/deliberation/commit/51bff5b79e16d77e155f95fa8a0820a712bd7316))
-
-## [1.16.1](https://github.com/antonbabenko/deliberation/compare/v1.16.0...v1.16.1) (2026-05-29)
-
-
-### Bug Fixes
-
-* **codex:** inherit model from ~/.codex/config.toml instead of hardcoding ([#37](https://github.com/antonbabenko/deliberation/issues/37)) ([c06ba37](https://github.com/antonbabenko/deliberation/commit/c06ba375ef2a99cf5cbd84b7cdab129772821629))
 
