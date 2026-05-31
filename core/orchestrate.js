@@ -50,7 +50,10 @@ async function askOne(provider, req) {
  * @returns {string}
  */
 function buildArbiterPrompt(question, opinions) {
-  const blocks = opinions.map((o, i) => `### Opinion ${i + 1} - ${o.provider}\n${o.text}`).join("\n\n");
+  // Labels are anonymized (### Opinion N, no provider name) so the arbiter
+  // judges substance, not source reputation. The opinions array returned to the
+  // caller keeps provider names; only this prompt is anonymized.
+  const blocks = opinions.map((o, i) => `### Opinion ${i + 1}\n${o.text}`).join("\n\n");
   return [
     "You are the arbiter. Below are independent expert opinions on the same question.",
     "Cross-review them: note where they agree, where they disagree, and which view is best supported.",

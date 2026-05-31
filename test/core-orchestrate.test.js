@@ -2,7 +2,7 @@
 "use strict";
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { askAll, consensus } = require("../core/orchestrate.js");
+const { askAll, consensus, buildArbiterPrompt } = require("../core/orchestrate.js");
 /** @typedef {import("../core/types.js").Provider} Provider */
 
 /** @param {string} name @param {string} [behavior] @returns {Provider} */
@@ -85,4 +85,23 @@ test("C5: consensus with empty providers yields a safe shape, never throws", asy
   assert.equal(out.verdict, null);
   // No opinions -> all-providers-failed guard fires before the no-arbiter guard.
   assert.ok(out.error === "all-providers-failed" || out.error === "no-arbiter");
+});
+
+test("C6: buildArbiterPrompt anonymizes opinion labels (no provider names leak)", () => {
+  const opinions = /** @type {any} */ ([
+    { provider: "codex", text: "alpha body" },
+    { provider: "gemini", text: "beta body" },
+    { provider: "openrouter:llama", text: "gamma body" },
+  ]);
+  const prompt = buildArbiterPrompt("the question", opinions);
+  // anonymized numeric labels present, in order
+  assert.match(prompt, /### Opinion 1\nalpha body/);
+  assert.match(prompt, /### Opinion 2\nbeta body/);
+  assert.match(prompt, /### Opinion 3\ngamma body/);
+  // provider names must NOT appear anywhere in the arbiter prompt
+  for (const name of ["codex", "gemini", "openrouter:llama", "llama"]) {
+    assert.equal(prompt.includes(name), false, `provider name "${name}" leaked into arbiter prompt`);
+  }
+  // bodies and the original question are preserved
+  assert.match(prompt, /the question/);
 });

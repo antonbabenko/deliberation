@@ -200,3 +200,84 @@ test("C11: malformed JSON => ok=false with parse error, no throw", () => {
   assert.equal(r.ok, false);
   assert.match(r.error, /parse|json/i);
 });
+
+// --- Phase B1: consensus.arbiter resolution -----------------------------------
+
+test("CB1: missing consensus block defaults arbiter to 'auto', no warnings", () => {
+  const { ok, resolved } = validateConfig(base());
+  assert.equal(ok, true);
+  assert.deepEqual(resolved.consensus, { arbiter: "auto" });
+  assert.deepEqual(resolved.consensusWarnings, []);
+});
+
+test("CB2: arbiter 'host' is accepted verbatim", () => {
+  const c = base();
+  c.consensus = { arbiter: "host" };
+  const { resolved } = validateConfig(c);
+  assert.equal(resolved.consensus.arbiter, "host");
+  assert.deepEqual(resolved.consensusWarnings, []);
+});
+
+test("CB3: built-in provider arbiters (codex/gemini/grok) are accepted", () => {
+  for (const name of ["codex", "gemini", "grok"]) {
+    const c = base();
+    c.consensus = { arbiter: name };
+    const { resolved } = validateConfig(c);
+    assert.equal(resolved.consensus.arbiter, name, `arbiter ${name}`);
+    assert.deepEqual(resolved.consensusWarnings, []);
+  }
+});
+
+test("CB4: openrouter:<existing-alias> arbiter is accepted (no consensus:true needed)", () => {
+  const c = base();
+  // "llama" exists but is NOT consensus:true; arbiter eligibility != panel membership.
+  c.consensus = { arbiter: "openrouter:llama" };
+  const { resolved } = validateConfig(c);
+  assert.equal(resolved.consensus.arbiter, "openrouter:llama");
+  assert.deepEqual(resolved.consensusWarnings, []);
+});
+
+test("CB5: unknown arbiter soft-degrades to 'auto' with a warning, config stays ok", () => {
+  const c = base();
+  c.consensus = { arbiter: "banana" };
+  const { ok, resolved } = validateConfig(c);
+  assert.equal(ok, true);
+  assert.equal(resolved.consensus.arbiter, "auto");
+  assert.equal(resolved.consensusWarnings.length, 1);
+  assert.match(resolved.consensusWarnings[0], /banana/);
+  // providers/openrouter survive the bad arbiter (no whole-config rejection)
+  assert.equal(resolved.openrouter.models.length, 3);
+});
+
+test("CB5b: openrouter:<missing-alias> soft-degrades to 'auto' with a warning", () => {
+  const c = base();
+  c.consensus = { arbiter: "openrouter:ghost" };
+  const { ok, resolved } = validateConfig(c);
+  assert.equal(ok, true);
+  assert.equal(resolved.consensus.arbiter, "auto");
+  assert.equal(resolved.consensusWarnings.length, 1);
+  assert.match(resolved.consensusWarnings[0], /ghost/);
+});
+
+test("CB6: non-string / non-object consensus block degrades to default auto", () => {
+  for (const bad of [{ arbiter: 5 }, { arbiter: null }, "host", 7]) {
+    const c = base();
+    c.consensus = bad;
+    const { ok, resolved } = validateConfig(c);
+    assert.equal(ok, true, `consensus=${JSON.stringify(bad)} should not hard-fail`);
+    assert.equal(resolved.consensus.arbiter, "auto");
+  }
+});
+
+test("CB7: omitted openrouter block still carries consensus default auto", () => {
+  const { resolved } = validateConfig({ version: 1 });
+  assert.deepEqual(resolved.consensus, { arbiter: "auto" });
+  assert.deepEqual(resolved.consensusWarnings, []);
+});
+
+test("CB8: missing config file => disabled openrouter + consensus default auto", () => {
+  const reader = makeConfigReader(path.join(os.tmpdir(), "definitely-absent-cdg-cb.json"));
+  const r = reader.get();
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.resolved.consensus, { arbiter: "auto" });
+});
