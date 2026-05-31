@@ -487,6 +487,14 @@ Config keys are camelCase: `reasoningEffort`, `temperature`, `timeout`. The brid
 resolved layer in `server/openrouter/config.js`, which carries `reasoning_effort` on each
 resolved record and on `defaults`. `temperature` and `timeout` pass through unchanged.
 
+**Which params apply on which path:** the unified `/ask-all`, `/consensus`, and the
+`{ model: <id> }` arbiter path apply a record's per-model `reasoningEffort`, `temperature`,
+and `timeout` (forwarded with arg-wins precedence by `pinAlias` in `core/registry.js`). A
+record's per-model `apiBase` and the `providers.openrouter.defaults` block apply only on the
+standalone `/ask-openrouter` bridge path, because the unified server's OpenRouter provider
+fixes `apiBase` / `apiKeyEnv` at construction. That is a pre-existing limitation, not a goal
+of the arbiter feature.
+
 ### Routing
 
 - **`/ask-all`**: includes all records where `askAll !== false` and the record is eligible

@@ -216,13 +216,27 @@ test("C8: omitted openrouter provider block resolves to disabled, no error", () 
   assert.deepEqual(resolved.openrouter.models, []);
 });
 
-test("C8b: openrouter provider present but enabled:false resolves to disabled", () => {
+test("C8b: enabled:false + a populated models map forces EFFECTIVE models to [] (no fan-out/vote from a disabled provider)", () => {
   const c = base();
   c.providers.openrouter.enabled = false;
   const { resolved } = validateConfig(c);
   assert.equal(resolved.openrouter.enabled, false);
-  // models are still parsed (resolved array intact) even when disabled
-  assert.equal(resolved.openrouter.models.length, 3);
+  // gating: a disabled provider reports nothing - matches the old disabledOpenRouter() shape
+  assert.deepEqual(resolved.openrouter.models, []);
+  assert.deepEqual(resolved.openrouter.invalidModels, []);
+});
+
+test("C8c: a {model:id} arbiter pointing at a model on a DISABLED provider degrades to auto + warning", () => {
+  const c = base();
+  c.providers.openrouter.enabled = false;
+  // "gpt55" exists in the on-disk map but is gated out when openrouter is disabled.
+  c.consensus = { arbiter: { model: "gpt55" } };
+  const { ok, resolved } = validateConfig(c);
+  assert.equal(ok, true);
+  assert.deepEqual(resolved.openrouter.models, []);
+  assert.equal(resolved.consensus.arbiter, "auto");
+  assert.equal(resolved.consensusWarnings.length, 1);
+  assert.match(resolved.consensusWarnings[0], /gpt55/);
 });
 
 test("C12: invalid per-model override types are reported as invalid, valid entries kept", () => {
@@ -234,6 +248,19 @@ test("C12: invalid per-model override types are reported as invalid, valid entri
     assert.equal(resolved.openrouter.models.length, 2, `${JSON.stringify(bad)}: valid entries kept`);
     assert.equal(resolved.openrouter.invalidModels.length, 1, `${JSON.stringify(bad)}: one invalid`);
     assert.equal(resolved.openrouter.invalidModels[0].alias, "gpt55");
+  }
+});
+
+test("C12b: non-boolean askAll/consensus are reported as invalid (schema requires booleans), valid entries kept", () => {
+  for (const bad of [{ askAll: "false" }, { askAll: 1 }, { consensus: "true" }, { consensus: 0 }]) {
+    const c = base();
+    Object.assign(c.models.gpt55, bad);
+    const { ok, resolved } = validateConfig(c);
+    assert.equal(ok, true, `${JSON.stringify(bad)} should be partial, not fatal`);
+    assert.equal(resolved.openrouter.models.length, 2, `${JSON.stringify(bad)}: valid entries kept`);
+    assert.equal(resolved.openrouter.invalidModels.length, 1, `${JSON.stringify(bad)}: one invalid`);
+    assert.equal(resolved.openrouter.invalidModels[0].alias, "gpt55");
+    assert.match(resolved.openrouter.invalidModels[0].reason, /askAll|consensus/i);
   }
 });
 

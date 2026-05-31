@@ -28,10 +28,14 @@
     },
     "models": {
       "type": "object",
-      "description": "Named model records, keyed by id (^[a-z0-9-]+$). Each record names its provider and model slug. In v1 every record must target provider \"openrouter\".",
+      "description": "Named model records, keyed by id (^[a-z0-9-]+$, excluding the reserved \"openrouter-default\"). Each record names its provider and model slug. In v1 every record must target provider \"openrouter\".",
       "additionalProperties": false,
+      "propertyNames": {
+        "pattern": "^(?!openrouter-default$)[a-z0-9-]+$",
+        "description": "Record id: lowercase letters/digits/hyphens, and not the reserved \"openrouter-default\"."
+      },
       "patternProperties": {
-        "^[a-z0-9-]+$": { "$ref": "#/$defs/modelRecord" }
+        "^(?!openrouter-default$)[a-z0-9-]+$": { "$ref": "#/$defs/modelRecord" }
       }
     },
     "routing": {

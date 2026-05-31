@@ -80,7 +80,14 @@ function validateConfig(raw) {
   // models = a MAP keyed by id. Resolve each entry into the legacy array shape with
   // alias === id. Per-entry soft-fail: a bad entry lands in invalidModels and does
   // NOT reject the whole config. Order follows Object.keys insertion order.
-  const { models, invalidModels } = resolveModels(raw.models);
+  const parsed = resolveModels(raw.models);
+  // Disabled-openrouter gating: when the provider is disabled, force the EFFECTIVE
+  // models to [] (and invalidModels to []) so the registry never fans out / votes a
+  // disabled provider's models, matching the old disabledOpenRouter() shape. This
+  // runs BEFORE resolveConsensus, so a {model:id} arbiter pointing at a now-absent
+  // model degrades to "auto" + warning instead of pinning a disabled delegate.
+  const models = enabled ? parsed.models : [];
+  const invalidModels = enabled ? parsed.invalidModels : [];
 
   const { consensus, warnings } = resolveConsensus(raw.consensus, models);
 
@@ -209,6 +216,12 @@ function resolveModels(modelsRaw) {
       }
       if (badExpert !== null) { addInvalid(i, id, `models["${id}"] unknown expert "${badExpert}"`); continue; }
       experts = m.experts.slice();
+    }
+    if (m.askAll !== undefined && typeof m.askAll !== "boolean") {
+      addInvalid(i, id, `models["${id}"] askAll must be a boolean`); continue;
+    }
+    if (m.consensus !== undefined && typeof m.consensus !== "boolean") {
+      addInvalid(i, id, `models["${id}"] consensus must be a boolean`); continue;
     }
     if (m.reasoningEffort !== undefined && typeof m.reasoningEffort !== "string") {
       addInvalid(i, id, `models["${id}"] reasoningEffort must be a string`); continue;

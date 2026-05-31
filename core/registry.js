@@ -10,6 +10,9 @@
  * @property {boolean} [askAll]
  * @property {boolean} [consensus]
  * @property {(string[]|null)} [experts]
+ * @property {string}  [reasoning_effort]
+ * @property {number}  [temperature]
+ * @property {number}  [timeout]
  */
 
 /**
@@ -83,7 +86,20 @@ function pinAlias(orProvider, delegate) {
     capabilities: orProvider.capabilities,
     health: orProvider.health.bind(orProvider),
     async ask(req) {
-      const r = await orProvider.ask({ ...req, model: delegate.model });
+      // Forward the delegate's configured params with ARG-WINS precedence (an
+      // explicit caller value beats the model default), mapping config/wire field
+      // names to the DelegationRequest fields openai-compatible.js reads. NOTE: only
+      // reasoningEffort/temperature/timeout flow here; per-model apiBase and the
+      // openrouter.defaults block apply on the standalone /ask-openrouter bridge path.
+      const r = await orProvider.ask({
+        ...req,
+        model: delegate.model,
+        // delegate.reasoning_effort is validated as a string upstream; cast to the
+        // DelegationRequest union (the bridge tolerates any effort string).
+        reasoningEffort: req.reasoningEffort ?? /** @type {("low"|"medium"|"high"|"none"|undefined)} */ (delegate.reasoning_effort),
+        temperature: req.temperature ?? delegate.temperature,
+        timeoutMs: req.timeoutMs ?? delegate.timeout,
+      });
       return { ...r, provider: `openrouter:${delegate.alias}` };
     },
   };
