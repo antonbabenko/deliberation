@@ -237,11 +237,93 @@ function validateOpinion(o) {
   return { valid, wellFormed, warnings };
 }
 
+/** The closed 6-category taxonomy a consensus review tags critical issues with. */
+const REVIEW_CATEGORIES = deepFreeze(["security", "correctness", "scope", "ambiguity", "performance", "ops"]);
+const REVIEW_FALLBACK_CATEGORY = "ambiguity";
+
+/**
+ * @typedef {Object} ReviewCriticalIssue
+ * @property {("security"|"correctness"|"scope"|"ambiguity"|"performance"|"ops")} category
+ * @property {string} description
+ */
+
+/**
+ * @typedef {Object} ParsedReview
+ * @property {(("APPROVE"|"REQUEST_CHANGES"|"REJECT")|null)} verdict
+ * @property {ReviewCriticalIssue[]} criticalIssues
+ */
+
+// Anchored verdict matcher: the token must sit adjacent to the word "verdict"
+// (only non-alphanumerics between), and is matched on WORD BOUNDARIES. This
+// rejects substring traps ("DISAPPROVE"/"APPROVED" never match "APPROVE";
+// "verdict: do not REJECT" finds no adjacent token -> null) and loose prose
+// ("verdict as APPROVE" has the alpha word "as" between -> no match), so an
+// echoed instruction line cannot hijack the verdict.
+const VERDICT_RE = /\bverdict\b[^A-Za-z0-9]*\b(APPROVE|REJECT|REQUEST[_\s]CHANGES)\b/i;
+const BULLET_RE = /^([-*+•]|`?\[)/;
+const BRACKET_CAT_RE = /\[\s*([A-Za-z_]+)\s*\]/g;
+
+/**
+ * Parse a consensus REVIEW reply into a verdict + categorized critical issues.
+ * Best-effort and NEVER throws. Line-based (no regex backtracking on large input).
+ *
+ * - verdict: the FIRST line whose `verdict` keyword is immediately followed by a
+ *   bounded APPROVE/REJECT/REQUEST_CHANGES token wins (the reviewer's own verdict;
+ *   later quoted/template mentions are ignored). No adjacent token -> null.
+ * - criticalIssues: taken only from bullet/bracket lines; among multiple `[tag]`
+ *   brackets the FIRST that is a known category wins (so `- [P0] [security] ...`
+ *   categorizes as security), else the first bracket degrades to `ambiguity`. A
+ *   bullet with a category but NO description is dropped (not actionable for
+ *   convergence).
+ *
+ * Distinct from `parseOpinion` (advisory recommendation envelope) - this drives
+ * the consensus loop's convergence rule.
+ * @param {string} text
+ * @returns {ParsedReview}
+ */
+function parseReview(text) {
+  const raw = safeString(text);
+  const lines = raw.split(/\r?\n/);
+  /** @type {ParsedReview["verdict"]} */
+  let verdict = null;
+  /** @type {ReviewCriticalIssue[]} */
+  const criticalIssues = [];
+
+  for (const line of lines) {
+    if (verdict === null) {
+      const vm = line.match(VERDICT_RE);
+      if (vm) verdict = /** @type {ParsedReview["verdict"]} */ (vm[1].replace(/\s+/g, "_").toUpperCase());
+    }
+    const trimmed = line.trim();
+    if (!BULLET_RE.test(trimmed)) continue;
+    // Pick the first bracketed token that is a known category; else the first
+    // bracket at all (degraded to ambiguity). matchAll is reset each line.
+    let chosen = null;
+    for (const mm of trimmed.matchAll(BRACKET_CAT_RE)) {
+      if (REVIEW_CATEGORIES.includes(mm[1].toLowerCase())) { chosen = mm; break; }
+      if (chosen === null) chosen = mm; // remember the first bracket as fallback
+    }
+    if (!chosen) continue;
+    const cat = chosen[1].toLowerCase();
+    const category = /** @type {ReviewCriticalIssue["category"]} */ (
+      REVIEW_CATEGORIES.includes(cat) ? cat : REVIEW_FALLBACK_CATEGORY
+    );
+    const description = trimmed
+      .slice((chosen.index || 0) + chosen[0].length)
+      .replace(/^[`\s:.\-]+/, "")
+      .trim();
+    if (description) criticalIssues.push({ category, description });
+  }
+  return { verdict, criticalIssues };
+}
+
 module.exports = {
   toErrorResult,
   OPINION_SCHEMA,
   OPINION_INSTRUCTIONS,
   CONFIDENCE_ENUM,
+  REVIEW_CATEGORIES,
   validateOpinion,
   parseOpinion,
+  parseReview,
 };
