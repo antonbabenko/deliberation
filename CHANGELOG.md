@@ -1,3 +1,10 @@
+## [2.17.0](https://github.com/antonbabenko/deliberation/compare/v2.16.0...v2.17.0) (2026-06-01)
+
+
+### Features
+
+* persist consensus-auto runs + route session-revisit (PR2b-4b) ([#106](https://github.com/antonbabenko/deliberation/issues/106)) ([8d6d3d5](https://github.com/antonbabenko/deliberation/commit/8d6d3d52fd64dccca5c2000988b8568c8c4f50c4))
+
 ## [2.16.0](https://github.com/antonbabenko/deliberation/compare/v2.15.0...v2.16.0) (2026-06-01)
 
 
@@ -25,11 +32,4 @@
 ### Features
 
 * in-memory loop store for consensus-step (PR2b-3a) ([#98](https://github.com/antonbabenko/deliberation/issues/98)) ([1263476](https://github.com/antonbabenko/deliberation/commit/12634761c34addaa127a2426a47f0d941e19e0b2))
-
-## [2.12.0](https://github.com/antonbabenko/deliberation/compare/v2.11.0...v2.12.0) (2026-06-01)
-
-
-### Features
-
-* runToConvergence - non-Claude consensus loop driver (PR2b-2) ([#96](https://github.com/antonbabenko/deliberation/issues/96)) ([cc0dddc](https://github.com/antonbabenko/deliberation/commit/cc0dddc5bcbbea6a324f68a33abfa2d0eecb4ead))
 
