@@ -123,7 +123,7 @@ jobs:
         run: |
           set -uo pipefail
           gh release download --repo modelcontextprotocol/registry \
-            --pattern '*_linux_amd64.tar.gz' --output mcp-publisher.tar.gz || {
+            --pattern 'mcp-publisher_linux_amd64.tar.gz' --output mcp-publisher.tar.gz || {
               echo "::warning::could not download mcp-publisher; skipping registry publish"; exit 0; }
           tar xzf mcp-publisher.tar.gz mcp-publisher || {
               echo "::warning::could not extract mcp-publisher; skipping"; exit 0; }
