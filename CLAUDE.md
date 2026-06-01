@@ -26,7 +26,13 @@ No build step, no dependencies. Codex exposes a native MCP server; Gemini, Grok,
 ### Repository layout
 
 - **`core/`** - host-neutral, zero runtime deps, strict-typed. Provider interface +
-  `toErrorResult` (`types.js` / `provider.js`); `registry.js` (`selectForAskAll` /
+  `toErrorResult` + the opinion schema/envelope (`types.js` / `provider.js`): `OPINION_SCHEMA`
+  (`recommendation` + `confidence` enum + optional `dissent_points`/`assumptions`/`tradeoffs`
+  `string[]`), `parseOpinion(text) -> OpinionEnvelope` (best-effort, never throws; `structured` =
+  parse provenance), advisory `validateOpinion` (`{valid, wellFormed, warnings}`), and
+  `OPINION_INSTRUCTIONS`. The envelope normalizes provider replies for the consensus engine; it is
+  wired into the adapters + loop in a follow-up (the advisory `ask-*` path is unchanged for now).
+  `registry.js` (`selectForAskAll` /
   `selectForConsensus`); `orchestrate.js` (`askAll` / `askOne` / `consensus`); `providers/*.js`
   adapters (`codex.js` spawns the Codex CLI; `antigravity.js` / `grok.js` /
   `openai-compatible.js` wrap their bridge via an injectable `opts.bridge`); `paths.js`
