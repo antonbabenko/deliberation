@@ -1,3 +1,10 @@
+## [2.7.1](https://github.com/antonbabenko/deliberation/compare/v2.7.0...v2.7.1) (2026-06-01)
+
+
+### Bug Fixes
+
+* setup bash avoids $1/$2 so slash-arg interpolation can't blank server names ([#81](https://github.com/antonbabenko/deliberation/issues/81)) ([fa3088a](https://github.com/antonbabenko/deliberation/commit/fa3088a98ee9352058a6ddf0a142ea58f460913e))
+
 ## [2.7.0](https://github.com/antonbabenko/deliberation/compare/v2.6.0...v2.7.0) (2026-06-01)
 
 
@@ -25,11 +32,4 @@
 ### Features
 
 * host-neutral XDG config + cache paths ([#73](https://github.com/antonbabenko/deliberation/issues/73)) ([0867b4d](https://github.com/antonbabenko/deliberation/commit/0867b4df6220203800d80836e3be9e2649accf46))
-
-## [2.3.0](https://github.com/antonbabenko/deliberation/compare/v2.2.0...v2.3.0) (2026-05-31)
-
-
-### Features
-
-* deliberation-setup bin + standalone AGENTS.md + per-host rule snippets ([#71](https://github.com/antonbabenko/deliberation/issues/71)) ([0869376](https://github.com/antonbabenko/deliberation/commit/086937692ba722314da8d55df404cdaf608f97c9))
 
