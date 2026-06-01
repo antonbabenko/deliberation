@@ -1,3 +1,10 @@
+## [2.7.0](https://github.com/antonbabenko/deliberation/compare/v2.6.0...v2.7.0) (2026-06-01)
+
+
+### Features
+
+* server-side blindVote + host auto-detect arbiter default ([#79](https://github.com/antonbabenko/deliberation/issues/79)) ([0124a34](https://github.com/antonbabenko/deliberation/commit/0124a340b311f13461cc3ae7ce7c6ad3d1d74f20))
+
 ## [2.6.0](https://github.com/antonbabenko/deliberation/compare/v2.5.0...v2.6.0) (2026-06-01)
 
 
@@ -25,11 +32,4 @@
 ### Features
 
 * deliberation-setup bin + standalone AGENTS.md + per-host rule snippets ([#71](https://github.com/antonbabenko/deliberation/issues/71)) ([0869376](https://github.com/antonbabenko/deliberation/commit/086937692ba722314da8d55df404cdaf608f97c9))
-
-## [2.2.0](https://github.com/antonbabenko/deliberation/compare/v2.1.0...v2.2.0) (2026-05-31)
-
-
-### Features
-
-* **core:** host-agnostic configurable consensus arbiter ([#69](https://github.com/antonbabenko/deliberation/issues/69)) ([cbeeff6](https://github.com/antonbabenko/deliberation/commit/cbeeff68532ddf20b8121d8a25a9c8cb02436203))
 
