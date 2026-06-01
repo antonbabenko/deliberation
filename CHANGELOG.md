@@ -1,3 +1,10 @@
+## [3.1.0](https://github.com/antonbabenko/deliberation/compare/v3.0.0...v3.1.0) (2026-06-01)
+
+
+### Features
+
+* auto-publish on release, npm README, per-tenant key seam (extras A) ([#113](https://github.com/antonbabenko/deliberation/issues/113)) ([bf0355b](https://github.com/antonbabenko/deliberation/commit/bf0355b43703d27e7376493b37c58b52e8074a27))
+
 ## [3.0.0](https://github.com/antonbabenko/deliberation/compare/v2.18.0...v3.0.0) (2026-06-01)
 
 
@@ -32,11 +39,4 @@ before this change are not supported by session-revisit.
 ### Features
 
 * surface consensus.maxRounds in config (PR2b-4a) ([#104](https://github.com/antonbabenko/deliberation/issues/104)) ([95779e8](https://github.com/antonbabenko/deliberation/commit/95779e88e1f29698b6dd7c911521c1f703b08c7e))
-
-## [2.15.0](https://github.com/antonbabenko/deliberation/compare/v2.14.0...v2.15.0) (2026-06-01)
-
-
-### Features
-
-* consensus-step MCP tool - client-driven host-arbitrated loop (PR2b-3c) ([#102](https://github.com/antonbabenko/deliberation/issues/102)) ([af1c119](https://github.com/antonbabenko/deliberation/commit/af1c119301457acbe8108b8093356235c5fe7a0b))
 

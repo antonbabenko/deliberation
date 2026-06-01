@@ -1,6 +1,6 @@
 {
   "name": "@antonbabenko/deliberation-mcp",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "Deliberation for Claude Code and any MCP host - GPT, Gemini, Grok, and OpenRouter expert subagents.",
   "mcpName": "io.github.antonbabenko/deliberation",
   "repository": { "type": "git", "url": "git+https://github.com/antonbabenko/deliberation.git", "directory": "server/mcp" },
