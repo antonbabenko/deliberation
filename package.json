@@ -1,6 +1,6 @@
 {
   "name": "deliberation",
-  "version": "2.12.0",
+  "version": "2.13.0",
   "private": true,
   "workspaces": [
     "server/mcp"

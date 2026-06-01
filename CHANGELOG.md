@@ -1,3 +1,10 @@
+## [2.13.0](https://github.com/antonbabenko/deliberation/compare/v2.12.0...v2.13.0) (2026-06-01)
+
+
+### Features
+
+* in-memory loop store for consensus-step (PR2b-3a) ([#98](https://github.com/antonbabenko/deliberation/issues/98)) ([1263476](https://github.com/antonbabenko/deliberation/commit/12634761c34addaa127a2426a47f0d941e19e0b2))
+
 ## [2.12.0](https://github.com/antonbabenko/deliberation/compare/v2.11.0...v2.12.0) (2026-06-01)
 
 
@@ -25,11 +32,4 @@
 ### Features
 
 * opinion envelope + advisory schema (1a) ([#90](https://github.com/antonbabenko/deliberation/issues/90)) ([58deca6](https://github.com/antonbabenko/deliberation/commit/58deca63a639a0322993b8d08ee9d9da06846c46))
-
-## [2.8.1](https://github.com/antonbabenko/deliberation/compare/v2.8.0...v2.8.1) (2026-06-01)
-
-
-### Bug Fixes
-
-* surface sandbox-blocked MCP registration in setup and strip codex PATH warning ([#87](https://github.com/antonbabenko/deliberation/issues/87)) ([27188ff](https://github.com/antonbabenko/deliberation/commit/27188ff5306d8cfa4fcd8be5d760a2ee4f192d62))
 

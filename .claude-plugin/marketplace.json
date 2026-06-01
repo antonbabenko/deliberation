@@ -9,7 +9,7 @@
       "name": "deliberation",
       "source": "./",
       "description": "Use when you want a delegated second opinion or implementation from GPT (Codex), Gemini, Grok (xAI), or OpenRouter (config-driven, 400+ models) - seven expert subagents (Architect, Plan Reviewer, Scope Analyst, Code Reviewer, Security Analyst, Researcher, Debugger) and bundled ask-gpt/ask-gemini/ask-grok/ask-openrouter/ask-all/consensus commands, advisory (read-only) or implementation (write; Grok and OpenRouter are advisory-only).",
-      "version": "2.12.0",
+      "version": "2.13.0",
       "author": {
         "name": "Anton Babenko",
         "url": "https://github.com/antonbabenko"
