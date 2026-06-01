@@ -268,34 +268,54 @@ function resolveModels(modelsRaw) {
 function resolveConsensus(rawConsensus, models) {
   const warnings = [];
   if (rawConsensus !== undefined && !isObject(rawConsensus)) {
+    // The user DID set consensus (just malformed) -> degrade to auto but treat as
+    // explicit (arbiterDefaulted:false), so host auto-detect does not override it.
     warnings.push(`consensus must be an object (got ${JSON.stringify(rawConsensus)}); using "${DEFAULT_ARBITER}"`);
-    return { consensus: { arbiter: DEFAULT_ARBITER }, warnings };
+    return { consensus: { arbiter: DEFAULT_ARBITER, arbiterDefaulted: false, blindVote: false }, warnings };
   }
   const block = isObject(rawConsensus) ? rawConsensus : {};
+
+  // blindVote: optional boolean; non-boolean degrades to false + a warning. Runs
+  // a blind arbiter pre-vote (server/concrete-arbiter mode only); off by default
+  // because the extra arbiter call adds cost/latency.
+  let blindVote = false;
+  if (block.blindVote !== undefined) {
+    if (typeof block.blindVote === "boolean") blindVote = block.blindVote;
+    else warnings.push(`consensus.blindVote must be a boolean (got ${JSON.stringify(block.blindVote)}); using false`);
+  }
+
+  // arbiterDefaulted=true ONLY when the user did not set an arbiter at all, so the
+  // server can pick host (under Claude Code) vs auto (elsewhere). An explicit but
+  // invalid arbiter degrades to auto with arbiterDefaulted=false (the user did choose).
+  const wrap = (/** @type {any} */ arbiter, /** @type {boolean} */ arbiterDefaulted) => ({
+    consensus: { arbiter, arbiterDefaulted, blindVote },
+    warnings,
+  });
+
   const spec = block.arbiter;
-  if (spec === undefined) return { consensus: { arbiter: DEFAULT_ARBITER }, warnings };
+  if (spec === undefined) return wrap(DEFAULT_ARBITER, true);
 
   // Object form: { model: "<id>" } referencing a models entry.
   if (isObject(spec)) {
     const id = spec.model;
     if (typeof id !== "string" || !id.trim()) {
       warnings.push(`consensus.arbiter object must have a string "model" id (got ${JSON.stringify(spec)}); using "${DEFAULT_ARBITER}"`);
-      return { consensus: { arbiter: DEFAULT_ARBITER }, warnings };
+      return wrap(DEFAULT_ARBITER, false);
     }
-    if (models.some((m) => m.alias === id)) return { consensus: { arbiter: { model: id } }, warnings };
+    if (models.some((m) => m.alias === id)) return wrap({ model: id }, false);
     warnings.push(`consensus.arbiter model "${id}" is not a configured models id; using "${DEFAULT_ARBITER}"`);
-    return { consensus: { arbiter: DEFAULT_ARBITER }, warnings };
+    return wrap(DEFAULT_ARBITER, false);
   }
 
   if (typeof spec !== "string") {
     warnings.push(`consensus.arbiter must be a string shorthand or { model: "<id>" } (got ${JSON.stringify(spec)}); using "${DEFAULT_ARBITER}"`);
-    return { consensus: { arbiter: DEFAULT_ARBITER }, warnings };
+    return wrap(DEFAULT_ARBITER, false);
   }
   if (spec === "host" || spec === "auto" || BUILTIN_ARBITERS.has(spec)) {
-    return { consensus: { arbiter: spec }, warnings };
+    return wrap(spec, false);
   }
   warnings.push(`consensus.arbiter "${spec}" is not host/auto/codex/gemini/grok or { model: "<id>" }; using "${DEFAULT_ARBITER}"`);
-  return { consensus: { arbiter: DEFAULT_ARBITER }, warnings };
+  return wrap(DEFAULT_ARBITER, false);
 }
 
 function disabledOpenRouter() {
@@ -320,7 +340,7 @@ function makeConfigReader(filePath) {
     try {
       text = fs.readFileSync(filePath, "utf8");
     } catch (_) {
-      return { ok: true, error: null, resolved: { version: 1, providers: {}, openrouter: disabledOpenRouter(), consensus: { arbiter: DEFAULT_ARBITER }, consensusWarnings: [] } };
+      return { ok: true, error: null, resolved: { version: 1, providers: {}, openrouter: disabledOpenRouter(), consensus: { arbiter: DEFAULT_ARBITER, arbiterDefaulted: true, blindVote: false }, consensusWarnings: [] } };
     }
     let parsed;
     try {

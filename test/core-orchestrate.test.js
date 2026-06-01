@@ -87,6 +87,47 @@ test("C5: consensus with empty providers yields a safe shape, never throws", asy
   assert.ok(out.error === "all-providers-failed" || out.error === "no-arbiter");
 });
 
+// A blind-vote-aware arbiter: the verdict pass receives a buildArbiterPrompt
+// (contains "### Opinion"); the blind pass receives the raw question.
+function blindAwareArbiter(/** @type {string} */ behavior = "") {
+  /** @type {string[]} */
+  const calls = [];
+  const provider = /** @type {any} */ ({
+    name: "arb", capabilities: {}, async health() { return { ok: true }; },
+    async ask(/** @type {any} */ req) {
+      calls.push(req.prompt);
+      const isVerdict = req.prompt.includes("### Opinion");
+      if (behavior === "blind-throws" && !isVerdict) throw new Error("blind boom");
+      return { provider: "arb", model: "m", text: isVerdict ? "verdict" : "blind", isError: false, ms: 0 };
+    },
+  });
+  return { provider, calls };
+}
+
+test("C7: blindVote runs a blind pre-vote (raw question) alongside the verdict pass", async () => {
+  const { provider, calls } = blindAwareArbiter();
+  const out = await consensus([fakeProvider("a"), fakeProvider("b")], { prompt: "hi" }, { arbiter: provider, blindVote: true });
+  assert.equal(out.blindVerdict && /** @type {any} */ (out.blindVerdict).text, "blind");
+  assert.equal(out.verdict && /** @type {any} */ (out.verdict).text, "verdict");
+  assert.ok(calls.includes("hi"), "arbiter saw the raw question (blind pass)");
+  assert.ok(calls.some((p) => p.includes("### Opinion")), "arbiter saw the opinions (verdict pass)");
+});
+
+test("C8: a thrown blind pass yields blindVerdict:null but the run still succeeds", async () => {
+  const { provider } = blindAwareArbiter("blind-throws");
+  const out = await consensus([fakeProvider("a"), fakeProvider("b")], { prompt: "hi" }, { arbiter: provider, blindVote: true });
+  assert.equal(out.blindVerdict, null);
+  assert.equal(out.verdict && /** @type {any} */ (out.verdict).text, "verdict");
+  assert.equal(out.error, undefined);
+});
+
+test("C9: blindVote off (default) -> blindVerdict is null, arbiter called once", async () => {
+  const { provider, calls } = blindAwareArbiter();
+  const out = await consensus([fakeProvider("a"), fakeProvider("b")], { prompt: "hi" }, { arbiter: provider });
+  assert.equal(out.blindVerdict, null);
+  assert.equal(calls.length, 1); // verdict pass only, no blind pass
+});
+
 test("C6: buildArbiterPrompt anonymizes opinion labels (no provider names leak)", () => {
   const opinions = /** @type {any} */ ([
     { provider: "codex", text: "alpha body" },

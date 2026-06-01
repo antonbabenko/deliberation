@@ -323,8 +323,24 @@ test("C11: malformed JSON => ok=false with parse error, no throw", () => {
 test("CB1: missing consensus block defaults arbiter to 'auto', no warnings", () => {
   const { ok, resolved } = validateConfig(base());
   assert.equal(ok, true);
-  assert.deepEqual(resolved.consensus, { arbiter: "auto" });
+  assert.deepEqual(resolved.consensus, { arbiter: "auto", arbiterDefaulted: true, blindVote: false });
   assert.deepEqual(resolved.consensusWarnings, []);
+});
+
+test("CB1b: consensus.blindVote true is accepted; arbiterDefaulted false when arbiter is explicit", () => {
+  const c = base();
+  c.consensus = { arbiter: "auto", blindVote: true };
+  const { resolved } = validateConfig(c);
+  assert.equal(resolved.consensus.blindVote, true);
+  assert.equal(resolved.consensus.arbiterDefaulted, false); // arbiter was explicitly set
+});
+
+test("CB1c: non-boolean consensus.blindVote degrades to false + a warning", () => {
+  const c = base();
+  c.consensus = { blindVote: "yes" };
+  const { resolved } = validateConfig(c);
+  assert.equal(resolved.consensus.blindVote, false);
+  assert.ok(resolved.consensusWarnings.some((/** @type {string} */ w) => /blindVote must be a boolean/.test(w)));
 });
 
 test("CB2: arbiter 'host' is accepted verbatim", () => {
@@ -421,7 +437,7 @@ test("CB9: non-object consensus block degrades to auto AND warns (invalid->auto+
 
 test("CB7: omitted openrouter block still carries consensus default auto", () => {
   const { resolved } = validateConfig({ version: 1 });
-  assert.deepEqual(resolved.consensus, { arbiter: "auto" });
+  assert.deepEqual(resolved.consensus, { arbiter: "auto", arbiterDefaulted: true, blindVote: false });
   assert.deepEqual(resolved.consensusWarnings, []);
 });
 
@@ -429,5 +445,5 @@ test("CB8: missing config file => disabled openrouter + consensus default auto",
   const reader = makeConfigReader(path.join(os.tmpdir(), "definitely-absent-cdg-cb.json"));
   const r = reader.get();
   assert.equal(r.ok, true);
-  assert.deepEqual(r.resolved.consensus, { arbiter: "auto" });
+  assert.deepEqual(r.resolved.consensus, { arbiter: "auto", arbiterDefaulted: true, blindVote: false });
 });

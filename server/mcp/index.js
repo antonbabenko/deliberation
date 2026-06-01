@@ -178,6 +178,23 @@ async function isHealthy(p) {
 function buildServer({ providers, getConfig, getConfigError }) {
   const registry = makeRegistry(providers);
 
+  // Client identity for arbiter-default selection. Connection-scoped: set from the
+  // MCP `initialize` handshake (clientInfo.name) for the life of this stdio session.
+  let clientName = /** @type {string|null} */ (null);
+
+  /**
+   * Whether this server is running under Claude Code (or another Claude host).
+   * Primary signal: Claude Code injects `CLAUDECODE=1` into stdio MCP subprocess
+   * env (Claude Code CHANGELOG v2.1.147) - deterministic + documented. Secondary:
+   * a `clientInfo.name` containing "claude" (e.g. Claude Desktop). Used ONLY to
+   * pick the DEFAULT arbiter when the user has not set `consensus.arbiter`.
+   * @returns {boolean}
+   */
+  function isClaudeHost() {
+    if (process.env.CLAUDECODE === "1") return true;
+    return typeof clientName === "string" && clientName.toLowerCase().includes("claude");
+  }
+
   /**
    * Inject the bundled persona for `expert` when the caller did not supply its
    * own developerInstructions. Caller-supplied instructions ALWAYS win, so the
@@ -232,7 +249,12 @@ function buildServer({ providers, getConfig, getConfigError }) {
       // implicit providers[0], so any host can synthesize a real verdict.
       const cfg = getConfig() || {};
       const { providers: selected } = registry.selectForConsensus({ config: cfg, expert: expert || "" });
-      const arbiterSpec = (cfg.consensus && cfg.consensus.arbiter) || "auto";
+      const cc = cfg.consensus || {};
+      // When the user did NOT set an arbiter (arbiterDefaulted), pick the default by
+      // host: Claude Code -> "host" (the host model synthesizes); any other host ->
+      // "auto" (a real server-side verdict). An explicit arbiter always wins.
+      const arbiterSpec = cc.arbiterDefaulted ? (isClaudeHost() ? "host" : "auto") : (cc.arbiter || "auto");
+      const blindVote = !!cc.blindVote;
       const warnings = Array.isArray(cfg.consensusWarnings) ? cfg.consensusWarnings.slice() : [];
       // Surface a config load/parse error (e.g. bad config.json) instead of
       // silently swallowing it via getConfig()'s {} fallback.
@@ -245,7 +267,7 @@ function buildServer({ providers, getConfig, getConfigError }) {
       if (resolved.mode === "host") {
         // Host arbitrates: return opinions only, no server-side arbiter pass.
         const opinions = await askAll(selected, withPersona(req, expert));
-        return { content: [{ type: "text", text: JSON.stringify({ opinions, verdict: null, arbiter: { mode: "host" }, warnings }) }] };
+        return { content: [{ type: "text", text: JSON.stringify({ opinions, blindVerdict: null, verdict: null, arbiter: { mode: "host" }, warnings }) }] };
       }
 
       if (!resolved.provider) {
@@ -253,7 +275,7 @@ function buildServer({ providers, getConfig, getConfigError }) {
         // through consensus(selected, ...) so the documented all-providers-failed
         // signal is preserved instead of masquerading as host mode.
         const out = await consensus(selected, withPersona(req, expert), { arbiterInstructions: PROMPTS.arbiter });
-        return { content: [{ type: "text", text: JSON.stringify({ opinions: out.opinions, verdict: out.verdict, error: out.error, arbiter: { mode: "server", provider: null }, warnings }) }] };
+        return { content: [{ type: "text", text: JSON.stringify({ opinions: out.opinions, blindVerdict: out.blindVerdict, verdict: out.verdict, error: out.error, arbiter: { mode: "server", provider: null }, warnings }) }] };
       }
 
       const arbiter = resolved.provider;
@@ -265,8 +287,8 @@ function buildServer({ providers, getConfig, getConfigError }) {
         peers = selected;
         warnings.push(`panel too small to exclude arbiter '${arbiter.name}'; kept it in the peer panel (floor of 2)`);
       }
-      const out = await consensus(peers, withPersona(req, expert), { arbiter, arbiterInstructions: PROMPTS.arbiter });
-      return { content: [{ type: "text", text: JSON.stringify({ opinions: out.opinions, verdict: out.verdict, error: out.error, arbiter: { mode: "server", provider: arbiter.name }, warnings }) }] };
+      const out = await consensus(peers, withPersona(req, expert), { arbiter, arbiterInstructions: PROMPTS.arbiter, blindVote });
+      return { content: [{ type: "text", text: JSON.stringify({ opinions: out.opinions, blindVerdict: out.blindVerdict, verdict: out.verdict, error: out.error, arbiter: { mode: "server", provider: arbiter.name }, warnings }) }] };
     }
     if (Object.prototype.hasOwnProperty.call(ASK_PROVIDER, name)) {
       const p = registry.get(ASK_PROVIDER[name]);
@@ -286,6 +308,9 @@ function buildServer({ providers, getConfig, getConfigError }) {
   async function handle(msg) {
     try {
       if (msg.method === "initialize") {
+        // Capture the client name (hint for the arbiter default; see isClaudeHost).
+        const ci = msg.params && msg.params.clientInfo;
+        if (ci && typeof ci.name === "string") clientName = ci.name;
         return { jsonrpc: "2.0", id: msg.id, result: { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "deliberation-mcp", version: "0.1.0" } } };
       }
       if (msg.method === "tools/list") return { jsonrpc: "2.0", id: msg.id, result: { tools: toolList() } };

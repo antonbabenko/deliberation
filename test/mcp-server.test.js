@@ -50,6 +50,40 @@ test("M4: consensus runs fan-out + one arbiter pass and returns opinions + verdi
   assert.ok(payload.verdict); // arbiter (first provider) produced a verdict
 });
 
+// arbiterDefaulted=true simulates a user who did NOT set consensus.arbiter, so the
+// server picks the default by host (Claude -> host, else -> auto).
+const defaultedConfig = { providers: {}, openrouter: { maxFanout: 3, models: [] }, consensus: { arbiter: "auto", arbiterDefaulted: true, blindVote: false } };
+
+async function consensusArbiterMode(clientName, claudecode) {
+  const prev = process.env.CLAUDECODE;
+  if (claudecode) process.env.CLAUDECODE = "1"; else delete process.env.CLAUDECODE;
+  try {
+    const srv = buildServer({ providers: [fakeProvider("codex"), fakeProvider("grok")], getConfig: () => defaultedConfig });
+    if (clientName) await srv.handle({ jsonrpc: "2.0", id: 1, method: "initialize", params: { clientInfo: { name: clientName } } });
+    const res = await srv.handle({ jsonrpc: "2.0", id: 9, method: "tools/call", params: { name: "consensus", arguments: { prompt: "x", expert: "architect" } } });
+    return JSON.parse(res.result.content[0].text);
+  } finally {
+    if (prev === undefined) delete process.env.CLAUDECODE; else process.env.CLAUDECODE = prev;
+  }
+}
+
+test("M6: arbiterDefaulted + a Claude clientInfo.name defaults the arbiter to host (verdict:null)", async () => {
+  const payload = await consensusArbiterMode("claude-code", false);
+  assert.equal(payload.arbiter.mode, "host");
+  assert.equal(payload.verdict, null);
+});
+
+test("M7: arbiterDefaulted + a non-Claude client defaults the arbiter to auto (server verdict)", async () => {
+  const payload = await consensusArbiterMode("cursor", false);
+  assert.equal(payload.arbiter.mode, "server");
+  assert.ok(payload.verdict);
+});
+
+test("M8: CLAUDECODE=1 forces host default even when the client name is non-Claude", async () => {
+  const payload = await consensusArbiterMode("cursor", true);
+  assert.equal(payload.arbiter.mode, "host");
+});
+
 test("M5: ask-all expands OR per-alias and never dispatches askAll:false (issue 001 closed)", async () => {
   const srv = buildServer({ providers: [fakeProvider("codex"), fakeProvider("openrouter")], getConfig: () => orConfig });
   const res = await srv.handle({ jsonrpc: "2.0", id: 5, method: "tools/call",

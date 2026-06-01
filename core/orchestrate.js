@@ -68,22 +68,45 @@ function buildArbiterPrompt(question, opinions) {
 }
 
 /**
- * Minimal single-round advisory consensus: fan out to all providers, then run
- * ONE arbiter pass over the successful opinions. No blind multi-round; the
- * arbiter is just another Provider (default: the first in the set).
+ * Single-round advisory consensus: fan out to all providers, then run ONE arbiter
+ * pass over the successful opinions. The arbiter is just another Provider
+ * (default: the first in the set).
+ *
+ * Optional `blindVote`: the arbiter ALSO answers the original question cold (no
+ * peer opinions) to produce a `blindVerdict`, fired in PARALLEL with the peer
+ * fan-out (no extra round). It reduces the arbiter anchoring on the peers' framing.
+ * Failure-isolated: a thrown blind pass yields `blindVerdict:null`, never failing
+ * the run. `blindVerdict` is `null` when `blindVote` is off or no arbiter exists.
  * @param {Provider[]} providers
  * @param {DelegationRequest} req
- * @param {{arbiter?:Provider, arbiterInstructions?:string}} [opts]
- * @returns {Promise<{opinions:DelegationResult[], verdict:(DelegationResult|null), error?:string}>}
+ * @param {{arbiter?:Provider, arbiterInstructions?:string, blindVote?:boolean}} [opts]
+ * @returns {Promise<{opinions:DelegationResult[], blindVerdict:(DelegationResult|null), verdict:(DelegationResult|null), error?:string}>}
  */
 async function consensus(providers, req, opts = {}) {
-  const opinions = await askAll(providers, req);
+  const arbiter = opts.arbiter || providers[0];
+  // Blind pre-vote runs concurrently with the peer fan-out. It uses the ORIGINAL
+  // prompt (no opinions) + the arbiter persona. `.then(v, () => null)` isolates a
+  // blind-pass failure so it can never reject the batch.
+  const blindPromise = opts.blindVote && arbiter
+    ? // Promise.resolve().then(...) so even a SYNCHRONOUS throw in ask() is caught
+      // by the rejection handler (a bare arbiter.ask() could throw before awaiting).
+      Promise.resolve()
+        .then(() =>
+          arbiter.ask({
+            ...req,
+            files: req.files ? req.files.map((f) => ({ ...f })) : undefined,
+            developerInstructions: opts.arbiterInstructions || req.developerInstructions,
+          })
+        )
+        .then((v) => v, () => null)
+    : Promise.resolve(/** @type {DelegationResult|null} */ (null));
+
+  const [opinions, blindVerdict] = await Promise.all([askAll(providers, req), blindPromise]);
   // The union guarantees `text` on the success branch, so `!o.isError` alone
   // narrows each survivor to DelegationSuccess - no `&& o.text` guard needed.
   const ok = /** @type {DelegationSuccess[]} */ (opinions.filter((o) => !o.isError));
-  if (!ok.length) return { opinions, verdict: null, error: "all-providers-failed" };
-  const arbiter = opts.arbiter || providers[0];
-  if (!arbiter) return { opinions, verdict: null, error: "no-arbiter" };
+  if (!ok.length) return { opinions, blindVerdict, verdict: null, error: "all-providers-failed" };
+  if (!arbiter) return { opinions, blindVerdict, verdict: null, error: "no-arbiter" };
   try {
     const verdict = await arbiter.ask({
       ...req,
@@ -91,9 +114,9 @@ async function consensus(providers, req, opts = {}) {
       prompt: buildArbiterPrompt(req.prompt, ok),
       developerInstructions: opts.arbiterInstructions || req.developerInstructions,
     });
-    return { opinions, verdict };
+    return { opinions, blindVerdict, verdict };
   } catch {
-    return { opinions, verdict: null, error: "arbiter-failed" };
+    return { opinions, blindVerdict, verdict: null, error: "arbiter-failed" };
   }
 }
 

@@ -79,6 +79,11 @@
             }
           ],
           "examples": ["auto", { "model": "claude-arb" }]
+        },
+        "blindVote": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run a blind arbiter pre-vote (the arbiter answers the question cold, before seeing peer opinions) to reduce anchoring. Server/concrete-arbiter mode only; adds one extra arbiter call."
         }
       }
     }

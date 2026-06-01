@@ -164,7 +164,7 @@ test("SU8: STARTER_CONFIG validates under validateConfig", () => {
   assert.ok(resolved);
   // openrouter ships disabled in the starter; consensus arbiter is the auto shorthand.
   assert.equal(resolved.openrouter.enabled, false);
-  assert.deepEqual(resolved.consensus, { arbiter: "auto" });
+  assert.deepEqual(resolved.consensus, { arbiter: "auto", arbiterDefaulted: false, blindVote: false });
   assert.deepEqual(resolved.openrouter.models, []);
   assert.equal(resolved.openrouter.maxFanout, 3);
 });
