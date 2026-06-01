@@ -121,6 +121,21 @@ The package also ships a `deliberation-setup` bin. Run it once with `npx -y --pa
 
 </details>
 
+### Native plugins per host (Cursor / Codex / Kiro / OpenCode)
+
+Beyond the raw MCP config above, deliberation ships **native plugin artifacts** for four hosts so the experience matches the Claude Code plugin (persona-bearing experts + when-to-delegate guidance, not just bare tools). All of these are **generated from the canonical sources** by `node scripts/sync-hosts.js` and committed, so they never drift (a CI drift test enforces it). Each host scans the repo for its own files:
+
+| Host | Native artifacts (in this repo) | Install |
+|------|----------------------------------|---------|
+| **Cursor** | `.cursor/rules/deliberation.mdc` | Use the one-click MCP button above, then copy the `.mdc` into your project's `.cursor/rules/`. |
+| **Codex CLI** | `plugins/deliberation/` (`.codex-plugin/plugin.json` + `.mcp.json` + `skills/`) and a repo-scoped `.agents/plugins/marketplace.json` | `codex plugin marketplace add antonbabenko/deliberation`, then install **deliberation** from `/plugins`. |
+| **Kiro** | `POWER.md` + `mcp.json` + `steering/` (a "Kiro Power") | In Kiro, "Add power from GitHub" -> this repo URL. Submit to the registry at [kiro.dev/powers/submit](https://kiro.dev/powers/submit/). |
+| **OpenCode** | `.opencode/commands/*.md` + `.opencode/agents/*.md` | Add the MCP server to `opencode.json` (`mcp` key, `type: "local"`, `command: ["npx","-y","@antonbabenko/deliberation-mcp"]`), then copy `.opencode/commands/` and `.opencode/agents/` into your project. |
+
+Provider credentials work the same as the standalone server (GPT via the Codex CLI, Gemini via `agy`, `XAI_API_KEY` for Grok, `OPENROUTER_API_KEY` for OpenRouter) - set only the providers you use. The MCP server already injects each expert persona server-side, so these native files add the host's command/steering surface, not duplicated logic.
+
+**Full per-host install guides:** [`public-docs/hosts/`](public-docs/hosts/) - [Cursor](public-docs/hosts/cursor.md), [Codex CLI](public-docs/hosts/codex.md), [Kiro](public-docs/hosts/kiro.md), [OpenCode](public-docs/hosts/opencode.md).
+
 ## Requirements
 
 You need at least one provider:

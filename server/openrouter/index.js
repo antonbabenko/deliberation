@@ -317,4 +317,4 @@ if (require.main === module) {
   if (typeof globalThis.fetch !== "function") { console.error("OpenRouter bridge requires Node 18+ (global fetch unavailable)."); process.exit(1); }
 }
 
-module.exports = { buildMessages, classifyError, parseCompletion, callOpenRouter, buildInitialTurns, resolveDelegate, DEFAULT_TIMEOUT_MS, MAX_MS, isNonEmptyString, truncate };
+module.exports = { buildMessages, classifyError, parseCompletion, callOpenRouter, buildInitialTurns, inlineFiles, resolveDelegate, DEFAULT_TIMEOUT_MS, MAX_MS, isNonEmptyString, truncate };

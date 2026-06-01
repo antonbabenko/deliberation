@@ -32,6 +32,10 @@ const TARGETS = [
   { rel: '.claude-plugin/plugin.json', re: /^( {2}"version":\s*)"[^"]*"/m },
   { rel: '.claude-plugin/marketplace.json', re: /^( {6}"version":\s*)"[^"]*"/m },
   { rel: 'package.json', re: /^( {2}"version":\s*)"[^"]*"/m },
+  // Generated host manifests (scripts/sync-hosts.js). Value-only, indent-anchored
+  // like the rest: the generator reads the same version.json, so the patched line
+  // matches what a regenerate would produce and the drift test stays green.
+  { rel: 'plugins/deliberation/.codex-plugin/plugin.json', re: /^( {2}"version":\s*)"[^"]*"/m },
 ]
 
 function repoRoot() {

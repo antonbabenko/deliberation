@@ -1,0 +1,23 @@
+{
+  "name": "deliberation",
+  "version": "2.5.0",
+  "description": "GPT, Gemini, Grok, and OpenRouter as expert subagents - second opinions, cross-model consensus, and review.",
+  "author": {
+    "name": "Anton Babenko",
+    "url": "https://github.com/antonbabenko"
+  },
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Deliberation",
+    "developerName": "Anton Babenko",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "shortDescription": "GPT, Gemini, Grok, and OpenRouter as expert subagents - second opinions, cross-model consensus, and review.",
+    "longDescription": "Seven expert subagents (Architect, Plan Reviewer, Scope Analyst, Code Reviewer, Security Analyst, Researcher, Debugger) backed by GPT, Gemini, Grok, and OpenRouter, plus ask-all fan-out and arbiter-mediated consensus. Advisory or implementation.",
+    "websiteURL": "https://github.com/antonbabenko/deliberation"
+  }
+}

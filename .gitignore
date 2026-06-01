@@ -14,3 +14,10 @@ docs/
 
 # Antigravity CLI project-local data (created by agy when run in a repo)
 .antigravitycli/
+
+# Added by code-review-graph and me :)
+.code-review-graph/
+.claude/skills/debug-issue
+.claude/skills/explore-codebase
+.claude/skills/refactor-safely
+.claude/skills/review-changes

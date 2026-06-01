@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "deliberation": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@antonbabenko/deliberation-mcp"
+      ],
+      "type": "stdio"
+    }
+  }
+}

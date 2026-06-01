@@ -63,6 +63,7 @@ jobs:
             ['.claude-plugin/plugin.json', readJSON('.claude-plugin/plugin.json').version],
             ['.claude-plugin/marketplace.json', (readJSON('.claude-plugin/marketplace.json').plugins || [])[0]?.version],
             ['package.json', readJSON('package.json').version],
+            ['plugins/deliberation/.codex-plugin/plugin.json', readJSON('plugins/deliberation/.codex-plugin/plugin.json').version],
           ]
 
           let bad = false

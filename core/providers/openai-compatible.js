@@ -38,9 +38,21 @@ function makeOpenAICompatibleProvider(opts) {
       const started = Date.now();
       const model = resolveModel(req);
       const prior = req.threadId && sessions.get(req.threadId);
+      // Inline attached files into TEXT blocks before building turns. buildInitialTurns
+      // (and the prior-session user turn) expect already-inlined strings; passing the raw
+      // { path, mode } objects makes buildMessages string-coerce them to "[object Object]".
+      let blocks = [], notes = [];
+      if (req.files && req.files.length) {
+        try {
+          // Defaults guard a bridge that returns only { blocks }.
+          ({ blocks = [], notes = [] } = bridge.inlineFiles(req.files, { roots: [req.cwd || process.cwd()] }));
+        } catch (e) {
+          return toErrorResult(name, model, started, /** @type {any} */ (e), () => ({ errorKind: "config", retryable: false }));
+        }
+      }
       const turns = prior
-        ? [...prior, { role: "user", text: req.prompt }]
-        : bridge.buildInitialTurns(req.developerInstructions, req.prompt, req.files || []);
+        ? [...prior, { role: "user", text: req.prompt, inlineBlocks: blocks }]
+        : bridge.buildInitialTurns(req.developerInstructions, req.prompt, blocks);
       try {
         const { text } = await bridge.callOpenRouter({
           apiBase, apiKey: process.env[apiKeyEnv], model,
@@ -50,7 +62,10 @@ function makeOpenAICompatibleProvider(opts) {
         const threadId = req.threadId || crypto.randomUUID();
         sessions.set(threadId, [...turns, { role: "assistant", text }]);
         if (sessions.size > MAX_SESSIONS) sessions.delete(sessions.keys().next().value);
-        return { provider: name, model, text, threadId, isError: false, ms: Date.now() - started };
+        // Surface skip notes (missing/binary/over-cap/over-budget files) like the standalone
+        // bridge, so a file-based ask is never silently answered with no file content.
+        const outText = notes.length ? `${text}\n\n[files] ${notes.join("; ")}` : text;
+        return { provider: name, model, text: outText, threadId, isError: false, ms: Date.now() - started };
       } catch (e) {
         return toErrorResult(name, model, started, /** @type {any} */ (e), bridge.classifyError);
       }
