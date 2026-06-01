@@ -1,3 +1,10 @@
+## [2.16.0](https://github.com/antonbabenko/deliberation/compare/v2.15.0...v2.16.0) (2026-06-01)
+
+
+### Features
+
+* surface consensus.maxRounds in config (PR2b-4a) ([#104](https://github.com/antonbabenko/deliberation/issues/104)) ([95779e8](https://github.com/antonbabenko/deliberation/commit/95779e88e1f29698b6dd7c911521c1f703b08c7e))
+
 ## [2.15.0](https://github.com/antonbabenko/deliberation/compare/v2.14.0...v2.15.0) (2026-06-01)
 
 
@@ -25,11 +32,4 @@
 ### Features
 
 * runToConvergence - non-Claude consensus loop driver (PR2b-2) ([#96](https://github.com/antonbabenko/deliberation/issues/96)) ([cc0dddc](https://github.com/antonbabenko/deliberation/commit/cc0dddc5bcbbea6a324f68a33abfa2d0eecb4ead))
-
-## [2.11.0](https://github.com/antonbabenko/deliberation/compare/v2.10.0...v2.11.0) (2026-06-01)
-
-
-### Features
-
-* parseReview - verdict + categorized issues parser (PR2b-1) ([#94](https://github.com/antonbabenko/deliberation/issues/94)) ([dd8bb95](https://github.com/antonbabenko/deliberation/commit/dd8bb95e97b6f6ebb4119793ad6946f4135b7f15))
 
