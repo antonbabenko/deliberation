@@ -1,8 +1,9 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
-  "disabledMcpjsonServers": ["deliberation"],
+  "disabledMcpjsonServers": [
+    "deliberation"
+  ],
   "env": {
-    "ECC_DISABLED_HOOKS": "pre:edit-write:gateguard-fact-force",
-    ""
+    "ECC_DISABLED_HOOKS": "pre:edit-write:gateguard-fact-force"
   }
 }
