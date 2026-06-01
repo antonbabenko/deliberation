@@ -1,6 +1,6 @@
 {
   "name": "deliberation",
-  "version": "2.8.1",
+  "version": "2.9.0",
   "description": "GPT, Gemini, Grok, and OpenRouter as expert subagents - second opinions, cross-model consensus, and review.",
   "author": {
     "name": "Anton Babenko",

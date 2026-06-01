@@ -1,3 +1,10 @@
+## [2.9.0](https://github.com/antonbabenko/deliberation/compare/v2.8.1...v2.9.0) (2026-06-01)
+
+
+### Features
+
+* opinion envelope + advisory schema (1a) ([#90](https://github.com/antonbabenko/deliberation/issues/90)) ([58deca6](https://github.com/antonbabenko/deliberation/commit/58deca63a639a0322993b8d08ee9d9da06846c46))
+
 ## [2.8.1](https://github.com/antonbabenko/deliberation/compare/v2.8.0...v2.8.1) (2026-06-01)
 
 
@@ -25,11 +32,4 @@
 ### Features
 
 * server-side blindVote + host auto-detect arbiter default ([#79](https://github.com/antonbabenko/deliberation/issues/79)) ([0124a34](https://github.com/antonbabenko/deliberation/commit/0124a340b311f13461cc3ae7ce7c6ad3d1d74f20))
-
-## [2.6.0](https://github.com/antonbabenko/deliberation/compare/v2.5.0...v2.6.0) (2026-06-01)
-
-
-### Features
-
-* native plugins for Cursor, Codex CLI, Kiro, and OpenCode ([#77](https://github.com/antonbabenko/deliberation/issues/77)) ([52dd6fe](https://github.com/antonbabenko/deliberation/commit/52dd6fef9c3fabc3028778b4b130590d4bf385f7)), closes [openai/codex#17066](https://github.com/openai/codex/issues/17066)
 
