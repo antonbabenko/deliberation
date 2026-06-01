@@ -63,9 +63,16 @@ Claude: "I found 3 issues..." (synthesizes, applies judgment)
 
 ## Consensus flow details
 
-The README's `## How /consensus and /ask-* keep models honest` section covers the 3-stage flow narrative inside a `<details>` block. The two reference pieces below live here so the README stays narrative:
+`/consensus` is a thin driver over the `consensus-step` tool; the multi-round loop lives in
+the core state machine (`core/consensus-loop.js`). Each round: Claude commits a blind verdict,
+the server fans out to the panel (`dispatch_peers`) and parses each voice's verdict + critical
+issues, Claude adjudicates (accept/dismiss/defer, every dismiss carries a reason), then revises
+the plan. The loop converges only when at least one responding peer APPROVES, none REJECT, zero
+accepted critical issues remain, and Claude's adjudicated verdict is APPROVE - so Claude cannot
+self-approve. The cap is `consensus.maxRounds` (default 5).
 
-**Stage 2 scoring vocabulary** (the closed taxonomy `/consensus` uses for all critical-issue categories):
+**Critical-issue taxonomy** (the closed set every critical issue is tagged with, parsed by
+`parseReview` in `core/provider.js`):
 
 - `security` - auth, secrets, injection, data exposure, privilege boundary
 - `correctness` - wrong behaviour, broken invariant, missing case, race condition
@@ -74,7 +81,12 @@ The README's `## How /consensus and /ask-* keep models honest` section covers th
 - `performance` - latency, throughput, resource use, scaling limit
 - `ops` - rollback, observability, deploy, migration, on-call surface
 
-**Operator-visible debug.** The final `/consensus` report logs a Stage 2 shuffle mapping per round so you can audit which model rated which anonymized answer. The mapping lives in the final report only - reviewers never see it during Stage 2.
+**Stage 2 (anonymized peer cross-review) is not part of the current loop.** Earlier revisions ran
+a command-layer Stage 2 (each reviewer scored the others' anonymized answers, with a shuffle
+mapping in the report). The engine-driven rewrite removed it: the core loop has no Stage 2 model,
+and keeping it in command prose re-introduced the duplication the rewrite eliminated. If anonymized
+cross-review proves valuable it returns as an engine feature (a new `consensus-step` action), not as
+prose.
 
 ## Provider bridges
 
@@ -505,6 +517,20 @@ Constraints and behavior:
 Behavior source of truth: `consensus()` in `core/orchestrate.js` and the `blindVote`
 validation in `server/openrouter/config.js`.
 
+### consensus.maxRounds
+
+`consensus.maxRounds` is an optional positive integer (default `5`) that caps the
+server-side convergence loop used by the `consensus-auto` and `consensus-step` tools.
+The loop ends `unresolved` once it hits the cap without converging.
+
+- **Range.** `1`..`50`. A value above `50` is clamped to `50` with a warning; a
+  non-integer or non-positive value is dropped (the default `5` applies) with a warning -
+  it never hard-fails the config.
+- **Scope.** It governs only the multi-round loop tools. The one-shot `consensus` tool is
+  a single arbiter pass and is unaffected.
+- Validation lives in `resolveConsensus` (`server/openrouter/config.js`); the cap is
+  enforced in `core/consensus-loop.js`.
+
 ### camelCase config keys, wire mapping
 
 Config keys are camelCase: `reasoningEffort`, `temperature`, `timeout`. The bridge sends
@@ -679,21 +705,31 @@ surfaces.
   `-1` = unlimited). Orphaned `<id>.json.tmp.<pid>.<ts>` fragments older than an hour
   are also reaped.
 
-### Record shape (`schemaVersion: 1`)
+### Record shape (`schemaVersion: 2`)
 
 ```
-{ id, parentId|null, schemaVersion: 1, createdAt: <ISO>,
-  tool: "consensus"|"ask-all", question, expert|null,
+{ id, parentId|null, schemaVersion: 2, createdAt: <ISO>,
+  tool: "consensus"|"ask-all"|"consensus-auto", question, expert|null,
   files: [{ path|dir|file_id|file_url, mode? }]|null,   // attachment REFS, never bodies
-  opinions: [{ provider, model, text }],
+  opinions: [{ provider, model, text,
+               verdict?, criticalIssues? }],            // verdict/criticalIssues on consensus-auto opinions
   blindVerdict|null, verdict|null,
-  arbiter: { mode, provider }|null, warnings: [], annotations: [{ note, at }] }
+  arbiter: { mode, provider }|null, warnings: [], annotations: [{ note, at }],
+  converged?, confidence?, rounds? }                    // consensus-auto loop summary
 ```
+
+v2 is additive: v1 records (no `verdict`/`criticalIssues`/loop-summary fields) still read
+back fine - `readSession` returns the object as-is and callers treat the v2 fields as
+optional. The `verdict`/`criticalIssues` and `converged`/`confidence`/`rounds` fields are
+populated only for `consensus-auto` runs (the multi-round loop); one-shot `consensus` and
+`ask-all` records omit them.
 
 Before writing, `scrubSecrets` redacts common key shapes (OpenAI `sk-`, OpenRouter
 `sk-or-`, xAI `xai-`, GitHub `gh[pousr]_`, AWS `AKIA`, Google `AIza`, and `Bearer`
-tokens) in the question, opinion/verdict text, `warnings`, annotation notes, and the
-file `path`/`dir` strings; each opinion/verdict is capped at ~100 KB. Scrubbing is
+tokens) in the question, opinion/verdict text, each critical-issue description, `warnings`,
+annotation notes, and the file `path`/`dir` strings; the question and each opinion/verdict
+are capped at ~100 KB, and an opinion `verdict` is whitelisted to the closed enum (anything
+else is coerced to `null`) so no free text rides the unscrubbed verdict field. Scrubbing is
 best-effort - user transcript text may still carry secrets in unrecognized shapes.
 
 ### Tools
@@ -704,11 +740,11 @@ Each takes its own input schema (no `prompt`), and reports
 | Tool | Input | Effect |
 |------|-------|--------|
 | `session-get` | `{ sessionId }` | Return the record, or a not-found message. Read-only. |
-| `session-revisit` | `{ sessionId, cwd? }` | Re-run the record's original question (and its file refs) with the CURRENT providers/config, write a CHILD record (`parentId` = original id), return the new `sessionId` + result. Re-run, not snapshot-replay. |
+| `session-revisit` | `{ sessionId, cwd? }` | Re-run the record's original question (and its file refs) with the CURRENT providers/config, write a CHILD record (`parentId` = original id), return the new `sessionId` + result. Re-run, not snapshot-replay. A `consensus-auto` record re-runs the full multi-round LOOP, not a one-shot pass. |
 | `session-annotate` | `{ sessionId, note }` | Append `{ note, at }` to the record's audit trail and rewrite the file. |
 
-When `persist` is on, `consensus` and `ask-all` also include a top-level `sessionId`
-in their result.
+When `persist` is on, `consensus`, `ask-all`, and `consensus-auto` also include a top-level
+`sessionId` in their result.
 
 ## Customizing expert prompts
 

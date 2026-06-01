@@ -115,7 +115,7 @@ Per-host config location and the key it expects:
 
 Provider prerequisites are the same as the plugin (see [Requirements](#requirements)): the Codex CLI for GPT, `agy` for Gemini, `XAI_API_KEY` for Grok, and `OPENROUTER_API_KEY` plus `~/.config/deliberation/config.json` for OpenRouter (Windows: `%APPDATA%\deliberation\config.json`; override the config path with `DELIBERATION_CONFIG`).
 
-Tools exposed: `ask-all`, `consensus`, `ask-gpt` / `ask-gemini` / `ask-grok` / `ask-openrouter`, and the seven experts (`architect`, `plan-reviewer`, `scope-analyst`, `code-reviewer`, `security-analyst`, `researcher`, `debugger`).
+Tools exposed: `ask-all`, `consensus`, `consensus-auto` (full convergence loop server-side), `consensus-step` (drive the loop yourself, one action per call), `ask-gpt` / `ask-gemini` / `ask-grok` / `ask-openrouter`, the seven experts (`architect`, `plan-reviewer`, `scope-analyst`, `code-reviewer`, `security-analyst`, `researcher`, `debugger`), and the session tools (`session-get` / `session-revisit` / `session-annotate`).
 
 The package also ships a `deliberation-setup` bin. Run it once with `npx -y --package @antonbabenko/deliberation-mcp deliberation-setup` to write a starter `~/.config/deliberation/config.json` (it never overwrites an existing one). The plain `npx -y @antonbabenko/deliberation-mcp` form runs the default bin (the server), which is what your MCP host launches. For host rule wiring, see [`AGENTS.md`](AGENTS.md) and the per-host snippets in [`examples/`](examples/).
 
@@ -214,31 +214,27 @@ Or invoke the slash commands directly - see Commands above.
 
 The four guards:
 
-- **Blind verdict.** Claude posts its own verdict (APPROVE / REQUEST CHANGES / REJECT) in a message sent *before* the one that calls the panel. The pre-commitment sits in the transcript, so Claude cannot reshape its opinion after seeing the others.
-- **Peer review.** Stage 2: each external model rates the OTHER models' answers blind, with identity stripped best-effort. Not-viable votes become candidate critical issues for the arbiter to weigh. Pattern adapted from [karpathy/llm-council](https://github.com/karpathy/llm-council).
+- **Blind verdict.** Claude posts its own verdict (APPROVE / REQUEST CHANGES / REJECT) in a message sent *before* the one that calls the panel. The pre-commitment sits in the transcript, so Claude cannot reshape its opinion after seeing the others. The engine enforces this: the panel is not revealed until the blind verdict is recorded.
+- **Peer review.** Each external model reviews the plan independently and returns a verdict plus categorized critical issues; Claude weighs them as the arbiter. The models vote, Claude adjudicates.
 - **No self-approval.** A round converges only when every responding external approves and at least one external actually answered. Claude's own approval never carries a round by itself. A provider that errors (an unconfigured Grok returning `missing-auth`, for example) drops out of the count instead of jamming the loop.
-- **No silent dismissal.** Every critical issue that gets dismissed or deferred ships with a one-line reason in the final report, including the times Claude walks back one of its own blind objections.
+- **No silent dismissal.** Every critical issue that gets dismissed or deferred ships with a one-line reason in the final report, including the times Claude walks back one of its own blind objections. The engine rejects an adjudication that dismisses an issue without a reason.
 
 The `/ask-*` commands carry a lighter version of the same rule. The external model only advises: Claude reads the output, applies its own judgment, and owns the synthesized answer. When the models agree, that is input, not a verdict.
 
 <details>
 <summary>Deep dive: how a single /consensus round actually runs</summary>
 
-Each `/consensus` round runs three stages:
+`/consensus` is a thin driver over the core convergence engine (`core/consensus-loop.js`); the loop mechanics - round counting, the convergence rule, the configurable max-rounds cap, history, and the confidence label - live in the engine, not the command. Each round:
 
-1. **Stage 1 - parallel verdicts.** Claude commits a blind verdict first; GPT, Gemini, and Grok review the plan in parallel and emit APPROVE / REQUEST CHANGES / REJECT plus a list of critical issues.
-2. **Stage 2 - blind cross-review (conditional).** Each external reviewer rates the OTHER reviewers' anonymized answers as viable or not-viable, with a one-line reason and a category. Reviewer identity is stripped best-effort (preamble plus self-references). House styles may still leak, so reviewers are instructed to score substance, not style. Not-viable votes become candidate critical issues for Stage 3.
-3. **Stage 3 - arbiter adjudication.** Claude reconciles Stage 1 verdicts, Stage 2 candidate issues, and its own blind verdict. For each issue it picks accept, dismiss (with reason), or defer. Then it revises the plan for the next round.
+1. **Blind verdict.** Claude commits its own verdict (transcript-visible) BEFORE the panel is revealed; the engine gates the reveal on it.
+2. **Panel review.** GPT, Gemini, Grok (and any configured OpenRouter delegates) review the plan in parallel and emit APPROVE / REQUEST CHANGES / REJECT plus categorized critical issues. The server parses each verdict.
+3. **Arbiter adjudication + revision.** Claude reconciles the panel verdicts and its own blind verdict; for each critical issue it picks accept, dismiss (reason required), or defer, then revises the plan for the next round.
 
-The loop stops when all responding externals approve, zero critical issues remain accepted, and Claude adjudicates APPROVE. Hard cap at 5 rounds.
+The loop converges when at least one responding external approves, none reject, zero critical issues remain accepted, and Claude adjudicates APPROVE - so Claude cannot self-approve. It otherwise stops at `consensus.maxRounds` (default 5, configurable) as `unresolved`. The confidence label reflects how fast it settled (round 1 = high, 2-3 = medium, 4-5 = low).
 
-**Stage 2 trigger.** Round 1 always. Round 2 onwards, Stage 2 fires only when Stage 1 has divergence OR the previous Stage 2 surfaced an arbiter-accepted not-viable issue (a one-round lookback that catches rubber-stamp convergence after a divergent round).
+The same engine backs two non-interactive entry points for other hosts: `consensus-auto` (runs the whole loop server-side in one call with a provider arbiter) and `consensus-step` (drive it yourself, one action per call). See [TECHNICAL.md](TECHNICAL.md#consensus-flow-details) for the taxonomy and the engine contract.
 
-**Stage 2 activation boundary.** Stage 2 is skipped on `sandbox: workspace-write` runs (Claude is writing code, not reviewing prose). Plan reviews that merely contain embedded diff text as prose still run Stage 2.
-
-**Cost ceiling.** Stage 2 adds at most about 60% to the call count in the worst case (5 rounds, Stage 2 firing every round). Typical convergence (2 to 3 rounds with partial Stage 2 fires) adds 25 to 50%.
-
-Scoring vocabulary and operator-visible debug details live in [TECHNICAL.md](TECHNICAL.md#consensus-flow-details).
+> An earlier revision ran an extra "Stage 2" anonymized peer cross-review (each model scoring the others' answers blind, adapted from [karpathy/llm-council](https://github.com/karpathy/llm-council)). The engine-driven rewrite removed it to keep one source of truth; it may return as an engine feature.
 
 </details>
 
@@ -301,7 +297,7 @@ Minimal example:
     }
   },
   "routing": { "maxFanout": 3 },
-  "consensus": { "arbiter": { "model": "claude-arb" }, "blindVote": true },
+  "consensus": { "arbiter": { "model": "claude-arb" }, "blindVote": true, "maxRounds": 5 },
   "sessions": { "persist": false, "maxRecords": 200, "maxAgeDays": 30 }
 }
 ```
@@ -321,8 +317,9 @@ is emitted when more than 3 models participate). `consensus.arbiter` picks who s
 a shorthand string (`"auto"` / `"host"` / `"codex"` / `"gemini"` / `"grok"`) or
 `{ "model": "<id>" }` naming a record (even an out-of-panel one). `consensus.blindVote`
 (boolean, default `false`) runs the arbiter cold in parallel with the panel to reduce
-anchoring - concrete-arbiter / non-host mode only. Implementation tasks always route to
-Codex or Gemini - never OpenRouter.
+anchoring - concrete-arbiter / non-host mode only. `consensus.maxRounds` (integer, default
+`5`, clamped to `50`) caps the multi-round convergence loop used by the `consensus-auto` /
+`consensus-step` tools. Implementation tasks always route to Codex or Gemini - never OpenRouter.
 
 For the full schema, the `$schema` / VS Code validation story, apiBase override matrix
 (Ollama, vLLM, LM Studio, HuggingFace), file-attachment caps, session model persistence,
