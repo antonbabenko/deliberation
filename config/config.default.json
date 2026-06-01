@@ -2,15 +2,24 @@
   "$schema": "https://raw.githubusercontent.com/antonbabenko/deliberation/master/config/config.schema.json",
   "version": 1,
   "providers": {
-    "codex": { "enabled": true },
-    "gemini": { "enabled": true },
-    "grok": { "enabled": true, "apiKeyEnv": "XAI_API_KEY" },
+    "codex": {
+      "enabled": true
+    },
+    "gemini": {
+      "enabled": true
+    },
+    "grok": {
+      "enabled": true,
+      "apiKeyEnv": "XAI_API_KEY"
+    },
     "openrouter": {
       "enabled": false,
       "apiKeyEnv": "OPENROUTER_API_KEY",
       "apiBase": "https://openrouter.ai/api/v1",
-      "defaultModel": "openai/gpt-4.1-mini",
-      "defaults": { "reasoningEffort": "medium" }
+      "defaultModel": "openrouter/auto",
+      "defaults": {
+        "reasoningEffort": "medium"
+      }
     }
   },
   "models": {
@@ -28,7 +37,16 @@
       "consensus": false
     }
   },
-  "routing": { "maxFanout": 3 },
-  "consensus": { "arbiter": "auto", "blindVote": false },
-  "sessions": { "persist": false, "maxRecords": 200, "maxAgeDays": 30 }
+  "routing": {
+    "maxFanout": 3
+  },
+  "consensus": {
+    "arbiter": "auto",
+    "blindVote": false
+  },
+  "sessions": {
+    "persist": false,
+    "maxRecords": 200,
+    "maxAgeDays": 30
+  }
 }
