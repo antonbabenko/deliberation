@@ -22,6 +22,12 @@
  * @property {string}  [threadId]
  * @property {string}  [expert]
  * @property {string}  [model]
+ * @property {string}  [apiKey]  per-request provider key override; when set, a provider
+ *   prefers it over its `process.env` key. The seam a remote/multi-tenant adapter injects
+ *   per request (Phase 3). Unset in the stdio path - providers fall back to `process.env`.
+ *   Phase-3 note: when this is used for real multi-tenancy, the remote adapter must also
+ *   scope any per-thread session state (e.g. the openai-compatible `threadId` map) by tenant,
+ *   so a reused threadId cannot resume another tenant's context under a different key.
  */
 
 /**

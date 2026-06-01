@@ -70,6 +70,9 @@ jobs:
             ['.claude-plugin/marketplace.json', (readJSON('.claude-plugin/marketplace.json').plugins || [])[0]?.version],
             ['package.json', readJSON('package.json').version],
             ['plugins/deliberation/.codex-plugin/plugin.json', readJSON('plugins/deliberation/.codex-plugin/plugin.json').version],
+            ['server/mcp/package.json', readJSON('server/mcp/package.json').version],
+            ['server.json', readJSON('server.json').version],
+            ['server.json packages[0]', (readJSON('server.json').packages || [])[0]?.version],
           ]
 
           let bad = false

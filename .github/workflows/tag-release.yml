@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write # OIDC: npm trusted publishing (provenance) + MCP registry login
 
 concurrency:
   group: tag-release
@@ -91,6 +92,44 @@ jobs:
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+
+      # Publish the npm package via OIDC trusted publishing (no stored token).
+      # Gated on a freshly-created tag so a re-run never double-publishes a version.
+      # Requires a one-time "trusted publisher" config on npmjs.com for
+      # @antonbabenko/deliberation-mcp linked to this repo + workflow.
+      - name: Set up Node for publish
+        if: steps.tag.outputs.created == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Publish to npm (OIDC trusted publishing + provenance)
+        if: steps.tag.outputs.created == 'true'
+        run: |
+          set -euo pipefail
+          npm ci
+          npm install -g npm@latest # OIDC trusted publishing needs npm >= 11.5
+          npm publish -w server/mcp --provenance --access public
+
+      # Submit the version-synced server.json to the Official MCP Registry via
+      # GitHub OIDC (namespace io.github.antonbabenko/* is owned by this repo's
+      # identity). Best-effort: a registry hiccup must not red an already-published
+      # npm release - it can be re-published manually with mcp-publisher.
+      - name: Publish to the MCP Registry
+        if: steps.tag.outputs.created == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          set -uo pipefail
+          gh release download --repo modelcontextprotocol/registry \
+            --pattern '*_linux_amd64.tar.gz' --output mcp-publisher.tar.gz || {
+              echo "::warning::could not download mcp-publisher; skipping registry publish"; exit 0; }
+          tar xzf mcp-publisher.tar.gz mcp-publisher || {
+              echo "::warning::could not extract mcp-publisher; skipping"; exit 0; }
+          chmod +x mcp-publisher
+          ./mcp-publisher login github-oidc && ./mcp-publisher publish \
+            || echo "::warning::MCP registry publish failed; re-run mcp-publisher manually"
 
       # On a real release, nudge the agent-plugins marketplace to re-pin this
       # plugin now instead of waiting for its daily cron. Needs a PAT with

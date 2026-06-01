@@ -28,7 +28,7 @@ function makeGrokProvider(opts = {}) {
     async ask(req) {
       const started = Date.now();
       const reasoningEffort = bridge.resolveReasoningEffort(req.reasoningEffort);
-      const apiKey = process.env.XAI_API_KEY;
+      const apiKey = (req && req.apiKey) || process.env.XAI_API_KEY;
       try {
         // runWithFiles builds its own turns from prompt + developer-instructions;
         // runGrok takes pre-built turns. Both return { text, output }.

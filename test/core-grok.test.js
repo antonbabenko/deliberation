@@ -45,3 +45,16 @@ test("GK5: a thrown bridge call -> normalized error via classifyGrokError", asyn
   assert.equal(r.isError, true);
   assert.equal(r.errorKind, "auth");
 });
+
+test("GK6: req.apiKey overrides process.env.XAI_API_KEY; absent -> falls back to env", async () => {
+  let seen;
+  const capturing = { ...fakeBridge, runGrok: async (/** @type {any} */ a) => { seen = a.apiKey; return { text: "ok", output: null }; } };
+  process.env.XAI_API_KEY = "env-key";
+  const p = makeGrokProvider({ bridge: capturing, model: "grok-4.3" });
+
+  await p.ask({ prompt: "hi", apiKey: "tenant-key" });
+  assert.equal(seen, "tenant-key"); // per-request override wins
+
+  await p.ask({ prompt: "hi" });
+  assert.equal(seen, "env-key"); // no override -> process.env fallback
+});

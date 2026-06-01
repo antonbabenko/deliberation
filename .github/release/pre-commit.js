@@ -36,6 +36,13 @@ const TARGETS = [
   // like the rest: the generator reads the same version.json, so the patched line
   // matches what a regenerate would produce and the drift test stays green.
   { rel: 'plugins/deliberation/.codex-plugin/plugin.json', re: /^( {2}"version":\s*)"[^"]*"/m },
+  // The PUBLISHED npm package + the MCP registry manifest. These are what `npx`
+  // and the Official MCP Registry resolve, so they must track version.json too.
+  { rel: 'server/mcp/package.json', re: /^( {2}"version":\s*)"[^"]*"/m },
+  // server.json carries TWO version lines (top-level + packages[0].version) at
+  // different indents; sync both. Same-file targets re-read the file each pass.
+  { rel: 'server.json', re: /^( {2}"version":\s*)"[^"]*"/m },
+  { rel: 'server.json', re: /^( {6}"version":\s*)"[^"]*"/m },
 ]
 
 function repoRoot() {
