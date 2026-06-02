@@ -1,3 +1,10 @@
+## [3.5.2](https://github.com/antonbabenko/deliberation/compare/v3.5.1...v3.5.2) (2026-06-02)
+
+
+### Bug Fixes
+
+* register MCP servers inline in plugin.json, drop root .mcp.json ([#127](https://github.com/antonbabenko/deliberation/issues/127)) ([f3aa1c9](https://github.com/antonbabenko/deliberation/commit/f3aa1c990dc2bbec75a66f5c3817f6062ef9ee10))
+
 ## [3.5.1](https://github.com/antonbabenko/deliberation/compare/v3.5.0...v3.5.1) (2026-06-02)
 
 
@@ -25,11 +32,4 @@
 ### Features
 
 * single-source command fallbacks + capability-gate expert personas ([#119](https://github.com/antonbabenko/deliberation/issues/119)) ([ba5b5ba](https://github.com/antonbabenko/deliberation/commit/ba5b5ba319bea61161075027618ca16731f81deb))
-
-## [3.2.0](https://github.com/antonbabenko/deliberation/compare/v3.1.1...v3.2.0) (2026-06-02)
-
-
-### Features
-
-* performance observability + per-provider progress for ask-all/consensus ([#117](https://github.com/antonbabenko/deliberation/issues/117)) ([a4e1617](https://github.com/antonbabenko/deliberation/commit/a4e161730e971e2a84c2ed083267e8a9c0b6a23c)), closes [#8](https://github.com/antonbabenko/deliberation/issues/8)
 
