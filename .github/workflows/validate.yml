@@ -43,6 +43,9 @@ jobs:
       - name: Run bridge tests
         run: node --test test/*.test.js
 
+      - name: Check generated artifacts in sync
+        run: npm run sync:check
+
       - name: Check version sync
         run: |
           node << 'EOF'

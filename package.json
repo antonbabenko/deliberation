@@ -9,6 +9,8 @@
     "test": "node --test test/*.test.js",
     "typecheck": "tsc -p tsconfig.json",
     "check": "npm run typecheck && npm test",
+    "sync": "node scripts/sync-prompts.js && node scripts/sync-hosts.js && node scripts/sync-fallbacks.js",
+    "sync:check": "node scripts/sync-prompts.js --check && node scripts/sync-hosts.js --check && node scripts/sync-fallbacks.js --check",
     "build:social": "npx -y playwright screenshot --viewport-size=1280,640 \"file://$(pwd)/assets/social-preview.html\" assets/social-preview.png"
   },
   "devDependencies": {

@@ -17,6 +17,8 @@ docs/
 
 # Added by code-review-graph and me :)
 .code-review-graph/
+# code-review-graph drops a cwd-relative path->uuid registry here when run with --repo
+cache/
 .claude/skills/debug-issue
 .claude/skills/explore-codebase
 .claude/skills/refactor-safely

@@ -8,7 +8,9 @@
  * generated core/prompts/index.js inlines every persona string so the bundle
  * carries them without any runtime fs / .md reads.
  *
- * Usage: node scripts/sync-prompts.js
+ * Usage:
+ *   node scripts/sync-prompts.js          # write core/prompts/index.js
+ *   node scripts/sync-prompts.js --check  # exit 1 on drift, 0 if in sync
  */
 
 const fs = require("fs");
@@ -71,11 +73,24 @@ function renderModule(personas) {
 }
 
 function main() {
+  const check = process.argv.includes("--check");
   const personas = readPersonas();
   const source = renderModule(personas);
+  const rel = path.relative(REPO_ROOT, OUT_FILE);
+
+  if (check) {
+    const onDisk = fs.existsSync(OUT_FILE) ? fs.readFileSync(OUT_FILE, "utf8").replace(/\r\n/g, "\n") : null;
+    if (onDisk !== source) {
+      process.stderr.write(`generated persona module out of date - run \`node scripts/sync-prompts.js\`:\n  - ${rel}\n`);
+      process.exit(1);
+    }
+    process.stdout.write(`persona module up to date (${PERSONA_KEYS.length} personas)\n`);
+    return;
+  }
+
   fs.mkdirSync(path.dirname(OUT_FILE), { recursive: true });
   fs.writeFileSync(OUT_FILE, source);
-  process.stdout.write(`wrote ${path.relative(REPO_ROOT, OUT_FILE)} (${PERSONA_KEYS.length} personas)\n`);
+  process.stdout.write(`wrote ${rel} (${PERSONA_KEYS.length} personas)\n`);
 }
 
 if (require.main === module) main();

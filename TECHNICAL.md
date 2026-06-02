@@ -163,7 +163,7 @@ reads `~/.codex/config.toml` directly. The **model** comes from the `model` key 
 that file by default (the Codex analog of `GEMINI_DEFAULT_MODEL` /
 `GROK_DEFAULT_MODEL`). Override it on the server with `-c model=<id>` on the
 `claude mcp add ... deliberation-codex` registration, or per call with the `model` parameter of
-`mcp__deliberation-codex__codex(...)`. See [Configuration in the README](README.md#configuration).
+`mcp__deliberation-codex__codex(...)`. See [SETUP.md](SETUP.md#openrouter-config).
 
 ## Observability + per-provider progress
 
