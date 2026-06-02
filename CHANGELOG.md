@@ -1,3 +1,10 @@
+## [3.5.1](https://github.com/antonbabenko/deliberation/compare/v3.5.0...v3.5.1) (2026-06-02)
+
+
+### Bug Fixes
+
+* populate root .mcp.json so plugin MCP servers register ([#125](https://github.com/antonbabenko/deliberation/issues/125)) ([20be546](https://github.com/antonbabenko/deliberation/commit/20be54666a5b14caa09ac043933fd8cefd332b66))
+
 ## [3.5.0](https://github.com/antonbabenko/deliberation/compare/v3.4.0...v3.5.0) (2026-06-02)
 
 
@@ -25,11 +32,4 @@
 ### Features
 
 * performance observability + per-provider progress for ask-all/consensus ([#117](https://github.com/antonbabenko/deliberation/issues/117)) ([a4e1617](https://github.com/antonbabenko/deliberation/commit/a4e161730e971e2a84c2ed083267e8a9c0b6a23c)), closes [#8](https://github.com/antonbabenko/deliberation/issues/8)
-
-## [3.1.1](https://github.com/antonbabenko/deliberation/compare/v3.1.0...v3.1.1) (2026-06-01)
-
-
-### Bug Fixes
-
-* pin mcp-publisher asset name in the registry publish step ([#115](https://github.com/antonbabenko/deliberation/issues/115)) ([78e5d05](https://github.com/antonbabenko/deliberation/commit/78e5d05412d61f15e0b8c7a160923368384c017c))
 
