@@ -2,13 +2,13 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.antonbabenko/deliberation",
   "description": "Second opinions in Claude Code and any MCP host from GPT, Gemini, Grok, and 400+ OpenRouter models.",
-  "version": "3.5.3",
+  "version": "3.5.4",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@antonbabenko/deliberation-mcp",
-      "version": "3.5.3",
+      "version": "3.5.4",
       "transport": { "type": "stdio" }
     }
   ]
