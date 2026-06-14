@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/antonbabenko-deliberation-badge.png)](https://mseep.ai/app/antonbabenko-deliberation)
+
 # Deliberation
 
 Get a second opinion in Claude Code from GPT, Gemini, and Grok - plus 400+ more models through OpenRouter, including Qwen, Kimi, and DeepSeek. Seven domain experts (Architect, Code Reviewer, Security Analyst, and four more) review your plans, find bugs, and debate edge cases until they agree.
