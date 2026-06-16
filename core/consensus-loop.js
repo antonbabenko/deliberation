@@ -136,12 +136,12 @@ function prepareRound(state) {
   const peerPrompt = [
     body,
     "Review the plan for correctness, security, scope, ambiguity, performance, and ops gaps.",
-    "End with: **Verdict**: APPROVE | REQUEST_CHANGES | REJECT, then categorized critical issues.",
+    "End with a line by itself in exactly this form (no markdown, token on the SAME line): VERDICT: APPROVE   (or VERDICT: REQUEST_CHANGES, or VERDICT: REJECT). Then list any critical issues, one per line as: - [category] description   where category is one of security, correctness, scope, ambiguity, performance, ops.",
   ].join("\n\n");
   const blindPrompt = [
     body,
     "Give your own independent verdict BEFORE seeing peer opinions.",
-    "End with: **Verdict**: APPROVE | REQUEST_CHANGES | REJECT, then categorized critical issues.",
+    "End with a line by itself in exactly this form (no markdown, token on the SAME line): VERDICT: APPROVE   (or VERDICT: REQUEST_CHANGES, or VERDICT: REJECT). Then list any critical issues, one per line as: - [category] description   where category is one of security, correctness, scope, ambiguity, performance, ops.",
   ].join("\n\n");
   return { peerPrompt, blindPrompt };
 }

@@ -30,8 +30,9 @@ No build step, no dependencies. Codex exposes a native MCP server; Gemini, Grok,
   (`recommendation` + `confidence` enum + optional `dissent_points`/`assumptions`/`tradeoffs`
   `string[]`), `parseOpinion(text) -> OpinionEnvelope` (best-effort, never throws; `structured` =
   parse provenance), advisory `validateOpinion` (`{valid, wellFormed, warnings}`), `OPINION_INSTRUCTIONS`,
-  and `parseReview(text) -> {verdict, criticalIssues}` (anchored verdict regex + the closed 6-category
-  taxonomy) used by the convergence loop. `registry.js` (`selectForAskAll` /
+  and `parseReview(text) -> {verdict, criticalIssues}` (best-effort, never-throws: fenced-code-skipped
+  verdict ladder - `VERDICT:` sentinel / same-line keyword / `Verdict` heading-split / bare token - plus
+  the closed 6-category taxonomy with next-line continuation-join) used by the convergence loop. `registry.js` (`selectForAskAll` /
   `selectForConsensus`); `orchestrate.js` (`askAll` / `askOne` / `consensus` / `runToConvergence` -
   the non-Claude server-side loop driver); `consensus-loop.js` (the PURE convergence state machine -
   the SSOT for round counting, the convergence rule, the configurable max-rounds cap, history, and the

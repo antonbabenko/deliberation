@@ -82,6 +82,16 @@ self-approve. The cap is `consensus.maxRounds` (default 5).
 - `performance` - latency, throughput, resource use, scaling limit
 - `ops` - rollback, observability, deploy, migration, on-call surface
 
+**Verdict shape.** The shared review prompt (one byte-identical string per provider) instructs every
+reviewer to end with a machine-readable `VERDICT: APPROVE` (or `VERDICT: REQUEST_CHANGES` /
+`VERDICT: REJECT`) line on its own, then list issues as `- [category] description`. `parseReview`
+tolerates real-world drift across models: it first strips fenced code blocks (so a quoted/echoed
+template cannot hijack the verdict), then resolves the verdict via a 4-tier ladder - the `VERDICT:`
+sentinel, a same-line `Verdict: <token>`, a `Verdict` heading with the token on a following line, or a
+bare standalone token line - and joins a category heading to a description on the next line when the
+bullet itself has none. An unparsed verdict stays `null` (treated as "not APPROVE"), so a parse miss
+never false-approves into convergence.
+
 **Stage 2 (anonymized peer cross-review) is not part of the current loop.** Earlier revisions ran
 a command-layer Stage 2 (each reviewer scored the others' anonymized answers, with a shuffle
 mapping in the report). The engine-driven rewrite removed it: the core loop has no Stage 2 model,

@@ -98,3 +98,61 @@ test("RP11: REVIEW_CATEGORIES is the frozen 6-set", () => {
   assert.deepEqual([...REVIEW_CATEGORIES].sort(), ["ambiguity", "correctness", "ops", "performance", "scope", "security"]);
   assert.equal(Object.isFrozen(REVIEW_CATEGORIES), true);
 });
+
+test("RP-V1: heading-split verdict (### Verdict then token on next line)", () => {
+  assert.equal(parseReview("### Verdict\n**REQUEST CHANGES**").verdict, "REQUEST_CHANGES");
+  assert.equal(parseReview("**Verdict**\nAPPROVE").verdict, "APPROVE");
+  assert.equal(parseReview("### **Verdict**\nAPPROVE").verdict, "APPROVE");
+});
+
+test("RP-V2: bare leading token with no 'verdict' keyword", () => {
+  assert.equal(parseReview("REQUEST CHANGES\n\nThe cache regression needs a fix.").verdict, "REQUEST_CHANGES");
+  assert.equal(parseReview("APPROVE\n\n- [correctness] minor nit").verdict, "APPROVE");
+});
+
+test("RP-V3: explicit VERDICT: sentinel line wins", () => {
+  assert.equal(parseReview("blah\nVERDICT: APPROVE\nmore").verdict, "APPROVE");
+  assert.equal(parseReview("VERDICT: REQUEST_CHANGES").verdict, "REQUEST_CHANGES");
+});
+
+test("RP-V4: tokens inside fenced code blocks do NOT hijack the verdict", () => {
+  const t = ["```", "VERDICT: REJECT", "```", "VERDICT: APPROVE"].join("\n");
+  assert.equal(parseReview(t).verdict, "APPROVE");
+});
+
+test("RP-V5: a bare token in prose does NOT match (only a whole-line token)", () => {
+  assert.equal(parseReview("I would not REJECT this; it is fine.").verdict, null);
+});
+
+test("RP-V6: still returns null when there is genuinely no verdict", () => {
+  assert.equal(parseReview("Some commentary with no decision.").verdict, null);
+});
+
+test("RP-I1: bold category heading with description on the NEXT line", () => {
+  const t = ["VERDICT: REQUEST_CHANGES", "- **[security]**", "  the endpoint has no authz check"].join("\n");
+  assert.deepEqual(parseReview(t).criticalIssues, [{ category: "security", description: "the endpoint has no authz check" }]);
+});
+
+test("RP-I2: pure markdown-artifact description (** with nothing after) is dropped", () => {
+  const t = ["VERDICT: APPROVE", "- [correctness] **", "", "next paragraph"].join("\n");
+  assert.deepEqual(parseReview(t).criticalIssues, []);
+});
+
+test("RP-I3: same-line category + description still works (no regression)", () => {
+  const t = ["VERDICT: REQUEST_CHANGES", "- [ops] missing rollback step"].join("\n");
+  assert.deepEqual(parseReview(t).criticalIssues, [{ category: "ops", description: "missing rollback step" }]);
+});
+
+test("RP-I4: continuation stops at a blank line / next bullet (no over-capture)", () => {
+  const t = ["- [scope] ", "- [perf-ish] should not be swallowed"].join("\n");
+  // first bullet has empty desc and the next line is another bullet -> dropped, not joined
+  assert.deepEqual(parseReview(t).criticalIssues.filter(c => c.category === "scope"), []);
+});
+
+test("RP-I5: continuation stops at a legacy same-line verdict line (not swallowed as description)", () => {
+  const t = ["- [security]", "Final verdict - APPROVE"].join("\n");
+  // empty-desc bullet must NOT swallow the following same-line verdict line; issue is dropped, verdict still resolves
+  const r = parseReview(t);
+  assert.deepEqual(r.criticalIssues, []);
+  assert.equal(r.verdict, "APPROVE");
+});
