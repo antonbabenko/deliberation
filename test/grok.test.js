@@ -328,13 +328,16 @@ test("G12: validateFiles enforces exactly-one-of and types", () => {
 
 test("G13: runGrok posts to /responses via injected fetch (success, http error, missing key)", async () => {
   let calledUrl = null;
-  const okFetch = async (url) => {
+  let calledOpts = null;
+  const okFetch = async (url, opts) => {
     calledUrl = url;
+    calledOpts = opts;
     return { ok: true, status: 200, text: async () => JSON.stringify({ output: [{ content: [{ type: "output_text", text: "ok" }] }] }) };
   };
   const out = await grok.runGrok({ turns: [{ role: "user", text: "x", fileRefs: [] }], apiKey: "k", apiBase: "https://api.x.ai/v1", fetchImpl: okFetch });
   assert.equal(out.text, "ok");
   assert.match(calledUrl, /\/responses$/);
+  assert.equal(calledOpts.redirect, "error", "redirect:error prevents the bearer token following a 3xx to another host");
 
   const errFetch = async () => ({ ok: false, status: 500, text: async () => "boom" });
   await assert.rejects(grok.runGrok({ turns: [], apiKey: "k", fetchImpl: errFetch }), (e) => e.status === 500);

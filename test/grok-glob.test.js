@@ -81,19 +81,27 @@ test("walk normalises backslashes to forward slashes in walked rel paths", () =>
   assert.deepEqual(out.files.map((f) => f.rel), ["sub/deep/x.tf"]);
 });
 
-test("walk throws when maxFiles exceeded with counts", () => {
+test("walk throws when maxFiles exceeded", () => {
   const root = makeTree({ "a.tf": "1", "b.tf": "2", "c.tf": "3" });
   assert.throws(
     () => glob.walk(root, { include: ["**/*"], exclude: [], maxFiles: 2, maxBytes: 1024 }),
-    /selected 3 files.*exceeds maxFiles=2/,
+    /exceeded maxFiles=2/,
   );
 });
 
-test("walk throws when maxBytes exceeded with counts", () => {
+test("walk throws when maxBytes exceeded", () => {
   const root = makeTree({ "a.tf": "x".repeat(60), "b.tf": "y".repeat(60) });
   assert.throws(
     () => glob.walk(root, { include: ["**/*"], exclude: [], maxFiles: 100, maxBytes: 100 }),
-    /exceeds maxBytes=100/,
+    /exceeded maxBytes=100/,
+  );
+});
+
+test("walk throws early inside descend once maxFiles is exceeded (does not exhaust the tree first)", () => {
+  const root = makeTree({ "a.tf": "1", "b.tf": "2", "c.tf": "3", "d.tf": "4" });
+  assert.throws(
+    () => glob.walk(root, { include: ["**"], exclude: [], maxFiles: 1, maxBytes: 1024 * 1024 }),
+    /exceeded maxFiles=1/,
   );
 });
 

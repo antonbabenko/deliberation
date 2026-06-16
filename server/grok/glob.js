@@ -101,6 +101,8 @@ function walk(rootAbs, { include, exclude, maxFiles, maxBytes }) {
         if (!matches(includeRes, relPosix)) continue;
         files.push({ rel: relPosix, abs: realTarget, size: st.size });
         totalBytes += st.size;
+        if (files.length > maxFiles) throw new Error(`directory expansion exceeded maxFiles=${maxFiles}. Narrow include or raise the limit.`);
+        if (totalBytes > maxBytes) throw new Error(`directory expansion exceeded maxBytes=${maxBytes} bytes. Narrow include or raise the limit.`);
       } else if (ent.isDirectory()) {
         if (matches(excludeRes, relPosix) || matches(excludeRes, relPosix + "/**")) continue;
         descend(absChild, relPosix);
@@ -111,12 +113,17 @@ function walk(rootAbs, { include, exclude, maxFiles, maxBytes }) {
         try { st = fs.statSync(absChild); } catch (_) { continue; }
         files.push({ rel: relPosix, abs: absChild, size: st.size });
         totalBytes += st.size;
+        if (files.length > maxFiles) throw new Error(`directory expansion exceeded maxFiles=${maxFiles}. Narrow include or raise the limit.`);
+        if (totalBytes > maxBytes) throw new Error(`directory expansion exceeded maxBytes=${maxBytes} bytes. Narrow include or raise the limit.`);
       }
     }
   }
 
   descend(rootAbs, "");
 
+  // Defensive backstop: descend() already throws early (mid-walk) the moment a
+  // cap is exceeded, so these post-loop checks are normally unreachable. Kept
+  // belt-and-suspenders in case a future refactor drops an inner check.
   if (files.length > maxFiles) {
     throw new Error(`directory expansion selected ${files.length} files; exceeds maxFiles=${maxFiles}. Narrow include or raise the limit.`);
   }

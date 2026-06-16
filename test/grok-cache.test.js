@@ -80,6 +80,13 @@ test("writeCache is atomic — tmp file does not linger on success", () => {
   assert.deepEqual(tmps, [], "no .tmp.* leftover");
 });
 
+test("writeCache creates the cache file with 0600 permissions (owner-only)", () => {
+  const p = tmpCachePath();
+  cache.writeCache(p, { version: 1, entries: {} });
+  const mode = fs.statSync(p).mode & 0o777;
+  assert.equal(mode, 0o600, `cache file mode ${mode.toString(8)} should be 600`);
+});
+
 test("withInflight runs the worker once for concurrent same-key callers", async () => {
   let calls = 0;
   const work = () => new Promise((r) => setTimeout(() => { calls += 1; r("file_xyz"); }, 25));
