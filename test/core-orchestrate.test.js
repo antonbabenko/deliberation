@@ -2,7 +2,7 @@
 "use strict";
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { askAll, askOne, consensus, buildArbiterPrompt } = require("../core/orchestrate.js");
+const { askAll, askOne, consensus, buildArbiterPrompt, runToConvergence } = require("../core/orchestrate.js");
 /** @typedef {import("../core/types.js").Provider} Provider */
 
 /** @param {string} name @param {string} [behavior] @returns {Provider} */
@@ -225,4 +225,30 @@ test("ORX8: arbiter BLIND pass is oriented for a file-blind arbiter; the verdict
   const verdict = calls.find((c) => c.isVerdict);
   assert.deepEqual(blind.files, BUNDLE, "blind pass (cold question) is oriented");
   assert.equal(verdict.files, undefined, "verdict pass (peer text) is NOT oriented");
+});
+
+test("ORX9: runToConvergence adjudication/revision passes are NOT oriented (only the blind pass)", async () => {
+  /** @type {any[]} */
+  const calls = [];
+  const arbiter = /** @type {any} */ ({
+    name: "arb", capabilities: { walksFilesystem: false },
+    async health() { return { ok: true }; },
+    async ask(/** @type {any} */ req) {
+      const isAdjudication = req.prompt.includes("## Peer reviews");
+      const isRevision = req.prompt.includes("## Current plan");
+      const kind = isAdjudication ? "adjudication" : isRevision ? "revision" : "blind";
+      calls.push({ kind, files: req.files });
+      // APPROVE on adjudication so the loop converges in round 1.
+      const text = isAdjudication ? "**Verdict**: APPROVE" : "ok";
+      return { provider: "arb", model: "m", text, isError: false, ms: 0 };
+    },
+  });
+  const peer = /** @type {any} */ ({ name: "p", capabilities: { walksFilesystem: false },
+    async health() { return { ok: true }; },
+    async ask() { return { provider: "p", model: "m", text: "**Verdict**: APPROVE", isError: false, ms: 0 }; } });
+  await runToConvergence([peer], { prompt: "the plan" }, { arbiter, orientationFiles: BUNDLE });
+  const blind = calls.find((c) => c.kind === "blind");
+  const adjudication = calls.find((c) => c.kind === "adjudication");
+  assert.deepEqual(blind.files, BUNDLE, "blind pass (cold question) is oriented");
+  assert.equal(adjudication.files, undefined, "adjudication pass (peer text) is NOT oriented");
 });

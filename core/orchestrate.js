@@ -205,6 +205,10 @@ async function consensus(providers, req, opts = {}) {
   if (!ok.length) return { opinions, blindVerdict, verdict: null, error: "all-providers-failed" };
   if (!arbiter) return { opinions, blindVerdict, verdict: null, error: "no-arbiter" };
   try {
+    // The verdict pass is NOT oriented (unlike the blind pass above): by this
+    // point every peer opinion is inlined into buildArbiterPrompt, so a file-blind
+    // arbiter is reasoning over peer text, not the cold repo - orientation files
+    // would be redundant context. Keep this asymmetry intentional.
     const verdict = await arbiter.ask({
       ...req,
       files: req.files ? req.files.map((f) => ({ ...f })) : undefined,
