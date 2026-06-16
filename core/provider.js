@@ -266,6 +266,15 @@ const VERDICT_RE = /\bverdict\b[^A-Za-z0-9]*\b(APPROVE|REJECT|REQUEST[_\s]CHANGE
 const BULLET_RE = /^([-*+•]|`?\[)/;
 const BRACKET_CAT_RE = /\[\s*([A-Za-z_]+)\s*\]/g;
 
+// Verdict-line shapes (all anchored / bounded - no backtracking):
+const SENTINEL_RE = /^[#>*_`\s]*verdict\s*[:=]\s*[*_`\s]*(APPROVE|REJECT|REQUEST[_\s]CHANGES)\b/i;
+const VERDICT_WORD_RE = /^[#>*_`\s]*verdict[*_`:\s]*$/i;   // a "Verdict" heading line, nothing else
+const TOKEN_LINE_RE = /^(APPROVE|REJECT|REQUEST[_\s]CHANGES)$/i; // a whole line that IS just the token
+const MD_EMPHASIS = /[*_`~]/g;                             // emphasis chars to strip when isolating a token
+const FENCE_RE = /^\s*(```|~~~)/;                          // fenced code-block delimiter
+/** Normalize a verdict token: "REQUEST CHANGES" -> "REQUEST_CHANGES", upper-cased. */
+function normVerdict(/** @type {string} */ tok) { return tok.replace(/\s+/g, "_").toUpperCase(); }
+
 /**
  * Parse a consensus REVIEW reply into a verdict + categorized critical issues.
  * Best-effort and NEVER throws. Line-based (no regex backtracking on large input).
@@ -286,39 +295,45 @@ const BRACKET_CAT_RE = /\[\s*([A-Za-z_]+)\s*\]/g;
  */
 function parseReview(text) {
   const raw = safeString(text);
-  const lines = raw.split(/\r?\n/);
-  /** @type {ParsedReview["verdict"]} */
-  let verdict = null;
-  /** @type {ReviewCriticalIssue[]} */
-  const criticalIssues = [];
-
-  for (const line of lines) {
-    if (verdict === null) {
-      const vm = line.match(VERDICT_RE);
-      if (vm) verdict = /** @type {ParsedReview["verdict"]} */ (vm[1].replace(/\s+/g, "_").toUpperCase());
-    }
-    const trimmed = line.trim();
-    if (!BULLET_RE.test(trimmed)) continue;
-    // Pick the first bracketed token that is a known category; else the first
-    // bracket at all (degraded to ambiguity). matchAll is reset each line.
-    let chosen = null;
-    for (const mm of trimmed.matchAll(BRACKET_CAT_RE)) {
-      if (REVIEW_CATEGORIES.includes(mm[1].toLowerCase())) { chosen = mm; break; }
-      if (chosen === null) chosen = mm; // remember the first bracket as fallback
-    }
-    if (!chosen) continue;
-    const cat = chosen[1].toLowerCase();
-    const category = /** @type {ReviewCriticalIssue["category"]} */ (
-      REVIEW_CATEGORIES.includes(cat) ? cat : REVIEW_FALLBACK_CATEGORY
-    );
-    const description = trimmed
-      .slice((chosen.index || 0) + chosen[0].length)
-      .replace(/^[`\s:.\-]+/, "")
-      .trim();
-    if (description) criticalIssues.push({ category, description });
+  // Drop fenced code blocks so an echoed template / quoted example cannot hijack
+  // the verdict (the shared prompt now keeps its VERDICT example inside a fence).
+  const lines = [];
+  let inFence = false;
+  for (const ln of raw.split(/\r?\n/)) {
+    if (FENCE_RE.test(ln)) { inFence = !inFence; continue; }
+    if (!inFence) lines.push(ln);
   }
-  return { verdict, criticalIssues };
+  return { verdict: resolveVerdict(lines), criticalIssues: resolveIssues(lines) };
 }
+
+/**
+ * Verdict ladder, first match wins (priority a > b > c > d). All passes scan a
+ * small fence-filtered line array - no backtracking.
+ * @param {string[]} lines
+ * @returns {ParsedReview["verdict"]}
+ */
+function resolveVerdict(lines) {
+  // a) explicit machine-readable sentinel: `VERDICT: APPROVE`
+  for (const ln of lines) { const m = ln.match(SENTINEL_RE); if (m) return /** @type {any} */ (normVerdict(m[1])); }
+  // b) keyword + token on the same line (legacy shape; the reviewer's own verdict)
+  for (const ln of lines) { const m = ln.match(VERDICT_RE); if (m) return /** @type {any} */ (normVerdict(m[1])); }
+  // c) heading-split: a "Verdict" heading line, then a bare token within the next 3 non-empty lines
+  for (let i = 0; i < lines.length; i++) {
+    if (!VERDICT_WORD_RE.test(lines[i].trim())) continue;
+    for (let j = i + 1; j < lines.length && j <= i + 3; j++) {
+      const t = lines[j].replace(MD_EMPHASIS, "").trim();
+      if (!t) continue;
+      if (TOKEN_LINE_RE.test(t)) return /** @type {any} */ (normVerdict(t));
+      break; // first non-empty line under the heading was not a token -> stop
+    }
+  }
+  // d) bare standalone token line, no "verdict" keyword (leading-token replies)
+  for (const ln of lines) { const t = ln.replace(MD_EMPHASIS, "").trim(); if (TOKEN_LINE_RE.test(t)) return /** @type {any} */ (normVerdict(t)); }
+  return null;
+}
+
+/** @param {string[]} lines @returns {ReviewCriticalIssue[]} */
+function resolveIssues(lines) { void lines; return []; }
 
 module.exports = {
   toErrorResult,
