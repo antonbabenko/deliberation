@@ -1,3 +1,10 @@
+## [3.6.1](https://github.com/antonbabenko/deliberation/compare/v3.6.0...v3.6.1) (2026-06-16)
+
+
+### Bug Fixes
+
+* robust consensus review-verdict parsing across providers ([#136](https://github.com/antonbabenko/deliberation/issues/136)) ([c8efe91](https://github.com/antonbabenko/deliberation/commit/c8efe917a470361689b949f0dc8bad57361986d2))
+
 ## [3.6.0](https://github.com/antonbabenko/deliberation/compare/v3.5.4...v3.6.0) (2026-06-16)
 
 
@@ -25,11 +32,4 @@
 ### Bug Fixes
 
 * register MCP servers inline in plugin.json, drop root .mcp.json ([#127](https://github.com/antonbabenko/deliberation/issues/127)) ([f3aa1c9](https://github.com/antonbabenko/deliberation/commit/f3aa1c990dc2bbec75a66f5c3817f6062ef9ee10))
-
-## [3.5.1](https://github.com/antonbabenko/deliberation/compare/v3.5.0...v3.5.1) (2026-06-02)
-
-
-### Bug Fixes
-
-* populate root .mcp.json so plugin MCP servers register ([#125](https://github.com/antonbabenko/deliberation/issues/125)) ([20be546](https://github.com/antonbabenko/deliberation/commit/20be54666a5b14caa09ac043933fd8cefd332b66))
 
