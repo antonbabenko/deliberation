@@ -1,3 +1,10 @@
+## [3.6.0](https://github.com/antonbabenko/deliberation/compare/v3.5.4...v3.6.0) (2026-06-16)
+
+
+### Features
+
+* opt-in orientation auto-attach for file-blind providers (Grok/OpenRouter) ([#134](https://github.com/antonbabenko/deliberation/issues/134)) ([3862c73](https://github.com/antonbabenko/deliberation/commit/3862c732b36e1b862b30ec45e1ba713c41ef249a))
+
 ## [3.5.4](https://github.com/antonbabenko/deliberation/compare/v3.5.3...v3.5.4) (2026-06-11)
 
 
@@ -25,11 +32,4 @@
 ### Bug Fixes
 
 * populate root .mcp.json so plugin MCP servers register ([#125](https://github.com/antonbabenko/deliberation/issues/125)) ([20be546](https://github.com/antonbabenko/deliberation/commit/20be54666a5b14caa09ac043933fd8cefd332b66))
-
-## [3.5.0](https://github.com/antonbabenko/deliberation/compare/v3.4.0...v3.5.0) (2026-06-02)
-
-
-### Features
-
-* register MCP servers via plugin manifest so updates need no setup re-run ([#123](https://github.com/antonbabenko/deliberation/issues/123)) ([00be051](https://github.com/antonbabenko/deliberation/commit/00be051c9f37fe395da0dac2c5c9ff2e341dcac7))
 
