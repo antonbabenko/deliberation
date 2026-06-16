@@ -49,5 +49,9 @@
     "persist": false,
     "maxRecords": 200,
     "maxAgeDays": 30
+  },
+  "orientation": {
+    "enabled": false,
+    "maxFiles": 6
   }
 }

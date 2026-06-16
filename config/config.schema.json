@@ -118,6 +118,24 @@
         }
       }
     },
+    "orientation": {
+      "type": "object",
+      "description": "Opt-in auto-attach of a small repo orientation bundle (CLAUDE.md/AGENTS.md/README/manifest) to file-blind advisory providers (Grok/OpenRouter) so they reach context parity with Codex/Gemini. Default OFF.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, dispatch auto-attaches existing high-signal repo files to Grok/OpenRouter (never to Codex/Gemini, which walk cwd). Default OFF."
+        },
+        "maxFiles": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 6,
+          "description": "Cap on how many orientation files to attach, in priority order."
+        }
+      }
+    },
     "debug": {
       "type": "object",
       "description": "Opt-in debug log for performance debugging (per-provider latency, token counts, voting/approval outcomes). Default OFF. Never records prompts, responses, or issue descriptions.",
