@@ -127,3 +127,24 @@ test("RP-V5: a bare token in prose does NOT match (only a whole-line token)", ()
 test("RP-V6: still returns null when there is genuinely no verdict", () => {
   assert.equal(parseReview("Some commentary with no decision.").verdict, null);
 });
+
+test("RP-I1: bold category heading with description on the NEXT line", () => {
+  const t = ["VERDICT: REQUEST_CHANGES", "- **[security]**", "  the endpoint has no authz check"].join("\n");
+  assert.deepEqual(parseReview(t).criticalIssues, [{ category: "security", description: "the endpoint has no authz check" }]);
+});
+
+test("RP-I2: pure markdown-artifact description (** with nothing after) is dropped", () => {
+  const t = ["VERDICT: APPROVE", "- [correctness] **", "", "next paragraph"].join("\n");
+  assert.deepEqual(parseReview(t).criticalIssues, []);
+});
+
+test("RP-I3: same-line category + description still works (no regression)", () => {
+  const t = ["VERDICT: REQUEST_CHANGES", "- [ops] missing rollback step"].join("\n");
+  assert.deepEqual(parseReview(t).criticalIssues, [{ category: "ops", description: "missing rollback step" }]);
+});
+
+test("RP-I4: continuation stops at a blank line / next bullet (no over-capture)", () => {
+  const t = ["- [scope] ", "- [perf-ish] should not be swallowed"].join("\n");
+  // first bullet has empty desc and the next line is another bullet -> dropped, not joined
+  assert.deepEqual(parseReview(t).criticalIssues.filter(c => c.category === "scope"), []);
+});

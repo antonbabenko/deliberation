@@ -264,7 +264,7 @@ const REVIEW_FALLBACK_CATEGORY = "ambiguity";
 // echoed instruction line cannot hijack the verdict.
 const VERDICT_RE = /\bverdict\b[^A-Za-z0-9]*\b(APPROVE|REJECT|REQUEST[_\s]CHANGES)\b/i;
 const BULLET_RE = /^([-*+•]|`?\[)/;
-const BRACKET_CAT_RE = /\[\s*([A-Za-z_]+)\s*\]/g;
+const BRACKET_CAT_RE = /\[\s*([A-Za-z_]+)\s*\]/g; // /g: consumed ONLY via matchAll (does not touch lastIndex); do NOT .exec()/.test() this
 
 // Verdict-line shapes (all anchored / bounded - no backtracking):
 const SENTINEL_RE = /^[#>*_`\s]*verdict\s*[:=]\s*[*_`\s]*(APPROVE|REJECT|REQUEST[_\s]CHANGES)\b/i;
@@ -272,6 +272,10 @@ const VERDICT_WORD_RE = /^[#>*_`\s]*verdict[*_`:\s]*$/i;   // a "Verdict" headin
 const TOKEN_LINE_RE = /^(APPROVE|REJECT|REQUEST[_\s]CHANGES)$/i; // a whole line that IS just the token
 const MD_EMPHASIS = /[*_`~]/g;                             // emphasis chars to strip when isolating a token
 const FENCE_RE = /^\s*(```|~~~)/;                          // fenced code-block delimiter
+const ARTIFACT_RE = /^[*_`~\s:.\-]*$/;                     // empty or only markdown/punct
+const STRIP_LEAD = /^[*_`~\s:.\-]+/;                       // leading noise to trim off a description
+const STRIP_TRAIL = /[*_`~\s]+$/;                          // trailing emphasis to trim
+const HEADING_RE = /^#{1,6}\s/;
 /** Normalize a verdict token: "REQUEST CHANGES" -> "REQUEST_CHANGES", upper-cased. */
 function normVerdict(/** @type {string} */ tok) { return tok.replace(/\s+/g, "_").toUpperCase(); }
 
@@ -332,8 +336,47 @@ function resolveVerdict(lines) {
   return null;
 }
 
-/** @param {string[]} lines @returns {ReviewCriticalIssue[]} */
-function resolveIssues(lines) { void lines; return []; }
+/**
+ * Extract categorized critical issues. Only bullet/bracket lines are considered;
+ * the first bracket that is a known category wins (else the first bracket degrades
+ * to `ambiguity`). The description is the text after the chosen `]`; when that is
+ * empty or only markdown artifacts (e.g. a bold `**[security]**` heading with the
+ * text on the following line), pull the next usable line as the description. A
+ * still-empty/artifact-only description is dropped (not actionable for convergence).
+ * @param {string[]} lines
+ * @returns {ReviewCriticalIssue[]}
+ */
+function resolveIssues(lines) {
+  /** @type {ReviewCriticalIssue[]} */
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (!BULLET_RE.test(trimmed)) continue;
+    let chosen = null;
+    for (const mm of trimmed.matchAll(BRACKET_CAT_RE)) {
+      if (REVIEW_CATEGORIES.includes(mm[1].toLowerCase())) { chosen = mm; break; }
+      if (chosen === null) chosen = mm;
+    }
+    if (!chosen) continue;
+    const cat = chosen[1].toLowerCase();
+    const category = /** @type {ReviewCriticalIssue["category"]} */ (
+      REVIEW_CATEGORIES.includes(cat) ? cat : REVIEW_FALLBACK_CATEGORY
+    );
+    let description = trimmed.slice(chosen.index + chosen[0].length).replace(STRIP_LEAD, "").replace(STRIP_TRAIL, "").trim();
+    if (!description || ARTIFACT_RE.test(description)) {
+      for (let j = i + 1; j < lines.length; j++) {
+        const nt = lines[j].trim();
+        if (!nt) break;                                  // blank -> stop
+        if (BULLET_RE.test(nt) || HEADING_RE.test(nt)) break;  // next bullet/heading -> stop
+        if (SENTINEL_RE.test(nt) || VERDICT_WORD_RE.test(nt)) break; // verdict line -> stop
+        description = nt.replace(STRIP_LEAD, "").replace(STRIP_TRAIL, "").trim();
+        break;                                           // take the first usable continuation line
+      }
+    }
+    if (description && !ARTIFACT_RE.test(description)) out.push({ category, description });
+  }
+  return out;
+}
 
 module.exports = {
   toErrorResult,
