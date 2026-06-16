@@ -139,6 +139,15 @@ test("L11: prepareRound returns peer + blind prompts that include the current pl
   assert.ok(/round 1/i.test(peerPrompt));
 });
 
+test("L11b: peer and blind prompts share the byte-identical VERDICT-format mandate", () => {
+  const s = initConsensusLoop({ plan: "ship the widget", arbiterMode: "host" });
+  const { peerPrompt, blindPrompt } = prepareRound(s);
+  const grab = (/** @type {string} */ p) => p.slice(p.indexOf("End with a line by itself"));
+  assert.equal(grab(peerPrompt), grab(blindPrompt));
+  assert.match(peerPrompt, /VERDICT: APPROVE/);
+  assert.match(blindPrompt, /- \[category\] description/);
+});
+
 test("L12: full happy path - converge in round 1 yields a final report + high confidence", () => {
   let s = initConsensusLoop({ plan: "p", arbiterMode: "host" });
   s = recordBlindVerdict(s, "looks good");

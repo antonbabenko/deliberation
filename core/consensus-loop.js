@@ -22,6 +22,17 @@ const MAX_ROUNDS_DEFAULT = 5;
 const VERDICTS = Object.freeze(["APPROVE", "REQUEST_CHANGES", "REJECT"]);
 
 /**
+ * The wire-format mandate appended verbatim to BOTH the peer and blind review
+ * prompts. SSOT: parseReview (core/provider.js) parses exactly this shape
+ * (a `VERDICT: <token>` sentinel line + `- [category] description` issue lines,
+ * categories == REVIEW_CATEGORIES). Edit here only; the two prompts MUST stay
+ * byte-identical in this suffix or peer/blind replies diverge and the single
+ * parser silently mis-handles one path.
+ */
+const REVIEW_FORMAT_INSTRUCTION =
+  "End with a line by itself in exactly this form (no markdown, token on the SAME line): VERDICT: APPROVE   (or VERDICT: REQUEST_CHANGES, or VERDICT: REJECT). Then list any critical issues, one per line as: - [category] description   where category is one of security, correctness, scope, ambiguity, performance, ops.";
+
+/**
  * @typedef {Object} CriticalIssue
  * @property {("security"|"correctness"|"scope"|"ambiguity"|"performance"|"ops")} category
  * @property {string} description
@@ -136,12 +147,12 @@ function prepareRound(state) {
   const peerPrompt = [
     body,
     "Review the plan for correctness, security, scope, ambiguity, performance, and ops gaps.",
-    "End with a line by itself in exactly this form (no markdown, token on the SAME line): VERDICT: APPROVE   (or VERDICT: REQUEST_CHANGES, or VERDICT: REJECT). Then list any critical issues, one per line as: - [category] description   where category is one of security, correctness, scope, ambiguity, performance, ops.",
+    REVIEW_FORMAT_INSTRUCTION,
   ].join("\n\n");
   const blindPrompt = [
     body,
     "Give your own independent verdict BEFORE seeing peer opinions.",
-    "End with a line by itself in exactly this form (no markdown, token on the SAME line): VERDICT: APPROVE   (or VERDICT: REQUEST_CHANGES, or VERDICT: REJECT). Then list any critical issues, one per line as: - [category] description   where category is one of security, correctness, scope, ambiguity, performance, ops.",
+    REVIEW_FORMAT_INSTRUCTION,
   ].join("\n\n");
   return { peerPrompt, blindPrompt };
 }
