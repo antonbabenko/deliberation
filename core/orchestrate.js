@@ -34,6 +34,27 @@ function logProviderResult(logger, tool, r) {
 }
 
 /**
+ * Return `req` with the orientation bundle attached IFF the provider is file-blind
+ * (capabilities.walksFilesystem === false) AND the caller attached no files of its
+ * own. Otherwise return `req` unchanged. Shared by callProvider (peers) and the
+ * arbiter blind pass so the gate is defined exactly once.
+ * @param {Provider} provider
+ * @param {DelegationRequest} req
+ * @param {(import("./types.js").FileRef[]|undefined)} orientationFiles
+ * @returns {DelegationRequest}
+ */
+function withOrientation(provider, req, orientationFiles) {
+  if (
+    Array.isArray(orientationFiles) && orientationFiles.length &&
+    !(Array.isArray(req.files) && req.files.length) &&
+    provider.capabilities && provider.capabilities.walksFilesystem === false
+  ) {
+    return { ...req, files: orientationFiles };
+  }
+  return req;
+}
+
+/**
  * One provider call with optional in-session cache + debug logging. On a cache
  * hit, returns the cached SUCCESS instantly (no model call) and still logs the
  * (cached) result so progress output is consistent. Only successes are cached.
@@ -42,9 +63,14 @@ function logProviderResult(logger, tool, r) {
  * @param {Logger} logger
  * @param {string} tool
  * @param {(import("./result-cache.js").ResultCache|undefined)} cache
+ * @param {(import("./types.js").FileRef[]|undefined)} [orientationFiles]  bundle auto-attached to file-blind providers
  * @returns {Promise<DelegationResult>}
  */
-async function callProvider(provider, req, logger, tool, cache) {
+async function callProvider(provider, req, logger, tool, cache, orientationFiles) {
+  // Auto-attach orientation to file-blind providers BEFORE the cache key is computed,
+  // so the now-file-bearing request correctly bypasses the cwd-agnostic dedup cache
+  // (keyFor excludes cwd; caching an oriented result would risk a cross-repo false hit).
+  req = withOrientation(provider, req, orientationFiles);
   // File-bearing requests skip the cache: file CONTENT can change under the same
   // path, and the key only fingerprints the reference, not the bytes.
   const useCache = cache && !(Array.isArray(req.files) && req.files.length);
@@ -79,14 +105,14 @@ async function callProvider(provider, req, logger, tool, cache) {
  * MCP-notification sink - reports per-provider progress during the one call.
  * @param {Provider[]} providers
  * @param {DelegationRequest} req
- * @param {{logger?:Logger, tool?:string, cache?:import("./result-cache.js").ResultCache}} [opts]
+ * @param {{logger?:Logger, tool?:string, cache?:import("./result-cache.js").ResultCache, orientationFiles?:import("./types.js").FileRef[]}} [opts]
  * @returns {Promise<DelegationResult[]>}
  */
 async function askAll(providers, req, opts = {}) {
   const logger = opts.logger || NULL_LOGGER;
   const tool = opts.tool || "ask-all";
   const settled = await Promise.allSettled(
-    providers.map((/** @type {Provider} */ p) => callProvider(p, req, logger, tool, opts.cache))
+    providers.map((/** @type {Provider} */ p) => callProvider(p, req, logger, tool, opts.cache, opts.orientationFiles))
   );
   return settled.map((s, i) =>
     s.status === "fulfilled"
@@ -107,11 +133,11 @@ async function askAll(providers, req, opts = {}) {
  * Single-provider call (advisory one-shot). Shared entrypoint for ask-* tools.
  * @param {Provider} provider
  * @param {DelegationRequest} req
- * @param {{logger?:Logger, tool?:string, cache?:import("./result-cache.js").ResultCache}} [opts]
+ * @param {{logger?:Logger, tool?:string, cache?:import("./result-cache.js").ResultCache, orientationFiles?:import("./types.js").FileRef[]}} [opts]
  * @returns {Promise<DelegationResult>}
  */
 async function askOne(provider, req, opts = {}) {
-  return callProvider(provider, req, opts.logger || NULL_LOGGER, opts.tool || "ask-one", opts.cache);
+  return callProvider(provider, req, opts.logger || NULL_LOGGER, opts.tool || "ask-one", opts.cache, opts.orientationFiles);
 }
 
 /**
@@ -150,7 +176,7 @@ function buildArbiterPrompt(question, opinions) {
  * the run. `blindVerdict` is `null` when `blindVote` is off or no arbiter exists.
  * @param {Provider[]} providers
  * @param {DelegationRequest} req
- * @param {{arbiter?:Provider, arbiterInstructions?:string, blindVote?:boolean, logger?:Logger}} [opts]
+ * @param {{arbiter?:Provider, arbiterInstructions?:string, blindVote?:boolean, logger?:Logger, orientationFiles?:import("./types.js").FileRef[]}} [opts]
  * @returns {Promise<{opinions:DelegationResult[], blindVerdict:(DelegationResult|null), verdict:(DelegationResult|null), error?:string}>}
  */
 async function consensus(providers, req, opts = {}) {
@@ -163,16 +189,16 @@ async function consensus(providers, req, opts = {}) {
       // by the rejection handler (a bare arbiter.ask() could throw before awaiting).
       Promise.resolve()
         .then(() =>
-          arbiter.ask({
+          arbiter.ask(withOrientation(arbiter, {
             ...req,
             files: req.files ? req.files.map((f) => ({ ...f })) : undefined,
             developerInstructions: opts.arbiterInstructions || req.developerInstructions,
-          })
+          }, opts.orientationFiles))
         )
         .then((v) => v, () => null)
     : Promise.resolve(/** @type {DelegationResult|null} */ (null));
 
-  const [opinions, blindVerdict] = await Promise.all([askAll(providers, req, { logger: opts.logger, tool: "consensus" }), blindPromise]);
+  const [opinions, blindVerdict] = await Promise.all([askAll(providers, req, { logger: opts.logger, tool: "consensus", orientationFiles: opts.orientationFiles }), blindPromise]);
   // The union guarantees `text` on the success branch, so `!o.isError` alone
   // narrows each survivor to DelegationSuccess - no `&& o.text` guard needed.
   const ok = /** @type {DelegationSuccess[]} */ (opinions.filter((o) => !o.isError));
@@ -247,7 +273,7 @@ function okText(/** @type {any} */ res) {
  * revision keeps the current plan.
  * @param {Provider[]} providers  peer panel
  * @param {DelegationRequest} req  `prompt` is the initial plan
- * @param {{arbiter?:Provider, maxRounds?:number, logger?:Logger}} [opts]
+ * @param {{arbiter?:Provider, maxRounds?:number, logger?:Logger, orientationFiles?:import("./types.js").FileRef[]}} [opts]
  * @returns {Promise<{converged:boolean, verdict:(string|null), confidence:string, finalReport?:string, rounds:any[], opinions:any[], error?:string}>}
  */
 async function runToConvergence(providers, req, opts = {}) {
@@ -273,8 +299,8 @@ async function runToConvergence(providers, req, opts = {}) {
       // Blind pass runs concurrently with the peer fan-out; isolate its failure.
       const roundNo = state.round;
       const [blindRes, peerResults] = await Promise.all([
-        Promise.resolve().then(() => arbiter.ask({ ...req, prompt: blindPrompt })).then((r) => r, () => null),
-        askAll(providers, { ...req, prompt: peerPrompt }, { logger, tool: "consensus" }),
+        Promise.resolve().then(() => arbiter.ask(withOrientation(arbiter, { ...req, prompt: blindPrompt }, opts.orientationFiles))).then((r) => r, () => null),
+        askAll(providers, { ...req, prompt: peerPrompt }, { logger, tool: "consensus", orientationFiles: opts.orientationFiles }),
       ]);
       state = loop.recordBlindVerdict(state, okText(blindRes) || "(blind pass unavailable)");
 
