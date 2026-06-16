@@ -43,6 +43,9 @@ jobs:
       - name: Run bridge tests
         run: node --test test/*.test.js
 
+      - name: Build published bundle (esbuild prepack smoke)
+        run: npm run prepack --workspace=server/mcp
+
       - name: Check generated artifacts in sync
         run: npm run sync:check
 
