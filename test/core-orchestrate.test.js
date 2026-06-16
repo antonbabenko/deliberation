@@ -2,7 +2,7 @@
 "use strict";
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { askAll, consensus, buildArbiterPrompt } = require("../core/orchestrate.js");
+const { askAll, askOne, consensus, buildArbiterPrompt, runToConvergence } = require("../core/orchestrate.js");
 /** @typedef {import("../core/types.js").Provider} Provider */
 
 /** @param {string} name @param {string} [behavior] @returns {Provider} */
@@ -145,4 +145,110 @@ test("C6: buildArbiterPrompt anonymizes opinion labels (no provider names leak)"
   }
   // bodies and the original question are preserved
   assert.match(prompt, /the question/);
+});
+
+/** A provider that records the req it was asked with. @param {string} name @param {boolean|undefined} walks */
+function recordingProvider(name, walks) {
+  /** @type {any} */
+  const seen = {};
+  const provider = /** @type {any} */ ({
+    name,
+    capabilities: { canImplement: false, fileUpload: false, multiTurn: false, walksFilesystem: walks },
+    async health() { return { ok: true }; },
+    async ask(/** @type {any} */ req) { seen.files = req.files; return { provider: name, model: "m", text: "ok", isError: false, ms: 0 }; },
+  });
+  return { provider, seen };
+}
+
+const BUNDLE = [{ path: "/repo/CLAUDE.md" }, { path: "/repo/package.json" }];
+
+test("ORX1: orientationFiles auto-attach to a file-blind provider (walksFilesystem:false)", async () => {
+  const { provider, seen } = recordingProvider("blind", false);
+  await askAll([provider], { prompt: "hi" }, { orientationFiles: BUNDLE });
+  assert.deepEqual(seen.files, BUNDLE);
+});
+
+test("ORX2: orientationFiles do NOT attach to a filesystem-walking provider (walksFilesystem:true)", async () => {
+  const { provider, seen } = recordingProvider("walker", true);
+  await askAll([provider], { prompt: "hi" }, { orientationFiles: BUNDLE });
+  assert.equal(seen.files, undefined);
+});
+
+test("ORX3: a provider with no walksFilesystem flag is treated as NOT blind (safe default)", async () => {
+  const { provider, seen } = recordingProvider("legacy", undefined);
+  await askAll([provider], { prompt: "hi" }, { orientationFiles: BUNDLE });
+  assert.equal(seen.files, undefined);
+});
+
+test("ORX4: explicit req.files is never overridden by orientation", async () => {
+  const { provider, seen } = recordingProvider("blind", false);
+  const explicit = [{ path: "/repo/main.go" }];
+  await askAll([provider], { prompt: "hi", files: explicit }, { orientationFiles: BUNDLE });
+  assert.deepEqual(seen.files, explicit);
+});
+
+test("ORX5: askOne applies the same orientation gating", async () => {
+  const { provider, seen } = recordingProvider("blind", false);
+  await askOne(provider, { prompt: "hi" }, { orientationFiles: BUNDLE });
+  assert.deepEqual(seen.files, BUNDLE);
+});
+
+test("ORX6: empty orientation bundle is a no-op (empty repo)", async () => {
+  const { provider, seen } = recordingProvider("blind", false);
+  await askAll([provider], { prompt: "hi" }, { orientationFiles: [] });
+  assert.equal(seen.files, undefined);
+});
+
+test("ORX7: consensus peer fan-out auto-attaches orientation to file-blind peers", async () => {
+  const { provider, seen } = recordingProvider("blind", false);
+  const arbiter = /** @type {any} */ ({ name: "arb", capabilities: { walksFilesystem: true },
+    async health() { return { ok: true }; },
+    async ask() { return { provider: "arb", model: "m", text: "verdict", isError: false, ms: 0 }; } });
+  await consensus([provider], { prompt: "hi" }, { arbiter, orientationFiles: BUNDLE });
+  assert.deepEqual(seen.files, BUNDLE);
+});
+
+test("ORX8: arbiter BLIND pass is oriented for a file-blind arbiter; the verdict pass is NOT", async () => {
+  /** @type {any[]} */
+  const calls = [];
+  const arbiter = /** @type {any} */ ({
+    name: "arb", capabilities: { walksFilesystem: false },
+    async health() { return { ok: true }; },
+    async ask(/** @type {any} */ req) {
+      const isVerdict = req.prompt.includes("### Opinion");
+      calls.push({ isVerdict, files: req.files });
+      return { provider: "arb", model: "m", text: isVerdict ? "verdict" : "blind", isError: false, ms: 0 };
+    },
+  });
+  await consensus([fakeProvider("a")], { prompt: "hi" }, { arbiter, blindVote: true, orientationFiles: BUNDLE });
+  const blind = calls.find((c) => !c.isVerdict);
+  const verdict = calls.find((c) => c.isVerdict);
+  assert.deepEqual(blind.files, BUNDLE, "blind pass (cold question) is oriented");
+  assert.equal(verdict.files, undefined, "verdict pass (peer text) is NOT oriented");
+});
+
+test("ORX9: runToConvergence adjudication/revision passes are NOT oriented (only the blind pass)", async () => {
+  /** @type {any[]} */
+  const calls = [];
+  const arbiter = /** @type {any} */ ({
+    name: "arb", capabilities: { walksFilesystem: false },
+    async health() { return { ok: true }; },
+    async ask(/** @type {any} */ req) {
+      const isAdjudication = req.prompt.includes("## Peer reviews");
+      const isRevision = req.prompt.includes("## Current plan");
+      const kind = isAdjudication ? "adjudication" : isRevision ? "revision" : "blind";
+      calls.push({ kind, files: req.files });
+      // APPROVE on adjudication so the loop converges in round 1.
+      const text = isAdjudication ? "**Verdict**: APPROVE" : "ok";
+      return { provider: "arb", model: "m", text, isError: false, ms: 0 };
+    },
+  });
+  const peer = /** @type {any} */ ({ name: "p", capabilities: { walksFilesystem: false },
+    async health() { return { ok: true }; },
+    async ask() { return { provider: "p", model: "m", text: "**Verdict**: APPROVE", isError: false, ms: 0 }; } });
+  await runToConvergence([peer], { prompt: "the plan" }, { arbiter, orientationFiles: BUNDLE });
+  const blind = calls.find((c) => c.kind === "blind");
+  const adjudication = calls.find((c) => c.kind === "adjudication");
+  assert.deepEqual(blind.files, BUNDLE, "blind pass (cold question) is oriented");
+  assert.equal(adjudication.files, undefined, "adjudication pass (peer text) is NOT oriented");
 });

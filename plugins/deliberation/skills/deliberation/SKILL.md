@@ -94,6 +94,12 @@ These apply to every MCP host, not just Claude Code:
 
 - **Per-provider progress** - prefer `panel` + parallel `ask-one` (above) when you want
   to watch each model finish instead of waiting on one opaque `ask-all` call.
+- **Orientation auto-attach** - set `"orientation": { "enabled": true }` in `config.json`
+  to have the server automatically attach a small repo bundle (CLAUDE.md, AGENTS.md,
+  README.md, and key entrypoints, up to `maxFiles` files, default 6) to file-blind
+  providers (Grok, OpenRouter) when they carry no files of their own. This gives them the
+  same repo grounding that Codex and Gemini get by walking the filesystem. OFF by default;
+  enable when file-blind providers underperform on repo-wide questions.
 - **Debug log** - set `"debug": { "enabled": true }` in `config.json` to append one JSON
   line per provider call and per consensus round to `<XDG cache>/deliberation/debug.jsonl`
   (override with `DELIBERATION_DEBUG_LOG`). It records latency, reasoning effort, HTTP

@@ -97,6 +97,12 @@ User question or topic: $ARGUMENTS
    If you knowingly skip this for a repo-wide question, NOTE the asymmetry in the
    synthesis ("Grok answered without repo files; discount its specificity").
 
+   **Server auto-attach (if configured):** when `orientation.enabled` is `true` in
+   `config.json`, the server automatically attaches the orientation bundle to this call
+   when no `files` are passed - so the manual bundle above becomes optional. When
+   `orientation.enabled` is `false` (the default), the manual approach above is the only
+   way to give Grok repo context.
+
 5. **Synthesize response** - never paste raw output. Extract:
    - Bottom-line recommendation
    - Key reasoning points

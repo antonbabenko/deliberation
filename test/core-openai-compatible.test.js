@@ -87,6 +87,11 @@ test("OC6: a throwing inlineFiles becomes a config error result, not a crash", a
   assert.equal(r.errorKind, "config");
 });
 
+test("OR-fs: capabilities.walksFilesystem is false (OpenRouter cannot walk the repo)", () => {
+  const p = makeOpenAICompatibleProvider({ name: "openrouter", apiBase: "x", apiKeyEnv: "K", resolveModel: () => "m", bridge: {} });
+  assert.equal(p.capabilities.walksFilesystem, false);
+});
+
 test("OC7: inlineFiles skip notes are surfaced in the result text (no silent drop)", async () => {
   process.env.FAKE_KEY = "k";
   const withNotes = { ...fakeBridge, inlineFiles: () => ({ blocks: [], notes: ["big.bin: skipped (binary)"] }) };

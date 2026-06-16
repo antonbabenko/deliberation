@@ -49,3 +49,7 @@ test("AG3: thrown runGemini classifies from the real message, not an empty strin
 test("AG4: capabilities.canImplement is true", () => {
   assert.equal(makeAntigravityProvider({ bridge: fakeBridge }).capabilities.canImplement, true);
 });
+
+test("AG5: capabilities.walksFilesystem is true (Gemini walks cwd under read-only sandbox)", () => {
+  assert.equal(makeAntigravityProvider({ bridge: fakeBridge }).capabilities.walksFilesystem, true);
+});

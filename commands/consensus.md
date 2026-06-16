@@ -177,6 +177,13 @@ in-memory `LoopState` for that `sessionId` may be gone, so recover by re-running
    the comparison is fair. Refresh it in a `submit_revision` `revisedPlan` only if the
    plan's touch-set changes. Purely conceptual loops need no such context.
 
+   **Server auto-attach (if configured):** when `orientation.enabled` is `true` in
+   `config.json`, the server auto-attaches the orientation bundle to file-blind voices
+   that carry no files of their own on `dispatch_peers` AND on the arbiter blind pass.
+   Adjudication and revision passes are NOT oriented (they reason over opinion text).
+   When `orientation.enabled` is `false` (the default), the manual embedding above is
+   the only way to give file-blind voices repo context.
+
 5. **Adjudicate (the arbiter role).** Build the issue pool from every RESPONDING voice's
    `criticalIssues` PLUS any critical issue from your own blind verdict. For EACH issue
    record a decision WITH a one-line reason:

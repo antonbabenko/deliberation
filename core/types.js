@@ -76,6 +76,9 @@
  * @property {boolean} canImplement
  * @property {boolean} fileUpload
  * @property {boolean} multiTurn
+ * @property {boolean} [walksFilesystem]  true when the provider runs locally and can
+ *   read any file under cwd itself (Codex/Gemini, read-only sandbox). false/absent for
+ *   HTTP advisory providers (Grok/OpenRouter) that only see explicitly-attached files.
  */
 
 /**

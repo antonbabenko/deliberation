@@ -27,6 +27,10 @@ test("CX3: capabilities.canImplement true (Core still calls advisory only)", () 
   assert.equal(makeCodexProvider({ run: async () => ({ code: 0, stdout: "", stderr: "" }) }).capabilities.canImplement, true);
 });
 
+test("CX-fs: capabilities.walksFilesystem is true (codex walks cwd under read-only)", () => {
+  assert.equal(makeCodexProvider().capabilities.walksFilesystem, true);
+});
+
 test("CX4: a non-zero exit surfaces stdout in .message (diagnostic detail not lost; error has no text)", async () => {
   const p = makeCodexProvider({ run: async () => ({ code: 1, stdout: "diagnostic detail from codex", stderr: "boom" }) });
   const r = await p.ask({ prompt: "x" });

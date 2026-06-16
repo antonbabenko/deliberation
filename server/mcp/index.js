@@ -6,6 +6,7 @@
 
 const { makeRegistry, pinAlias } = require("../../core/registry.js");
 const { askAll, askOne, consensus, runToConvergence } = require("../../core/orchestrate.js");
+const { orientationFilesFor } = require("../../core/orientation.js");
 const { PROMPTS } = require("../../core/prompts/index.js");
 const analyzeCore = require("../../core/analyze.js");
 
@@ -408,6 +409,15 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
     return { ...request, developerInstructions: persona };
   }
 
+  /**
+   * Resolve the orientation bundle for a dispatch when config enables it, else undefined.
+   * @param {{cwd?:string}} req
+   * @returns {(import("../../core/types.js").FileRef[]|undefined)}
+   */
+  function orient(req) {
+    return orientationFilesFor(getConfig(), req && req.cwd);
+  }
+
   // --- session store wiring -------------------------------------------------
   // Persistence is opt-in (sessions.persist) AND requires a configured dir. When
   // either is missing, the session-* tools report "disabled" and the
@@ -547,7 +557,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
     try { lg.logEvent({ event: "dispatch_start", at: Date.now(), tool: "ask-all", voices: selected.length }); } catch { /* never break */ }
     // session-revisit passes noCache: a revisit is a deliberate RE-RUN of the stored
     // question, so it must never replay a cached opinion from the live tool path.
-    const results = await askAll(selected, withPersona(req, expert), { logger: lg, tool: "ask-all", cache: opts.noCache ? undefined : resultCache });
+    const results = await askAll(selected, withPersona(req, expert), { logger: lg, tool: "ask-all", cache: opts.noCache ? undefined : resultCache, orientationFiles: orient(req) });
     return {
       payload: { results, omitted },
       parts: { opinions: results, blindVerdict: null, verdict: null, arbiter: null, warnings: [] },
@@ -576,14 +586,14 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
     if (resolved.warning) warnings.push(resolved.warning);
 
     if (resolved.mode === "host") {
-      const opinions = await askAll(selected, withPersona(req, expert), { logger: currentLogger(), tool: "consensus" });
+      const opinions = await askAll(selected, withPersona(req, expert), { logger: currentLogger(), tool: "consensus", orientationFiles: orient(req) });
       const arbiter = { mode: "host" };
       const body = { opinions, blindVerdict: null, verdict: null, arbiter, warnings };
       return { payload: body, parts: body };
     }
 
     if (!resolved.provider) {
-      const out = await consensus(selected, withPersona(req, expert), { arbiterInstructions: PROMPTS.arbiter, logger: currentLogger() });
+      const out = await consensus(selected, withPersona(req, expert), { arbiterInstructions: PROMPTS.arbiter, logger: currentLogger(), orientationFiles: orient(req) });
       const arbiter = { mode: "server", provider: null };
       return {
         payload: { opinions: out.opinions, blindVerdict: out.blindVerdict, verdict: out.verdict, error: out.error, arbiter, warnings },
@@ -597,7 +607,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       peers = selected;
       warnings.push(`panel too small to exclude arbiter '${arbiterP.name}'; kept it in the peer panel (floor of 2)`);
     }
-    const out = await consensus(peers, withPersona(req, expert), { arbiter: arbiterP, arbiterInstructions: PROMPTS.arbiter, blindVote, logger: currentLogger() });
+    const out = await consensus(peers, withPersona(req, expert), { arbiter: arbiterP, arbiterInstructions: PROMPTS.arbiter, blindVote, logger: currentLogger(), orientationFiles: orient(req) });
     const arbiter = { mode: "server", provider: arbiterP.name };
     return {
       payload: { opinions: out.opinions, blindVerdict: out.blindVerdict, verdict: out.verdict, error: out.error, arbiter, warnings },
@@ -651,7 +661,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       const maxRounds = Number.isInteger(maxRoundsOverride) && /** @type {number} */ (maxRoundsOverride) > 0
         ? maxRoundsOverride
         : (Number.isInteger(cc.maxRounds) && cc.maxRounds > 0 ? cc.maxRounds : undefined);
-      const out = await runToConvergence(peers, withPersona(req, expert), { arbiter: arbiterP, maxRounds, logger: currentLogger() });
+      const out = await runToConvergence(peers, withPersona(req, expert), { arbiter: arbiterP, maxRounds, logger: currentLogger(), orientationFiles: orient(req) });
       const allWarnings = out.error ? warnings.concat([`loop: ${out.error}`]) : warnings;
       const rounds = Array.isArray(out.rounds) ? out.rounds.length : 0;
       const arbiter = { mode: "server", provider: arbiterP.name };
@@ -816,7 +826,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         const peerReq = { prompt: peerPrompt, expert: ex, cwd: typeof args.cwd === "string" ? args.cwd : undefined };
         const lg = currentLogger();
         try { lg.logEvent({ event: "dispatch_start", at: Date.now(), tool: "consensus", round: cur.round, voices: selected.length }); } catch { /* never break */ }
-        const peerResults = await askAll(selected, withPersona(peerReq, ex), { logger: lg, tool: "consensus" });
+        const peerResults = await askAll(selected, withPersona(peerReq, ex), { logger: lg, tool: "consensus", orientationFiles: orient(peerReq) });
         const results = peerResults.map((r) =>
           r.isError
             ? { source: r.provider, isError: true, errorKind: r.errorKind, verdict: null, criticalIssues: [], model: r.model, reasoningEffort: r.reasoningEffort ?? null, ms: r.ms }
@@ -970,7 +980,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       if (!p) {
         return jsonResult({ error: `provider "${want}" is not in the active panel`, panel: selected.map((x) => x.name) });
       }
-      const result = await askOne(p, withPersona(req, expert), { logger: currentLogger(), tool: "ask-one", cache: resultCache });
+      const result = await askOne(p, withPersona(req, expert), { logger: currentLogger(), tool: "ask-one", cache: resultCache, orientationFiles: orient(req) });
       return jsonResult({ result });
     }
     if (name === "analyze") {
@@ -1063,12 +1073,12 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
     if (Object.prototype.hasOwnProperty.call(ASK_PROVIDER, name)) {
       const p = registry.get(ASK_PROVIDER[name]);
       if (!p) return { content: [{ type: "text", text: JSON.stringify({ error: `provider ${ASK_PROVIDER[name]} not registered` }) }] };
-      const result = await askOne(p, withPersona(req, expert), { logger: currentLogger(), tool: "ask-one", cache: resultCache });
+      const result = await askOne(p, withPersona(req, expert), { logger: currentLogger(), tool: "ask-one", cache: resultCache, orientationFiles: orient(req) });
       return { content: [{ type: "text", text: JSON.stringify({ result }) }] };
     }
     if (EXPERTS.includes(name)) {
       const { providers: selected } = registry.selectForAskAll({ config: getConfig(), expert: name });
-      const results = await askAll(selected, withPersona({ ...req, expert: name }, expert), { logger: currentLogger(), tool: name, cache: resultCache });
+      const results = await askAll(selected, withPersona({ ...req, expert: name }, expert), { logger: currentLogger(), tool: name, cache: resultCache, orientationFiles: orient(req) });
       return { content: [{ type: "text", text: JSON.stringify({ results }) }] };
     }
     throw new Error(`unknown tool: ${name}`);

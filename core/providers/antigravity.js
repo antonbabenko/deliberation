@@ -18,7 +18,7 @@ function makeAntigravityProvider(opts = {}) {
 
   return {
     name: "gemini",
-    capabilities: { canImplement: true, fileUpload: false, multiTurn: true },
+    capabilities: { canImplement: true, fileUpload: false, multiTurn: true, walksFilesystem: true },
     async health() {
       return typeof bridge.runGemini === "function" ? { ok: true } : { ok: false, reason: "agy bridge unavailable" };
     },

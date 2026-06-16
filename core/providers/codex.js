@@ -68,7 +68,7 @@ function makeCodexProvider(opts = {}) {
   const model = opts.model || "default"; // codex resolves its own model from config.toml
   return {
     name: "codex",
-    capabilities: { canImplement: true, fileUpload: false, multiTurn: false }, // Option A: no threadId continuity
+    capabilities: { canImplement: true, fileUpload: false, multiTurn: false, walksFilesystem: true }, // Option A: no threadId continuity
     async health() { return { ok: true }; },
     async ask(req) {
       const started = Date.now();
