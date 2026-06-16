@@ -1,5 +1,5 @@
 "use strict";
-const { test } = require("node:test");
+const { test, after } = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -7,12 +7,21 @@ const path = require("node:path");
 const { resolveOrientationFiles, orientationFilesFor } = require("../core/orientation.js");
 const { inlineFiles } = require("../server/openrouter/files.js"); // real bridge, local-only (no network)
 
+/** Throwaway dirs created by tmpRepo, removed after the run. */
+/** @type {string[]} */
+const tmpDirs = [];
+
 /** Make a throwaway dir with the given files, return its path. */
 function tmpRepo(/** @type {string[]} */ names) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orient-"));
+  tmpDirs.push(dir);
   for (const n of names) fs.writeFileSync(path.join(dir, n), "x");
   return dir;
 }
+
+after(() => {
+  for (const d of tmpDirs) fs.rmSync(d, { recursive: true, force: true });
+});
 
 test("ORI1: returns existing high-signal files as absolute paths, priority order", () => {
   const dir = tmpRepo(["package.json", "CLAUDE.md"]); // created out of priority order on purpose

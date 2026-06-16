@@ -19,7 +19,9 @@ const DEFAULT_MAX_FILES = 6;
  * paths; it never reads or uploads content (the provider bridges do that, applying
  * their own size caps + skip-notes). Never throws.
  * @param {string} [cwd]
- * @param {{maxFiles?:number, candidates?:string[]}} [opts]
+ * @param {{maxFiles?:number, candidates?:string[]}} [opts] `maxFiles` must be a
+ *   positive integer; any other value (0, NaN, float, missing) falls back to
+ *   DEFAULT_MAX_FILES.
  * @returns {FileRef[]}
  */
 function resolveOrientationFiles(cwd, opts = {}) {
