@@ -421,19 +421,23 @@ test("S2: the guard sits OUTSIDE developerInstructions (outermost)", () => {
   assert.ok(prompt.startsWith(`SYS\n\n${READ_ONLY_GUARD}`), "dev instructions wrap the guarded prompt");
 });
 
-test("S3: advisoryEnv drops the kill-switch and scrubs push/exfil credentials", () => {
+test("S3: advisoryEnv drops the kill-switch and scrubs push/exfil + credential-shaped env", () => {
   const { advisoryEnv } = require("../server/gemini/index.js");
   const out = advisoryEnv({
     DELIBERATION_DISABLE_OS_SANDBOX: "1",
     GITHUB_TOKEN: "ght", GH_TOKEN: "gh", GIT_ASKPASS: "x", SSH_AUTH_SOCK: "/sock",
-    GEMINI_API_KEY: "keep", PATH: "/usr/bin",
+    // Credential-shaped vars an advisory delegate has no need for. agy's own
+    // Gemini auth lives in ~/.gemini (OAuth), NOT in GEMINI_API_KEY, so the
+    // credential-name scrub correctly drops API_KEY-shaped vars too.
+    GEMINI_API_KEY: "drop", PATH: "/usr/bin", HOME: "/Users/x", LANG: "en_US.UTF-8",
   });
   assert.equal("DELIBERATION_DISABLE_OS_SANDBOX" in out, false);
-  for (const k of ["GITHUB_TOKEN", "GH_TOKEN", "GIT_ASKPASS", "SSH_AUTH_SOCK"]) {
+  for (const k of ["GITHUB_TOKEN", "GH_TOKEN", "GIT_ASKPASS", "SSH_AUTH_SOCK", "GEMINI_API_KEY"]) {
     assert.equal(k in out, false, `${k} scrubbed`);
   }
-  assert.equal(out.GEMINI_API_KEY, "keep", "Gemini auth preserved");
-  assert.equal(out.PATH, "/usr/bin", "unrelated env preserved");
+  assert.equal(out.PATH, "/usr/bin", "PATH preserved");
+  assert.equal(out.HOME, "/Users/x", "HOME preserved");
+  assert.equal(out.LANG, "en_US.UTF-8", "locale preserved");
 });
 
 test("S4: buildSpawnCommand wraps in sandbox-exec on darwin read-only with sandbox-exec present", () => {

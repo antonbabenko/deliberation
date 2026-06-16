@@ -24,6 +24,12 @@ const DEFAULT_TIMEOUT_MS = 300_000; // 5 minutes (Gemini 3 deep prompts run 200-
 const DEFAULT_RECOVERY_GRACE_MS = 120_000; // extra drain budget after the soft timeout
 const MAX_MS = 600_000;
 const VALID_SANDBOX_VALUES = new Set(["read-only", "workspace-write"]);
+// Conversation ids are passed as the agy --conversation arg. shell:false blocks
+// shell injection, but a leading-dash value could be parsed as an agy flag, so
+// the first char must be alphanumeric/underscore; hyphens are allowed only after
+// it. Total length 1..128. Applies to both the gemini-reply threadId input and
+// the agy-sourced id read from last_conversations.json.
+const THREAD_ID_RE = /^[A-Za-z0-9_][A-Za-z0-9_-]{0,127}$/;
 
 // agy's --print-timeout takes a Go duration string ("420s"). Convert ms.
 function goDuration(ms) {
@@ -87,10 +93,15 @@ function buildAgyArgs(req) {
 // exfiltrate over the (intentionally open) network. Scrubbed from the child env
 // on read-only runs. agy's own Gemini auth lives in ~/.gemini, not these vars.
 const ADVISORY_ENV_SCRUB = ["GITHUB_TOKEN", "GH_TOKEN", "GIT_ASKPASS", "SSH_AUTH_SOCK"];
+// Strip any var whose NAME looks like a credential (advisory agy has open network
+// and no need for the operator's keys). Denylist-by-shape, not a pass-allowlist:
+// agy still needs PATH/HOME/TMPDIR/locale + its own ~/.gemini auth (not an env var).
+const CREDENTIAL_NAME_RE = /(?:^|_)(?:KEY|TOKEN|SECRET|SECRETS|PASSWORD|PASSWD|CREDENTIAL|CREDENTIALS)$|API_KEY|ACCESS_KEY|SESSION_TOKEN|PRIVATE_KEY/i;
 
 /**
  * Build the child env for a read-only run: drop the OS-sandbox kill-switch (so it
- * never inherits into the delegate) and scrub push/exfil credentials.
+ * never inherits into the delegate), scrub the explicit push/exfil credential
+ * denylist, then scrub any remaining var whose NAME is credential-shaped.
  * @param {NodeJS.ProcessEnv} env
  * @returns {NodeJS.ProcessEnv}
  */
@@ -98,6 +109,9 @@ function advisoryEnv(env) {
   const out = { ...env };
   delete out.DELIBERATION_DISABLE_OS_SANDBOX;
   for (const k of ADVISORY_ENV_SCRUB) delete out[k];
+  for (const k of Object.keys(out)) {
+    if (CREDENTIAL_NAME_RE.test(k)) delete out[k];
+  }
   return out;
 }
 
@@ -295,7 +309,8 @@ function resolveConversationId(cwd) {
     const resolved = path.resolve(cwd);
     let real = resolved;
     try { real = fs.realpathSync(resolved); } catch (_) { /* ignore */ }
-    return map[real] ?? map[resolved] ?? map[cwd] ?? null;
+    const candidate = map[real] ?? map[resolved] ?? map[cwd] ?? null;
+    return (typeof candidate === "string" && THREAD_ID_RE.test(candidate)) ? candidate : null;
   } catch (_) {
     return null;
   }
@@ -660,8 +675,8 @@ const handlers = {
           return;
         }
         const threadId = args.threadId.trim();
-        if (threadId === "" || threadId === "latest" || threadId === "unknown") {
-          if (shouldRespond) sendError(id, -32602, "Invalid params: 'threadId' must be an explicit conversation id, not '" + threadId + "'");
+        if (!THREAD_ID_RE.test(threadId) || threadId === "latest" || threadId === "unknown") {
+          if (shouldRespond) sendError(id, -32602, "Invalid params: 'threadId' must be an explicit conversation id (alphanumeric/underscore start, then [A-Za-z0-9_-], 1..128 chars)");
           return;
         }
         if (!isNonEmptyString(args.prompt)) {
@@ -786,6 +801,7 @@ if (typeof module !== "undefined" && module.exports) {
   module.exports.READ_ONLY_GUARD = READ_ONLY_GUARD;
   module.exports.applyReadOnlyGuard = applyReadOnlyGuard;
   module.exports.advisoryEnv = advisoryEnv;
+  module.exports.THREAD_ID_RE = THREAD_ID_RE;
   module.exports.buildSeatbeltProfile = buildSeatbeltProfile;
   module.exports.buildSpawnCommand = buildSpawnCommand;
   module.exports.diffGitState = diffGitState;

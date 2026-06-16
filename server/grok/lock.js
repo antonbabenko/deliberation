@@ -29,7 +29,7 @@ function acquire(basePath, { maxWaitMs = 1000 } = {}) {
     try {
       fs.mkdirSync(lockDir);
       const markerPath = path.join(lockDir, markerName);
-      fs.writeFileSync(markerPath, JSON.stringify({ pid: process.pid, token, t: Date.now() }));
+      fs.writeFileSync(markerPath, JSON.stringify({ pid: process.pid, token, t: Date.now() }), { mode: 0o600 });
       return { lockDir, markerPath, token };
     } catch (e) {
       if (e.code !== "EEXIST") throw e;

@@ -22,6 +22,15 @@ test("acquire creates lockDir with unique owner marker", () => {
   lock.release(handle);
 });
 
+test("acquire writes the owner marker with 0600 permissions", () => {
+  const base = tmpLockBase();
+  const handle = lock.acquire(base, { maxWaitMs: 100 });
+  assert.ok(handle, "lock acquired");
+  const mode = fs.statSync(handle.markerPath).mode & 0o777;
+  assert.equal(mode, 0o600, `marker mode ${mode.toString(8)} should be 600`);
+  lock.release(handle);
+});
+
 test("acquire returns null when lock already held and not stale", () => {
   const base = tmpLockBase();
   const h1 = lock.acquire(base, { maxWaitMs: 50 });

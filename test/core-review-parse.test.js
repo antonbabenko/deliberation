@@ -156,3 +156,10 @@ test("RP-I5: continuation stops at a legacy same-line verdict line (not swallowe
   assert.deepEqual(r.criticalIssues, []);
   assert.equal(r.verdict, "APPROVE");
 });
+
+test("RP-V7: a bare token on a MIDDLE line (not first/last) does NOT hijack the verdict", () => {
+  assert.equal(parseReview("Some analysis here.\nAPPROVE\nMore detail follows.").verdict, null);
+  // first/last-line bare tokens still resolve:
+  assert.equal(parseReview("APPROVE\nrationale follows").verdict, "APPROVE");
+  assert.equal(parseReview("rationale first\nREJECT").verdict, "REJECT");
+});

@@ -45,6 +45,19 @@ test("O2: callOpenRouter posts chat/completions and returns assistant text", asy
   } finally { server.close(); }
 });
 
+test("O2b: callOpenRouter sets redirect:error so the bearer token cannot follow a 3xx to another host", async () => {
+  let opts = null;
+  const fetchImpl = async (_url, o) => {
+    opts = o;
+    return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: "ok" } }] }) };
+  };
+  await callOpenRouter({
+    apiBase: "https://example.test/v1", apiKey: "sk-secret", model: "m",
+    messages: buildMessages([{ role: "user", text: "q" }]), fetchImpl,
+  });
+  assert.equal(opts.redirect, "error");
+});
+
 test("O3: empty key sends NO Authorization header (keyless local endpoints)", async () => {
   let auth = "unset";
   const { server, base } = await startMock((req, res) => {

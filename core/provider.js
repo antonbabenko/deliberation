@@ -331,8 +331,12 @@ function resolveVerdict(lines) {
       break; // first non-empty line under the heading was not a token -> stop
     }
   }
-  // d) bare standalone token line, no "verdict" keyword (leading-token replies)
-  for (const ln of lines) { const t = ln.replace(MD_EMPHASIS, "").trim(); if (TOKEN_LINE_RE.test(t)) return /** @type {any} */ (normVerdict(t)); }
+  // d) bare standalone token, restricted to the FIRST or LAST non-empty line so a
+  //    stray mid-body token (e.g. an "APPROVE" heading in an example) cannot hijack.
+  const nonEmpty = lines.map((l) => l.replace(MD_EMPHASIS, "").trim()).filter((t) => t !== "");
+  for (const t of [nonEmpty[0], nonEmpty[nonEmpty.length - 1]]) {
+    if (t && TOKEN_LINE_RE.test(t)) return /** @type {any} */ (normVerdict(t));
+  }
   return null;
 }
 

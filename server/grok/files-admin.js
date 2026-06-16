@@ -68,7 +68,7 @@ async function listFiles({ apiKey, apiBase, fetchImpl, pageLimit = 1000 }) {
     const url = new URL(`${base}/files`);
     url.searchParams.set("limit", String(pageLimit));
     if (token) url.searchParams.set("pagination_token", token);
-    const res = await f(url.toString(), { method: "GET", headers });
+    const res = await f(url.toString(), { method: "GET", headers, redirect: "error" });
     const text = await res.text();
     if (!res.ok) throw new Error(`List files failed ${res.status}: ${text.slice(0, 300)}`);
     const data = JSON.parse(text);
@@ -89,6 +89,7 @@ async function deleteFile(id, { apiKey, apiBase, fetchImpl }) {
   const res = await f(`${base}/files/${encodeURIComponent(id)}`, {
     method: "DELETE",
     headers: authHeader(apiKey),
+    redirect: "error",
   });
   const text = await res.text();
   if (!res.ok) throw new Error(`Delete ${id} failed ${res.status}: ${text.slice(0, 200)}`);

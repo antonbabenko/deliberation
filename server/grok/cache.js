@@ -50,7 +50,7 @@ function readCache(file) {
 function writeCache(file, data) {
   mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.tmp.${process.pid}.${Date.now()}`;
-  writeFileSync(tmp, JSON.stringify(data));
+  writeFileSync(tmp, JSON.stringify(data), { mode: 0o600 });
   renameSync(tmp, file);
 }
 

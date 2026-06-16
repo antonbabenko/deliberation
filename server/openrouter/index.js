@@ -81,7 +81,7 @@ async function callOpenRouter({ apiBase, apiKey, model, messages, reasoningEffor
   const timer = setTimeout(() => controller.abort(), t);
   let res;
   try {
-    res = await f(url, { method: "POST", headers, body: JSON.stringify(payload), signal: controller.signal });
+    res = await f(url, { method: "POST", headers, body: JSON.stringify(payload), signal: controller.signal, redirect: "error" });
   } catch (err) {
     const msg = String((err && err.message) || err);
     if ((err && err.name === "AbortError") || /abort/i.test(msg)) { const e = new Error(`OpenRouter timed out after ${Math.round(t / 1000)}s`); e.code = "timeout"; throw e; }

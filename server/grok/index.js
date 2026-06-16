@@ -387,6 +387,7 @@ async function uploadFile({ filePath, filename, apiKey, apiBase, ttl, roots, cwd
         method: "POST",
         headers: { "Authorization": `Bearer ${apiKey}` },
         body: form,
+        redirect: "error",
       });
     } catch (err) {
       const e = new Error(`File upload network error: ${(err && err.message) || err}`);
@@ -591,6 +592,7 @@ async function runGrok({ turns, model, timeoutMs, apiKey, apiBase, fetchImpl, re
       },
       body: JSON.stringify(payload),
       signal: controller.signal,
+      redirect: "error",
     });
   } catch (err) {
     const name = err && err.name;

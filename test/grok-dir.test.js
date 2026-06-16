@@ -81,7 +81,7 @@ test("dir expansion errors when maxFiles is exceeded", async () => {
       roots: [root], cwd: root, cacheFile, cid: "test",
       fetchImpl: async () => ({ ok: true, text: async () => "{}" }),
     }),
-    /exceeds maxFiles=2/,
+    /exceeded maxFiles=2/,
   );
 });
 

@@ -23,7 +23,8 @@ test("gc prunes local rows whose fileId is absent from remote list", async () =>
     },
   });
 
-  const fakeFetch = async () => ({ ok: true, text: async () => JSON.stringify({ data: [{ id: "file_alive", filename: "deliberation-foo", created_at: 1 }] }) });
+  let listOpts = null;
+  const fakeFetch = async (_url, opts) => { listOpts = opts; return { ok: true, text: async () => JSON.stringify({ data: [{ id: "file_alive", filename: "deliberation-foo", created_at: 1 }] }) }; };
 
   const result = await admin.gc({
     cacheFile: p,
@@ -32,6 +33,7 @@ test("gc prunes local rows whose fileId is absent from remote list", async () =>
     fetchImpl: fakeFetch,
   });
 
+  assert.equal(listOpts.redirect, "error", "listFiles GET must not follow redirects (token leak guard)");
   assert.equal(result.prunedLocal, 1);
   const data = cache.readCache(p);
   assert.ok(data.entries["K1"]);
