@@ -276,8 +276,12 @@ const ARTIFACT_RE = /^[*_`~\s:.\-]*$/;                     // empty or only mark
 const STRIP_LEAD = /^[*_`~\s:.\-]+/;                       // leading noise to trim off a description
 const STRIP_TRAIL = /[*_`~\s]+$/;                          // trailing emphasis to trim
 const HEADING_RE = /^#{1,6}\s/;
-/** Normalize a verdict token: "REQUEST CHANGES" -> "REQUEST_CHANGES", upper-cased. */
-function normVerdict(/** @type {string} */ tok) { return tok.replace(/\s+/g, "_").toUpperCase(); }
+/**
+ * Normalize a verdict token: "REQUEST CHANGES" -> "REQUEST_CHANGES", upper-cased.
+ * @param {string} tok
+ * @returns {Exclude<ParsedReview["verdict"], null>}
+ */
+function normVerdict(tok) { return /** @type {any} */ (tok.replace(/\s+/g, "_").toUpperCase()); }
 
 /**
  * Parse a consensus REVIEW reply into a verdict + categorized critical issues.
@@ -318,16 +322,16 @@ function parseReview(text) {
  */
 function resolveVerdict(lines) {
   // a) explicit machine-readable sentinel: `VERDICT: APPROVE`
-  for (const ln of lines) { const m = ln.match(SENTINEL_RE); if (m) return /** @type {any} */ (normVerdict(m[1])); }
+  for (const ln of lines) { const m = ln.match(SENTINEL_RE); if (m) return normVerdict(m[1]); }
   // b) keyword + token on the same line (legacy shape; the reviewer's own verdict)
-  for (const ln of lines) { const m = ln.match(VERDICT_RE); if (m) return /** @type {any} */ (normVerdict(m[1])); }
+  for (const ln of lines) { const m = ln.match(VERDICT_RE); if (m) return normVerdict(m[1]); }
   // c) heading-split: a "Verdict" heading line, then a bare token within the next 3 non-empty lines
   for (let i = 0; i < lines.length; i++) {
     if (!VERDICT_WORD_RE.test(lines[i].trim())) continue;
     for (let j = i + 1; j < lines.length && j <= i + 3; j++) {
       const t = lines[j].replace(MD_EMPHASIS, "").trim();
       if (!t) continue;
-      if (TOKEN_LINE_RE.test(t)) return /** @type {any} */ (normVerdict(t));
+      if (TOKEN_LINE_RE.test(t)) return normVerdict(t);
       break; // first non-empty line under the heading was not a token -> stop
     }
   }
@@ -335,7 +339,7 @@ function resolveVerdict(lines) {
   //    stray mid-body token (e.g. an "APPROVE" heading in an example) cannot hijack.
   const nonEmpty = lines.map((l) => l.replace(MD_EMPHASIS, "").trim()).filter((t) => t !== "");
   for (const t of [nonEmpty[0], nonEmpty[nonEmpty.length - 1]]) {
-    if (t && TOKEN_LINE_RE.test(t)) return /** @type {any} */ (normVerdict(t));
+    if (t && TOKEN_LINE_RE.test(t)) return normVerdict(t);
   }
   return null;
 }

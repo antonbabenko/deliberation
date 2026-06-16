@@ -78,6 +78,13 @@ function walk(rootAbs, { include, exclude, maxFiles, maxBytes }) {
     return false;
   }
 
+  function pushFile(rel, abs, size) {
+    files.push({ rel, abs, size });
+    totalBytes += size;
+    if (files.length > maxFiles) throw new Error(`directory expansion exceeded maxFiles=${maxFiles}. Narrow include or raise the limit.`);
+    if (totalBytes > maxBytes) throw new Error(`directory expansion exceeded maxBytes=${maxBytes} bytes. Narrow include or raise the limit.`);
+  }
+
   function descend(absDir, relDir) {
     let entries;
     try { entries = fs.readdirSync(absDir, { withFileTypes: true }); }
@@ -99,10 +106,7 @@ function walk(rootAbs, { include, exclude, maxFiles, maxBytes }) {
         if (!st.isFile()) continue;
         if (matches(excludeRes, relPosix)) continue;
         if (!matches(includeRes, relPosix)) continue;
-        files.push({ rel: relPosix, abs: realTarget, size: st.size });
-        totalBytes += st.size;
-        if (files.length > maxFiles) throw new Error(`directory expansion exceeded maxFiles=${maxFiles}. Narrow include or raise the limit.`);
-        if (totalBytes > maxBytes) throw new Error(`directory expansion exceeded maxBytes=${maxBytes} bytes. Narrow include or raise the limit.`);
+        pushFile(relPosix, realTarget, st.size);
       } else if (ent.isDirectory()) {
         if (matches(excludeRes, relPosix) || matches(excludeRes, relPosix + "/**")) continue;
         descend(absChild, relPosix);
@@ -111,25 +115,12 @@ function walk(rootAbs, { include, exclude, maxFiles, maxBytes }) {
         if (!matches(includeRes, relPosix)) continue;
         let st;
         try { st = fs.statSync(absChild); } catch (_) { continue; }
-        files.push({ rel: relPosix, abs: absChild, size: st.size });
-        totalBytes += st.size;
-        if (files.length > maxFiles) throw new Error(`directory expansion exceeded maxFiles=${maxFiles}. Narrow include or raise the limit.`);
-        if (totalBytes > maxBytes) throw new Error(`directory expansion exceeded maxBytes=${maxBytes} bytes. Narrow include or raise the limit.`);
+        pushFile(relPosix, absChild, st.size);
       }
     }
   }
 
   descend(rootAbs, "");
-
-  // Defensive backstop: descend() already throws early (mid-walk) the moment a
-  // cap is exceeded, so these post-loop checks are normally unreachable. Kept
-  // belt-and-suspenders in case a future refactor drops an inner check.
-  if (files.length > maxFiles) {
-    throw new Error(`directory expansion selected ${files.length} files; exceeds maxFiles=${maxFiles}. Narrow include or raise the limit.`);
-  }
-  if (totalBytes > maxBytes) {
-    throw new Error(`directory expansion selected ${totalBytes} bytes; exceeds maxBytes=${maxBytes}. Narrow include or raise the limit.`);
-  }
 
   files.sort((a, b) => a.rel.localeCompare(b.rel, "en"));
   return { files, totalBytes };

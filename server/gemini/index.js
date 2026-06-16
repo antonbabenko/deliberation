@@ -92,7 +92,10 @@ function buildAgyArgs(req) {
 // Credentials an advisory delegate has no need for but could use to push or
 // exfiltrate over the (intentionally open) network. Scrubbed from the child env
 // on read-only runs. agy's own Gemini auth lives in ~/.gemini, not these vars.
-const ADVISORY_ENV_SCRUB = ["GITHUB_TOKEN", "GH_TOKEN", "GIT_ASKPASS", "SSH_AUTH_SOCK"];
+// These two are NOT name-shape-visible to CREDENTIAL_NAME_RE (no _KEY/_TOKEN/_SECRET/
+// PASSWORD suffix) but still hand sensitive material to a child, so they must be
+// scrubbed explicitly. Do NOT fold this list into the regex — that would re-leak them.
+const ADVISORY_ENV_SCRUB = ["GIT_ASKPASS", "SSH_AUTH_SOCK"];
 // Strip any var whose NAME looks like a credential (advisory agy has open network
 // and no need for the operator's keys). Denylist-by-shape, not a pass-allowlist:
 // agy still needs PATH/HOME/TMPDIR/locale + its own ~/.gemini auth (not an env var).
