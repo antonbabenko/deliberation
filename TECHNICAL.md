@@ -16,6 +16,7 @@ and the Gemini recovery paths.
 - [Gemini timeout recovery](#gemini-timeout-recovery)
 - [Grok files and cleanup](#grok-files-and-cleanup)
 - [OpenRouter bridge](#openrouter-bridge)
+- [Orientation auto-attach](#orientation-auto-attach)
 - [Session persistence](#session-persistence)
 - [Customizing expert prompts](#customizing-expert-prompts)
 - [Troubleshooting](#troubleshooting)
@@ -773,6 +774,80 @@ token count. There is no hard spend cap - the warning is informational only.
 | `model-not-allowed` | Requested alias is not in the config, or a raw `model` was passed with `allowRawModel:false`, or no alias/model was given and no `defaultModel` is set |
 | `unknown-thread` | `-reply` called with a threadId that does not exist |
 | `unknown` | Catch-all for unclassified errors |
+
+## Orientation auto-attach
+
+An opt-in mechanism that automatically attaches a small repo orientation bundle to
+advisory calls targeting **file-blind providers** (Grok and OpenRouter), so they
+reach context parity with Codex and Gemini, which already walk `cwd` under their
+read-only sandboxes. Default OFF - nothing is attached unless `orientation.enabled`
+is `true`.
+
+### Configuration
+
+```json
+"orientation": { "enabled": false, "maxFiles": 6 }
+```
+
+| Key | Type | Default | Meaning |
+|-----|------|---------|---------|
+| `enabled` | boolean | `false` | Attach the bundle to file-blind providers when they carry no files. |
+| `maxFiles` | integer | `6` | Cap on the number of files in the bundle. |
+
+### How it works
+
+**`core/orientation.js`** - `resolveOrientationFiles(cwd, { maxFiles })` returns an
+array of `FileRef` objects (absolute paths of EXISTING files only) in fixed priority
+order:
+
+```
+CLAUDE.md, AGENTS.md, README.md, package.json, pyproject.toml,
+Cargo.toml, go.mod, tsconfig.json, main.tf
+```
+
+Results are capped to `maxFiles`. The function is stat-only (never reads file
+content), never throws, and silently skips missing files.
+`orientationFilesFor(config, cwd)` is the public entry-point: it returns the bundle
+array when `orientation.enabled` is `true`, else `undefined`.
+
+**Provider capability: `walksFilesystem`** - declared in `core/types.js`
+`ProviderCapabilities`. `true` for codex and gemini (they walk the cwd under their
+sandbox); `false` for grok and every OpenRouter per-alias wrapper (set via
+`registry.js` `pinAlias`). This flag, not `fileUpload`, is the file-blind
+discriminator.
+
+**`core/orchestrate.js` `withOrientation` gate** - shared helper called in
+`callProvider` BEFORE the dedup cache key is computed. It attaches the bundle when
+two conditions both hold:
+
+1. The provider is file-blind (`walksFilesystem === false`).
+2. The caller passed no files of its own (the `files` array is absent or empty).
+
+Injection before the cache-key computation matters: `core/result-cache.js` `keyFor`
+excludes `cwd`, so injecting a bundle AFTER the cache check would risk a cross-repo
+false cache hit (same prompt, different repo). Injecting BEFORE makes the now-file-bearing
+request correctly skip the in-session result cache.
+
+**Scope** - orientation is applied to the peer fan-out AND the arbiter blind pass.
+It is NOT applied to the adjudication and revision passes, which reason over peer-opinion
+text rather than repo files directly.
+
+**Zero cross-contamination** - the bundle travels in the per-provider `files[]`
+argument, never in the shared `prompt`. The prompt text is byte-identical across
+every provider; only the file list differs for file-blind delegates.
+
+**Bridge caps apply** - each bridge enforces its own size limits. OpenRouter inlines
+files as text (256 KB/file, 1 MB aggregate); Grok delivers them as inline or uploaded
+attachments per the usual `mode` rules. The orientation bundle is intentionally small
+(up to 6 high-signal files), so it fits comfortably within both caps.
+
+### Manual override
+
+When `orientation.enabled` is `false` (the default), or when you need more than
+`maxFiles` files for a particular query, embed the context manually in the `prompt`
+as described in the `ask-all` and `consensus` command files. The per-command
+guidance still applies and takes precedence over the auto-attach when you pass your
+own `files`.
 
 ## Session persistence
 
