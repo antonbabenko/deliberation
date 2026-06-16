@@ -148,3 +148,11 @@ test("RP-I4: continuation stops at a blank line / next bullet (no over-capture)"
   // first bullet has empty desc and the next line is another bullet -> dropped, not joined
   assert.deepEqual(parseReview(t).criticalIssues.filter(c => c.category === "scope"), []);
 });
+
+test("RP-I5: continuation stops at a legacy same-line verdict line (not swallowed as description)", () => {
+  const t = ["- [security]", "Final verdict - APPROVE"].join("\n");
+  // empty-desc bullet must NOT swallow the following same-line verdict line; issue is dropped, verdict still resolves
+  const r = parseReview(t);
+  assert.deepEqual(r.criticalIssues, []);
+  assert.equal(r.verdict, "APPROVE");
+});

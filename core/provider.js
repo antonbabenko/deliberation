@@ -368,7 +368,7 @@ function resolveIssues(lines) {
         const nt = lines[j].trim();
         if (!nt) break;                                  // blank -> stop
         if (BULLET_RE.test(nt) || HEADING_RE.test(nt)) break;  // next bullet/heading -> stop
-        if (SENTINEL_RE.test(nt) || VERDICT_WORD_RE.test(nt)) break; // verdict line -> stop
+        if (SENTINEL_RE.test(nt) || VERDICT_WORD_RE.test(nt) || VERDICT_RE.test(nt)) break; // verdict line -> stop
         description = nt.replace(STRIP_LEAD, "").replace(STRIP_TRAIL, "").trim();
         break;                                           // take the first usable continuation line
       }
