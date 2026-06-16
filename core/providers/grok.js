@@ -21,7 +21,7 @@ function makeGrokProvider(opts = {}) {
     name: "grok",
     // multiTurn is not wired through Core (runGrok/runWithFiles return no threadId),
     // so report false to match reality.
-    capabilities: { canImplement: false, fileUpload: true, multiTurn: false },
+    capabilities: { canImplement: false, fileUpload: true, multiTurn: false, walksFilesystem: false },
     async health() {
       return process.env.XAI_API_KEY ? { ok: true } : { ok: false, reason: "XAI_API_KEY unset" };
     },

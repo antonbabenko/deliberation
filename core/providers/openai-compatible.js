@@ -28,7 +28,7 @@ function makeOpenAICompatibleProvider(opts) {
 
   return /** @type {any} */ ({
     name,
-    capabilities: { canImplement: false, fileUpload: false, multiTurn: true },
+    capabilities: { canImplement: false, fileUpload: false, multiTurn: true, walksFilesystem: false },
     /** Test-only: current number of cached sessions. */
     get __sessionCount() { return sessions.size; },
     async health() {

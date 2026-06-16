@@ -17,6 +17,10 @@ test("GK1: capabilities.fileUpload is true, multiTurn is false (not wired throug
   assert.equal(caps.multiTurn, false);
 });
 
+test("GK1b: capabilities.walksFilesystem is false (Grok cannot walk the repo)", () => {
+  assert.equal(makeGrokProvider({ bridge: fakeBridge }).capabilities.walksFilesystem, false);
+});
+
 test("GK2: ask with no files uses runGrok and returns success text", async () => {
   process.env.XAI_API_KEY = "k";
   const p = makeGrokProvider({ bridge: fakeBridge, model: "grok-4.3" });
