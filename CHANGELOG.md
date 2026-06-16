@@ -1,3 +1,10 @@
+## [3.6.2](https://github.com/antonbabenko/deliberation/compare/v3.6.1...v3.6.2) (2026-06-16)
+
+
+### Bug Fixes
+
+* **security:** harden provider bridges (file perms, redirect guard, env scrub, input validation) ([#138](https://github.com/antonbabenko/deliberation/issues/138)) ([075f584](https://github.com/antonbabenko/deliberation/commit/075f584eca3366721c9140d08d75263363801df8))
+
 ## [3.6.1](https://github.com/antonbabenko/deliberation/compare/v3.6.0...v3.6.1) (2026-06-16)
 
 
@@ -25,11 +32,4 @@
 ### Bug Fixes
 
 * relocate per-host install guides to docs/hosts ([#129](https://github.com/antonbabenko/deliberation/issues/129)) ([667a33f](https://github.com/antonbabenko/deliberation/commit/667a33f4e535ec3b3a55b2792015b232f1ee6628))
-
-## [3.5.2](https://github.com/antonbabenko/deliberation/compare/v3.5.1...v3.5.2) (2026-06-02)
-
-
-### Bug Fixes
-
-* register MCP servers inline in plugin.json, drop root .mcp.json ([#127](https://github.com/antonbabenko/deliberation/issues/127)) ([f3aa1c9](https://github.com/antonbabenko/deliberation/commit/f3aa1c990dc2bbec75a66f5c3817f6062ef9ee10))
 
