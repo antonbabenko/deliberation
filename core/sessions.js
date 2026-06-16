@@ -124,6 +124,10 @@ function scrubSecrets(text) {
     // Google API keys: AIza + >=35 chars. {35,} (not {35}) so a longer-than-39
     // key cannot leak its tail; over-matching only redacts MORE, never less.
     .replace(/\bAIza[0-9A-Za-z_-]{35,}/g, "[REDACTED]")
+    // URL-embedded credentials: scheme://user:SECRET@host -> redact the password only.
+    .replace(/\b([a-z][a-z0-9+.-]*:\/\/[^\s:@/]+:)[^\s@/]{6,}@/gi, "$1[REDACTED]@")
+    // Non-Bearer "Token <value>" auth headers (e.g. GitHub "Authorization: token ...").
+    .replace(/\bToken\s+[A-Za-z0-9._~+/-]{20,}={0,2}/g, "Token [REDACTED]")
     // `Bearer <token>` headers. No `i` flag (HTTP uses capital "Bearer") so the
     // English word "bearer" is not matched; {20,} min + base64/base64url charset
     // (+ / ~ -) and optional = padding so a real token is fully redacted, not

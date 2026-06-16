@@ -273,6 +273,34 @@ test("S17e: scrubSecrets redacts GitHub and AWS key shapes", () => {
   assert.ok(scrubSecrets(`id=${aws} x`).includes("[REDACTED]"));
 });
 
+test("S17f: scrubSecrets redacts URL-embedded credentials (password only)", () => {
+  const url = "postgres://user:supersecretpw@db.example.com/app";
+  const out = scrubSecrets(url);
+  assert.ok(out.includes("postgres://user:[REDACTED]@db.example.com"));
+  assert.equal(out.includes("supersecretpw"), false);
+});
+
+test("S17g: scrubSecrets redacts non-Bearer 'Token <value>' auth headers", () => {
+  // GitHub-style header with the literal "Token" scheme.
+  const ghHeader = "Authorization: Token ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345";
+  const ghOut = scrubSecrets(ghHeader);
+  assert.ok(ghOut.includes("Token [REDACTED]"));
+  assert.equal(ghOut.includes("ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345"), false);
+  // A non-GitHub token value exercises the new Token rule (not the gh_ rule).
+  const opaque = "Token " + "A1b2C3d4E5f6G7h8I9j0KLMN"; // >= 20 chars, no gh_ prefix
+  const out = scrubSecrets(opaque);
+  assert.equal(out, "Token [REDACTED]");
+});
+
+test("S17h: scrubSecrets leaves credential-free URLs and emails intact", () => {
+  // No user:pass@ -> nothing to redact.
+  assert.equal(scrubSecrets("http://host/path?q=1"), "http://host/path?q=1");
+  // A bare email (no scheme, no password) must survive.
+  assert.equal(scrubSecrets("contact user@host.com today"), "contact user@host.com today");
+  // mailto: has no user:pass@ shape -> untouched.
+  assert.equal(scrubSecrets("mailto:user@host.com"), "mailto:user@host.com");
+});
+
 test("S17b: scrubSecrets does NOT corrupt normal words containing key-like substrings", () => {
   // "risk-analysis" contains "sk-analysis"; word-boundary anchors must spare it.
   assert.equal(scrubSecrets("risk-analysis and disk-space"), "risk-analysis and disk-space");
