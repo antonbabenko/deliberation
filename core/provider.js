@@ -299,8 +299,8 @@ function normVerdict(/** @type {string} */ tok) { return tok.replace(/\s+/g, "_"
  */
 function parseReview(text) {
   const raw = safeString(text);
-  // Drop fenced code blocks so an echoed template / quoted example cannot hijack
-  // the verdict (the shared prompt now keeps its VERDICT example inside a fence).
+  // Drop fenced code blocks so a reviewer's quoted/fenced example cannot hijack
+  // the verdict.
   const lines = [];
   let inFence = false;
   for (const ln of raw.split(/\r?\n/)) {
