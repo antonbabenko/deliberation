@@ -84,6 +84,9 @@ Session tools (only useful when `sessions.persist` is enabled in config; they re
   mode (the loop, or a synthesize pass).
 - `session-annotate { sessionId, note }` - append a note to a run's audit trail.
 
+There is no list tool: get the `sessionId` from the original run's result, or browse the store dir
+(`~/.cache/deliberation/sessions/`). See TECHNICAL.md "Session persistence" for a worked example.
+
 Every fan-out, single-provider, and expert tool takes a `prompt`. Give it full context: the goal, the relevant code
 or paths, and any prior attempts. The experts do not share your session, so a
 self-contained prompt gets a better answer.
