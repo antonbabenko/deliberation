@@ -1,3 +1,10 @@
+## [3.7.0](https://github.com/antonbabenko/deliberation/compare/v3.6.2...v3.7.0) (2026-06-17)
+
+
+### Features
+
+* **core:** gated implementation mode for codex+gemini (default-off) ([#143](https://github.com/antonbabenko/deliberation/issues/143)) ([7bb8bc2](https://github.com/antonbabenko/deliberation/commit/7bb8bc286a9dd2b229450d45cd6a1435408d13ec))
+
 ## [3.6.2](https://github.com/antonbabenko/deliberation/compare/v3.6.1...v3.6.2) (2026-06-16)
 
 
@@ -25,11 +32,4 @@
 ### Bug Fixes
 
 * enforce read-only advisory mode for codex and gemini delegates ([#131](https://github.com/antonbabenko/deliberation/issues/131)) ([790be84](https://github.com/antonbabenko/deliberation/commit/790be84dcd969ed852e95b83e79fc07c440bc860))
-
-## [3.5.3](https://github.com/antonbabenko/deliberation/compare/v3.5.2...v3.5.3) (2026-06-05)
-
-
-### Bug Fixes
-
-* relocate per-host install guides to docs/hosts ([#129](https://github.com/antonbabenko/deliberation/issues/129)) ([667a33f](https://github.com/antonbabenko/deliberation/commit/667a33f4e535ec3b3a55b2792015b232f1ee6628))
 
