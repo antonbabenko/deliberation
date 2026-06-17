@@ -28,6 +28,13 @@
  *   Phase-3 note: when this is used for real multi-tenancy, the remote adapter must also
  *   scope any per-thread session state (e.g. the openai-compatible `threadId` map) by tenant,
  *   so a reused threadId cannot resume another tenant's context under a different key.
+ * @property {("advisory"|"implement")} [mode]  delegation mode. Absent/"advisory" keeps the
+ *   call read-only (OS-sandboxed). Only the literal "implement" requests workspace-write, and
+ *   only takes effect when the provider was constructed with `allowImplement:true` (the second
+ *   of two AND-ed locks). A stray/injected `mode` alone never writes. No unified-server tool
+ *   sets this yet - the implement surface is section 3; today the field is exercised in-process
+ *   (and by tests) only. Closed enum on purpose: read-only is anything that is not exactly
+ *   "implement", so a truthy-coercion bug cannot open writes.
  */
 
 /**

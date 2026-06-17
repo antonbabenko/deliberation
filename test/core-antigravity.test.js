@@ -46,8 +46,48 @@ test("AG3: thrown runGemini classifies from the real message, not an empty strin
   assert.equal(r.errorKind, "missing-cli"); // would be "unknown" if message were dropped
 });
 
-test("AG4: capabilities.canImplement is true", () => {
-  assert.equal(makeAntigravityProvider({ bridge: fakeBridge }).capabilities.canImplement, true);
+test("AG4: capabilities.canImplement reflects the construction lock (default off)", () => {
+  assert.equal(makeAntigravityProvider({ bridge: fakeBridge }).capabilities.canImplement, false);
+  assert.equal(makeAntigravityProvider({ bridge: fakeBridge, allowImplement: true }).capabilities.canImplement, true);
+});
+
+// Capturing bridge: records the sandbox passed to buildAgyArgs and the readOnly opt to runGemini.
+function captureBridge() {
+  const seen = { sandbox: undefined, readOnly: undefined };
+  return {
+    seen,
+    bridge: {
+      buildAgyArgs: (/** @type {any} */ req) => { seen.sandbox = req.sandbox; return ["--model", req.model, req.prompt]; },
+      runGemini: async (/** @type {any} */ _a, /** @type {any} */ _c, /** @type {any} */ _t, /** @type {any} */ _g, /** @type {any} */ o) => { seen.readOnly = o.readOnly; return { response: "ok", threadId: "g", recovered: false }; },
+      classifyGeminiError: () => ({ errorKind: "unknown", retryable: false }),
+    },
+  };
+}
+
+test("AG-gate-default: no lock, no mode -> sandbox read-only, runGemini readOnly:true", async () => {
+  const { seen, bridge } = captureBridge();
+  await makeAntigravityProvider({ bridge }).ask({ prompt: "x", cwd: "/tmp" });
+  assert.equal(seen.sandbox, "read-only");
+  assert.equal(seen.readOnly, true);
+});
+
+test("AG-gate-deny: req.mode 'implement' WITHOUT the construction lock stays read-only", async () => {
+  const { seen, bridge } = captureBridge();
+  await makeAntigravityProvider({ bridge }).ask({ prompt: "x", cwd: "/tmp", mode: "implement" });
+  assert.equal(seen.sandbox, "read-only");
+  assert.equal(seen.readOnly, true);
+});
+
+test("AG-gate-open: both locks -> sandbox workspace-write, runGemini readOnly:false", async () => {
+  const { seen, bridge } = captureBridge();
+  const p = makeAntigravityProvider({ bridge, allowImplement: true });
+  await p.ask({ prompt: "x", cwd: "/tmp", mode: "implement" });
+  assert.equal(seen.sandbox, "workspace-write");
+  assert.equal(seen.readOnly, false);
+  // lock on, but no mode -> back to read-only
+  await p.ask({ prompt: "x", cwd: "/tmp" });
+  assert.equal(seen.sandbox, "read-only");
+  assert.equal(seen.readOnly, true);
 });
 
 test("AG5: capabilities.walksFilesystem is true (Gemini walks cwd under read-only sandbox)", () => {
