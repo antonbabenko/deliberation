@@ -1,3 +1,10 @@
+## [3.7.1](https://github.com/antonbabenko/deliberation/compare/v3.7.0...v3.7.1) (2026-06-17)
+
+
+### Bug Fixes
+
+* **core:** cap peer opinions in arbiter + adjudication prompts ([#145](https://github.com/antonbabenko/deliberation/issues/145)) ([55aab8b](https://github.com/antonbabenko/deliberation/commit/55aab8b9fca3028bc3f352efa2d2c9607a4df3b1))
+
 ## [3.7.0](https://github.com/antonbabenko/deliberation/compare/v3.6.2...v3.7.0) (2026-06-17)
 
 
@@ -25,11 +32,4 @@
 ### Features
 
 * opt-in orientation auto-attach for file-blind providers (Grok/OpenRouter) ([#134](https://github.com/antonbabenko/deliberation/issues/134)) ([3862c73](https://github.com/antonbabenko/deliberation/commit/3862c732b36e1b862b30ec45e1ba713c41ef249a))
-
-## [3.5.4](https://github.com/antonbabenko/deliberation/compare/v3.5.3...v3.5.4) (2026-06-11)
-
-
-### Bug Fixes
-
-* enforce read-only advisory mode for codex and gemini delegates ([#131](https://github.com/antonbabenko/deliberation/issues/131)) ([790be84](https://github.com/antonbabenko/deliberation/commit/790be84dcd969ed852e95b83e79fc07c440bc860))
 
