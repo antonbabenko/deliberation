@@ -988,6 +988,65 @@ Each takes its own input schema (no `prompt`), and reports
 When `persist` is on, `consensus` and `ask-all` also include a top-level `sessionId` in
 their result.
 
+### Walkthrough: record -> review -> revisit -> annotate
+
+With `sessions.persist: true`, one decision flows through all three tools. Tool calls are
+shown in their real arg shape; ids are illustrative.
+
+1. **Record.** Run a panel and the result carries a `sessionId`:
+
+   ```
+   /ask-all Should we cache provider results in-process or in Redis?
+   -> { results: [...], sessionId: "019c5af2-1a2b-7c3d-8e4f-aa12" }
+   ```
+
+2. **Review** the stored decision later:
+
+   ```
+   session-get { "sessionId": "019c5af2-1a2b-7c3d-8e4f-aa12" }
+   -> { session: {
+        tool: "ask-all", question: "Should we cache provider results ...",
+        opinions: [ { provider: "codex", verdict: null, text: "..." },
+                    { provider: "gemini", verdict: null, text: "..." } ],
+        verdict: null, annotations: [] } }
+   ```
+
+   (A `consensus` loop record also carries per-opinion `verdict`, a final `verdict`, and
+   `converged`/`confidence`/`rounds`; a `synthesizeAlways` record carries `synthesis`.)
+
+3. **Revisit** - re-ask the SAME question against today's providers/config. This writes a
+   CHILD record linked by `parentId` and returns a new id (it re-runs; it does not replay
+   the stored answer). A `consensus` record replays its mode (the loop, or a synthesize pass):
+
+   ```
+   session-revisit { "sessionId": "019c5af2-1a2b-7c3d-8e4f-aa12" }
+   -> { results: [...], sessionId: "019c6b00-3d4e-7f50-9a61-bb34" }   // parentId = 019c5af2-...
+   ```
+
+4. **Annotate** either record with the real-world outcome - appended to the audit trail
+   with a timestamp, never overwriting prior notes:
+
+   ```
+   session-annotate { "sessionId": "019c5af2-1a2b-7c3d-8e4f-aa12",
+                       "note": "Shipped in-process LRU; revisit after Redis lands." }
+   -> { session: { ..., annotations: [ { note: "Shipped in-process LRU; ...", at: "2026-06-17T..." } ] } }
+   ```
+
+   ```
+   019c5af2 (ask-all)  --parentId-->  019c6b00 (revisit)
+      |
+      +-- annotations: [ "Shipped in-process LRU; ..." @ 2026-06-17 ]
+   ```
+
+### Finding a past session
+
+There is no enumeration tool, so a `sessionId` comes from one of three places:
+
+1. The `sessionId` in the original `/ask-all` or `/consensus` result.
+2. The store on disk: `ls ~/.cache/deliberation/sessions/` - one `<sessionId>.json` per run.
+   The exact dir is what `/deliberation:doctor` prints, and `DELIBERATION_SESSIONS` overrides it.
+3. `/deliberation:analyze` - reviews recent runs in aggregate (verdict agreement, Lens B).
+
 ## Customizing expert prompts
 
 Expert prompts live in `prompts/`. Each follows the same structure: role definition
