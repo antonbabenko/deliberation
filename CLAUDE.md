@@ -122,7 +122,7 @@ Retries use multi-turn (`*-reply` with `threadId`) so the expert remembers previ
 |-----------|---------|-------|
 | `rules/*.md` | When/how to delegate | Installed to `~/.claude/rules/deliberation/` |
 | `prompts/*.md` | Expert personalities | Injected via `developer-instructions` |
-| `commands/*.md` | Slash commands | `/setup`, `/uninstall` |
+| `commands/*.md` | Slash commands | `/setup`, `/uninstall`, `/help`, `/doctor`, `/analyze` |
 | `config/providers.json` | Provider metadata | Not used at runtime |
 | `config/config.schema.json` | JSON Schema (in `config/`) | Validates `config.json` in editors (VS Code built-in JSON support, no extension); `.vscode/` wires it for in-repo example configs |
 | `~/.config/deliberation/config.json` | Unified user config | Live SSOT; stat-gated hot-reload. Sections: `providers` (connection), `models` (named records map keyed by id), `routing` (fan-out), `consensus` (`arbiter` + `blindVote` + `maxRounds`: the loop cap, default 5, clamped to 50), `sessions` (opt-in run persistence: `persist`/`maxRecords`/`maxAgeDays`, default off; single `schemaVersion:1` stamp), `debug` (opt-in debug log: `enabled`/`path`, default off - see Observability), `orientation` (opt-in auto-attach of a repo bundle to file-blind providers: `enabled`/`maxFiles`, default off - see Key Design Decisions #8). Carries a `$schema` key for editor validation. Canonical XDG path (Windows: `%APPDATA%\deliberation\config.json`); override with `DELIBERATION_CONFIG` |

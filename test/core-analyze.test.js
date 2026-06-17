@@ -175,3 +175,21 @@ test("A11: buildAnalysis reports meta + insufficientData when no events", () => 
   assert.equal(withData.meta.eventsParsed, 2);
   assert.equal(withData.meta.logPath, "/tmp/x.jsonl");
 });
+
+test("A12: meta surfaces sessionsDir + agreementVotes for the doctor/empty-Lens-B diagnostic", () => {
+  // sessionsDir echoes the caller-resolved server path; defaults to null when absent.
+  const a = buildAnalysis([], [], {}, { sessionsDir: "/cache/deliberation/sessions" });
+  assert.equal(a.meta.sessionsDir, "/cache/deliberation/sessions");
+  assert.equal(buildAnalysis([], [], {}, {}).meta.sessionsDir, null);
+
+  // records with a final verdict AND a matching per-opinion verdict -> votes > 0.
+  const recVoted = /** @type {any} */ ({ verdict: "APPROVE", opinions: [{ provider: "codex", model: "default", verdict: "APPROVE" }] });
+  assert.ok(buildAnalysis([], [recVoted], {}, {}).meta.agreementVotes > 0);
+
+  // records present but no per-opinion verdict (ask-all shape) -> read>0 but votes==0
+  // (this is the case that explains an empty Lens B without it being a read-path bug).
+  const recAbstain = /** @type {any} */ ({ verdict: null, opinions: [{ provider: "codex", model: "default", text: "hi" }] });
+  const ab = buildAnalysis([], [recAbstain], {}, {});
+  assert.equal(ab.meta.sessionsRead, 1);
+  assert.equal(ab.meta.agreementVotes, 0);
+});

@@ -936,7 +936,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         if (rec) records.push(rec);
       }
     }
-    return analyzeCore.buildAnalysis(events, records, cfg, { logPath, debugEnabled, sessionsPersist: persist });
+    return analyzeCore.buildAnalysis(events, records, cfg, { logPath, debugEnabled, sessionsPersist: persist, sessionsDir });
   }
 
   /**

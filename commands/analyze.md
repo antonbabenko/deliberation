@@ -57,6 +57,18 @@ correlated by timestamp:
    `provider | model | votes | agreement % | abstained`, least-agreeing first.
    Note that abstain-only models (ask-all runs have no verdict) carry no signal.
 
+   **When Lens B is empty, say WHY** (use the `meta` fields - do not guess):
+   - `sessionsPersist` is false -> persistence is off; enable `sessions.persist: true`.
+   - `sessionsPersist` true but `sessionsRead` is 0 -> the server read no records from
+     `meta.sessionsDir`. Either nothing has run yet, OR the running server resolved a
+     different sessions dir than where records were written (an `XDG_CACHE_HOME` /
+     `DELIBERATION_SESSIONS` drift). Print `meta.sessionsDir` and point to
+     `/deliberation:doctor`, which compares it to the shell-resolved path.
+   - `sessionsRead` > 0 but `meta.agreementVotes` is 0 -> records exist but none carry a
+     per-opinion verdict (they are old records or `ask-all` runs, which have no verdict).
+     Tell the user to run a fresh `/consensus` to populate Lens B - the data is not lost,
+     it just predates verdict capture / wasn't a consensus run.
+
 5. **Render keep/cut candidates** from `outliers` + `recommendations`. For each
    recommendation print its `action` and `rationale`. Separate the two targets:
    - `target: "deliberation"` -> show the exact `config.json` edit
