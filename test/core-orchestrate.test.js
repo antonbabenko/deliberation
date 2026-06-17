@@ -2,7 +2,7 @@
 "use strict";
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { askAll, askOne, consensus, buildArbiterPrompt, runToConvergence } = require("../core/orchestrate.js");
+const { askAll, askOne, consensus, buildArbiterPrompt, buildAdjudicationPrompt, runToConvergence } = require("../core/orchestrate.js");
 /** @typedef {import("../core/types.js").Provider} Provider */
 
 /** @param {string} name @param {string} [behavior] @returns {Provider} */
@@ -145,6 +145,33 @@ test("C6: buildArbiterPrompt anonymizes opinion labels (no provider names leak)"
   }
   // bodies and the original question are preserved
   assert.match(prompt, /the question/);
+});
+
+test("C6b: buildArbiterPrompt caps an over-long opinion and marks it; short ones untouched", () => {
+  const long = "x".repeat(5000);
+  const opinions = /** @type {any} */ ([
+    { provider: "codex", text: long },
+    { provider: "gemini", text: "short body" },
+  ]);
+  const prompt = buildArbiterPrompt("q", opinions);
+  // long opinion is truncated to the cap + marker, not inlined whole
+  assert.equal(prompt.includes("x".repeat(5000)), false, "uncapped long opinion leaked into prompt");
+  assert.match(prompt, /x{2000}\n\.\.\.\[truncated\]/);
+  // short opinion is left exactly as-is (no marker)
+  assert.match(prompt, /### Opinion 2\nshort body/);
+  assert.equal((prompt.match(/\[truncated\]/g) || []).length, 1);
+});
+
+test("C6c: buildAdjudicationPrompt caps a peer block with many long issues", () => {
+  const issues = Array.from({ length: 50 }, (_, i) => ({ category: "bug", description: "y".repeat(100) + i }));
+  const results = /** @type {any} */ ([
+    { source: "codex", isError: false, verdict: "REJECT", criticalIssues: issues },
+    { source: "gemini", isError: false, verdict: "APPROVE", criticalIssues: [] },
+  ]);
+  const prompt = buildAdjudicationPrompt({ currentPlan: "the plan" }, results);
+  assert.match(prompt, /\.\.\.\[truncated\]/); // the verbose peer was capped
+  assert.match(prompt, /Peer gemini: APPROVE/); // the short peer is intact
+  assert.match(prompt, /the plan/);
 });
 
 /** A provider that records the req it was asked with. @param {string} name @param {boolean|undefined} walks */
