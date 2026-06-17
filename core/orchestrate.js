@@ -140,6 +140,22 @@ async function askOne(provider, req, opts = {}) {
   return callProvider(provider, req, opts.logger || NULL_LOGGER, opts.tool || "ask-one", opts.cache, opts.orientationFiles);
 }
 
+// Per-opinion cap for the arbiter prompt. The arbiter inlines every peer opinion
+// into ONE prompt, so worst-case size is (peers x opinion length). Cap each block
+// so one rambly model can't blow the arbiter's context or crowd out the others.
+// ~2k chars keeps a full verdict + rationale while bounding the total.
+const MAX_PEER_OPINION_CHARS = 2000;
+
+/**
+ * Cap a peer opinion's text for inlining, appending a marker when truncated.
+ * @param {string} text
+ * @returns {string}
+ */
+function capPeerOpinion(text) {
+  if (typeof text !== "string" || text.length <= MAX_PEER_OPINION_CHARS) return text;
+  return text.slice(0, MAX_PEER_OPINION_CHARS) + "\n...[truncated]";
+}
+
 /**
  * Assemble the arbiter prompt from independent opinions for blind cross-review.
  * @param {string} question
@@ -149,8 +165,9 @@ async function askOne(provider, req, opts = {}) {
 function buildArbiterPrompt(question, opinions) {
   // Labels are anonymized (### Opinion N, no provider name) so the arbiter
   // judges substance, not source reputation. The opinions array returned to the
-  // caller keeps provider names; only this prompt is anonymized.
-  const blocks = opinions.map((o, i) => `### Opinion ${i + 1}\n${o.text}`).join("\n\n");
+  // caller keeps provider names; only this prompt is anonymized. Each opinion is
+  // capped (MAX_PEER_OPINION_CHARS) so the combined prompt stays bounded.
+  const blocks = opinions.map((o, i) => `### Opinion ${i + 1}\n${capPeerOpinion(o.text)}`).join("\n\n");
   return [
     "You are the arbiter. Below are independent expert opinions on the same question.",
     "Cross-review them: note where they agree, where they disagree, and which view is best supported.",
@@ -233,7 +250,9 @@ function buildAdjudicationPrompt(state, results) {
   const peerBlocks = results.map((r) => {
     if (r.isError) return `Peer ${r.source}: ERRORED`;
     const issues = (r.criticalIssues || []).map((i) => `  - [${i.category}] ${i.description}`).join("\n");
-    return `Peer ${r.source}: ${r.verdict || "UNKNOWN"}${issues ? "\n" + issues : ""}`;
+    // Cap each peer block (same bound as buildArbiterPrompt): a peer with many
+    // long issue descriptions must not blow the arbiter's per-round context.
+    return capPeerOpinion(`Peer ${r.source}: ${r.verdict || "UNKNOWN"}${issues ? "\n" + issues : ""}`);
   }).join("\n");
   return [
     "ADJUDICATE the peer reviews below and give ONE overall verdict.",
@@ -363,4 +382,4 @@ async function runToConvergence(providers, req, opts = {}) {
   };
 }
 
-module.exports = { askAll, askOne, consensus, buildArbiterPrompt, runToConvergence };
+module.exports = { askAll, askOne, consensus, buildArbiterPrompt, buildAdjudicationPrompt, runToConvergence };
