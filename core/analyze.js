@@ -97,6 +97,8 @@ const OR_PREFIX = "openrouter:";
  * @property {boolean} sessionsPersist
  * @property {number} eventsParsed
  * @property {number} sessionsRead
+ * @property {(string|null)} sessionsDir  dir the running server resolved (for the doctor drift check)
+ * @property {number} agreementVotes  total agreement votes across models (0 with sessionsRead>0 => no per-opinion verdicts)
  * @property {boolean} insufficientData  true when there are no provider_result events to analyze
  */
 
@@ -374,7 +376,7 @@ function recommend(stats, agreement, config) {
  * @param {DebugEvent[]} events
  * @param {SessionRecord[]} records
  * @param {any} config
- * @param {{logPath?:string, debugEnabled?:boolean, sessionsPersist?:boolean}} [meta]
+ * @param {{logPath?:string, debugEnabled?:boolean, sessionsPersist?:boolean, sessionsDir?:(string|null)}} [meta]
  * @returns {Analysis}
  */
 function buildAnalysis(events, records, config, meta) {
@@ -395,6 +397,14 @@ function buildAnalysis(events, records, config, meta) {
       sessionsPersist: !!(meta && meta.sessionsPersist),
       eventsParsed: evs.length,
       sessionsRead: recs.length,
+      // sessionsDir is the dir the RUNNING server resolved (passed by the caller).
+      // /deliberation:doctor compares this to the shell-resolved path to detect the
+      // XDG_CACHE_HOME / DELIBERATION_SESSIONS drift that silently empties Lens B.
+      sessionsDir: (meta && meta.sessionsDir) || null,
+      // Total agreement votes across all models. sessionsRead>0 with agreementVotes==0
+      // means records exist but none carry a per-opinion verdict (old or ask-all runs) -
+      // Lens B is empty for a content reason, not a read-path one.
+      agreementVotes: agreement.reduce((n, a) => n + (a && a.votes ? a.votes : 0), 0),
       insufficientData: stats.length === 0,
     },
   };
