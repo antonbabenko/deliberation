@@ -1,3 +1,10 @@
+## [3.8.0](https://github.com/antonbabenko/deliberation/compare/v3.7.1...v3.8.0) (2026-06-17)
+
+
+### Features
+
+* **commands:** /deliberation:help + /deliberation:doctor + analyze drift diagnostic ([#147](https://github.com/antonbabenko/deliberation/issues/147)) ([06ed697](https://github.com/antonbabenko/deliberation/commit/06ed6972b54fc8510f81adbe231334a630001227))
+
 ## [3.7.1](https://github.com/antonbabenko/deliberation/compare/v3.7.0...v3.7.1) (2026-06-17)
 
 
@@ -25,11 +32,4 @@
 ### Bug Fixes
 
 * robust consensus review-verdict parsing across providers ([#136](https://github.com/antonbabenko/deliberation/issues/136)) ([c8efe91](https://github.com/antonbabenko/deliberation/commit/c8efe917a470361689b949f0dc8bad57361986d2))
-
-## [3.6.0](https://github.com/antonbabenko/deliberation/compare/v3.5.4...v3.6.0) (2026-06-16)
-
-
-### Features
-
-* opt-in orientation auto-attach for file-blind providers (Grok/OpenRouter) ([#134](https://github.com/antonbabenko/deliberation/issues/134)) ([3862c73](https://github.com/antonbabenko/deliberation/commit/3862c732b36e1b862b30ec45e1ba713c41ef249a))
 
