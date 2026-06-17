@@ -89,9 +89,10 @@ function buildAgyArgs(req) {
 
 // --- Advisory read-only enforcement (env scrub + OS sandbox + mutation detect) ---
 
-// Credentials an advisory delegate has no need for but could use to push or
-// exfiltrate over the (intentionally open) network. Scrubbed from the child env
-// on read-only runs. agy's own Gemini auth lives in ~/.gemini, not these vars.
+// Credentials a delegate has no need for but could use to push or exfiltrate over
+// the (intentionally open) network. Scrubbed from the child env on EVERY run -
+// read-only and workspace-write alike (a write run edits files; it still never
+// needs the operator's keys). agy's own Gemini auth lives in ~/.gemini, not these vars.
 // These two are NOT name-shape-visible to CREDENTIAL_NAME_RE (no _KEY/_TOKEN/_SECRET/
 // PASSWORD suffix) but still hand sensitive material to a child, so they must be
 // scrubbed explicitly. Do NOT fold this list into the regex — that would re-leak them.
@@ -102,9 +103,10 @@ const ADVISORY_ENV_SCRUB = ["GIT_ASKPASS", "SSH_AUTH_SOCK"];
 const CREDENTIAL_NAME_RE = /(?:^|_)(?:KEY|TOKEN|SECRET|SECRETS|PASSWORD|PASSWD|CREDENTIAL|CREDENTIALS)$|API_KEY|ACCESS_KEY|SESSION_TOKEN|PRIVATE_KEY/i;
 
 /**
- * Build the child env for a read-only run: drop the OS-sandbox kill-switch (so it
- * never inherits into the delegate), scrub the explicit push/exfil credential
- * denylist, then scrub any remaining var whose NAME is credential-shaped.
+ * Build the scrubbed child env (used for EVERY run - read-only and workspace-write):
+ * drop the OS-sandbox kill-switch (so it never inherits into the delegate), scrub the
+ * explicit push/exfil credential denylist, then scrub any remaining var whose NAME is
+ * credential-shaped.
  * @param {NodeJS.ProcessEnv} env
  * @returns {NodeJS.ProcessEnv}
  */
@@ -361,8 +363,10 @@ async function runGemini(args, cwd, timeoutMs, recoveryGraceMs, opts = {}) {
     const head = ptIdx >= 0 ? args.slice(0, ptIdx) : args;
     const tail = ptIdx >= 0 ? args.slice(ptIdx) : [];
     const agyArgs = [...head, "--print-timeout", goDuration(t + grace + 30_000), ...tail];
-    // Wrap the FINAL argv (after the --print-timeout splice) in the OS sandbox
-    // when read-only, and scrub the child env. Both are no-ops for workspace-write.
+    // Wrap the FINAL argv (after the --print-timeout splice) in the OS sandbox when
+    // read-only (the OS write-deny is a no-op for workspace-write - writes must land).
+    // The credential env scrub, by contrast, runs in BOTH modes (see env: below): a
+    // write-capable run still has no need for the operator's keys / SSH agent.
     const spawnPlan = buildSpawnCommand({
       bin: AGY_BIN,
       args: agyArgs,
@@ -377,7 +381,10 @@ async function runGemini(args, cwd, timeoutMs, recoveryGraceMs, opts = {}) {
       process.stderr.write("[deliberation] agy read-only run wrapped in sandbox-exec (workspace writes denied)\n");
     }
     const agyProcess = spawn(spawnPlan.cmd, spawnPlan.argv, {
-      env: readOnly ? advisoryEnv(process.env) : process.env,
+      // Scrub credentials in BOTH read-only and workspace-write runs. A write run
+      // legitimately mutates the worktree but still has no need for the operator's
+      // API keys / GIT_ASKPASS / SSH_AUTH_SOCK - the human commits and pushes, not agy.
+      env: advisoryEnv(process.env),
       shell: false,
       cwd: effCwd,
       // agy -p (print mode) waits for stdin EOF before returning; if the stdin

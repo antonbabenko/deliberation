@@ -16,28 +16,32 @@ function classifyCodex(stderr) {
 }
 
 /**
- * Argv for an advisory `codex exec` run. `--sandbox read-only` is hard-pinned so
- * the run cannot inherit a writable global default from ~/.codex/config.toml
- * (e.g. sandbox_mode = "workspace-write" + approval_policy = "never"). codex
- * enforces this at the OS level (Seatbelt on macOS, Landlock/seccomp on Linux).
- * Core providers only ever serve advisory paths (ask-one / ask-all / consensus);
- * implementation mode runs through the separate native codex MCP server, which
- * owns its own sandbox parameter and is untouched here. The opts.run injection
- * point remains the escape hatch if a caller ever needs different argv.
+ * Argv for a `codex exec` run. The sandbox flag is chosen from the EFFECTIVE mode:
+ * "implement" -> `--sandbox workspace-write` (codex permits writes under cwd, still
+ * OS-enforced via Seatbelt/Landlock/seccomp); anything else -> `--sandbox read-only`.
+ * Read-only is the structural default: only the exact string "implement" opens writes,
+ * so the run cannot inherit a writable global default from ~/.codex/config.toml
+ * (e.g. sandbox_mode = "workspace-write"). The flag is a fixed literal per branch -
+ * caller input is never interpolated, and we never emit danger-full-access /
+ * bypass-approvals. The mode reaching here is already gated by the two-lock check in
+ * `ask` (allowImplement AND req.mode === "implement"); the opts.run injection point
+ * remains the test-only escape hatch.
+ * @param {("advisory"|"implement")} [mode]
  * @returns {string[]}
  */
-function codexExecArgs() {
-  return ["exec", "--sandbox", "read-only", "--skip-git-repo-check"];
+function codexExecArgs(mode) {
+  const sandbox = mode === "implement" ? "workspace-write" : "read-only";
+  return ["exec", "--sandbox", sandbox, "--skip-git-repo-check"];
 }
 
 /**
  * Default spawner: `codex exec` reading the prompt on stdin, capturing stdout.
- * @param {{prompt:string, cwd?:string, timeoutMs?:number}} args
+ * @param {{prompt:string, cwd?:string, timeoutMs?:number, mode?:("advisory"|"implement")}} args
  * @returns {Promise<{code:number, stdout:string, stderr:string}>}
  */
-function defaultRun({ prompt, cwd, timeoutMs }) {
+function defaultRun({ prompt, cwd, timeoutMs, mode }) {
   return new Promise((resolve) => {
-    const child = spawn("codex", codexExecArgs(), { cwd: cwd || process.cwd() });
+    const child = spawn("codex", codexExecArgs(mode), { cwd: cwd || process.cwd() });
     let stdout = "", stderr = "", settled = false;
     const timer = timeoutMs ? setTimeout(() => child.kill("SIGKILL"), timeoutMs) : null;
     if (timer) timer.unref(); // never hold the event loop open on the timeout timer
@@ -59,21 +63,29 @@ function defaultRun({ prompt, cwd, timeoutMs }) {
 
 /**
  * @param {Object} [opts]
- * @param {(args:{prompt:string,cwd?:string,timeoutMs?:number})=>Promise<{code:number,stdout:string,stderr:string}>} [opts.run]
+ * @param {(args:{prompt:string,cwd?:string,timeoutMs?:number,mode?:("advisory"|"implement")})=>Promise<{code:number,stdout:string,stderr:string}>} [opts.run]
  * @param {string} [opts.model]
+ * @param {boolean} [opts.allowImplement]  construction-time lock (first of two AND-ed locks).
+ *   When false/absent, this provider is read-only no matter what `req.mode` says. Set ONLY in a
+ *   composition root that has a local workspace + a human-gated write surface (section 3).
  * @returns {Provider}
  */
 function makeCodexProvider(opts = {}) {
   const run = opts.run || defaultRun;
   const model = opts.model || "default"; // codex resolves its own model from config.toml
+  const allowImplement = opts.allowImplement === true;
   return {
     name: "codex",
-    capabilities: { canImplement: true, fileUpload: false, multiTurn: false, walksFilesystem: true }, // Option A: no threadId continuity
+    // canImplement reflects the construction lock so discovery (panel) is honest about THIS
+    // process. Option A: no threadId continuity (multiTurn:false).
+    capabilities: { canImplement: allowImplement, fileUpload: false, multiTurn: false, walksFilesystem: true },
     async health() { return { ok: true }; },
     async ask(req) {
       const started = Date.now();
+      // Two-lock gate: write only when constructed write-capable AND this call explicitly asks.
+      const mode = allowImplement && req.mode === "implement" ? "implement" : "advisory";
       const full = req.developerInstructions ? `${req.developerInstructions}\n\n---\n\n${req.prompt}` : req.prompt;
-      const { code, stdout, stderr } = await run({ prompt: full, cwd: req.cwd, timeoutMs: req.timeoutMs });
+      const { code, stdout, stderr } = await run({ prompt: full, cwd: req.cwd, timeoutMs: req.timeoutMs, mode });
       if (code === 0) {
         // Codex CLI has no per-call reasoning-effort knob in this integration -> null.
         return { provider: "codex", model, text: stdout.trim(), isError: false, ms: Date.now() - started, reasoningEffort: null };

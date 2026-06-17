@@ -10,6 +10,7 @@ and the Gemini recovery paths.
 - [Architecture](#architecture)
 - [Consensus flow details](#consensus-flow-details)
 - [Provider bridges](#provider-bridges)
+- [Implementation mode (core capability)](#implementation-mode-core-capability)
 - [Environment variables](#environment-variables)
 - [Manual MCP setup](#manual-mcp-setup)
 - [Multi-turn and retry](#multi-turn-and-retry)
@@ -172,6 +173,52 @@ omitted. Uploaded files are SHA-256 dedup-cached locally and carry an
 
 The bridge default model is `grok-4.3`. It needs `XAI_API_KEY` in its environment;
 a missing key surfaces `errorKind: "missing-auth"`.
+
+## Implementation mode (core capability)
+
+The `core` codex + gemini providers can run `workspace-write` (edit files) instead
+of the default read-only. The capability is gated by **two AND-ed locks** - a write
+happens only when both are true:
+
+1. **Construction lock** - `makeCodexProvider({ allowImplement: true })` /
+   `makeAntigravityProvider({ bridge, allowImplement: true })`. Absent/false, the
+   provider is read-only no matter what the request says. `capabilities.canImplement`
+   reflects this lock, so `panel`/discovery report honestly per process.
+2. **Request lock** - `DelegationRequest.mode`, a closed `"advisory"|"implement"`
+   enum (default `"advisory"`). Only the exact string `"implement"` requests a write.
+
+```
+effectiveImplement = (opts.allowImplement === true) && (req.mode === "implement")
+```
+
+Read-only is the structural default at every layer: anything that is not exactly that
+pair runs advisory. The request vocabulary is mode-level (`advisory`/`implement`); the
+OS sandbox string (`workspace-write`) is computed inside the provider and never taken
+from caller input, so a request cannot smuggle argv.
+
+**Flag mapping** (only when `effectiveImplement`):
+
+| Provider | Advisory (default) | Implement |
+|----------|--------------------|-----------|
+| Codex | `codex exec --sandbox read-only` | `codex exec --sandbox workspace-write` (never `danger-full-access`/bypass-approvals) |
+| Gemini | `buildAgyArgs({sandbox:"read-only"})` + `runGemini(..., {readOnly:true})` | `buildAgyArgs({sandbox:"workspace-write"})` (-> `--dangerously-skip-permissions`) + `runGemini(..., {readOnly:false})` |
+
+Codex enforces the sandbox at the OS level (Seatbelt/Landlock/seccomp) in both modes.
+For Gemini, `readOnly:false` drops the OS write-deny wrapper (intended - writes must
+land), but the **credential env scrub runs in both modes**: `advisoryEnv()` still strips
+`*_KEY`/`*_TOKEN`/`*_SECRET`-shaped vars plus `GIT_ASKPASS`/`SSH_AUTH_SOCK` from the
+child env, so a write run edits the worktree yet never receives the operator's keys or
+SSH agent - the human commits and pushes, not agy. See the
+[Gemini read-only enforcement](#provider-bridges) detail above for the shared scrub.
+
+**Scope.** This is the section-1 core capability, proven by tests
+(`test/core-codex.test.js`, `test/core-antigravity.test.js`). The live composition root
+(`server/mcp/index.js`) does **not** pass `allowImplement:true`, so the running unified
+server stays read-only and no end-user tool sets `mode:"implement"` yet. The unified
+`implement` tool (no `readOnlyHint`, so the host prompts a human), the never-cache
+guarantee for write runs, a forced audit/session record, and multi-turn for impl land
+with the MCP consolidation. Hosted/remote builds (HTTP-only providers, no codex/gemini
+CLIs) are inert by construction - they never set the construction lock.
 
 ## Environment variables
 
