@@ -10,10 +10,27 @@ const { orientationFilesFor } = require("../../core/orientation.js");
 const { PROMPTS } = require("../../core/prompts/index.js");
 const analyzeCore = require("../../core/analyze.js");
 
-const ADVISORY = { readOnlyHint: true };
+// MCP tool annotations. readOnlyHint reflects each tool's PRIMARY CONTRACT, not
+// whether some opt-in mode can ever write: ask-all/consensus stay read-only (their
+// job is advisory) even though they persist a session record when the opt-in
+// sessions.persist is ON (default OFF, disclosed in each description) - a strict
+// "can ever write" rule would also have to flag ask-one and every expert tool
+// (identical opt-in debug telemetry). openWorldHint:true marks tools that reach
+// external LLM providers (network, cost, rate limits). destructiveHint:false is
+// explicit on all four: it documents additive-only intent and avoids any
+// client/Glama misinterpretation (annotations postdate this server's 2024-11-05
+// protocol, so no single default is authoritative).
+const LOCAL_RO = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };  // local read-only: panel, analyze, session-get
+const EXT_RO = { readOnlyHint: true, destructiveHint: false, openWorldHint: true };     // advisory + external LLMs: ask-*, experts, ask-one, ask-all, consensus
+const LOCAL_RW = { readOnlyHint: false, destructiveHint: false, openWorldHint: false }; // local additive write: session-annotate
+const EXT_RW = { readOnlyHint: false, destructiveHint: false, openWorldHint: true };    // writes state + calls providers: consensus-step, session-revisit
 /** @type {Record<string, string>} */
 const ASK_PROVIDER = { "ask-gpt": "codex", "ask-gemini": "gemini", "ask-grok": "grok", "ask-openrouter": "openrouter" };
+/** Per-provider auth note for the ask-* tool descriptions. @type {Record<string, string>} */
+const ASK_AUTH = { codex: "via the Codex CLI", gemini: "via the Gemini CLI", grok: "needs XAI_API_KEY", openrouter: "needs the OpenRouter API key env" };
 const EXPERTS = ["architect", "plan-reviewer", "scope-analyst", "code-reviewer", "security-analyst", "researcher", "debugger"];
+/** Appended to every expert tool description: external dispatch + return shape (keeps EXPERT_DESCRIPTIONS focused on purpose/usage). */
+const EXPERT_SUFFIX = " Fans out to the configured provider panel with this persona (advisory; each provider needs its key/CLI, rate limits apply) and returns a text-wrapped JSON envelope { results[] }.";
 
 /**
  * One-line guidance per expert, surfaced in tools/list. Non-Claude hosts read
@@ -30,13 +47,44 @@ const EXPERT_DESCRIPTIONS = {
   "debugger": "Debugging specialist that produces ranked root-cause hypotheses and the smallest safe fix from a bug report, logs, and code - or says honestly that the evidence shows no bug. Use for crashes, failing tests, or wrong output.",
 };
 
+/**
+ * Shared schema-property descriptions, kept consistent across every tool's input
+ * schema. They state role / valid values only - never promising validation the
+ * handler does not perform.
+ */
+const PROP_DESC = {
+  prompt: "The question or task for the provider(s)/expert.",
+  expert: "Optional persona: architect, plan-reviewer, scope-analyst, code-reviewer, security-analyst, researcher, or debugger. On a named expert tool the tool's own persona wins and this is ignored.",
+  developerInstructions: "Optional system/developer instructions injected verbatim; overrides the built-in persona for `expert`.",
+  cwd: "Working directory the provider runs in (used to resolve relative file refs). Defaults to the server process directory.",
+  reasoningEffort: "Reasoning depth where the provider supports it (Grok, OpenRouter): low, medium, high, or none. CLI providers (Codex, Gemini) ignore it.",
+};
+
+/** The shared `files[]` array schema (identical across ask-*, ask-one, consensus). */
+function fileItems() {
+  return {
+    type: "array",
+    description: "Optional attachments for providers that read files (Grok/OpenRouter; inlined as context for Codex/Gemini). Each item is EXACTLY ONE of path/dir/file_id/file_url.",
+    items: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Path to a single file to attach (resolved against cwd)." },
+        dir: { type: "string", description: "Directory to attach; expanded recursively by providers that support it." },
+        file_id: { type: "string", description: "Id of a file already uploaded to the provider (e.g. Grok Files API)." },
+        file_url: { type: "string", description: "Public URL for the provider to fetch." },
+        mode: { type: "string", enum: ["auto", "inline", "upload"], description: "Delivery: auto (size-based), inline (embed as text), or upload (provider Files API)." },
+      },
+    },
+  };
+}
+
 /** Schema for `panel` (discover the active provider set without dispatching). */
 function panelInputSchema() {
   return {
     type: "object",
     properties: {
-      expert: { type: "string" },
-      cwd: { type: "string" },
+      expert: { type: "string", description: "Optional persona to preview the panel for; affects which providers/aliases are eligible." },
+      cwd: { type: "string", description: PROP_DESC.cwd },
     },
   };
 }
@@ -58,25 +106,13 @@ function askOneInputSchema() {
     type: "object",
     required: ["provider", "prompt"],
     properties: {
-      provider: { type: "string", description: 'A name from `panel` (e.g. "codex", "openrouter:<alias>")' },
-      prompt: { type: "string" },
-      expert: { type: "string" },
-      developerInstructions: { type: "string" },
-      cwd: { type: "string" },
-      reasoningEffort: { type: "string", enum: ["low", "medium", "high", "none"] },
-      files: {
-        type: "array",
-        items: {
-          type: "object",
-          properties: {
-            path: { type: "string" },
-            dir: { type: "string" },
-            file_id: { type: "string" },
-            file_url: { type: "string" },
-            mode: { type: "string", enum: ["auto", "inline", "upload"] },
-          },
-        },
-      },
+      provider: { type: "string", description: 'A name from `panel` (e.g. "codex", "gemini", "grok", "openrouter:<alias>").' },
+      prompt: { type: "string", description: PROP_DESC.prompt },
+      expert: { type: "string", description: PROP_DESC.expert },
+      developerInstructions: { type: "string", description: PROP_DESC.developerInstructions },
+      cwd: { type: "string", description: PROP_DESC.cwd },
+      reasoningEffort: { type: "string", enum: ["low", "medium", "high", "none"], description: PROP_DESC.reasoningEffort },
+      files: fileItems(),
     },
   };
 }
@@ -86,24 +122,12 @@ function inputSchema() {
     type: "object",
     required: ["prompt"],
     properties: {
-      prompt: { type: "string" },
-      expert: { type: "string" },
-      developerInstructions: { type: "string" },
-      cwd: { type: "string" },
-      reasoningEffort: { type: "string", enum: ["low", "medium", "high", "none"] },
-      files: {
-        type: "array",
-        items: {
-          type: "object",
-          properties: {
-            path: { type: "string" },
-            dir: { type: "string" },
-            file_id: { type: "string" },
-            file_url: { type: "string" },
-            mode: { type: "string", enum: ["auto", "inline", "upload"] },
-          },
-        },
-      },
+      prompt: { type: "string", description: PROP_DESC.prompt },
+      expert: { type: "string", description: PROP_DESC.expert },
+      developerInstructions: { type: "string", description: PROP_DESC.developerInstructions },
+      cwd: { type: "string", description: PROP_DESC.cwd },
+      reasoningEffort: { type: "string", enum: ["low", "medium", "high", "none"], description: PROP_DESC.reasoningEffort },
+      files: fileItems(),
     },
   };
 }
@@ -115,26 +139,14 @@ function consensusInputSchema() {
     type: "object",
     required: ["prompt"],
     properties: {
-      prompt: { type: "string" },
-      expert: { type: "string" },
-      developerInstructions: { type: "string" },
-      reasoningEffort: { type: "string", enum: ["low", "medium", "high", "none"] },
+      prompt: { type: "string", description: PROP_DESC.prompt },
+      expert: { type: "string", description: PROP_DESC.expert },
+      developerInstructions: { type: "string", description: PROP_DESC.developerInstructions },
+      reasoningEffort: { type: "string", enum: ["low", "medium", "high", "none"], description: PROP_DESC.reasoningEffort },
       maxRounds: { type: "integer", minimum: 1, maximum: 50, description: "Override consensus.maxRounds for this call (loop mode only; ignored when synthesizeAlways is true). Clamped to 50." },
       synthesizeAlways: { type: "boolean", description: "Run ONE arbiter synthesis pass instead of the convergence loop. Returns a free-text `synthesis` (verdict/converged/confidence are null, rounds is 1). Best for open questions." },
-      cwd: { type: "string" },
-      files: {
-        type: "array",
-        items: {
-          type: "object",
-          properties: {
-            path: { type: "string" },
-            dir: { type: "string" },
-            file_id: { type: "string" },
-            file_url: { type: "string" },
-            mode: { type: "string", enum: ["auto", "inline", "upload"] },
-          },
-        },
-      },
+      cwd: { type: "string", description: PROP_DESC.cwd },
+      files: fileItems(),
     },
   };
 }
@@ -145,10 +157,10 @@ function sessionGetInputSchema() {
   // `cwd` is advertised (optional) so session-revisit can resolve the original
   // file refs against the caller's workspace, not the server process dir. It
   // flows through req.cwd -> childReq.cwd. session-get ignores it harmlessly.
-  return { type: "object", required: ["sessionId"], properties: { sessionId: { type: "string" }, cwd: { type: "string" } } };
+  return { type: "object", required: ["sessionId"], properties: { sessionId: { type: "string", description: "Id of a persisted session record." }, cwd: { type: "string", description: "session-revisit only: working directory for resolving the original file refs on the re-run; session-get ignores it." } } };
 }
 function sessionAnnotateInputSchema() {
-  return { type: "object", required: ["sessionId", "note"], properties: { sessionId: { type: "string" }, note: { type: "string" } } };
+  return { type: "object", required: ["sessionId", "note"], properties: { sessionId: { type: "string", description: "Id of the persisted session record to annotate." }, note: { type: "string", description: "Freeform text appended to the record's audit trail." } } };
 }
 // consensus-step is a stateful, client-driven loop tool: one action per call,
 // state carried in the loop store by sessionId. Most fields are action-specific.
@@ -157,16 +169,16 @@ function consensusStepInputSchema() {
     type: "object",
     required: ["action"],
     properties: {
-      action: { type: "string", enum: ["init", "record_blind", "dispatch_peers", "submit_adjudication", "submit_revision"] },
-      sessionId: { type: "string" },
-      prompt: { type: "string" },
-      expert: { type: "string" },
-      blindVerdict: { type: "string" },
-      verdict: { type: "string", enum: ["APPROVE", "REQUEST_CHANGES", "REJECT"] },
-      decisions: { type: "array" },
-      revisedPlan: { type: "string" },
-      diffSummary: { type: "string" },
-      cwd: { type: "string" },
+      action: { type: "string", enum: ["init", "record_blind", "dispatch_peers", "submit_adjudication", "submit_revision"], description: "Which loop step to run this call, in order: init -> record_blind -> dispatch_peers -> submit_adjudication -> submit_revision." },
+      sessionId: { type: "string", description: "Loop id returned by init; required on every action except init." },
+      prompt: { type: "string", description: "init only: the plan/proposal under review." },
+      expert: { type: "string", description: "init only: optional persona for the peer panel (see the expert tools)." },
+      blindVerdict: { type: "string", description: "record_blind only: your pre-commit verdict text, written before the panel is revealed." },
+      verdict: { type: "string", enum: ["APPROVE", "REQUEST_CHANGES", "REJECT"], description: "submit_adjudication only: your adjudicated verdict after weighing the panel." },
+      decisions: { type: "array", description: "submit_adjudication only: per-issue rulings, each { source, category, description, action: accept|dismiss|defer, reason }; dismiss/defer require a reason." },
+      revisedPlan: { type: "string", description: "submit_revision only: the full revised plan addressing accepted issues." },
+      diffSummary: { type: "string", description: "submit_revision only: one line summarizing what changed." },
+      cwd: { type: "string", description: "dispatch_peers only: working directory the peer providers run in." },
     },
   };
 }
@@ -174,23 +186,24 @@ function consensusStepInputSchema() {
 function toolList() {
   /** @type {any[]} */
   const tools = [
-    { name: "ask-all", description: "Fan out one question to GPT, Gemini, Grok, and any configured OpenRouter models in parallel for independent second opinions, then return all results (advisory, no cross-contamination). Pass `expert` to apply a persona to every delegate.", inputSchema: inputSchema(), annotations: ADVISORY },
-    { name: "consensus", description: "Run the FULL multi-round consensus convergence loop server-side with a provider arbiter (blind pass + peer fan-out -> adjudicate -> revise) and return the converged verdict. Default depth is `consensus.maxRounds` (config, default 5); pass `maxRounds` to override. Pass `synthesizeAlways:true` for a SINGLE arbiter synthesis pass instead of the loop (best for open questions, not plan convergence): it returns a free-text `synthesis` and `maxRounds` is ignored. Configure the arbiter via `consensus.arbiter` - a concrete provider/openrouter alias runs server-side; `host` mode returns the opinions for YOU to synthesize. Advisory; pass `expert` to apply a persona. NOTE (Claude Code): use the `/consensus` slash command for the transcript-visible host-arbiter loop (it drives `consensus-step`); this tool is the provider-arbiter path for any host.", inputSchema: consensusInputSchema(), annotations: ADVISORY },
-    { name: "consensus-step", description: "Client-driven consensus loop where YOU (the host model) are the arbiter, one step per call: action=init (start, returns sessionId + blind prompt) -> record_blind (your pre-commit verdict) -> dispatch_peers (server fans out to the providers) -> submit_adjudication (your verdict + per-issue accept/dismiss/defer) -> submit_revision (your revised plan), looping until converged or consensus.maxRounds rounds (default 5). State is held server-side by sessionId. Advisory.", inputSchema: consensusStepInputSchema(), annotations: ADVISORY },
-    { name: "panel", description: "Return the names of the providers `ask-all` WOULD dispatch for the current config + expert (enabled built-ins + eligible OpenRouter aliases, fanout cap applied), WITHOUT calling them. Use this to discover the panel, then issue one `ask-one` call per provider in parallel for visible per-provider progress. Advisory, read-only.", inputSchema: panelInputSchema(), annotations: ADVISORY },
-    { name: "ask-one", description: "Second opinion from ONE named provider in the active panel (e.g. `codex`, `gemini`, `grok`, `openrouter:<alias>` - get the names from `panel`). Returns the standard result envelope. Issue N of these in parallel (one per `panel` name) so each renders independently as it lands. Advisory, single-shot.", inputSchema: askOneInputSchema(), annotations: ADVISORY },
-    { name: "analyze", description: "Analyze recent runs from the opt-in debug log (latency/tokens/reasoning-effort per model) plus the session store (verdict agreement rate), and return advisory tuning suggestions (disable a slow/redundant model in ask-all, lower an OpenRouter model's reasoning, adjust maxFanout). Two lenses reported side by side - timing and agreement are NOT joined (no shared run id). Suggestions are advisory; it writes nothing. Requires `debug.enabled` for the timing lens. Read-only. The `/deliberation:analyze` slash command renders this for humans.", inputSchema: analyzeInputSchema(), annotations: ADVISORY },
+    { name: "ask-all", description: "Fan out one question to GPT, Gemini, Grok, and any configured OpenRouter models in parallel for independent second opinions, then return all results (advisory, no cross-contamination). Pass `expert` to apply a persona to every delegate. Calls external LLM providers (each needs its key/CLI; provider rate limits apply); returns a text-wrapped JSON envelope { results[], omitted[] } and persists a session record only when sessions.persist is enabled (default off).", inputSchema: inputSchema(), annotations: EXT_RO },
+    { name: "consensus", description: "Run the FULL multi-round consensus convergence loop server-side with a provider arbiter (blind pass + peer fan-out -> adjudicate -> revise) and return the converged verdict. Default depth is `consensus.maxRounds` (config, default 5); pass `maxRounds` to override. Pass `synthesizeAlways:true` for a SINGLE arbiter synthesis pass instead of the loop (best for open questions, not plan convergence): it returns a free-text `synthesis` and `maxRounds` is ignored. Configure the arbiter via `consensus.arbiter` - a concrete provider/openrouter alias runs server-side; `host` mode returns the opinions for YOU to synthesize. Advisory; pass `expert` to apply a persona. Calls external providers (keys/CLI; rate limits apply); returns a text-wrapped JSON envelope (split verdict/synthesis, loop fields nullable) and persists a session record only when sessions.persist is enabled (default off). NOTE (Claude Code): use the `/consensus` slash command for the transcript-visible host-arbiter loop (it drives `consensus-step`); this tool is the provider-arbiter path for any host.", inputSchema: consensusInputSchema(), annotations: EXT_RO },
+    { name: "consensus-step", description: "Client-driven consensus loop where YOU (the host model) are the arbiter, one action per call: init (returns sessionId + blind prompt) -> record_blind (your pre-commit verdict) -> dispatch_peers (server fans out to the providers) -> submit_adjudication (your verdict + per-issue accept/dismiss/defer) -> submit_revision (your revised plan), looping until converged or consensus.maxRounds rounds (default 5). Only the dispatch_peers action calls external providers; the others are local transitions on the ephemeral per-session loop store (keyed by sessionId, lost on server restart). Each call returns a text-wrapped JSON envelope with the next status/round (plus blindPrompt, opinions[], or finalReport by action). Advisory to the outside world, but mutates server loop state on every call.", inputSchema: consensusStepInputSchema(), annotations: EXT_RW },
+    { name: "panel", description: "Return the names of the providers `ask-all` WOULD dispatch for the current config + expert (enabled built-ins + eligible OpenRouter aliases, fanout cap applied), WITHOUT calling them. Use this to discover the panel, then issue one `ask-one` call per provider in parallel for visible per-provider progress. Local and read-only (no provider calls); returns a text-wrapped JSON envelope { providers[], omitted[] }.", inputSchema: panelInputSchema(), annotations: LOCAL_RO },
+    { name: "ask-one", description: "Second opinion from ONE named provider in the active panel (e.g. `codex`, `gemini`, `grok`, `openrouter:<alias>` - get the names from `panel`). Issue N in parallel (one per panel name) so each renders independently as it lands. Calls one external LLM provider (needs its key/CLI; rate limits apply); returns a text-wrapped JSON envelope { result }, or { error, panel } when the name is not in the panel. Advisory, single-shot.", inputSchema: askOneInputSchema(), annotations: EXT_RO },
+    { name: "analyze", description: "Analyze recent runs from the opt-in debug log (latency/tokens/reasoning-effort per model) plus the session store (verdict agreement rate), and return advisory tuning suggestions (disable a slow/redundant model in ask-all, lower an OpenRouter model's reasoning, adjust maxFanout). Two lenses reported side by side - timing and agreement are NOT joined (no shared run id). Requires `debug.enabled` for the timing lens. Local and read-only (no provider calls, writes nothing); returns a text-wrapped JSON envelope with the two lenses + suggestions. The `/deliberation:analyze` slash command renders this for humans.", inputSchema: analyzeInputSchema(), annotations: LOCAL_RO },
   ];
   for (const t of Object.keys(ASK_PROVIDER)) {
-    tools.push({ name: t, description: `Single-provider second opinion via ${ASK_PROVIDER[t]} (advisory, single-shot). Pass \`expert\` to apply one of the expert personas.`, inputSchema: inputSchema(), annotations: ADVISORY });
+    const prov = ASK_PROVIDER[t];
+    tools.push({ name: t, description: `Single-provider second opinion via ${prov} (advisory, single-shot). Pass \`expert\` to apply one of the expert personas. Calls the external ${prov} provider (${ASK_AUTH[prov]}; rate limits apply) and returns a text-wrapped JSON envelope { result }.`, inputSchema: inputSchema(), annotations: EXT_RO });
   }
   for (const e of EXPERTS) {
-    tools.push({ name: e, description: EXPERT_DESCRIPTIONS[e], inputSchema: inputSchema(), annotations: ADVISORY });
+    tools.push({ name: e, description: EXPERT_DESCRIPTIONS[e] + EXPERT_SUFFIX, inputSchema: inputSchema(), annotations: EXT_RO });
   }
   // Session store tools (opt-in; report "disabled" when sessions.persist is off).
-  tools.push({ name: "session-get", description: "Fetch a persisted consensus/ask-all session record by id (opinions, verdict, arbiter, annotations). Requires sessions.persist; advisory, read-only.", inputSchema: sessionGetInputSchema(), annotations: ADVISORY });
-  tools.push({ name: "session-revisit", description: "Re-run a persisted session's original question with the CURRENT providers/config and save a linked child record (parentId). Requires sessions.persist; advisory.", inputSchema: sessionGetInputSchema(), annotations: ADVISORY });
-  tools.push({ name: "session-annotate", description: "Append a freeform note to a persisted session's audit trail. Requires sessions.persist; writes to the local session store.", inputSchema: sessionAnnotateInputSchema() });
+  tools.push({ name: "session-get", description: "Fetch a persisted consensus/ask-all session record by id (opinions, verdict, arbiter, annotations). Requires sessions.persist; local and read-only (no provider calls). Returns a text-wrapped JSON envelope { session }, or { error } when persistence is off or the id is unknown.", inputSchema: sessionGetInputSchema(), annotations: LOCAL_RO });
+  tools.push({ name: "session-revisit", description: "Re-run a persisted session's ORIGINAL question with the CURRENT providers/config, linking the new run to its source by parentId. Requires sessions.persist; re-runs through the original tool path (which dispatches external providers) and persists a linked child record on success. Returns a text-wrapped JSON envelope (the re-run payload + parentId), or { error } when persistence is off or the id is unknown.", inputSchema: sessionGetInputSchema(), annotations: EXT_RW });
+  tools.push({ name: "session-annotate", description: "Append a freeform note to a persisted session's audit trail - an additive local write, no provider calls. Requires sessions.persist. Returns a text-wrapped JSON envelope { session } (the updated record), or { error } when persistence is off or the id is unknown.", inputSchema: sessionAnnotateInputSchema(), annotations: LOCAL_RW });
   return tools;
 }
 
