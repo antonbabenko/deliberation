@@ -27,12 +27,17 @@ async function step(srv, args, id) {
   return JSON.parse(res.result.content[0].text);
 }
 
-test("CS1: tools/list advertises consensus-step (advisory)", async () => {
+test("CS1: tools/list advertises consensus-step (state-writing + external)", async () => {
   const srv = buildServer({ providers: [approve("codex")], getConfig: () => config });
   const res = await srv.handle({ jsonrpc: "2.0", id: 1, method: "tools/list" });
   const t = res.result.tools.find((x) => x.name === "consensus-step");
   assert.ok(t);
-  assert.equal(t.annotations.readOnlyHint, true);
+  // consensus-step mutates the ephemeral loop store every call and dispatches
+  // providers via dispatch_peers, so it is NOT read-only; the annotation reflects
+  // the write contract (additive, open-world).
+  assert.equal(t.annotations.readOnlyHint, false);
+  assert.equal(t.annotations.openWorldHint, true);
+  assert.equal(t.annotations.destructiveHint, false);
 });
 
 test("CS2: full happy path converges in round 1", async () => {
