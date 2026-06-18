@@ -1,3 +1,10 @@
+## [3.8.1](https://github.com/antonbabenko/deliberation/compare/v3.8.0...v3.8.1) (2026-06-18)
+
+
+### Bug Fixes
+
+* **mcp:** accurate tool annotations + full schema descriptions ([#150](https://github.com/antonbabenko/deliberation/issues/150)) ([115be33](https://github.com/antonbabenko/deliberation/commit/115be33cc910d12ec2e6999827c6fd4119345bf5))
+
 ## [3.8.0](https://github.com/antonbabenko/deliberation/compare/v3.7.1...v3.8.0) (2026-06-17)
 
 
@@ -25,11 +32,4 @@
 ### Bug Fixes
 
 * **security:** harden provider bridges (file perms, redirect guard, env scrub, input validation) ([#138](https://github.com/antonbabenko/deliberation/issues/138)) ([075f584](https://github.com/antonbabenko/deliberation/commit/075f584eca3366721c9140d08d75263363801df8))
-
-## [3.6.1](https://github.com/antonbabenko/deliberation/compare/v3.6.0...v3.6.1) (2026-06-16)
-
-
-### Bug Fixes
-
-* robust consensus review-verdict parsing across providers ([#136](https://github.com/antonbabenko/deliberation/issues/136)) ([c8efe91](https://github.com/antonbabenko/deliberation/commit/c8efe917a470361689b949f0dc8bad57361986d2))
 
