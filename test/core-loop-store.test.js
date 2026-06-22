@@ -108,3 +108,22 @@ test("LS10: eviction is TRUE LRU under a frozen clock (seq, not timestamp ties)"
   assert.deepEqual(s.get("a"), { v: 1 });
   assert.deepEqual(s.get("c"), { v: 3 });
 });
+
+test("LS11: take() atomically removes and returns the entry; second take -> null", () => {
+  const s = makeLoopStore({ ttlMs: 100000, maxEntries: 10 });
+  s.put("a", { v: 1 });
+  assert.deepEqual(s.take("a"), { v: 1 }, "first take returns the state");
+  assert.equal(s.size(), 0, "entry removed by take");
+  assert.equal(s.take("a"), null, "second take finds nothing (no double-handling)");
+  assert.equal(s.get("a"), null, "get also sees it gone");
+});
+
+test("LS12: take() on a missing or expired id returns null", () => {
+  const now = clock(1000);
+  const s = makeLoopStore({ ttlMs: 100, maxEntries: 10, now });
+  assert.equal(s.take("nope"), null, "missing -> null");
+  s.put("b", { v: 2 });
+  now.advance(101); // expire b
+  assert.equal(s.take("b"), null, "expired -> null");
+  assert.equal(s.size(), 0, "expired entry is removed by take");
+});

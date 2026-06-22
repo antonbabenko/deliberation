@@ -36,6 +36,8 @@
  * @property {boolean} [converged]
  * @property {number} [acceptedCritical]
  * @property {number} [voices]
+ * @property {string} [errorCode]      // sanitized failure kind (errno or "write_failed") - NEVER err.message
+ * @property {string} [loopSessionId]  // ephemeral consensus-step loop id, for failure correlation only
  */
 
 /**
@@ -56,7 +58,7 @@ const NULL_LOGGER = Object.freeze({ logEvent(/** @type {DebugEvent} */ _event) {
 const ALLOWED_KEYS = Object.freeze([
   "event", "at", "tool", "provider", "model", "reasoningEffort", "ms", "isError",
   "errorKind", "usage", "round", "verdict", "blindVerdict", "converged",
-  "acceptedCritical", "voices",
+  "acceptedCritical", "voices", "errorCode", "loopSessionId",
 ]);
 
 /**

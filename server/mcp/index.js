@@ -519,10 +519,10 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
    * @param {DelegationRequest} req
    * @param {string|undefined} expert
    * @param {any} parts  // { opinions, blindVerdict?, verdict?, synthesis?, synthesizeAlways?, arbiter?, warnings?, parentId?, converged?, confidence?, rounds? }
-   * @returns {(string|null)}
+   * @returns {{id:(string|null), errorCode:(string|null)}}  id is the new sessionId on success; on write failure id is null and errorCode is a CONTENT-FREE kind (Node fs errno e.g. EACCES/ENOSPC, or "write_failed"). Persistence off -> {id:null, errorCode:null}.
    */
   function persistRun(tool, req, expert, parts) {
-    if (!persistEnabled()) return null;
+    if (!persistEnabled()) return { id: null, errorCode: null };
     const cfg = sessionsCfg();
     const id = sessions.newSessionId();
     /** @type {any} */
@@ -551,10 +551,60 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
     if (typeof parts.synthesizeAlways === "boolean") record.synthesizeAlways = parts.synthesizeAlways;
     try {
       sessions.writeSession(record, { dir: sessionsDir, maxRecords: cfg.maxRecords, maxAgeDays: cfg.maxAgeDays });
-      return id;
-    } catch {
-      return null;
+      return { id, errorCode: null };
+    } catch (e) {
+      // Surface ONLY a content-free failure kind (fs errno or a constant) - NEVER
+      // the caught error object or its message (which could embed prompt/parts).
+      const code = e && typeof /** @type {any} */ (e).code === "string" ? /** @type {any} */ (e).code : "write_failed";
+      return { id: null, errorCode: code };
     }
+  }
+
+  /**
+   * Emit ONE content-free persist-failure event for the consensus-step path.
+   * Wrapped so a debug-log I/O error can never throw into the loop step.
+   * @param {string} loopSid  the ephemeral loop id (correlation key only - non-sensitive)
+   * @param {(string|null)} errorCode  sanitized errno or "write_failed"; never err.message
+   */
+  function emitPersistFailed(loopSid, errorCode) {
+    try {
+      currentLogger().logEvent({ event: "persist_failed", at: Date.now(), tool: "consensus", errorCode: errorCode || "write_failed", loopSessionId: loopSid });
+    } catch { /* logging must never break the step */ }
+  }
+
+  /**
+   * Persist a TERMINAL consensus-step loop record (host-arbiter path). Mirrors the
+   * `consensus` tool's `parts` shape so session-revisit/analyze treat both record
+   * classes identically (opinions are normalized by persistRun's opinionsFrom).
+   * Best-effort + gated by sessions.persist: on write failure it emits a
+   * content-free persist_failed event and returns persisted:false.
+   * @param {any} state  terminal LoopState (status converged|unresolved)
+   * @param {string} loopSid  ephemeral loop id, correlation key for a failure event
+   * @param {("high"|"medium"|"low"|"none")} confidence
+   * @returns {{id:(string|null), persisted:boolean, errorCode:(string|null)}}  errorCode is null when persistence is off; a content-free kind when a write was attempted and failed.
+   */
+  function persistConsensusStep(state, loopSid, confidence) {
+    if (!persistEnabled()) return { id: null, persisted: false, errorCode: null };
+    const ex = state.expert || undefined;
+    /** @type {DelegationRequest} */
+    const req = {
+      // ORIGINAL prompt stashed at init - NOT currentPlan (overwritten each round).
+      prompt: typeof state.originalPrompt === "string" ? state.originalPrompt : (state.currentPlan || ""),
+      expert: ex,
+    };
+    const parts = {
+      opinions: Array.isArray(state.results) ? state.results : [],
+      blindVerdict: state.blindVerdict || null,
+      verdict: state.hostVerdict ? state.hostVerdict.verdict : null,
+      arbiter: { mode: "host", provider: null },
+      warnings: [],
+      converged: state.status === "converged",
+      confidence,
+      rounds: state.round,
+    };
+    const { id, errorCode } = persistRun("consensus", req, ex, parts);
+    if (!id) emitPersistFailed(loopSid, errorCode);
+    return { id, persisted: !!id, errorCode };
   }
 
   /**
@@ -790,7 +840,9 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
    * supplies the blind verdict / adjudication / revision (visible in its
    * transcript); the server only fans out to the peer providers. Never throws:
    * a wrong-order action or an expired session returns a structured error so the
-   * driver can recover. Persistence of the final record lands in PR2b-4.
+   * driver can recover. A TERMINAL transition (converged/unresolved) persists ONE
+   * session record via persistConsensusStep when sessions.persist is on (atomic
+   * take guarantees at-most-one; best-effort, content-free failure telemetry).
    * @param {any} args
    * @param {string|undefined} expert
    * @returns {Promise<any>}
@@ -802,10 +854,14 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         const cfg = getConfig() || {};
         const cc = cfg.consensus || {};
         const maxRounds = Number.isInteger(cc.maxRounds) && cc.maxRounds > 0 ? cc.maxRounds : undefined;
-        let state = loop.initConsensusLoop({ plan: typeof args.prompt === "string" ? args.prompt : "", expert: args.expert, arbiterMode: "host", maxRounds });
+        const originalPrompt = typeof args.prompt === "string" ? args.prompt : "";
+        let state = loop.initConsensusLoop({ plan: originalPrompt, expert: args.expert, arbiterMode: "host", maxRounds });
         const entered = enterBlind(state);
         const sid = sessions.newSessionId();
-        loopStore.put(sid, entered.state);
+        // Stash the ORIGINAL prompt so a terminal record's `question` is the original
+        // plan, not the final revision (currentPlan is overwritten each round). Rides
+        // through every pure-machine transition via spread, like peerPrompt.
+        loopStore.put(sid, { ...entered.state, originalPrompt });
         return { sessionId: sid, status: entered.state.status, round: entered.state.round, blindPrompt: entered.blindPrompt, note: "write your blind verdict, then call record_blind" };
       }
 
@@ -872,8 +928,13 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         } catch { /* logging must never break the step */ }
         if (next.status === "converged") {
           const { finalReport, confidence } = loop.finalize(next);
-          loopStore.delete(sid);
-          return { sessionId: sid, status: "converged", converged: true, verdict: next.hostVerdict ? next.hostVerdict.verdict : null, confidence, finalReport };
+          // Atomic take: remove-and-return in ONE synchronous step so a concurrent/
+          // retried terminal call finds nothing (session-expired) and cannot
+          // double-persist. take==null => already finalized; return non-durable.
+          const taken = loopStore.take(sid);
+          const { id, persisted, errorCode } = taken ? persistConsensusStep(next, sid, confidence) : { id: null, persisted: false, errorCode: null };
+          // persistError (content-free) lets the host tell "write failed" from "persistence off" (both persisted:false).
+          return { sessionId: id || undefined, loopSessionId: sid, persisted, ...(errorCode ? { persistError: errorCode } : {}), status: "converged", converged: true, verdict: next.hostVerdict ? next.hostVerdict.verdict : null, confidence, finalReport };
         }
         loopStore.put(sid, next);
         return { sessionId: sid, status: next.status, round: next.round, note: "not converged - revise the plan, then call submit_revision" };
@@ -883,11 +944,15 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         const advanced = loop.submitRevision(cur, typeof args.revisedPlan === "string" ? args.revisedPlan : cur.currentPlan, args.diffSummary);
         if (advanced.status === "unresolved") {
           const { finalReport, confidence } = loop.finalize(advanced);
-          loopStore.delete(sid);
-          return { sessionId: sid, status: "unresolved", converged: false, confidence, finalReport };
+          const taken = loopStore.take(sid);
+          const { id, persisted, errorCode } = taken ? persistConsensusStep(advanced, sid, confidence) : { id: null, persisted: false, errorCode: null };
+          return { sessionId: id || undefined, loopSessionId: sid, persisted, ...(errorCode ? { persistError: errorCode } : {}), status: "unresolved", converged: false, confidence, finalReport };
         }
         const entered = enterBlind(advanced);
-        loopStore.put(sid, entered.state);
+        // Re-stash originalPrompt EXPLICITLY across the revision loop-back (defensive,
+        // mirrors the peerPrompt pin in record_blind) so a future pure-machine refactor
+        // can't silently drop it and persist a revised plan as `question`.
+        loopStore.put(sid, { ...entered.state, originalPrompt: cur.originalPrompt });
         return { sessionId: sid, status: entered.state.status, round: entered.state.round, blindPrompt: entered.blindPrompt, note: "next round - write your blind verdict, then call record_blind" };
       }
 
@@ -1002,7 +1067,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
     if (name === "ask-all") {
       // selectForAskAll returns a FLAT provider list: enabled built-ins + per-alias OR wrappers.
       const { payload, parts } = await runAskAll(req, expert);
-      const sid = persistRun("ask-all", req, expert, parts);
+      const { id: sid } = persistRun("ask-all", req, expert, parts);
       if (sid) payload.sessionId = sid;
       return jsonResult(payload);
     }
@@ -1019,7 +1084,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         maxRounds: Number.isInteger(args.maxRounds) && args.maxRounds > 0 ? Math.min(args.maxRounds, 50) : undefined,
       });
       if (parts) {
-        const sid = persistRun("consensus", req, expert, parts);
+        const { id: sid } = persistRun("consensus", req, expert, parts);
         if (sid) payload.sessionId = sid;
       }
       return jsonResult(payload);
@@ -1077,7 +1142,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         ? await runAskAll(childReq, childExpert, { noCache: true })
         : await runConsensusTool(childReq, childExpert, { synthesizeAlways: rec.synthesizeAlways === true });
       if (parts) {
-        const sid = persistRun(tool, childReq, childExpert, { ...parts, parentId: rec.id });
+        const { id: sid } = persistRun(tool, childReq, childExpert, { ...parts, parentId: rec.id });
         if (sid) payload.sessionId = sid;
       }
       payload.parentId = rec.id;

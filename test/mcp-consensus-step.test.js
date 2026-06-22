@@ -2,7 +2,13 @@
 "use strict";
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 const { buildServer } = require("../server/mcp/index.js");
+const sessions = require("../core/sessions.js");
+
+const tmpDir = () => fs.mkdtempSync(path.join(os.tmpdir(), "delib-cs-"));
 
 /** @param {string} name @param {(p:string)=>string} reply */
 function peer(name, reply) {
@@ -170,4 +176,65 @@ test("CS10: HOST is the arbiter - a host REQUEST_CHANGES blocks convergence even
   const adj = await step(srv, { action: "submit_adjudication", sessionId: sid, verdict: "REQUEST_CHANGES", decisions: [] }, 53);
   assert.equal(adj.converged, undefined); // not converged - the host vote, not the peers, decides
   assert.equal(adj.status, "await_revision");
+});
+
+test("CS11: a converged terminal run persists ONE tool:consensus record with question=ORIGINAL prompt", async () => {
+  // Dissent -> revise -> converge, so currentPlan ("REVISED...") != the original prompt.
+  // The persisted `question` must be the ORIGINAL, not the final revision.
+  const dir = tmpDir();
+  const srv = buildServer({ providers: [revSensitive("codex"), revSensitive("grok")], getConfig: () => ({ ...config, sessions: { persist: true } }), sessionsDir: dir });
+  const sid = (await step(srv, { action: "init", prompt: "ORIGINAL ship it", expert: "architect" }, 60)).sessionId;
+  await step(srv, { action: "record_blind", sessionId: sid, blindVerdict: "needs work" }, 61);
+  await step(srv, { action: "dispatch_peers", sessionId: sid }, 62);
+  await step(srv, { action: "submit_adjudication", sessionId: sid, verdict: "REQUEST_CHANGES", decisions: [{ source: "codex", category: "scope", description: "thin", action: "accept" }] }, 63);
+  await step(srv, { action: "submit_revision", sessionId: sid, revisedPlan: "REVISED detailed plan", diffSummary: "added detail" }, 64);
+  await step(srv, { action: "record_blind", sessionId: sid, blindVerdict: "better" }, 65);
+  await step(srv, { action: "dispatch_peers", sessionId: sid }, 66);
+  const adj = await step(srv, { action: "submit_adjudication", sessionId: sid, verdict: "APPROVE", decisions: [] }, 67);
+
+  assert.equal(adj.converged, true);
+  assert.equal(adj.persisted, true);
+  assert.ok(adj.sessionId, "durable record id returned on success");
+  assert.notEqual(adj.sessionId, sid, "record id differs from the ephemeral loop sid");
+  assert.equal(adj.loopSessionId, sid);
+
+  const rec = sessions.readSession(adj.sessionId, { dir });
+  assert.ok(rec, "record written to disk");
+  assert.equal(rec.tool, "consensus");
+  assert.equal(rec.question, "ORIGINAL ship it"); // NOT "REVISED detailed plan"
+  assert.equal(rec.converged, true);
+  assert.equal(rec.rounds, 2);
+  assert.equal(rec.opinions.length, 2);
+  assert.equal(sessions.listSessions({ dir }).length, 1, "exactly one record per loop");
+});
+
+test("CS12: persist OFF -> terminal returns persisted:false, no sessionId, writes nothing", async () => {
+  const srv = buildServer({ providers: [approve("codex"), approve("grok")], getConfig: () => config }); // no sessionsDir
+  const sid = (await step(srv, { action: "init", prompt: "ship it" }, 70)).sessionId;
+  await step(srv, { action: "record_blind", sessionId: sid, blindVerdict: "ok APPROVE" }, 71);
+  await step(srv, { action: "dispatch_peers", sessionId: sid }, 72);
+  const adj = await step(srv, { action: "submit_adjudication", sessionId: sid, verdict: "APPROVE", decisions: [] }, 73);
+  assert.equal(adj.converged, true);
+  assert.equal(adj.persisted, false);
+  assert.equal(adj.sessionId, undefined); // omitted on non-persist
+  assert.equal(adj.loopSessionId, sid);   // still correlatable
+});
+
+test("CS13: an UNRESOLVED (cap) terminal run also persists ONE record with the ORIGINAL question", async () => {
+  const dir = tmpDir();
+  const srv = buildServer({ providers: [reject("codex"), reject("grok")], getConfig: () => ({ ...configCap(1), sessions: { persist: true } }), sessionsDir: dir });
+  const sid = (await step(srv, { action: "init", prompt: "ORIGINAL never approves" }, 80)).sessionId;
+  await step(srv, { action: "record_blind", sessionId: sid, blindVerdict: "nope" }, 81);
+  await step(srv, { action: "dispatch_peers", sessionId: sid }, 82);
+  await step(srv, { action: "submit_adjudication", sessionId: sid, verdict: "REQUEST_CHANGES", decisions: [{ source: "codex", category: "ops", description: "needs work", action: "accept" }] }, 83);
+  const rev = await step(srv, { action: "submit_revision", sessionId: sid, revisedPlan: "still bad", diffSummary: "tried" }, 84);
+
+  assert.equal(rev.status, "unresolved");
+  assert.equal(rev.persisted, true);
+  assert.ok(rev.sessionId);
+  const rec = sessions.readSession(rev.sessionId, { dir });
+  assert.equal(rec.tool, "consensus");
+  assert.equal(rec.question, "ORIGINAL never approves");
+  assert.equal(rec.converged, false);
+  assert.equal(sessions.listSessions({ dir }).length, 1);
 });
