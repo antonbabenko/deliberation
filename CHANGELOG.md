@@ -1,3 +1,10 @@
+## [3.10.0](https://github.com/antonbabenko/deliberation/compare/v3.9.0...v3.10.0) (2026-06-22)
+
+
+### Features
+
+* **sessions:** opt-in sessions.captureText for response-body capture ([#153](https://github.com/antonbabenko/deliberation/issues/153)) ([4000dd4](https://github.com/antonbabenko/deliberation/commit/4000dd4184e567e9d5979f94f3589fdb2503f193))
+
 ## [3.9.0](https://github.com/antonbabenko/deliberation/compare/v3.8.1...v3.9.0) (2026-06-22)
 
 
@@ -25,11 +32,4 @@
 ### Bug Fixes
 
 * **core:** cap peer opinions in arbiter + adjudication prompts ([#145](https://github.com/antonbabenko/deliberation/issues/145)) ([55aab8b](https://github.com/antonbabenko/deliberation/commit/55aab8b9fca3028bc3f352efa2d2c9607a4df3b1))
-
-## [3.7.0](https://github.com/antonbabenko/deliberation/compare/v3.6.2...v3.7.0) (2026-06-17)
-
-
-### Features
-
-* **core:** gated implementation mode for codex+gemini (default-off) ([#143](https://github.com/antonbabenko/deliberation/issues/143)) ([7bb8bc2](https://github.com/antonbabenko/deliberation/commit/7bb8bc286a9dd2b229450d45cd6a1435408d13ec))
 
