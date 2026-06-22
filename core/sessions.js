@@ -140,25 +140,19 @@ function scrubSecrets(text) {
  * (sessions.captureText) as defense-in-depth AFTER the mandatory secret scrub.
  * Deliberately conservative (low false-positive) - this is NOT a guarantee and
  * must never be relied on as the privacy gate; secret-scrub + the default-off
- * captureText flag are the real controls. Redacts the two lowest-ambiguity PII
- * shapes only: email addresses and separator-bearing phone numbers (a bare run
- * of digits is left alone - it is far more likely an id/version/count).
+ * captureText flag are the real controls. Redacts email addresses only (the
+ * lowest-ambiguity PII shape); phone/number heuristics are intentionally omitted
+ * to avoid mangling legitimate content (ids, versions, counts).
  * @param {string} text
  * @returns {string}
  */
 function stripPII(text) {
   if (typeof text !== "string" || text.length === 0) return text;
-  return text
-    // Bounded quantifiers (RFC local-part <=64, domain <=255, TLD <=24) keep this
-    // LINEAR: an unbounded `[...]+@` is O(n^2) on a long no-"@" run of valid chars
-    // (a DoS vector on provider-controlled response text, which reaches stripPII
-    // BEFORE capText truncates it).
-    .replace(/\b[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,255}\.[A-Za-z]{2,24}\b/g, "[REDACTED_EMAIL]")
-    // Phone: optional +CC (consumed, hence the (?<!\w) lead instead of \b which
-    // cannot anchor before "+"), then 10 digits grouped with at least one separator
-    // (space/dot/hyphen) or a parenthesized area code. Separators required so a
-    // plain 10-digit id/number does not match.
-    .replace(/(?<!\w)(?:\+?\d{1,3}[\s.-]?)?(?:\(\d{3}\)[\s.-]?|\d{3}[\s.-])\d{3}[\s.-]\d{4}\b/g, "[REDACTED_PHONE]");
+  // Bounded quantifiers (RFC local-part <=64, domain <=255, TLD <=24) keep this
+  // LINEAR: an unbounded `[...]+@` is O(n^2) on a long no-"@" run of valid chars
+  // (a DoS vector on provider-controlled response text, which reaches stripPII
+  // BEFORE capText truncates it).
+  return text.replace(/\b[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,255}\.[A-Za-z]{2,24}\b/g, "[REDACTED_EMAIL]");
 }
 
 /**

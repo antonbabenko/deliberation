@@ -104,16 +104,23 @@ Opt-in, **default off**: nothing about your questions or results is written to d
 unless you turn it on. Enable it with a `sessions` block in the config:
 
 ```json
-"sessions": { "persist": true, "maxRecords": 200, "maxAgeDays": 30 }
+"sessions": { "persist": true, "maxRecords": 200, "maxAgeDays": 30, "captureText": false }
 ```
 
-- `persist` (boolean, default `false`) - when true, each `/consensus` and `/ask-all`
-  run is saved as one JSON file and the tool result includes a `sessionId`. When off,
-  the `session-*` tools report "persistence disabled".
+- `persist` (boolean, default `false`) - when true, each `/consensus` run (including the
+  host-driven loop, on a terminal converged/unresolved transition) and each `/ask-all` run
+  is saved as one JSON file and the tool result includes a `sessionId`. When off, the
+  `session-*` tools report "persistence disabled".
 - `maxRecords` (default `200`) - keep at most this many newest records; older ones are
   trimmed after each write. Use `-1` for unlimited (never trim by count).
 - `maxAgeDays` (default `30`) - delete records older than this. Use `-1` for unlimited
   (never delete by age).
+- `captureText` (boolean, default `false`) - when true (and `persist` on), the record also
+  stores each provider's raw **response body**. Default off keeps only the question and the
+  verdict/issue summaries. Captured bodies are secret-scrubbed (mandatory) plus a best-effort
+  email-PII strip; they are plaintext on local disk, and the metrics-only debug log never
+  receives body text. Forward-gating: turning it off stops new capture but does not purge
+  records already written.
 
 Records live at `<XDG cache>/deliberation/sessions/<id>.json` (macOS/Linux:
 `~/.cache/deliberation/sessions`; Windows: `%LOCALAPPDATA%\deliberation\sessions`),

@@ -10,14 +10,12 @@ const {
   scrubSecrets, stripPII, isSafeId, newSessionId, SCHEMA_VERSION, MAX_TEXT_BYTES,
 } = require("../core/sessions.js");
 
-test("PII1: stripPII redacts emails and separator-bearing phones, leaves plain text/ids alone", () => {
+test("PII1: stripPII redacts emails, leaves plain text / numbers / code alone", () => {
   assert.equal(stripPII("ping a@b.co please"), "ping [REDACTED_EMAIL] please");
-  assert.equal(stripPII("call 415-555-2671 now"), "call [REDACTED_PHONE] now");
-  assert.equal(stripPII("intl +1 415 555 2671 ok"), "intl [REDACTED_PHONE] ok");
-  assert.equal(stripPII("area (415) 555-2671"), "area [REDACTED_PHONE]");
-  // No false positives on normal content, bare digit runs, versions, code.
+  assert.equal(stripPII("mail a.b+x@sub.example.co.uk here"), "mail [REDACTED_EMAIL] here");
+  // No false positives on normal content, phone-like numbers, versions, code.
   assert.equal(stripPII("verdict APPROVE in round 2"), "verdict APPROVE in round 2");
-  assert.equal(stripPII("id 4155552671 v1.2.3 status 200"), "id 4155552671 v1.2.3 status 200");
+  assert.equal(stripPII("call 415-555-2671 id 4155552671 v1.2.3 status 200"), "call 415-555-2671 id 4155552671 v1.2.3 status 200");
   assert.equal(stripPII(""), "");
 });
 

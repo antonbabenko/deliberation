@@ -915,10 +915,21 @@ written to disk unless `sessions.persist` is true. Implemented in `core/sessions
 `core/paths.js`; config is validated by `resolveSessions` in
 `server/openrouter/config.js`; the MCP wiring lives in `server/mcp/index.js`.
 
+Three paths write through one chokepoint (`persistRun`): the server-side `consensus`
+tool, `ask-all`, and `session-revisit` (child record). The host-driven `consensus-step`
+loop (the live `/consensus`) also persists ONE record on a terminal transition -
+converged or unresolved - via `persistConsensusStep`. It takes the loop entry with an
+atomic `loopStore.take()` BEFORE the synchronous write, so a concurrent/retried terminal
+call finds nothing and cannot double-write (at-most-one, lock-free); the record's
+`question` is the ORIGINAL prompt stashed at `init`, not the final revision. On a write
+failure it emits a CONTENT-FREE `persist_failed` event to the debug log (fs errno or
+`"write_failed"`, plus the ephemeral loop id - never `err.message`) and returns
+`persisted:false` with no `sessionId`.
+
 ### Configuration
 
 ```json
-"sessions": { "persist": false, "maxRecords": 200, "maxAgeDays": 30 }
+"sessions": { "persist": false, "maxRecords": 200, "maxAgeDays": 30, "captureText": false }
 ```
 
 | Key | Type | Default | Meaning |
@@ -926,6 +937,7 @@ written to disk unless `sessions.persist` is true. Implemented in `core/sessions
 | `persist` | boolean | `false` | Save each run and return a `sessionId`. Non-boolean degrades to `false` + warning. |
 | `maxRecords` | integer | `200` | Keep at most this many newest records. `-1` = unlimited (never trim by count). `0`/invalid -> default + warning. |
 | `maxAgeDays` | integer | `30` | Delete records older than this. `-1` = unlimited (never delete by age). `0`/invalid -> default + warning. |
+| `captureText` | boolean | `false` | Also store each provider's raw RESPONSE body (`opinion.text`). OFF (default) = summaries only (question + verdict/criticalIssues); the body is dropped at `persistRun` for every path. ON (and `persist` on) stores the body, secret-scrubbed (mandatory) then best-effort PII (email) stripped, then capped. Non-boolean degrades to `false` + warning. The metrics-only debug log NEVER receives body text either way. |
 
 Validation soft-degrades: a bad value never rejects the config, it falls back to the
 default and the reason rides the same `consensusWarnings` channel the bridge already
@@ -951,7 +963,7 @@ surfaces.
 { id, parentId|null, schemaVersion: 1, createdAt: <ISO>,
   tool: "consensus"|"ask-all", question, expert|null,
   files: [{ path|dir|file_id|file_url, mode? }]|null,   // attachment REFS, never bodies
-  opinions: [{ provider, model, text,
+  opinions: [{ provider, model, text?,                  // text = RESPONSE body, present ONLY when sessions.captureText is on
                verdict?, criticalIssues? }],            // verdict/criticalIssues on consensus LOOP opinions
   blindVerdict|null, verdict|null,                      // verdict = loop enum (null in synthesize mode)
   synthesis?|null, synthesizeAlways?,                   // synthesis = free-text (synthesize runs)
@@ -974,6 +986,15 @@ are capped at ~100 KB, and an opinion `verdict` is whitelisted to the closed enu
 else is coerced to `null`) so no free text rides the unscrubbed verdict field. Scrubbing is
 best-effort - user transcript text may still carry secrets in unrecognized shapes.
 
+Opinion RESPONSE bodies (`opinion.text`) are persisted ONLY under the opt-in
+`sessions.captureText` (default off); `persistRun` drops the field for every path when it
+is off, so the default record holds only the question + verdict/issue summaries. When on,
+the body is secret-scrubbed (the mandatory primary control, always run) and then passed
+through a best-effort `stripPII` (email addresses only; RFC-bounded so it stays linear on
+long provider text) as defense-in-depth - NOT a guarantee, never the gate. `captureText` is
+forward-gating: turning it off stops new capture but does not strip records already on disk
+(they age out via retention, or delete the store dir to purge).
+
 ### Tools
 
 Each takes its own input schema (no `prompt`), and reports
@@ -985,8 +1006,9 @@ Each takes its own input schema (no `prompt`), and reports
 | `session-revisit` | `{ sessionId, cwd? }` | Re-run the record's original question (and its file refs) with the CURRENT providers/config, write a CHILD record (`parentId` = original id), return the new `sessionId` + result. Re-run, not snapshot-replay. A `consensus` record replays its mode - the full multi-round LOOP, or the single synthesis pass. (Records written before the tool merge are unsupported - pre-1.0, no users.) |
 | `session-annotate` | `{ sessionId, note }` | Append `{ note, at }` to the record's audit trail and rewrite the file. |
 
-When `persist` is on, `consensus` and `ask-all` also include a top-level `sessionId` in
-their result.
+When `persist` is on, `consensus`, `ask-all`, and the `consensus-step` terminal transition
+also include a top-level `sessionId` in their result (`consensus-step` adds `persisted` and,
+on the host-driven loop, the ephemeral `loopSessionId`).
 
 ### Walkthrough: record -> review -> revisit -> annotate
 

@@ -48,7 +48,8 @@
   "sessions": {
     "persist": false,
     "maxRecords": 200,
-    "maxAgeDays": 30
+    "maxAgeDays": 30,
+    "captureText": false
   },
   "orientation": {
     "enabled": false,

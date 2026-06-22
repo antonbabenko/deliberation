@@ -265,7 +265,7 @@ Full setup and configuration reference lives in **[SETUP.md](SETUP.md)**. It cov
 - **The six config sections** - `providers`, `models`, `routing`, `consensus`, `sessions`, `debug` - with a minimal example
 - **OpenRouter models** - declaring records, `askAll` / `consensus` eligibility, fan-out, `reasoningEffort`, and arbiter selection
 - **Debug log** - opt-in latency / token / voting trace
-- **Session persistence** - opt-in on-disk run history and the `session-*` tools
+- **Session persistence** - opt-in on-disk run history (incl. the host-driven `/consensus` loop) and the `session-*` tools; `sessions.captureText` (default off) additionally stores provider response bodies (scrubbed)
 
 For provider internals, environment variables, and manual MCP setup, see **[TECHNICAL.md](TECHNICAL.md)**.
 

@@ -76,7 +76,11 @@ tools to apply one persona to every delegate):
 - `debugger` - ranked root-cause hypotheses and the smallest safe fix.
 
 Session tools (only useful when `sessions.persist` is enabled in config; they report
-"persistence disabled" otherwise). When on, `consensus`/`ask-all` return a `sessionId`:
+"persistence disabled" otherwise). When on, `consensus`, the host-driven `consensus-step`
+loop (on a terminal converged/unresolved transition), and `ask-all` return a `sessionId`.
+By default the record stores the question + verdict/issue summaries only; set
+`sessions.captureText: true` to also persist each provider's response body (secret-scrubbed
+plus a best-effort PII pass). The metrics-only debug log never stores body text either way:
 
 - `session-get { sessionId }` - fetch a recorded run (opinions, verdict, annotations).
 - `session-revisit { sessionId }` - re-run the recorded question with the current
