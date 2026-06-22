@@ -7,8 +7,42 @@ const path = require("node:path");
 
 const {
   writeSession, readSession, listSessions, pruneSessions, annotateSession,
-  scrubSecrets, isSafeId, newSessionId, SCHEMA_VERSION, MAX_TEXT_BYTES,
+  scrubSecrets, stripPII, isSafeId, newSessionId, SCHEMA_VERSION, MAX_TEXT_BYTES,
 } = require("../core/sessions.js");
+
+test("PII1: stripPII redacts emails, leaves plain text / numbers / code alone", () => {
+  assert.equal(stripPII("ping a@b.co please"), "ping [REDACTED_EMAIL] please");
+  assert.equal(stripPII("mail a.b+x@sub.example.co.uk here"), "mail [REDACTED_EMAIL] here");
+  // No false positives on normal content, phone-like numbers, versions, code.
+  assert.equal(stripPII("verdict APPROVE in round 2"), "verdict APPROVE in round 2");
+  assert.equal(stripPII("call 415-555-2671 id 4155552671 v1.2.3 status 200"), "call 415-555-2671 id 4155552671 v1.2.3 status 200");
+  assert.equal(stripPII(""), "");
+});
+
+test("PII2: a persisted opinion text is secret-scrubbed THEN PII-stripped", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "delib-pii-"));
+  const id = newSessionId();
+  writeSession({
+    id, parentId: null, schemaVersion: SCHEMA_VERSION, createdAt: new Date().toISOString(),
+    tool: "ask-all", question: "q",
+    opinions: [{ provider: "grok", text: "reach me at a@b.co with key sk-abcdefghijklmnopqrstuvwxyz123456" }],
+  }, { dir });
+  const back = readSession(id, { dir });
+  assert.ok(back);
+  const t = back.opinions[0].text || "";
+  assert.ok(t.includes("[REDACTED_EMAIL]"), "email PII redacted");
+  assert.ok(t.includes("[REDACTED]") && !t.includes("sk-abcdefghijklmnop"), "secret scrubbed (mandatory)");
+});
+
+test("PII3: stripPII stays linear on pathological input (no catastrophic backtracking)", () => {
+  // A long run of valid email-local chars with no '@' is the O(n^2) trap when the
+  // quantifiers are unbounded. RFC-bounded quantifiers keep it linear; a
+  // catastrophic regex would hang the suite instead of returning.
+  const big = "a.".repeat(40000); // 80k chars, nothing to redact
+  const out = stripPII(big);
+  assert.equal(typeof out, "string");
+  assert.equal(out, big);
+});
 
 /** @typedef {import("../core/sessions.js").SessionRecord} SessionRecord */
 

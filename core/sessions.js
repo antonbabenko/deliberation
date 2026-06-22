@@ -136,6 +136,26 @@ function scrubSecrets(text) {
 }
 
 /**
+ * Best-effort PII redaction, applied ONLY to opt-in captured response bodies
+ * (sessions.captureText) as defense-in-depth AFTER the mandatory secret scrub.
+ * Deliberately conservative (low false-positive) - this is NOT a guarantee and
+ * must never be relied on as the privacy gate; secret-scrub + the default-off
+ * captureText flag are the real controls. Redacts email addresses only (the
+ * lowest-ambiguity PII shape); phone/number heuristics are intentionally omitted
+ * to avoid mangling legitimate content (ids, versions, counts).
+ * @param {string} text
+ * @returns {string}
+ */
+function stripPII(text) {
+  if (typeof text !== "string" || text.length === 0) return text;
+  // Bounded quantifiers (RFC local-part <=64, domain <=255, TLD <=24) keep this
+  // LINEAR: an unbounded `[...]+@` is O(n^2) on a long no-"@" run of valid chars
+  // (a DoS vector on provider-controlled response text, which reaches stripPII
+  // BEFORE capText truncates it).
+  return text.replace(/\b[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,255}\.[A-Za-z]{2,24}\b/g, "[REDACTED_EMAIL]");
+}
+
+/**
  * Cap text at MAX_TEXT_BYTES (byte-aware so multibyte text cannot exceed the
  * cap); append a truncation note when cut.
  * @param {string} text
@@ -195,7 +215,10 @@ function sanitizeRecord(record) {
       const so = {
         provider: o.provider,
         model: o.model,
-        text: typeof o.text === "string" ? capText(scrubSecrets(o.text)) : undefined,
+        // opinion text is the raw provider RESPONSE body - only present when the
+        // server included it under sessions.captureText. Secret-scrub is MANDATORY
+        // (primary control); stripPII is best-effort defense-in-depth on top.
+        text: typeof o.text === "string" ? capText(stripPII(scrubSecrets(o.text))) : undefined,
       };
       // consensus-auto opinions carry a structured verdict + tagged issues.
       // The writer is the trust boundary: do NOT assume the caller honored
@@ -435,6 +458,7 @@ module.exports = {
   DEFAULT_MAX_RECORDS,
   DEFAULT_MAX_AGE_DAYS,
   scrubSecrets,
+  stripPII,
   capText,
   sanitizeRecord,
   isSafeId,

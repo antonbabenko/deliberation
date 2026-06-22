@@ -481,14 +481,14 @@ test("CB8: missing config file => disabled openrouter + consensus default auto",
 
 test("SESS1: absent sessions block -> default OFF", () => {
   const { resolved } = validateConfig(base());
-  assert.deepEqual(resolved.sessions, { persist: false, maxRecords: 200, maxAgeDays: 30 });
+  assert.deepEqual(resolved.sessions, { persist: false, maxRecords: 200, maxAgeDays: 30, captureText: false });
 });
 
 test("SESS2: a valid sessions block is honored", () => {
   const cfg = base();
-  cfg.sessions = { persist: true, maxRecords: 50, maxAgeDays: 7 };
+  cfg.sessions = { persist: true, maxRecords: 50, maxAgeDays: 7, captureText: true };
   const { resolved } = validateConfig(cfg);
-  assert.deepEqual(resolved.sessions, { persist: true, maxRecords: 50, maxAgeDays: 7 });
+  assert.deepEqual(resolved.sessions, { persist: true, maxRecords: 50, maxAgeDays: 7, captureText: true });
 });
 
 test("SESS3: non-boolean persist degrades to false + warning", () => {
@@ -522,7 +522,7 @@ test("SESS4c: -2 and other negatives still degrade to defaults + warnings", () =
 
 test("SESS5: a non-object sessions block degrades to default OFF + warning", () => {
   const { sessions, warnings } = resolveSessions("nope");
-  assert.deepEqual(sessions, { persist: false, maxRecords: 200, maxAgeDays: 30 });
+  assert.deepEqual(sessions, { persist: false, maxRecords: 200, maxAgeDays: 30, captureText: false });
   assert.ok(warnings.some((w) => /sessions must be an object/.test(w)));
 });
 
@@ -537,5 +537,13 @@ test("SESS7: missing config file -> reader yields default-OFF sessions", () => {
   const reader = makeConfigReader(path.join(os.tmpdir(), "definitely-absent-cdg-sessions.json"));
   const r = reader.get();
   assert.equal(r.ok, true);
-  assert.deepEqual(r.resolved.sessions, { persist: false, maxRecords: 200, maxAgeDays: 30 });
+  assert.deepEqual(r.resolved.sessions, { persist: false, maxRecords: 200, maxAgeDays: 30, captureText: false });
+});
+
+test("SESS8: captureText defaults OFF; boolean honored; non-boolean -> false + warning", () => {
+  assert.equal(resolveSessions({ persist: true }).sessions.captureText, false, "default off");
+  assert.equal(resolveSessions({ captureText: true }).sessions.captureText, true, "boolean honored");
+  const { sessions, warnings } = resolveSessions({ captureText: "yes" });
+  assert.equal(sessions.captureText, false);
+  assert.ok(warnings.some((w) => /captureText must be a boolean/.test(w)));
 });

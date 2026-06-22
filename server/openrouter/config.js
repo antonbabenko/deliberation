@@ -153,7 +153,7 @@ function resolveDebug(raw) {
 // @returns {{sessions:{persist:boolean, maxRecords:number, maxAgeDays:number}, warnings:string[]}}
 function resolveSessions(raw) {
   const warnings = [];
-  const out = { persist: false, maxRecords: DEFAULT_SESSIONS_MAX_RECORDS, maxAgeDays: DEFAULT_SESSIONS_MAX_AGE_DAYS };
+  const out = { persist: false, maxRecords: DEFAULT_SESSIONS_MAX_RECORDS, maxAgeDays: DEFAULT_SESSIONS_MAX_AGE_DAYS, captureText: false };
   if (raw === undefined) return { sessions: out, warnings };
   if (!isObject(raw)) {
     warnings.push(`sessions must be an object (got ${JSON.stringify(raw)}); persistence disabled`);
@@ -162,6 +162,13 @@ function resolveSessions(raw) {
   if (raw.persist !== undefined) {
     if (typeof raw.persist === "boolean") out.persist = raw.persist;
     else warnings.push(`sessions.persist must be a boolean (got ${JSON.stringify(raw.persist)}); using false`);
+  }
+  // Opt-in capture of provider RESPONSE bodies (opinion text) into the record.
+  // Default OFF -> only summaries (verdict/issues) are stored. Never gates the
+  // mandatory secret-scrub; never affects the metrics-only debug log.
+  if (raw.captureText !== undefined) {
+    if (typeof raw.captureText === "boolean") out.captureText = raw.captureText;
+    else warnings.push(`sessions.captureText must be a boolean (got ${JSON.stringify(raw.captureText)}); using false`);
   }
   // -1 means UNLIMITED (keep forever / no count cap); otherwise a positive integer.
   // 0 and other values are invalid -> default + warning.
@@ -430,7 +437,7 @@ function makeConfigReader(filePath) {
     try {
       text = fs.readFileSync(filePath, "utf8");
     } catch (_) {
-      return { ok: true, error: null, resolved: { version: 1, providers: {}, openrouter: disabledOpenRouter(), consensus: { arbiter: DEFAULT_ARBITER, arbiterDefaulted: true, blindVote: false }, sessions: { persist: false, maxRecords: DEFAULT_SESSIONS_MAX_RECORDS, maxAgeDays: DEFAULT_SESSIONS_MAX_AGE_DAYS }, consensusWarnings: [] } };
+      return { ok: true, error: null, resolved: { version: 1, providers: {}, openrouter: disabledOpenRouter(), consensus: { arbiter: DEFAULT_ARBITER, arbiterDefaulted: true, blindVote: false }, sessions: { persist: false, maxRecords: DEFAULT_SESSIONS_MAX_RECORDS, maxAgeDays: DEFAULT_SESSIONS_MAX_AGE_DAYS, captureText: false }, consensusWarnings: [] } };
     }
     let parsed;
     try {
