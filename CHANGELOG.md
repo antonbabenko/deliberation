@@ -1,3 +1,10 @@
+## [3.9.0](https://github.com/antonbabenko/deliberation/compare/v3.8.1...v3.9.0) (2026-06-22)
+
+
+### Features
+
+* **consensus:** persist host-driven consensus-step loop records ([#152](https://github.com/antonbabenko/deliberation/issues/152)) ([f973bbe](https://github.com/antonbabenko/deliberation/commit/f973bbe4a1010ce5bec0dba7facdd575653b59dc))
+
 ## [3.8.1](https://github.com/antonbabenko/deliberation/compare/v3.8.0...v3.8.1) (2026-06-18)
 
 
@@ -25,11 +32,4 @@
 ### Features
 
 * **core:** gated implementation mode for codex+gemini (default-off) ([#143](https://github.com/antonbabenko/deliberation/issues/143)) ([7bb8bc2](https://github.com/antonbabenko/deliberation/commit/7bb8bc286a9dd2b229450d45cd6a1435408d13ec))
-
-## [3.6.2](https://github.com/antonbabenko/deliberation/compare/v3.6.1...v3.6.2) (2026-06-16)
-
-
-### Bug Fixes
-
-* **security:** harden provider bridges (file perms, redirect guard, env scrub, input validation) ([#138](https://github.com/antonbabenko/deliberation/issues/138)) ([075f584](https://github.com/antonbabenko/deliberation/commit/075f584eca3366721c9140d08d75263363801df8))
 
