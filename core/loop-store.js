@@ -20,6 +20,7 @@ const DEFAULT_MAX_ENTRIES = 100;
  * @returns {{
  *   put:(id:string, state:any)=>void,
  *   get:(id:string)=>any,
+ *   take:(id:string)=>any,
  *   delete:(id:string)=>boolean,
  *   sweep:()=>number,
  *   size:()=>number,
@@ -66,6 +67,16 @@ function makeLoopStore(opts) {
       if (isExpired(entry, t)) { map.delete(id); return null; }
       entry.touchedAt = t; // sliding TTL: access keeps an active loop alive
       entry.seq = ++seq;   // mark as most-recently-used for LRU eviction
+      return entry.state;
+    },
+    take(id) {
+      // Atomic remove-and-return: get the entry and delete it in ONE synchronous
+      // step (no await between), so a concurrent/retried terminal caller cannot
+      // observe the same live state and act on it twice. Expired -> null (removed).
+      const entry = map.get(id);
+      if (!entry) return null;
+      map.delete(id);
+      if (isExpired(entry, now())) return null;
       return entry.state;
     },
     delete(id) {

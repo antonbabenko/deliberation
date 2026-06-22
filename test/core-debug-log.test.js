@@ -104,3 +104,24 @@ test("D9: askAll defaults to the no-op logger (no opts) and still returns result
   assert.equal(out.length, 1);
   assert.equal(out[0].isError, false);
 });
+
+test("D-persistfail: a persist_failed event survives the whitelist with ONLY content-free keys", () => {
+  // The consensus-step failure telemetry must carry its correlation fields
+  // (errorCode, loopSessionId) through sanitizeEvent, and nothing else.
+  assert.ok(ALLOWED_KEYS.includes("errorCode"), "errorCode is whitelisted");
+  assert.ok(ALLOWED_KEYS.includes("loopSessionId"), "loopSessionId is whitelisted");
+  const out = sanitizeEvent(/** @type {any} */ ({
+    event: "persist_failed",
+    at: 123,
+    tool: "consensus",
+    errorCode: "EACCES",
+    loopSessionId: "loop-abc",
+    // content that must be dropped even if a caller over-populates the event:
+    prompt: "SECRET PLAN TEXT",
+    parts: { opinions: ["leaky"] },
+    verdictText: "free text",
+  }));
+  // deepEqual proves the projection carries EXACTLY the content-free keys -
+  // prompt/parts/verdictText were dropped.
+  assert.deepEqual(out, { event: "persist_failed", at: 123, tool: "consensus", errorCode: "EACCES", loopSessionId: "loop-abc" });
+});
