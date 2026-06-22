@@ -436,7 +436,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
   // either is missing, the session-* tools report "disabled" and the
   // consensus/ask-all paths write nothing / return no sessionId.
 
-  /** @returns {{persist:boolean, maxRecords:number, maxAgeDays:number}} */
+  /** @returns {{persist:boolean, maxRecords:number, maxAgeDays:number, captureText:boolean}} */
   function sessionsCfg() {
     const c = getConfig() || {};
     const s = c.sessions || {};
@@ -444,6 +444,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       persist: !!s.persist,
       maxRecords: typeof s.maxRecords === "number" ? s.maxRecords : sessions.DEFAULT_MAX_RECORDS,
       maxAgeDays: typeof s.maxAgeDays === "number" ? s.maxAgeDays : sessions.DEFAULT_MAX_AGE_DAYS,
+      captureText: !!s.captureText,
     };
   }
   /** @returns {boolean} */
@@ -535,7 +536,11 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       question: typeof req.prompt === "string" ? req.prompt : "",
       expert: expert || null,
       files: refsFromFiles(req.files),
-      opinions: opinionsFrom(parts.opinions),
+      // opinionsFrom keeps each provider's raw response `text`. That BODY is stored
+      // only under the opt-in sessions.captureText; default OFF drops it here at the
+      // single write chokepoint, so every caller (ask-all, consensus, consensus-step,
+      // revisit) is gated identically. Verdict/criticalIssues summaries always stay.
+      opinions: opinionsFrom(parts.opinions).map((o) => (cfg.captureText ? o : (delete o.text, o))),
       blindVerdict: textOf(parts.blindVerdict),
       verdict: textOf(parts.verdict),
       arbiter: parts.arbiter || null,
@@ -899,7 +904,10 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         const results = peerResults.map((r) =>
           r.isError
             ? { source: r.provider, isError: true, errorKind: r.errorKind, verdict: null, criticalIssues: [], model: r.model, reasoningEffort: r.reasoningEffort ?? null, ms: r.ms }
-            : { ...parseReview(typeof r.text === "string" ? r.text : ""), source: r.provider, isError: false, model: r.model, reasoningEffort: r.reasoningEffort ?? null, ms: r.ms }
+            // Retain the raw response `text` on the in-memory loop result so a terminal
+            // persist can store it WHEN sessions.captureText is on (persistRun gates it;
+            // the wire `opinions` mapping below omits text, so it never leaves the loop).
+            : { ...parseReview(typeof r.text === "string" ? r.text : ""), source: r.provider, isError: false, text: typeof r.text === "string" ? r.text : undefined, model: r.model, reasoningEffort: r.reasoningEffort ?? null, ms: r.ms }
         );
         const next = loop.addOpinions(cur, results);
         loopStore.put(sid, next);

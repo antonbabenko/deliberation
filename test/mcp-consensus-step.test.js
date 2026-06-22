@@ -238,3 +238,58 @@ test("CS13: an UNRESOLVED (cap) terminal run also persists ONE record with the O
   assert.equal(rec.converged, false);
   assert.equal(sessions.listSessions({ dir }).length, 1);
 });
+
+test("CS14: captureText ON -> consensus-step record stores the raw provider RESPONSE (opinion text)", async () => {
+  const dir = tmpDir();
+  const srv = buildServer({ providers: [approve("codex"), approve("grok")], getConfig: () => ({ ...config, sessions: { persist: true, captureText: true } }), sessionsDir: dir });
+  const sid = (await step(srv, { action: "init", prompt: "ship it" }, 90)).sessionId;
+  await step(srv, { action: "record_blind", sessionId: sid, blindVerdict: "ok APPROVE" }, 91);
+  await step(srv, { action: "dispatch_peers", sessionId: sid }, 92);
+  const adj = await step(srv, { action: "submit_adjudication", sessionId: sid, verdict: "APPROVE", decisions: [] }, 93);
+  const rec = sessions.readSession(adj.sessionId, { dir });
+  assert.ok(rec);
+  assert.equal(rec.opinions.length, 2);
+  assert.ok(rec.opinions.every((o) => typeof o.text === "string" && o.text.includes("APPROVE")), "raw response captured under captureText");
+});
+
+test("CS15: captureText OFF (default) -> consensus-step record OMITS opinion text, keeps verdict summary", async () => {
+  const dir = tmpDir();
+  const srv = buildServer({ providers: [approve("codex"), approve("grok")], getConfig: () => ({ ...config, sessions: { persist: true } }), sessionsDir: dir });
+  const sid = (await step(srv, { action: "init", prompt: "ship it" }, 100)).sessionId;
+  await step(srv, { action: "record_blind", sessionId: sid, blindVerdict: "ok" }, 101);
+  await step(srv, { action: "dispatch_peers", sessionId: sid }, 102);
+  const adj = await step(srv, { action: "submit_adjudication", sessionId: sid, verdict: "APPROVE", decisions: [] }, 103);
+  const rec = sessions.readSession(adj.sessionId, { dir });
+  assert.ok(rec);
+  assert.ok(rec.opinions.every((o) => o.text === undefined), "no response body without captureText");
+  assert.ok(rec.opinions.every((o) => o.verdict === "APPROVE"), "verdict summary still present");
+});
+
+test("CS16: captureText gates ask-all opinion text at the SAME shared chokepoint", async () => {
+  const callAll = async (srv, id) => {
+    const res = await srv.handle({ jsonrpc: "2.0", id, method: "tools/call", params: { name: "ask-all", arguments: { prompt: "q" } } });
+    return JSON.parse(res.result.content[0].text);
+  };
+  const dirOn = tmpDir();
+  const on = buildServer({ providers: [approve("codex")], getConfig: () => ({ ...config, sessions: { persist: true, captureText: true } }), sessionsDir: dirOn });
+  const recOn = sessions.readSession((await callAll(on, 110)).sessionId, { dir: dirOn });
+  assert.ok(recOn);
+  assert.ok(typeof recOn.opinions[0].text === "string", "captureText on -> ask-all response stored");
+
+  const dirOff = tmpDir();
+  const off = buildServer({ providers: [approve("codex")], getConfig: () => ({ ...config, sessions: { persist: true } }), sessionsDir: dirOff });
+  const recOff = sessions.readSession((await callAll(off, 111)).sessionId, { dir: dirOff });
+  assert.ok(recOff);
+  assert.equal(recOff.opinions[0].text, undefined, "captureText off -> ask-all response omitted");
+});
+
+test("CS17: dispatch_peers wire response NEVER carries raw opinion text, even with captureText ON", async () => {
+  // The raw response is retained on the in-memory loop result (so a terminal
+  // persist can store it when captureText is on), but must NOT ride the wire.
+  const srv = buildServer({ providers: [approve("codex"), approve("grok")], getConfig: () => ({ ...config, sessions: { persist: true, captureText: true } }) });
+  const sid = (await step(srv, { action: "init", prompt: "x" }, 120)).sessionId;
+  await step(srv, { action: "record_blind", sessionId: sid, blindVerdict: "ok" }, 121);
+  const dp = await step(srv, { action: "dispatch_peers", sessionId: sid }, 122);
+  assert.equal(dp.opinions.length, 2);
+  assert.ok(dp.opinions.every((o) => !("text" in o)), "raw response text must not leak onto the wire response");
+});

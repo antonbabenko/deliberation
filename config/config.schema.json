@@ -115,6 +115,11 @@
           "anyOf": [{ "const": -1 }, { "minimum": 1 }],
           "default": 30,
           "description": "Delete records older than this many days after each write. Use -1 for unlimited (never delete by age)."
+        },
+        "captureText": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true (AND persist is true), the session record additionally stores each provider's raw RESPONSE body (opinion text). Default OFF -> only the question, verdicts, and tagged-issue summaries are stored. Captured text is secret-scrubbed (mandatory) plus a best-effort PII strip (not a guarantee) and written as PLAINTEXT JSON on local disk. The metrics-only debug log NEVER receives body text regardless of this flag."
         }
       }
     },
