@@ -70,6 +70,10 @@ shared by two drivers so there is ONE rules layer, not a Claude copy and a non-C
   `synthesizeAlways:true` runs a SINGLE arbiter synthesis pass instead of the loop (free-text
   `synthesis`, for open questions) - one unified tool, one return envelope (split `verdict`/`synthesis`,
   loop-only fields nullable). For non-Claude hosts that want the loop without driving it.
+  Per round, the arbiter's adjudication and revision calls run CONCURRENTLY when a peer
+  dissents (which guarantees the round cannot converge, so the revision is always used);
+  on an all-approve round only adjudication runs. Same external-call count as a serial loop
+  in every outcome, one serial arbiter leg saved per dissent round.
 - **`consensus-step`** (MCP tool) - the host model (Claude) is the arbiter and drives ONE action per
   call (`init / record_blind / dispatch_peers / submit_adjudication / submit_revision`); `LoopState`
   is held server-side in the ephemeral `loop-store` by `sessionId`. The live `/consensus` slash command

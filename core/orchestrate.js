@@ -335,13 +335,47 @@ async function runToConvergence(providers, req, opts = {}) {
       );
       state = loop.addOpinions(state, lastResults);
 
+      // Peer dissent => this round CANNOT converge (checkConvergence requires every
+      // responding peer to APPROVE), so the revision is GUARANTEED needed: overlap it
+      // with adjudication for free. All-approve => the round may converge, so do NOT
+      // speculate a revision we might discard. Net: same arbiter-call COUNT as the
+      // serial loop in every outcome, one serial leg saved per dissent (non-final) round.
+      //
+      // CONTRACT this parallelization relies on (revert to serial if either breaks):
+      //   1. buildRevisionPrompt depends only on state.currentPlan + the peer results,
+      //      NOT on the arbiter's adjudicated verdict.
+      //   2. loop.submitAdjudication does not mutate state.currentPlan, so the revision
+      //      prompt is identical whether built before or after adjudication.
+      const peerDissent = lastResults.some((r) => !r.isError && r.verdict !== "APPROVE");
+      // Isolate a whole arbiter branch (ask + parse) so neither a synchronous throw, a
+      // rejected ask, nor a parse fault can reject Promise.all - matching the per-call
+      // try/catch scope of the serial version and the blind-pass wrapper above. The
+      // adjudication/revision passes are intentionally NOT oriented (unlike the blind
+      // pass): the arbiter reasons over inlined peer text, not the cold repo.
+      const askIsolated = (/** @type {string} */ prompt) =>
+        Promise.resolve().then(() => arbiter.ask({ ...req, prompt })).then((r) => r, () => null);
+      /** @param {(DelegationResult|null)} res @returns {"APPROVE"|"REQUEST_CHANGES"|"REJECT"} */
+      const verdictFrom = (res) => {
+        const t = okText(res);
+        if (!t) return "REQUEST_CHANGES"; // null/empty -> hold (the serial default)
+        try { return parseReview(t).verdict || "REQUEST_CHANGES"; } catch { return "REQUEST_CHANGES"; }
+      };
+
       /** @type {"APPROVE"|"REQUEST_CHANGES"|"REJECT"} */
       let verdict = "REQUEST_CHANGES";
-      try {
-        const adj = await arbiter.ask({ ...req, prompt: buildAdjudicationPrompt(state, lastResults) });
-        const t = okText(adj);
-        if (t) { const p = parseReview(t); if (p.verdict) verdict = p.verdict; }
-      } catch { /* arbiter adjudication failed -> hold at REQUEST_CHANGES */ }
+      let revised = state.currentPlan;
+      if (peerDissent) {
+        // Guaranteed non-final: adjudication || revision, both used (no waste).
+        const [adjRes, revRes] = await Promise.all([
+          askIsolated(buildAdjudicationPrompt(state, lastResults)),
+          askIsolated(buildRevisionPrompt(state, lastResults)),
+        ]);
+        verdict = verdictFrom(adjRes);
+        revised = okText(revRes) || state.currentPlan;
+      } else {
+        // May converge: adjudication only - do not burn a revision call we might discard.
+        verdict = verdictFrom(await askIsolated(buildAdjudicationPrompt(state, lastResults)));
+      }
       state = loop.submitAdjudication(state, { verdict, decisions: [] });
       try {
         logger.logEvent({
@@ -353,11 +387,11 @@ async function runToConvergence(providers, req, opts = {}) {
       } catch { /* logging must never break the loop */ }
       if (state.status === "converged") break;
 
-      let revised = state.currentPlan;
-      try {
-        const rev = await arbiter.ask({ ...req, prompt: buildRevisionPrompt(state, lastResults) });
-        revised = okText(rev) || state.currentPlan;
-      } catch { /* keep the current plan */ }
+      if (!peerDissent) {
+        // Rare: all peers APPROVED but the arbiter blocked -> revise now (serial; there
+        // was nothing to overlap, since convergence was still possible at fan-out time).
+        revised = okText(await askIsolated(buildRevisionPrompt(state, lastResults))) || state.currentPlan;
+      }
       state = loop.submitRevision(state, revised, "arbiter revision");
     }
   } catch (e) {

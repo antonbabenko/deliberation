@@ -131,3 +131,58 @@ test("RC8: omitted maxRounds still terminates (defaults to 5) -> unresolved on p
   assert.equal(out.confidence, "none");
   assert.equal(out.rounds.length, 5); // defaulted to 5 and terminated
 });
+
+test("RC9: dissent in round 1 -> the round-1 revision propagates into round 2's plan-under-review", async () => {
+  /** @type {string[]} */
+  const seen = [];
+  const peers = [stub("gpt", (p) => { seen.push(p); return p.includes("REVISED") ? "**Verdict**: APPROVE" : "**Verdict**: REQUEST_CHANGES\n- [scope] needs detail"; })];
+  const out = await runToConvergence(peers, REQ, { arbiter: smartArbiter(), maxRounds: 5 });
+  assert.equal(out.converged, true); // round 2, after the revision lands
+  // The dissent round's revision ("REVISED plan...") must appear in a later peer prompt.
+  assert.ok(seen.some((p) => p.includes("Round 2 of 5") && p.includes("REVISED")), "round-2 plan-under-review should contain the round-1 revision");
+});
+
+test("RC10: round-1 all-APPROVE dispatches NO revision call (dissent gate avoids waste)", async () => {
+  /** @type {string[]} */
+  const arbPrompts = [];
+  const arbiter = stub("arb", (p) => { arbPrompts.push(p); if (p.includes("ADJUDICATE")) return "**Verdict**: APPROVE"; if (p.includes("REVISE")) return "REVISED"; return "**Verdict**: APPROVE"; });
+  const peers = [stub("gpt", () => "**Verdict**: APPROVE"), stub("gemini", () => "**Verdict**: APPROVE")];
+  const out = await runToConvergence(peers, REQ, { arbiter });
+  assert.equal(out.converged, true);
+  assert.equal(out.rounds.length, 0); // converged round 1, no revision recorded
+  assert.ok(!arbPrompts.some((p) => p.includes("REVISE")), "no REVISE prompt should be dispatched on an all-approve converging round");
+});
+
+test("RC11: a revision leg that throws SYNCHRONOUSLY on a dissent round is isolated (no reject)", async () => {
+  // Dissent => parallel branch fires adjudication ∥ revision; the arbiter throws
+  // synchronously on the REVISE prompt, before returning a promise.
+  const arbiter = {
+    name: "arb",
+    capabilities: { canImplement: false, fileUpload: false, multiTurn: false },
+    health: async () => ({ ok: true }),
+    /** @param {{prompt:string}} req @returns {any} */
+    ask: (req) => {
+      if (req.prompt.includes("REVISE")) throw new Error("sync revise throw");
+      return Promise.resolve({ provider: "arb", model: "s", isError: false, text: "**Verdict**: REQUEST_CHANGES", ms: 1 });
+    },
+  };
+  const peers = [stub("gpt", () => "**Verdict**: REQUEST_CHANGES\n- [ops] x")];
+  /** @type {any} */
+  let out;
+  await assert.doesNotReject(async () => { out = await runToConvergence(peers, REQ, { arbiter, maxRounds: 2 }); });
+  assert.equal(out.converged, false); // revision threw -> plan never changes -> peer keeps dissenting
+  assert.equal(out.rounds.length, 2); // both rounds still ran despite the throwing revision leg
+});
+
+test("RC12: all peers APPROVE but arbiter blocks -> serial revision runs (the !peerDissent post-break path)", async () => {
+  /** @type {string[]} */
+  const arbPrompts = [];
+  // No peer dissent, but the arbiter REQUEST_CHANGES on adjudication, so the round
+  // cannot converge and the SERIAL revision branch must fire.
+  const arbiter = stub("arb", (p) => { arbPrompts.push(p); if (p.includes("ADJUDICATE")) return "**Verdict**: REQUEST_CHANGES"; if (p.includes("REVISE")) return "REVISED"; return "**Verdict**: APPROVE"; });
+  const peers = [stub("gpt", () => "**Verdict**: APPROVE")];
+  const out = await runToConvergence(peers, REQ, { arbiter, maxRounds: 2 });
+  assert.equal(out.converged, false); // arbiter never approves
+  assert.equal(out.rounds.length, 2);
+  assert.ok(arbPrompts.some((p) => p.includes("REVISE")), "serial revision should run when all peers approve but the arbiter blocks");
+});
