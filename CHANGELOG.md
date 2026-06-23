@@ -1,3 +1,10 @@
+## [3.10.1](https://github.com/antonbabenko/deliberation/compare/v3.10.0...v3.10.1) (2026-06-23)
+
+
+### Performance Improvements
+
+* **consensus:** overlap arbiter adjudication and revision on dissent rounds ([#157](https://github.com/antonbabenko/deliberation/issues/157)) ([da18ab9](https://github.com/antonbabenko/deliberation/commit/da18ab9ba4bb795b552f94767e4577bc871a51a4))
+
 ## [3.10.0](https://github.com/antonbabenko/deliberation/compare/v3.9.0...v3.10.0) (2026-06-22)
 
 
@@ -25,11 +32,4 @@
 ### Features
 
 * **commands:** /deliberation:help + /deliberation:doctor + analyze drift diagnostic ([#147](https://github.com/antonbabenko/deliberation/issues/147)) ([06ed697](https://github.com/antonbabenko/deliberation/commit/06ed6972b54fc8510f81adbe231334a630001227))
-
-## [3.7.1](https://github.com/antonbabenko/deliberation/compare/v3.7.0...v3.7.1) (2026-06-17)
-
-
-### Bug Fixes
-
-* **core:** cap peer opinions in arbiter + adjudication prompts ([#145](https://github.com/antonbabenko/deliberation/issues/145)) ([55aab8b](https://github.com/antonbabenko/deliberation/commit/55aab8b9fca3028bc3f352efa2d2c9607a4df3b1))
 
