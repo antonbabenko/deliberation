@@ -1,3 +1,10 @@
+## [3.11.0](https://github.com/antonbabenko/deliberation/compare/v3.10.1...v3.11.0) (2026-06-26)
+
+
+### Features
+
+* **consensus:** bound worst-case wall-time without truncating slow-but-good responses ([#159](https://github.com/antonbabenko/deliberation/issues/159)) ([3073a9e](https://github.com/antonbabenko/deliberation/commit/3073a9e9acbde37dad31a40d17daaf53b2742fcd))
+
 ## [3.10.1](https://github.com/antonbabenko/deliberation/compare/v3.10.0...v3.10.1) (2026-06-23)
 
 
@@ -25,11 +32,4 @@
 ### Bug Fixes
 
 * **mcp:** accurate tool annotations + full schema descriptions ([#150](https://github.com/antonbabenko/deliberation/issues/150)) ([115be33](https://github.com/antonbabenko/deliberation/commit/115be33cc910d12ec2e6999827c6fd4119345bf5))
-
-## [3.8.0](https://github.com/antonbabenko/deliberation/compare/v3.7.1...v3.8.0) (2026-06-17)
-
-
-### Features
-
-* **commands:** /deliberation:help + /deliberation:doctor + analyze drift diagnostic ([#147](https://github.com/antonbabenko/deliberation/issues/147)) ([06ed697](https://github.com/antonbabenko/deliberation/commit/06ed6972b54fc8510f81adbe231334a630001227))
 
