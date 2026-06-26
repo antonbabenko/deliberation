@@ -201,3 +201,30 @@ test("RC-budget: a spent wall-time budget stops the loop before the next round (
   assert.equal(out.stopReason, "budget-exhausted");
   assert.equal(out.rounds.length, 1); // only round 1 ran, not 5
 });
+
+/**
+ * A peer that always times out, counting how many rounds it was actually called in.
+ * @param {string} name
+ * @returns {any}
+ */
+function flakyTimeoutPeer(name) {
+  const p = {
+    name,
+    calls: 0,
+    capabilities: { canImplement: false, fileUpload: false, multiTurn: false },
+    health: async () => ({ ok: true }),
+    ask: async () => { p.calls++; return { provider: name, model: "stub", isError: true, errorKind: "timeout", retryable: true, ms: 1 }; },
+  };
+  return p;
+}
+
+test("RC-breaker: a peer that times out 2 rounds running is dropped for later rounds", async () => {
+  const flaky = flakyTimeoutPeer("flaky");
+  // A healthy dissenter keeps the loop from converging so it runs all 5 rounds.
+  const healthy = stub("healthy", () => "**Verdict**: REQUEST_CHANGES\n- [ops] x");
+  const arb = stub("arb", (p) => (p.includes("ADJUDICATE") ? "**Verdict**: REQUEST_CHANGES" : p.includes("REVISE") ? "nope" : "**Verdict**: REQUEST_CHANGES"));
+  const out = await runToConvergence([flaky, healthy], REQ, { arbiter: arb, maxRounds: 5 });
+  assert.equal(out.converged, false);
+  assert.equal(out.rounds.length, 5);   // healthy peer kept the loop going
+  assert.equal(flaky.calls, 2);         // called rounds 1 & 2, then circuit-broken
+});

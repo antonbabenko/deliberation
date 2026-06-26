@@ -10,6 +10,10 @@ const { NULL_LOGGER } = require("./debug-log.js");
 
 /** @typedef {import("./debug-log.js").Logger} Logger */
 
+// Drop a peer from the panel after this many CONSECUTIVE rounds of timeout, so one
+// chronically-slow model cannot add its full per-call ceiling to every round.
+const CIRCUIT_BREAK_AFTER = 2;
+
 /**
  * Emit one `provider_result` debug event for a settled call. Never throws.
  * @param {Logger} logger
@@ -316,6 +320,9 @@ async function runToConvergence(providers, req, opts = {}) {
   const startedAt = now();
   /** @type {(string|null)} */
   let stopReason = null;
+  let activeProviders = providers;
+  /** @type {Map<string, number>} consecutive-timeout streak per provider name */
+  const timeoutStreak = new Map();
   if (!arbiter) return { converged: false, verdict: null, confidence: "none", rounds: [], opinions: [], error: "no-arbiter" };
 
   let state = loop.initConsensusLoop({
@@ -335,12 +342,13 @@ async function runToConvergence(providers, req, opts = {}) {
       // Budget gates STARTING a round; it never interrupts the in-flight fan-out
       // below, so a legitimately slow peer answer is always collected in full.
       if (maxWallMs !== null && now() - startedAt >= maxWallMs) { stopReason = "budget-exhausted"; break; }
+      if (!activeProviders.length) { stopReason = "all-providers-circuit-broken"; break; }
       const { peerPrompt, blindPrompt } = loop.prepareRound(state);
       // Blind pass runs concurrently with the peer fan-out; isolate its failure.
       const roundNo = state.round;
       const [blindRes, peerResults] = await Promise.all([
         Promise.resolve().then(() => arbiter.ask(withOrientation(arbiter, { ...req, prompt: blindPrompt }, opts.orientationFiles))).then((r) => r, () => null),
-        askAll(providers, { ...req, prompt: peerPrompt }, { logger, tool: "consensus", orientationFiles: opts.orientationFiles }),
+        askAll(activeProviders, { ...req, prompt: peerPrompt }, { logger, tool: "consensus", orientationFiles: opts.orientationFiles }),
       ]);
       state = loop.recordBlindVerdict(state, okText(blindRes) || "(blind pass unavailable)");
 
@@ -351,6 +359,14 @@ async function runToConvergence(providers, req, opts = {}) {
           : { ...parseReview(typeof r.text === "string" ? r.text : ""), source: r.provider, isError: false, ms: r.ms }
       );
       state = loop.addOpinions(state, lastResults);
+
+      // Update per-peer timeout streaks from THIS round, then trim the panel for the
+      // next round. A non-timeout result (success or any other error) resets the streak.
+      for (const rr of lastResults) {
+        if (rr.isError && rr.errorKind === "timeout") timeoutStreak.set(rr.source, (timeoutStreak.get(rr.source) || 0) + 1);
+        else timeoutStreak.set(rr.source, 0);
+      }
+      activeProviders = providers.filter((p) => (timeoutStreak.get(p.name) || 0) < CIRCUIT_BREAK_AFTER);
 
       // Peer dissent => this round CANNOT converge (checkConvergence requires every
       // responding peer to APPROVE), so the revision is GUARANTEED needed: overlap it
