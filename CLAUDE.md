@@ -81,7 +81,7 @@ shared by two drivers so there is ONE rules layer, not a Claude copy and a non-C
   the prose. This is the transcript-visible host-arbiter path; the `consensus` tool is the
   provider-arbiter path.
 
-The cap is `consensus.maxRounds` (config, default 5, clamped to 50; a per-call `maxRounds` overrides it).
+The cap is `consensus.maxRounds` (config, default 5, clamped to 50; a per-call `maxRounds` overrides it). A wall-time budget `consensus.maxWallMs` (default 1 200 000 ms, 20 min) stops the provider-arbiter `consensus` loop before the next round when the budget is spent, returning `stopReason: "budget-exhausted"`; the host-driven `consensus-step` path is not affected. The Codex provider is no longer unbounded: `core/providers/codex.js` caps each `codex exec` call to `CODEX_DEFAULT_TIMEOUT_MS` (600 000 ms). `callProvider` retries once on a `network` error only (pre-response transport failures); it does not retry on timeout or application errors.
 The `consensus` tool AND the host-driven `consensus-step` loop persist a session record on a
 terminal transition - converged or unresolved (when `sessions.persist` is on, with the mode flag).
 `consensus-step` uses an atomic `loopStore.take()` before the write so a terminal transition writes
@@ -132,7 +132,7 @@ Retries use multi-turn (`*-reply` with `threadId`) so the expert remembers previ
 | `commands/*.md` | Slash commands | `/setup`, `/uninstall`, `/help`, `/doctor`, `/analyze` |
 | `config/providers.json` | Provider metadata | Not used at runtime |
 | `config/config.schema.json` | JSON Schema (in `config/`) | Validates `config.json` in editors (VS Code built-in JSON support, no extension); `.vscode/` wires it for in-repo example configs |
-| `~/.config/deliberation/config.json` | Unified user config | Live SSOT; stat-gated hot-reload. Sections: `providers` (connection), `models` (named records map keyed by id), `routing` (fan-out), `consensus` (`arbiter` + `blindVote` + `maxRounds`: the loop cap, default 5, clamped to 50), `sessions` (opt-in run persistence: `persist`/`maxRecords`/`maxAgeDays`, default off; single `schemaVersion:1` stamp), `debug` (opt-in debug log: `enabled`/`path`, default off - see Observability), `orientation` (opt-in auto-attach of a repo bundle to file-blind providers: `enabled`/`maxFiles`, default off - see Key Design Decisions #8). Carries a `$schema` key for editor validation. Canonical XDG path (Windows: `%APPDATA%\deliberation\config.json`); override with `DELIBERATION_CONFIG` |
+| `~/.config/deliberation/config.json` | Unified user config | Live SSOT; stat-gated hot-reload. Sections: `providers` (connection), `models` (named records map keyed by id), `routing` (fan-out), `consensus` (`arbiter` + `blindVote` + `maxRounds`: the loop cap, default 5, clamped to 50; `maxWallMs`: the provider-arbiter wall-time budget, default 1200000 ms), `sessions` (opt-in run persistence: `persist`/`maxRecords`/`maxAgeDays`, default off; single `schemaVersion:1` stamp), `debug` (opt-in debug log: `enabled`/`path`, default off - see Observability), `orientation` (opt-in auto-attach of a repo bundle to file-blind providers: `enabled`/`maxFiles`, default off - see Key Design Decisions #8). Carries a `$schema` key for editor validation. Canonical XDG path (Windows: `%APPDATA%\deliberation\config.json`); override with `DELIBERATION_CONFIG` |
 
 > Expert prompts adapted from [oh-my-opencode](https://github.com/code-yeongyu/oh-my-opencode)
 

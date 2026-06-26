@@ -63,7 +63,7 @@ Minimal example:
     }
   },
   "routing": { "maxFanout": 3 },
-  "consensus": { "arbiter": { "model": "claude-arb" }, "blindVote": true, "maxRounds": 5 },
+  "consensus": { "arbiter": { "model": "claude-arb" }, "blindVote": true, "maxRounds": 5, "maxWallMs": 1200000 },
   "sessions": { "persist": false, "maxRecords": 200, "maxAgeDays": 30 },
   "debug": { "enabled": false }
 }
@@ -91,7 +91,11 @@ a shorthand string (`"auto"` / `"host"` / `"codex"` / `"gemini"` / `"grok"`) or
 (boolean, default `false`) runs the arbiter cold in parallel with the panel to reduce
 anchoring - concrete-arbiter / non-host mode only. `consensus.maxRounds` (integer, default
 `5`, clamped to `50`) caps the multi-round convergence loop used by the `consensus` /
-`consensus-step` tools (a per-call `maxRounds` overrides it). Implementation tasks always route to Codex or Gemini - never OpenRouter.
+`consensus-step` tools (a per-call `maxRounds` overrides it). `consensus.maxWallMs` (integer
+ms, default `1200000` = 20 min) sets a global wall-time budget for the server-side
+provider-arbiter loop (`consensus` tool only); when spent, the loop stops before the next
+round and returns UNRESOLVED with `stopReason: "budget-exhausted"` - it never aborts an
+in-flight call. Implementation tasks always route to Codex or Gemini - never OpenRouter.
 
 For the full schema, the `$schema` / VS Code validation story, apiBase override matrix
 (Ollama, vLLM, LM Studio, HuggingFace), file-attachment caps, session model persistence,

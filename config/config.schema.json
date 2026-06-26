@@ -91,6 +91,12 @@
           "maximum": 50,
           "default": 5,
           "description": "Maximum rounds for the server-side convergence loop (consensus-auto / consensus-step) before returning UNRESOLVED. Positive integer 1-50 (values above 50 are clamped to 50); defaults to 5 when unset or invalid."
+        },
+        "maxWallMs": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1200000,
+          "description": "Global wall-time budget (ms) for the server-side provider-arbiter convergence loop (the `consensus` tool). When the budget is spent the loop stops BEFORE starting the next round and returns UNRESOLVED with stopReason \"budget-exhausted\"; it never aborts an in-flight provider call. Does not apply to the host-driven /consensus (consensus-step) path. Default 1200000 (20 min)."
         }
       }
     },

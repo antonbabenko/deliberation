@@ -729,7 +729,8 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       const maxRounds = Number.isInteger(maxRoundsOverride) && /** @type {number} */ (maxRoundsOverride) > 0
         ? maxRoundsOverride
         : (Number.isInteger(cc.maxRounds) && cc.maxRounds > 0 ? cc.maxRounds : undefined);
-      const out = await runToConvergence(peers, withPersona(req, expert), { arbiter: arbiterP, maxRounds, logger: currentLogger(), orientationFiles: orient(req) });
+      const maxWallMs = Number.isInteger(cc.maxWallMs) && cc.maxWallMs > 0 ? cc.maxWallMs : undefined;
+      const out = await runToConvergence(peers, withPersona(req, expert), { arbiter: arbiterP, maxRounds, maxWallMs, logger: currentLogger(), orientationFiles: orient(req) });
       const allWarnings = out.error ? warnings.concat([`loop: ${out.error}`]) : warnings;
       const rounds = Array.isArray(out.rounds) ? out.rounds.length : 0;
       const arbiter = { mode: "server", provider: arbiterP.name };
