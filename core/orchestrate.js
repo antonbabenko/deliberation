@@ -305,12 +305,17 @@ function okText(/** @type {any} */ res) {
  * revision keeps the current plan.
  * @param {Provider[]} providers  peer panel
  * @param {DelegationRequest} req  `prompt` is the initial plan
- * @param {{arbiter?:Provider, maxRounds?:number, logger?:Logger, orientationFiles?:import("./types.js").FileRef[]}} [opts]
- * @returns {Promise<{converged:boolean, verdict:(string|null), confidence:string, finalReport?:string, rounds:any[], opinions:any[], error?:string}>}
+ * @param {{arbiter?:Provider, maxRounds?:number, maxWallMs?:number, now?:()=>number, logger?:Logger, orientationFiles?:import("./types.js").FileRef[]}} [opts]
+ * @returns {Promise<{converged:boolean, verdict:(string|null), confidence:string, finalReport?:string, rounds:any[], opinions:any[], error?:string, stopReason?:string}>}
  */
 async function runToConvergence(providers, req, opts = {}) {
   const arbiter = opts.arbiter;
   const logger = opts.logger || NULL_LOGGER;
+  const now = typeof opts.now === "function" ? opts.now : Date.now;
+  const maxWallMs = typeof opts.maxWallMs === "number" && opts.maxWallMs > 0 ? opts.maxWallMs : null;
+  const startedAt = now();
+  /** @type {(string|null)} */
+  let stopReason = null;
   if (!arbiter) return { converged: false, verdict: null, confidence: "none", rounds: [], opinions: [], error: "no-arbiter" };
 
   let state = loop.initConsensusLoop({
@@ -327,6 +332,9 @@ async function runToConvergence(providers, req, opts = {}) {
   // failure-isolated. Return a structured error with whatever we have so far.
   try {
     while (state.status !== "converged" && state.status !== "unresolved") {
+      // Budget gates STARTING a round; it never interrupts the in-flight fan-out
+      // below, so a legitimately slow peer answer is always collected in full.
+      if (maxWallMs !== null && now() - startedAt >= maxWallMs) { stopReason = "budget-exhausted"; break; }
       const { peerPrompt, blindPrompt } = loop.prepareRound(state);
       // Blind pass runs concurrently with the peer fan-out; isolate its failure.
       const roundNo = state.round;
@@ -422,6 +430,7 @@ async function runToConvergence(providers, req, opts = {}) {
     finalReport,
     rounds: state.history,
     opinions: lastResults,
+    ...(stopReason ? { stopReason } : {}),
   };
 }
 

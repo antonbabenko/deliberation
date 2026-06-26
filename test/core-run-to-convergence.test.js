@@ -186,3 +186,18 @@ test("RC12: all peers APPROVE but arbiter blocks -> serial revision runs (the !p
   assert.equal(out.rounds.length, 2);
   assert.ok(arbPrompts.some((p) => p.includes("REVISE")), "serial revision should run when all peers approve but the arbiter blocks");
 });
+
+test("RC-budget: a spent wall-time budget stops the loop before the next round (no in-flight abort)", async () => {
+  // Persistent dissent would otherwise run all 5 rounds.
+  const peers = [stub("gpt", () => "**Verdict**: REQUEST_CHANGES\n- [ops] no rollback")];
+  const arb = stub("arb", (p) => (p.includes("ADJUDICATE") ? "**Verdict**: REQUEST_CHANGES" : p.includes("REVISE") ? "still not enough" : "**Verdict**: REQUEST_CHANGES"));
+  // Clock: startedAt=0, round-1 top-check=0 (under budget -> round runs),
+  // round-2 top-check=100000 (over the 5000 budget -> stop).
+  const times = [0, 0, 100000];
+  let i = 0;
+  const now = () => times[Math.min(i++, times.length - 1)];
+  const out = await runToConvergence(peers, REQ, { arbiter: arb, maxRounds: 5, maxWallMs: 5000, now });
+  assert.equal(out.converged, false);
+  assert.equal(out.stopReason, "budget-exhausted");
+  assert.equal(out.rounds.length, 1); // only round 1 ran, not 5
+});
