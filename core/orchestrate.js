@@ -81,8 +81,17 @@ async function callProvider(provider, req, logger, tool, cache, orientationFiles
   const started = Date.now();
   /** @type {DelegationResult} */
   let r;
+  // One ask attempt, cloning files so a provider cannot mutate the caller's refs.
+  const askOnce = () => provider.ask({ ...req, files: req.files ? req.files.map((f) => ({ ...f })) : undefined });
   try {
-    r = await provider.ask({ ...req, files: req.files ? req.files.map((f) => ({ ...f })) : undefined });
+    r = await askOnce();
+    // Consume `retryable` for the ONE safe case: a pre-response transport failure
+    // (errorKind "network" == connect/DNS/socket error before any bytes). Retry it
+    // exactly once. NEVER retry timeout (may have burned tokens / risks the
+    // slow-but-good case), rate-limit (same limit), or auth/config (won't self-heal).
+    if (r.isError && r.errorKind === "network") {
+      r = await askOnce();
+    }
   } catch (e) {
     // A provider that REJECTS (rather than returning an error envelope) must not
     // break the call OR vanish from the log. Synthesize + log a uniform error -

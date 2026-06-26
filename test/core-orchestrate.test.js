@@ -3,6 +3,7 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { askAll, askOne, consensus, buildArbiterPrompt, buildAdjudicationPrompt, runToConvergence } = require("../core/orchestrate.js");
+const { askOne: askOneT } = require("../core/orchestrate.js");
 /** @typedef {import("../core/types.js").Provider} Provider */
 
 /** @param {string} name @param {string} [behavior] @returns {Provider} */
@@ -278,4 +279,49 @@ test("ORX9: runToConvergence adjudication/revision passes are NOT oriented (only
   const adjudication = calls.find((c) => c.kind === "adjudication");
   assert.deepEqual(blind.files, BUNDLE, "blind pass (cold question) is oriented");
   assert.equal(adjudication.files, undefined, "adjudication pass (peer text) is NOT oriented");
+});
+
+/** Provider whose ask() returns a scripted sequence of results, counting calls.
+ * @param {string} name
+ * @param {any[]} sequence
+ * @returns {any}
+ */
+function scriptedProvider(name, sequence) {
+  let i = 0;
+  const p = {
+    name,
+    calls: 0,
+    capabilities: { canImplement: false, fileUpload: false, multiTurn: false },
+    async health() { return { ok: true }; },
+    async ask() { p.calls++; return sequence[Math.min(i++, sequence.length - 1)]; },
+  };
+  return p;
+}
+/** @param {string} kind @returns {any} */
+const ERR = (kind) => ({ provider: "p", model: "m", isError: true, errorKind: kind, retryable: true, ms: 1 });
+/** @returns {any} */
+const OK = () => ({ provider: "p", model: "m", isError: false, text: "ok", ms: 1 });
+
+test("ORX-retry-1: a network error retries once and the retry's success is returned", async () => {
+  const p = scriptedProvider("p", [ERR("network"), OK()]);
+  const r = await askOneT(p, { prompt: "x" });
+  assert.equal(r.isError, false);
+  assert.equal(r.text, "ok");
+  assert.equal(p.calls, 2);
+});
+
+test("ORX-retry-2: a timeout error is NOT retried (slow/non-idempotent guard)", async () => {
+  const p = scriptedProvider("p", [ERR("timeout"), OK()]);
+  const r = await askOneT(p, { prompt: "x" });
+  assert.equal(r.isError, true);
+  assert.equal(r.errorKind, "timeout");
+  assert.equal(p.calls, 1);
+});
+
+test("ORX-retry-3: two consecutive network errors retry exactly once (no third call)", async () => {
+  const p = scriptedProvider("p", [ERR("network"), ERR("network"), OK()]);
+  const r = await askOneT(p, { prompt: "x" });
+  assert.equal(r.isError, true);
+  assert.equal(r.errorKind, "network");
+  assert.equal(p.calls, 2);
 });
