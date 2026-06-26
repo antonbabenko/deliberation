@@ -189,3 +189,27 @@ test("CA15: a per-call maxRounds above the cap is clamped to 50", async () => {
   assert.equal(payload.converged, false);
   assert.equal(payload.rounds, 50);
 });
+
+function timeoutVoter(name) {
+  return {
+    name,
+    capabilities: { canImplement: false, fileUpload: false, multiTurn: false },
+    async health() { return { ok: true }; },
+    /** @param {{prompt:string}} _req @returns {Promise<any>} */
+    async ask(_req) {
+      return { provider: name, model: "m", isError: true, errorKind: "timeout", text: "", ms: 1 };
+    },
+  };
+}
+
+test("CA16: stopReason is surfaced in the tool payload when the loop circuit-breaks", async () => {
+  // Both peers/arbiter always timeout → after CIRCUIT_BREAK_AFTER=2 rounds the peer
+  // panel is empty → loop breaks with stopReason:"all-providers-circuit-broken".
+  // Before the I1 fix, stopReason was absent from the payload entirely.
+  const srv = buildServer({
+    providers: [timeoutVoter("codex"), timeoutVoter("grok")],
+    getConfig: () => cfg({ maxRounds: 10 }),
+  });
+  const payload = await callTool(srv, "consensus", { prompt: "q" }, 21);
+  assert.equal(payload.stopReason, "all-providers-circuit-broken");
+});

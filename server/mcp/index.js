@@ -743,6 +743,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         arbiter,
         warnings: allWarnings,
         error: out.error,
+        stopReason: out.stopReason,
       };
       // parts drives persistence (only on a real run). blindVerdict is per-round in
       // the loop, so the final record stores null (the verdict + opinions are the
@@ -811,6 +812,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         arbiter: p.arbiter, warnings: p.warnings,
         converged: p.converged, confidence: p.confidence, rounds: p.rounds,
         synthesizeAlways: false, error: p.error == null ? null : p.error,
+        stopReason: p.stopReason,
       };
       if (!parts) return { payload: envelope, parts: null }; // error path - do not persist
       return { payload: envelope, parts: { ...parts, synthesis: null, synthesizeAlways: false } };

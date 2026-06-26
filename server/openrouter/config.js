@@ -19,6 +19,11 @@ const DEFAULT_ARBITER = "auto";
 // (multiple paid provider calls), so an unbounded value is a cost/runaway vector.
 // An over-cap config value is clamped to this (with a warning), not dropped.
 const MAX_ROUNDS_CAP = 50;
+// Default wall-clock budget (ms) for the consensus loop. Absent or invalid config
+// values fall back to this constant so the 20-min cap is enforced even for configs
+// that pre-date the feature. A present-but-invalid value degrades to the default
+// WITH a warning (unlike maxRounds which omits when invalid, here we always emit).
+const DEFAULT_CONSENSUS_MAX_WALL_MS = 1200000;
 // sessions block defaults (opt-in store; default OFF).
 const DEFAULT_SESSIONS_MAX_RECORDS = 200;
 const DEFAULT_SESSIONS_MAX_AGE_DAYS = 30;
@@ -348,7 +353,7 @@ function resolveConsensus(rawConsensus, models) {
     // The user DID set consensus (just malformed) -> degrade to auto but treat as
     // explicit (arbiterDefaulted:false), so host auto-detect does not override it.
     warnings.push(`consensus must be an object (got ${JSON.stringify(rawConsensus)}); using "${DEFAULT_ARBITER}"`);
-    return { consensus: { arbiter: DEFAULT_ARBITER, arbiterDefaulted: false, blindVote: false }, warnings };
+    return { consensus: { arbiter: DEFAULT_ARBITER, arbiterDefaulted: false, blindVote: false, maxWallMs: DEFAULT_CONSENSUS_MAX_WALL_MS }, warnings };
   }
   const block = isObject(rawConsensus) ? rawConsensus : {};
 
@@ -379,13 +384,26 @@ function resolveConsensus(rawConsensus, models) {
     }
   }
 
+  // maxWallMs: optional positive-integer wall-clock budget (ms) for the loop. A
+  // present-but-invalid value falls back to DEFAULT_CONSENSUS_MAX_WALL_MS with a
+  // warning (unlike maxRounds which is omitted on invalid; here the default always
+  // applies so the documented 20-min cap holds even for pre-feature configs).
+  let maxWallMs = DEFAULT_CONSENSUS_MAX_WALL_MS;
+  if (block.maxWallMs !== undefined) {
+    if (Number.isInteger(block.maxWallMs) && block.maxWallMs > 0) {
+      maxWallMs = block.maxWallMs;
+    } else {
+      warnings.push(`consensus.maxWallMs must be a positive integer (got ${JSON.stringify(block.maxWallMs)}); using ${DEFAULT_CONSENSUS_MAX_WALL_MS}`);
+    }
+  }
+
   // arbiterDefaulted=true ONLY when the user did not set an arbiter at all, so the
   // server can pick host (under Claude Code) vs auto (elsewhere). An explicit but
   // invalid arbiter degrades to auto with arbiterDefaulted=false (the user did choose).
   const wrap = (/** @type {any} */ arbiter, /** @type {boolean} */ arbiterDefaulted) => ({
     consensus: maxRounds === undefined
-      ? { arbiter, arbiterDefaulted, blindVote }
-      : { arbiter, arbiterDefaulted, blindVote, maxRounds },
+      ? { arbiter, arbiterDefaulted, blindVote, maxWallMs }
+      : { arbiter, arbiterDefaulted, blindVote, maxRounds, maxWallMs },
     warnings,
   });
 
@@ -437,7 +455,7 @@ function makeConfigReader(filePath) {
     try {
       text = fs.readFileSync(filePath, "utf8");
     } catch (_) {
-      return { ok: true, error: null, resolved: { version: 1, providers: {}, openrouter: disabledOpenRouter(), consensus: { arbiter: DEFAULT_ARBITER, arbiterDefaulted: true, blindVote: false }, sessions: { persist: false, maxRecords: DEFAULT_SESSIONS_MAX_RECORDS, maxAgeDays: DEFAULT_SESSIONS_MAX_AGE_DAYS, captureText: false }, consensusWarnings: [] } };
+      return { ok: true, error: null, resolved: { version: 1, providers: {}, openrouter: disabledOpenRouter(), consensus: { arbiter: DEFAULT_ARBITER, arbiterDefaulted: true, blindVote: false, maxWallMs: DEFAULT_CONSENSUS_MAX_WALL_MS }, sessions: { persist: false, maxRecords: DEFAULT_SESSIONS_MAX_RECORDS, maxAgeDays: DEFAULT_SESSIONS_MAX_AGE_DAYS, captureText: false }, consensusWarnings: [] } };
     }
     let parsed;
     try {
