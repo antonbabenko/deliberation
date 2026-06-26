@@ -69,3 +69,30 @@ test("CX4: a non-zero exit surfaces stdout in .message (diagnostic detail not lo
   assert.equal("text" in r, false); // error results carry no text key
   assert.equal(/** @type {any} */ (r).message, "diagnostic detail from codex");
 });
+
+const { makeCodexProvider: mkCx, CODEX_DEFAULT_TIMEOUT_MS } = require("../core/providers/codex.js");
+
+test("CX-timeout-1: ask passes the default timeout to run when the request carries none", async () => {
+  let seen;
+  const run = async (/** @type {any} */ a) => { seen = a.timeoutMs; return { code: 0, stdout: "ok", stderr: "" }; };
+  await mkCx({ run }).ask({ prompt: "x" });
+  assert.equal(seen, CODEX_DEFAULT_TIMEOUT_MS);
+  assert.equal(CODEX_DEFAULT_TIMEOUT_MS, 600000);
+});
+
+test("CX-timeout-2: an explicit req.timeoutMs overrides the default", async () => {
+  let seen;
+  const run = async (/** @type {any} */ a) => { seen = a.timeoutMs; return { code: 0, stdout: "ok", stderr: "" }; };
+  await mkCx({ run }).ask({ prompt: "x", timeoutMs: 12345 });
+  assert.equal(seen, 12345);
+});
+
+test("CX-timeout-3: a construction-time opts.timeoutMs is used when the request carries none, and req still wins", async () => {
+  let seen;
+  const run = async (/** @type {any} */ a) => { seen = a.timeoutMs; return { code: 0, stdout: "ok", stderr: "" }; };
+  const p = mkCx({ run, timeoutMs: 77000 });
+  await p.ask({ prompt: "x" });
+  assert.equal(seen, 77000);
+  await p.ask({ prompt: "x", timeoutMs: 5000 });
+  assert.equal(seen, 5000);
+});
