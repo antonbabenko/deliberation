@@ -10,6 +10,10 @@ const { NULL_LOGGER } = require("./debug-log.js");
 
 /** @typedef {import("./debug-log.js").Logger} Logger */
 
+// Drop a peer from the panel after this many CONSECUTIVE rounds of timeout, so one
+// chronically-slow model cannot add its full per-call ceiling to every round.
+const CIRCUIT_BREAK_AFTER = 2;
+
 /**
  * Emit one `provider_result` debug event for a settled call. Never throws.
  * @param {Logger} logger
@@ -81,8 +85,17 @@ async function callProvider(provider, req, logger, tool, cache, orientationFiles
   const started = Date.now();
   /** @type {DelegationResult} */
   let r;
+  // One ask attempt, cloning files so a provider cannot mutate the caller's refs.
+  const askOnce = () => provider.ask({ ...req, files: req.files ? req.files.map((f) => ({ ...f })) : undefined });
   try {
-    r = await provider.ask({ ...req, files: req.files ? req.files.map((f) => ({ ...f })) : undefined });
+    r = await askOnce();
+    // Consume `retryable` for the ONE safe case: a pre-response transport failure
+    // (errorKind "network" == connect/DNS/socket error before any bytes). Retry it
+    // exactly once. NEVER retry timeout (may have burned tokens / risks the
+    // slow-but-good case), rate-limit (same limit), or auth/config (won't self-heal).
+    if (r.isError && r.errorKind === "network") {
+      r = await askOnce();
+    }
   } catch (e) {
     // A provider that REJECTS (rather than returning an error envelope) must not
     // break the call OR vanish from the log. Synthesize + log a uniform error -
@@ -296,12 +309,20 @@ function okText(/** @type {any} */ res) {
  * revision keeps the current plan.
  * @param {Provider[]} providers  peer panel
  * @param {DelegationRequest} req  `prompt` is the initial plan
- * @param {{arbiter?:Provider, maxRounds?:number, logger?:Logger, orientationFiles?:import("./types.js").FileRef[]}} [opts]
- * @returns {Promise<{converged:boolean, verdict:(string|null), confidence:string, finalReport?:string, rounds:any[], opinions:any[], error?:string}>}
+ * @param {{arbiter?:Provider, maxRounds?:number, maxWallMs?:number, now?:()=>number, logger?:Logger, orientationFiles?:import("./types.js").FileRef[]}} [opts]
+ * @returns {Promise<{converged:boolean, verdict:(string|null), confidence:string, finalReport?:string, rounds:any[], opinions:any[], error?:string, stopReason?:string}>}
  */
 async function runToConvergence(providers, req, opts = {}) {
   const arbiter = opts.arbiter;
   const logger = opts.logger || NULL_LOGGER;
+  const now = typeof opts.now === "function" ? opts.now : Date.now;
+  const maxWallMs = typeof opts.maxWallMs === "number" && opts.maxWallMs > 0 ? opts.maxWallMs : null;
+  const startedAt = now();
+  /** @type {(string|null)} */
+  let stopReason = null;
+  let activeProviders = providers;
+  /** @type {Map<string, number>} consecutive-timeout streak per provider name */
+  const timeoutStreak = new Map();
   if (!arbiter) return { converged: false, verdict: null, confidence: "none", rounds: [], opinions: [], error: "no-arbiter" };
 
   let state = loop.initConsensusLoop({
@@ -318,12 +339,16 @@ async function runToConvergence(providers, req, opts = {}) {
   // failure-isolated. Return a structured error with whatever we have so far.
   try {
     while (state.status !== "converged" && state.status !== "unresolved") {
+      // Budget gates STARTING a round; it never interrupts the in-flight fan-out
+      // below, so a legitimately slow peer answer is always collected in full.
+      if (maxWallMs !== null && now() - startedAt >= maxWallMs) { stopReason = "budget-exhausted"; break; }
+      if (!activeProviders.length) { stopReason = "all-providers-circuit-broken"; break; }
       const { peerPrompt, blindPrompt } = loop.prepareRound(state);
       // Blind pass runs concurrently with the peer fan-out; isolate its failure.
       const roundNo = state.round;
       const [blindRes, peerResults] = await Promise.all([
         Promise.resolve().then(() => arbiter.ask(withOrientation(arbiter, { ...req, prompt: blindPrompt }, opts.orientationFiles))).then((r) => r, () => null),
-        askAll(providers, { ...req, prompt: peerPrompt }, { logger, tool: "consensus", orientationFiles: opts.orientationFiles }),
+        askAll(activeProviders, { ...req, prompt: peerPrompt }, { logger, tool: "consensus", orientationFiles: opts.orientationFiles }),
       ]);
       state = loop.recordBlindVerdict(state, okText(blindRes) || "(blind pass unavailable)");
 
@@ -334,6 +359,14 @@ async function runToConvergence(providers, req, opts = {}) {
           : { ...parseReview(typeof r.text === "string" ? r.text : ""), source: r.provider, isError: false, ms: r.ms }
       );
       state = loop.addOpinions(state, lastResults);
+
+      // Update per-peer timeout streaks from THIS round, then trim the panel for the
+      // next round. A non-timeout result (success or any other error) resets the streak.
+      for (const rr of lastResults) {
+        if (rr.isError && rr.errorKind === "timeout") timeoutStreak.set(rr.source, (timeoutStreak.get(rr.source) || 0) + 1);
+        else timeoutStreak.set(rr.source, 0);
+      }
+      activeProviders = providers.filter((p) => (timeoutStreak.get(p.name) || 0) < CIRCUIT_BREAK_AFTER);
 
       // Peer dissent => this round CANNOT converge (checkConvergence requires every
       // responding peer to APPROVE), so the revision is GUARANTEED needed: overlap it
@@ -413,6 +446,7 @@ async function runToConvergence(providers, req, opts = {}) {
     finalReport,
     rounds: state.history,
     opinions: lastResults,
+    ...(stopReason ? { stopReason } : {}),
   };
 }
 

@@ -43,7 +43,8 @@
   "consensus": {
     "arbiter": "auto",
     "blindVote": false,
-    "maxRounds": 5
+    "maxRounds": 5,
+    "maxWallMs": 1200000
   },
   "sessions": {
     "persist": false,

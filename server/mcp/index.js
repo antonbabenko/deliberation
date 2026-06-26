@@ -729,7 +729,8 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       const maxRounds = Number.isInteger(maxRoundsOverride) && /** @type {number} */ (maxRoundsOverride) > 0
         ? maxRoundsOverride
         : (Number.isInteger(cc.maxRounds) && cc.maxRounds > 0 ? cc.maxRounds : undefined);
-      const out = await runToConvergence(peers, withPersona(req, expert), { arbiter: arbiterP, maxRounds, logger: currentLogger(), orientationFiles: orient(req) });
+      const maxWallMs = Number.isInteger(cc.maxWallMs) && cc.maxWallMs > 0 ? cc.maxWallMs : undefined;
+      const out = await runToConvergence(peers, withPersona(req, expert), { arbiter: arbiterP, maxRounds, maxWallMs, logger: currentLogger(), orientationFiles: orient(req) });
       const allWarnings = out.error ? warnings.concat([`loop: ${out.error}`]) : warnings;
       const rounds = Array.isArray(out.rounds) ? out.rounds.length : 0;
       const arbiter = { mode: "server", provider: arbiterP.name };
@@ -742,6 +743,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         arbiter,
         warnings: allWarnings,
         error: out.error,
+        stopReason: out.stopReason,
       };
       // parts drives persistence (only on a real run). blindVerdict is per-round in
       // the loop, so the final record stores null (the verdict + opinions are the
@@ -810,6 +812,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         arbiter: p.arbiter, warnings: p.warnings,
         converged: p.converged, confidence: p.confidence, rounds: p.rounds,
         synthesizeAlways: false, error: p.error == null ? null : p.error,
+        stopReason: p.stopReason,
       };
       if (!parts) return { payload: envelope, parts: null }; // error path - do not persist
       return { payload: envelope, parts: { ...parts, synthesis: null, synthesizeAlways: false } };

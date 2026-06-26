@@ -245,6 +245,16 @@ that file by default (the Codex analog of `GEMINI_DEFAULT_MODEL` /
 `claude mcp add ... deliberation-codex` registration, or per call with the `model` parameter of
 `mcp__deliberation-codex__codex(...)`. See [SETUP.md](SETUP.md#openrouter-config).
 
+**Codex per-call timeout.** The `core` Codex provider caps each `codex exec` invocation to
+`CODEX_DEFAULT_TIMEOUT_MS` (600 000 ms, 10 min) by default. This prevents a stalled Codex
+process from blocking a consensus round indefinitely. A per-call `timeout` override is not
+currently exposed through the MCP tool surface; the constant is the global ceiling.
+
+**`callProvider` retry.** `callProvider` in `core/orchestrate.js` retries once on a `network`
+error (a pre-response transport failure - connection refused, DNS failure, socket hang-up) and
+does NOT retry on a provider timeout or application-level error. This is a single retry, not a
+retry loop.
+
 ## Observability + per-provider progress
 
 These are server-side on the unified `deliberation` server, so every MCP host gets them -
@@ -696,6 +706,21 @@ The loop ends `unresolved` once it hits the cap without converging.
   a single arbiter pass and is unaffected.
 - Validation lives in `resolveConsensus` (`server/openrouter/config.js`); the cap is
   enforced in `core/consensus-loop.js`.
+
+### consensus.maxWallMs
+
+`consensus.maxWallMs` is an optional positive integer (default `1200000`, 20 min) that sets
+the global wall-time budget (ms) for the server-side provider-arbiter convergence loop (the
+`consensus` tool). When the budget is spent the loop stops BEFORE starting the next round and
+returns UNRESOLVED with `stopReason: "budget-exhausted"`; it never aborts an in-flight
+provider call. Does not apply to the host-driven `/consensus` (`consensus-step`) path.
+
+- **Default.** `1200000` (20 min). A non-integer or non-positive value is ignored (no budget
+  is applied) without failing the config.
+- **Scope.** Provider-arbiter `consensus` tool only. The host-driven `consensus-step` path
+  has no server-side wall clock; the host controls timing there.
+- The budget is forwarded to `runToConvergence` as `opts.maxWallMs` and checked in
+  `core/consensus-loop.js` at the start of each round (`now() - startedAt >= maxWallMs`).
 
 ### camelCase config keys, wire mapping
 
