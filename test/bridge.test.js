@@ -156,6 +156,43 @@ test("O3: stderr failure -> isError, stderr wins over stdout banner", async () =
   assert.ok(!text.includes("agy config banner"), "stdout banner not surfaced");
 });
 
+test("O4: channel-noise stdout -> parse error instead of leaking commentary", async () => {
+  const child = startBridge({
+    fakeBin: "fake-agy-channel.sh",
+    env: { FAKE_AGY_STDOUT: '<|channel|>commentary<|message|>{"query":"includeHidden","toolAction":"Searching web"}\n' },
+  });
+  const responsesP = collectResponses(child);
+  send(child, { jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+  send(child, {
+    jsonrpc: "2.0", id: 2, method: "tools/call",
+    params: { name: "gemini", arguments: { prompt: "hi" } },
+  });
+  setTimeout(() => child.stdin.end(), 1500);
+  const responses = await responsesP;
+  const r = responses.find((x) => x.id === 2);
+  assert.equal(r.result.isError, true, "isError");
+  assert.equal(r.result.errorKind, "parse", "channel-noise should classify as parse");
+  assert.match(r.result.content[0].text, /without a final answer channel/i);
+});
+
+test("O5: mixed channel-noise before final -> final answer extracted", async () => {
+  const child = startBridge({
+    fakeBin: "fake-agy-channel.sh",
+    env: { FAKE_AGY_STDOUT: '<|channel|>commentary<|message|>{"toolAction":"Searching web"}\n<|channel|>final<|message|>{"content":[{"type":"text","text":"FINAL OK"}]}\n' },
+  });
+  const responsesP = collectResponses(child);
+  send(child, { jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+  send(child, {
+    jsonrpc: "2.0", id: 2, method: "tools/call",
+    params: { name: "gemini", arguments: { prompt: "hi" } },
+  });
+  setTimeout(() => child.stdin.end(), 1500);
+  const responses = await responsesP;
+  const r = responses.find((x) => x.id === 2);
+  assert.ok(!r.result.isError, "not an error: " + JSON.stringify(r.result));
+  assert.equal(r.result.content[0].text, "FINAL OK");
+});
+
 // --- timeout-recovery (stdout drain) ---
 
 test("R-A: drain completes -> recovered:true with final answer", async () => {
@@ -398,4 +435,18 @@ test("C4: resolveConversationId reads cwd->id map, returns null on miss", () => 
     if (prev === undefined) delete process.env.AGY_LAST_CONVERSATIONS;
     else process.env.AGY_LAST_CONVERSATIONS = prev;
   }
+});
+
+test("C5: normalizeGeminiStdout rejects analysis-only noise and malformed final payloads", () => {
+  const { normalizeGeminiStdout } = require("../server/gemini/index.js");
+
+  const analysisOnly = normalizeGeminiStdout("<|channel|>analysis<|message|>Reply with exactly PING_OK");
+  assert.equal(analysisOnly.ok, false);
+  assert.equal(analysisOnly.code, "parse");
+  assert.match(analysisOnly.message, /without a final answer channel/i);
+
+  const malformedFinal = normalizeGeminiStdout('<|channel|>final<|message|>{"content":[');
+  assert.equal(malformedFinal.ok, false);
+  assert.equal(malformedFinal.code, "parse");
+  assert.match(malformedFinal.message, /malformed final answer payload/i);
 });

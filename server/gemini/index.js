@@ -23,6 +23,9 @@ const DEFAULT_TIMEOUT_MS = 300_000; // 5 minutes (Gemini 3 deep prompts run 200-
 const DEFAULT_RECOVERY_GRACE_MS = 120_000; // extra drain budget after the soft timeout
 const MAX_MS = 600_000;
 const VALID_SANDBOX_VALUES = new Set(["read-only", "workspace-write"]);
+const READ_ONLY_ANTI_ESCALATION =
+  "You are in a strict READ-ONLY sandbox. Use ONLY read_file / list_directory / search_file_content. " +
+  "NEVER call escalate_admin or request elevated permissions; if a tool is denied, answer from what you can read.";
 
 // agy's --print-timeout takes a Go duration string ("420s"). Convert ms.
 function goDuration(ms) {
@@ -59,12 +62,119 @@ function isNonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0;
 }
 
+function normalizeReadOnlyPrefix(text, sandbox) {
+  const base = typeof text === "string" ? text.trim() : "";
+  if (sandbox === "workspace-write") return base;
+  const lower = base.toLowerCase();
+  const alreadyGuarded =
+    lower.includes("never call escalate_admin") ||
+    lower.includes("never request elevated permissions");
+  if (alreadyGuarded) return base;
+  return base ? `${READ_ONLY_ANTI_ESCALATION}\n\n${base}` : READ_ONLY_ANTI_ESCALATION;
+}
+
+function resolveIncludeDirectories(rawDirs, cwd) {
+  const resolved = [];
+  const seen = new Set();
+  for (const dir of rawDirs ?? []) {
+    const normalized = typeof dir === "string" ? dir.trim() : "";
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    resolved.push(normalized);
+  }
+  const normalizedCwd = typeof cwd === "string" ? cwd.trim() : "";
+  if (resolved.length === 0 && normalizedCwd && !seen.has(normalizedCwd)) {
+    resolved.push(normalizedCwd);
+  }
+  return resolved;
+}
+
 // agy reports failures as "Error: <msg>" on stdout at exit 0. Any stdout LINE
 // starting with "Error:" is a failure even when the process exits 0 - the
 // sentinel can arrive after streamed partial output, so match line-anchored
 // (multiline), not just at the very start of the buffer.
 function stdoutIsError(s) {
   return /^\s*Error:\s/m.test(s);
+}
+
+function extractTextPayload(value) {
+  if (typeof value === "string") return value.trim();
+  if (Array.isArray(value)) {
+    const joined = value.map(extractTextPayload).filter(Boolean).join("\n\n").trim();
+    return joined;
+  }
+  if (!value || typeof value !== "object") return "";
+  if (typeof value.text === "string") return value.text.trim();
+  if (typeof value.message === "string") return value.message.trim();
+  if (typeof value.content === "string") return value.content.trim();
+  if (Array.isArray(value.content)) {
+    const joined = value.content.map(extractTextPayload).filter(Boolean).join("\n\n").trim();
+    if (joined) return joined;
+  }
+  if (Array.isArray(value.parts)) {
+    const joined = value.parts.map(extractTextPayload).filter(Boolean).join("\n\n").trim();
+    if (joined) return joined;
+  }
+  return "";
+}
+
+function extractFinalChannelMessage(stdout) {
+  const markers = Array.from(stdout.matchAll(/<\|channel\|>([A-Za-z0-9_-]+)<\|message\|>/g));
+  if (markers.length === 0) {
+    return { ok: false, code: "parse", message: "Gemini returned channelized stdout without any parseable channel frames." };
+  }
+  const prefix = stdout.slice(0, markers[0].index).trim();
+  if (prefix) {
+    return { ok: false, code: "parse", message: "Gemini returned channelized stdout prefixed by non-channel noise." };
+  }
+
+  const frames = markers.map((match, idx) => {
+    const start = match.index + match[0].length;
+    const end = idx + 1 < markers.length ? markers[idx + 1].index : stdout.length;
+    return {
+      channel: String(match[1] || "").toLowerCase(),
+      payload: stdout.slice(start, end).trim(),
+    };
+  });
+
+  const finalFrame = [...frames].reverse().find((frame) => frame.channel === "final");
+  if (!finalFrame) {
+    return { ok: false, code: "parse", message: "Gemini returned channelized stdout without a final answer channel." };
+  }
+  if (!finalFrame.payload) {
+    return { ok: false, code: "parse", message: "Gemini returned an empty final answer payload." };
+  }
+
+  let text = "";
+  if (/^[\[{"]/.test(finalFrame.payload)) {
+    try {
+      text = extractTextPayload(JSON.parse(finalFrame.payload));
+    } catch (_) {
+      return { ok: false, code: "parse", message: "Gemini returned a malformed final answer payload." };
+    }
+  } else {
+    text = finalFrame.payload;
+  }
+
+  const normalized = String(text || "").trim();
+  if (!normalized) {
+    return { ok: false, code: "parse", message: "Gemini returned a final answer channel without readable text." };
+  }
+  return { ok: true, response: normalized };
+}
+
+function normalizeGeminiStdout(stdout) {
+  const out = String(stdout || "").trim();
+  if (!out) {
+    return { ok: false, code: "parse", message: "No output from agy" };
+  }
+  if (stdoutIsError(out)) {
+    return { ok: false, message: out };
+  }
+  if (!out.includes("<|channel|>")) {
+    return { ok: true, response: out };
+  }
+  return extractFinalChannelMessage(out);
 }
 
 // --- Error Classification ---
@@ -222,7 +332,8 @@ async function runGemini(args, cwd, timeoutMs, recoveryGraceMs) {
 
       const out = stdout.trim();
       const trimmedErr = stderr.trim();
-      const success = code === 0 && out && !stdoutIsError(out);
+      const normalized = normalizeGeminiStdout(out);
+      const success = code === 0 && normalized.ok;
 
       if (draining) {
         // Soft timeout already fired. Only a clean exit meeting the success
@@ -235,7 +346,7 @@ async function runGemini(args, cwd, timeoutMs, recoveryGraceMs) {
             "[claude-delegator] recovered agy answer via stdout drain after soft timeout (" +
             Math.round((Date.now() - spawnStartMs) / 1000) + "s)\n"
           );
-          return resolve({ response: out, threadId: resolveConversationId(effCwd) || "unknown", recovered: true });
+          return resolve({ response: normalized.response, threadId: resolveConversationId(effCwd) || "unknown", recovered: true });
         }
         return finishTimeout();
       }
@@ -251,22 +362,21 @@ async function runGemini(args, cwd, timeoutMs, recoveryGraceMs) {
             "; returning threadId:\"unknown\" (resume will be unavailable)\n"
           );
         }
-        return resolve({ response: out, threadId: threadId || "unknown" });
+        return resolve({ response: normalized.response, threadId: threadId || "unknown" });
       }
 
       // Failure. Prefer stderr so it is not masked by an stdout banner; then an
       // stdout Error: sentinel; then a generic message.
       let message;
       if (trimmedErr) message = trimmedErr;
-      else if (stdoutIsError(out)) message = out;
+      else if (!normalized.ok && normalized.message) message = normalized.message;
       else if (!out) message = `No output from agy`;
       else message = `agy exited with code ${code}`;
 
       const err = new Error(message);
       if (/timed out/i.test(message)) {
         err.code = "timeout";
-      } else if (!trimmedErr && !out) {
-        // Clean exit, nothing on either stream: empty/garbage output.
+      } else if (!normalized.ok && normalized.code === "parse") {
         err.code = "parse";
       }
       // Otherwise leave err.code undefined and let classifyGeminiError map the
@@ -396,10 +506,9 @@ const handlers = {
       if (args.sandbox === "workspace-write") sandboxFlags.push("--dangerously-skip-permissions");
       else sandboxFlags.push("--sandbox");
 
+      const includeDirectories = resolveIncludeDirectories(args["include-directories"], args.cwd);
       const addDirFlags = [];
-      if (args["include-directories"]) {
-        for (const dir of args["include-directories"]) addDirFlags.push("--add-dir", dir);
-      }
+      for (const dir of includeDirectories) addDirFlags.push("--add-dir", dir);
 
       if (name === "gemini") {
         // model is accepted + validated but never reaches argv (agy reads the
@@ -418,8 +527,9 @@ const handlers = {
         }
 
         agyArgs.push(...sandboxFlags, ...addDirFlags);
+        const developerInstructions = normalizeReadOnlyPrefix(args["developer-instructions"], args.sandbox);
         let prompt = args.prompt;
-        if (args["developer-instructions"]) prompt = `${args["developer-instructions"]}\n\n${prompt}`;
+        if (developerInstructions) prompt = `${developerInstructions}\n\n${prompt}`;
         agyArgs.push("-p", prompt);
       } else if (name === "gemini-reply") {
         if (!isNonEmptyString(args.threadId)) {
@@ -437,7 +547,7 @@ const handlers = {
         }
 
         agyArgs.push("--conversation", threadId, ...sandboxFlags, ...addDirFlags);
-        agyArgs.push("-p", args.prompt);
+        agyArgs.push("-p", normalizeReadOnlyPrefix(args.prompt, args.sandbox));
       } else {
         if (shouldRespond) sendError(id, -32601, `Tool not found: ${name}`);
         return;
@@ -533,4 +643,7 @@ if (typeof module !== "undefined" && module.exports) {
   module.exports.resolveConversationId = resolveConversationId;
   module.exports.goDuration = goDuration;
   module.exports.stdoutIsError = stdoutIsError;
+  module.exports.normalizeGeminiStdout = normalizeGeminiStdout;
+  module.exports.extractFinalChannelMessage = extractFinalChannelMessage;
+  module.exports.extractTextPayload = extractTextPayload;
 }
