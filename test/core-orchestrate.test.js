@@ -383,3 +383,28 @@ test("RT5: the rate-limit retry waits for Retry-After, clamped to 30s", async ()
   assert.ok(waited >= 50, `honored the hint (waited ${waited}ms)`);
   assert.ok(waited < 5000, `did not fall back to a long default (waited ${waited}ms)`);
 });
+
+test("RT6: a retried call logs BOTH attempts, so the retry does not erase the failure", async () => {
+  // Only the final result is logged at the end of callProvider, so without an explicit
+  // log of the failed first attempt a rate-limit that succeeds on retry would be
+  // invisible in debug.jsonl - the signal used to diagnose provider health.
+  /** @type {any[]} */
+  const events = [];
+  const logger = { logEvent: (/** @type {any} */ e) => events.push(e) };
+  const p = countingProvider([errResult({ errorKind: "rate-limit", retryAfterMs: 0 }), okResult]);
+  await askOne(p, { prompt: "x" }, { logger, tool: "ask-one" });
+  const rows = events.filter((e) => e.event === "provider_result");
+  assert.equal(rows.length, 2, "two provider_result rows for one retried call");
+  assert.equal(rows[0].isError, true);
+  assert.equal(rows[0].errorKind, "rate-limit");
+  assert.equal(rows[1].isError, false);
+});
+
+test("RT7: a call that does NOT retry still logs exactly one row", async () => {
+  /** @type {any[]} */
+  const events = [];
+  const logger = { logEvent: (/** @type {any} */ e) => events.push(e) };
+  const p = countingProvider([okResult]);
+  await askOne(p, { prompt: "x" }, { logger, tool: "ask-one" });
+  assert.equal(events.filter((e) => e.event === "provider_result").length, 1);
+});

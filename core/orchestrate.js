@@ -117,6 +117,11 @@ async function callProvider(provider, req, logger, tool, cache, orientationFiles
     // NEVER retry timeout (may have burned tokens / risks the slow-but-good case) or
     // auth/config (won't self-heal). One extra attempt, no exponential backoff.
     if (r.isError && RETRY_ONCE_KINDS.has(r.errorKind)) {
+      // Log the FAILED first attempt before retrying. Only the final result is logged
+      // below, so without this a retry that succeeds erases every trace of the
+      // rate-limit / stub - and the debug log is exactly how provider health is
+      // diagnosed. A retried call therefore emits two provider_result rows.
+      logProviderResult(logger, tool, r);
       if (r.errorKind === "rate-limit") await sleep(retryDelayMs(r));
       r = await askOnce();
     }
