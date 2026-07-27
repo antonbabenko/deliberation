@@ -83,7 +83,7 @@ jobs:
           if [ ! -s /tmp/notes.md ]; then echo "Release ${VERSION}" > /tmp/notes.md; fi
 
       - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.ver.outputs.tag }}
           name: ${{ steps.ver.outputs.tag }}
@@ -99,7 +99,7 @@ jobs:
       # @antonbabenko/deliberation-mcp linked to this repo + workflow.
       - name: Set up Node for publish
         if: steps.tag.outputs.created == 'true'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
