@@ -239,6 +239,7 @@ This is the single source of truth for the bridge environment variables.
 |----------|----------|---------|---------|
 | `GEMINI_DEFAULT_MODEL` | Gemini | `auto-gemini-3` | Default model when neither the call nor `providers.gemini.model` sets one |
 | `GEMINI_DISABLE_TIMEOUT_RECOVERY` | Gemini | unset | `1` forces legacy timeout (no drain) |
+| `GEMINI_MIN_ANSWER_CHARS` | Gemini | `80` | Minimum stdout length for a clean exit to count as an answer; shorter output fails as `empty` (see [Gemini answer floor](#gemini-answer-floor)). `0` disables the floor |
 | `AGY_BIN` | Gemini | `agy` | Override the path to the `agy` binary |
 | `AGY_LAST_CONVERSATIONS` | Gemini | `~/.gemini/antigravity-cli/cache/last_conversations.json` | Override the conversation-id map file (mainly for tests) |
 | `XAI_API_KEY` | Grok | unset (required) | xAI API key; missing key returns `missing-auth` |
@@ -246,6 +247,7 @@ This is the single source of truth for the bridge environment variables.
 | `XAI_API_BASE` | Grok | `https://api.x.ai/v1` | API endpoint override |
 | `GROK_REASONING_EFFORT` | Grok | `high` | `low`/`medium`/`high`; `none` or `off` omits the field. Overridden by `providers.grok.reasoningEffort` |
 | `GROK_FILE_TTL_SECONDS` | Grok | `604800` (7 days) | Upload lifetime, clamped 1h..30d |
+| `GROK_UPLOAD_TIMEOUT_MS` | Grok | `120000` | Ceiling for one Files API upload (separate from the answer timeout). `0` disables it |
 | `DELIBERATION_SESSIONS` | sessions | `<XDG cache>/deliberation/sessions` | Override the session store directory (see [Session persistence](#session-persistence)) |
 | `DELIBERATION_DEBUG_LOG` | debug | `<XDG cache>/deliberation/debug.jsonl` | Override the debug log path (see [Observability](#observability--per-provider-progress)); only written when `debug.enabled` |
 
@@ -257,14 +259,13 @@ that file by default (the Codex analog of `GEMINI_DEFAULT_MODEL` /
 `mcp__deliberation-codex__codex(...)`. See [SETUP.md](SETUP.md#openrouter-config).
 
 **Codex per-call timeout.** The `core` Codex provider caps each `codex exec` invocation to
-`CODEX_DEFAULT_TIMEOUT_MS` (600 000 ms, 10 min) by default. This prevents a stalled Codex
-process from blocking a consensus round indefinitely. A per-call `timeout` override is not
-currently exposed through the MCP tool surface; the constant is the global ceiling.
+`CODEX_DEFAULT_TIMEOUT_MS` (600 000 ms, 10 min) by default, so a stalled Codex process cannot
+block a consensus round indefinitely. Raise or lower it with `providers.codex.timeout` (or
+`providers.defaults.timeout`); a per-call `timeout` is not exposed through the MCP tool surface.
 
-**`callProvider` retry.** `callProvider` in `core/orchestrate.js` retries once on a `network`
-error (a pre-response transport failure - connection refused, DNS failure, socket hang-up) and
-does NOT retry on a provider timeout or application-level error. This is a single retry, not a
-retry loop.
+**Timeouts and retries.** See [Timeouts](#timeouts) for the full precedence ladder
+(`providers.defaults.timeout` is the one knob that covers every provider) and
+[Retries](#retries) for which error kinds are retried.
 
 ## Observability + per-provider progress
 
@@ -858,15 +859,92 @@ token count. There is no hard spend cap - the warning is informational only.
 | errorKind | Meaning |
 |-----------|---------|
 | `auth` | API key missing or rejected (HTTP 401/403) |
-| `rate-limit` | HTTP 429 from upstream |
-| `timeout` | Request exceeded the configured timeout |
+| `rate-limit` | HTTP 429 from upstream. Carries `retryAfterMs` when the response sent a `Retry-After` header |
+| `timeout` | Request exceeded the configured timeout (headers **and** body read are covered) |
 | `network` | Connection error or DNS failure |
+| `empty` | Provider exited clean but returned a stub instead of an answer (see the Gemini answer floor) |
 | `parse` | Response body could not be parsed |
 | `upstream` | Non-2xx from the endpoint (other than auth/rate-limit) |
 | `config` | Config file missing, invalid JSON, or schema violation |
 | `model-not-allowed` | Requested alias is not in the config, or a raw `model` was passed with `allowRawModel:false`, or no alias/model was given and no `defaultModel` is set |
 | `unknown-thread` | `-reply` called with a threadId that does not exist |
 | `unknown` | Catch-all for unclassified errors |
+
+### Retries
+
+`callProvider` (`core/orchestrate.js`) retries a failed call **exactly once**, and only
+for the kinds that actually self-heal:
+
+| errorKind | Retried | Pause before the retry |
+|-----------|---------|------------------------|
+| `network` | yes | none - a pre-response transport failure sent no bytes |
+| `rate-limit` | yes | the response's `Retry-After` (delta-seconds or HTTP-date), else 2s; clamped to 30s so a hostile hint cannot stall a fan-out |
+| `empty` | yes | none - a stub answer is cheap to redo |
+| everything else | no | - |
+
+`timeout` is deliberately **not** retried: the call may already have burned tokens, and
+a slow-but-good answer would be thrown away. `auth` / `config` / `parse` do not self-heal.
+There is no exponential backoff and no second retry.
+
+Independently, the consensus loop circuit-breaks a peer after 2 **consecutive** rounds of
+`timeout` (`CIRCUIT_BREAK_AFTER`), dropping it from later rounds so one chronically slow
+model cannot add its full ceiling to every round.
+
+### Timeouts
+
+Every provider call is bounded. The ceiling resolves highest-first:
+
+1. the request's own `timeoutMs`
+2. `models.<id>.timeout` for a pinned OpenRouter alias (merged into the request by `core/registry.js`)
+3. `providers.<name>.timeout` - for OpenRouter this is `providers.openrouter.defaults.timeout`
+4. `providers.defaults.timeout` - one knob for every provider
+5. the adapter's built-in default: codex 600000, gemini 300000, grok 180000, openrouter 180000
+
+Levels 3 and 4 are read once at MCP startup (constructor args, like `model` and
+`reasoningEffort`), so a change needs an MCP restart; the `models` map still hot-reloads.
+
+This applies to **both** entry points. The unified server reads the resolved value in its
+composition root; the standalone bridges that `/ask-grok`, `/ask-gemini`, and
+`/ask-openrouter` call read it themselves (`configuredTimeout()` in the Grok and Gemini
+bridges, the `pick` chain in the OpenRouter bridge). Wiring only the unified server would
+leave those three commands pinned to their built-ins.
+
+Two things the ceiling covers that are easy to get wrong:
+
+- **The response body, not just the headers.** Both HTTP bridges keep the `AbortController`
+  armed until `res.text()` resolves. A slow body is a timeout, not a `network` error. A
+  *non-abort* body failure on an OK status (a mid-stream socket drop, `TypeError:
+  terminated`) surfaces as `network` and is retried; swallowing it left an empty body that
+  then failed `JSON.parse` as the non-retryable `parse`. On an error status the body is
+  only diagnostic, so the status is kept and the body reported empty.
+- **A killed Codex child.** The kill timer is authoritative, so a SIGKILL'd `codex exec`
+  reports `timeout` even when it wrote nothing to stderr (stderr-substring classification
+  would otherwise call it `unknown` - and an `unknown` can never trip the circuit breaker).
+
+Grok's Files API upload is bounded separately by `GROK_UPLOAD_TIMEOUT_MS` (default 120000,
+`0` disables it) - an upload is a fixed-size transfer, not a model run.
+
+### Gemini answer floor
+
+`agy` sometimes exits 0 having printed only a preamble ("I will begin by finding the
+repository directory...") instead of an answer. Any non-empty stdout used to count as a
+full answer, so that stub reached the caller as a real opinion - and inside consensus it
+silently blocked convergence with no diagnostic (`parseReview` yields `verdict: null`).
+
+A clean exit whose trimmed stdout is shorter than `GEMINI_MIN_ANSWER_CHARS` (default 80)
+fails with `errorKind: "empty"`, which `callProvider` retries once. `0` disables the floor.
+
+The floor applies on **both** the clean-exit and the soft-timeout drain path. Exempting the
+drain would make validity timing-dependent - the same stub would fail when `agy` is fast and
+pass when it is slow. A sub-floor stub recovered after a soft timeout is not an answer
+either, so it falls through to the hard timeout.
+
+The default is calibrated to the observed failure: the preamble that motivated this is 51
+characters, so a floor much below 80 would not catch it. Answers that are legitimately
+terse are the tradeoff - lower the value, or set `0`, if your usage skews short.
+
+A character count is a proxy for "announced intent instead of answering" - the upgrade
+path is a structured-output check once `parseOpinion` is wired into the pipeline.
 
 ## Orientation auto-attach
 

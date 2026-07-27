@@ -2,7 +2,7 @@
 name: ask-grok
 description: Get Grok (xAI) second opinion on a question or current work. Single-shot, advisory, no contamination.
 allowed-tools: mcp__deliberation-grok__grok, Read, Bash
-timeout: 180000
+timeout: 660000
 ---
 
 # Ask Grok

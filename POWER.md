@@ -110,6 +110,15 @@ These apply to every MCP host, not just Claude Code:
   providers (Grok, OpenRouter) when they carry no files of their own. This gives them the
   same repo grounding that Codex and Gemini get by walking the filesystem. OFF by default;
   enable when file-blind providers underperform on repo-wide questions.
+- **Timeouts** - each provider ships its own ceiling (codex 600s, gemini 300s, grok 180s,
+  OpenRouter 180s). Raise them all with `"providers": { "defaults": { "timeout": 600000 } }`;
+  override one with `providers.<name>.timeout` (`providers.openrouter.defaults.timeout` for
+  OpenRouter), and a pinned model's `models.<id>.timeout` beats both. Read at server start,
+  so a change needs a restart. A result that errors with `errorKind: "timeout"` at almost
+  exactly the ceiling hit the limit rather than the model stalling.
+- **Retries** - a failed call is retried once, and only for `network`, `rate-limit` (waiting
+  for the upstream's `Retry-After`), and `empty` (a provider that exited clean but returned a
+  stub instead of an answer). `timeout` and auth/config errors are not retried.
 - **Debug log** - set `"debug": { "enabled": true }` in `config.json` to append one JSON
   line per provider call and per consensus round to `<XDG cache>/deliberation/debug.jsonl`
   (override with `DELIBERATION_DEBUG_LOG`). It records latency, reasoning effort, HTTP

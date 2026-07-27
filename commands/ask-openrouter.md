@@ -2,7 +2,7 @@
 name: ask-openrouter
 description: Ask a single configured OpenRouter model for a second opinion. Advisory only. Single-shot or multi-turn.
 allowed-tools: mcp__deliberation-openrouter__openrouter, mcp__deliberation-openrouter__openrouter-reply, mcp__deliberation-openrouter__openrouter-list, Read, Bash
-timeout: 300000
+timeout: 660000
 ---
 
 # Ask OpenRouter

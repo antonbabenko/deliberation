@@ -335,6 +335,40 @@ function stdoutIsError(s) {
   return /^\s*Error:\s/m.test(s);
 }
 
+// agy sometimes exits 0 having printed only a preamble ("I will begin by finding the
+// repository directory...") instead of an answer. Any non-empty stdout used to count as
+// a full answer, so that stub flowed downstream as a real opinion - and in consensus it
+// silently blocked convergence with no diagnostic. A length floor is the only signal
+// available here.
+// ponytail: char count is a proxy for "announced intent instead of answering"; upgrade
+// to a structured-output check once parseOpinion is wired into the pipeline.
+// providers.gemini.timeout, already merged with providers.defaults.timeout by the config
+// layer. Without this the standalone bridge (what /ask-gemini calls) would stay pinned to
+// the 300s built-in no matter what the config says. Lazy + fail-soft, mirroring the Grok
+// bridge: a broken config must never take the bridge down, only lose the pin.
+let _cfgReader = null;
+/** @returns {(number|undefined)} */
+function configuredTimeout() {
+  try {
+    if (!_cfgReader) {
+      const { makeConfigReader } = require("../openrouter/config.js");
+      _cfgReader = makeConfigReader(require("../../core/paths.js").resolveConfigPath());
+    }
+    const r = _cfgReader.get();
+    const t = r && r.resolved && r.resolved.providers && r.resolved.providers.gemini && r.resolved.providers.gemini.timeout;
+    return typeof t === "number" && t > 0 ? t : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+const DEFAULT_MIN_ANSWER_CHARS = 80;
+/** Minimum stdout length for a clean exit to count as an answer. 0 disables the floor. */
+function minAnswerChars() {
+  const raw = Number(process.env.GEMINI_MIN_ANSWER_CHARS);
+  return Number.isFinite(raw) && raw >= 0 ? raw : DEFAULT_MIN_ANSWER_CHARS;
+}
+
 // --- Error Classification ---
 
 // Pure helper: given a runGemini rejection's message and code, produce the
@@ -343,6 +377,7 @@ function classifyGeminiError(errMsg, errCode) {
   const msg = String(errMsg || "");
   const lower = msg.toLowerCase();
   if (errCode === "timeout") return { errorKind: "timeout", retryable: true };
+  if (errCode === "empty")   return { errorKind: "empty",   retryable: true };
   if (errCode === "parse")   return { errorKind: "parse",   retryable: false };
   if (msg.includes("(agy) not found")) return { errorKind: "missing-cli", retryable: false };
   if (lower.includes("aborterror") || lower.includes("aborted")) {
@@ -526,12 +561,18 @@ async function runGemini(args, cwd, timeoutMs, recoveryGraceMs, opts = {}) {
       const out = stdout.trim();
       const trimmedErr = stderr.trim();
       const success = code === 0 && out && !stdoutIsError(out);
+      // Answer floor, applied on BOTH the clean-exit and the drain path. Exempting the
+      // drain would make validity timing-dependent: the same stub would fail when agy is
+      // fast and pass when it is slow. A stub recovered after a soft timeout is not an
+      // answer either - it falls through to the hard timeout, which is the honest result.
+      const minChars = minAnswerChars();
+      const tooShort = Boolean(success) && minChars > 0 && out.length < minChars;
 
       if (draining) {
         // Soft timeout already fired. Only a clean exit meeting the success
         // contract recovers; anything else is a hard timeout. NEVER return
-        // partial buffered stdout as success.
-        if (success) {
+        // partial buffered stdout - or a sub-floor stub - as success.
+        if (success && !tooShort) {
           settled = true;
           clearTimers();
           process.stderr.write(
@@ -548,7 +589,7 @@ async function runGemini(args, cwd, timeoutMs, recoveryGraceMs, opts = {}) {
       settled = true;
       clearTimers();
 
-      if (success) {
+      if (success && !tooShort) {
         const threadId = resolveConversationId(effCwd);
         if (threadId == null) {
           process.stderr.write(
@@ -564,13 +605,16 @@ async function runGemini(args, cwd, timeoutMs, recoveryGraceMs, opts = {}) {
       // Failure. Prefer stderr so it is not masked by an stdout banner; then an
       // stdout Error: sentinel; then a generic message.
       let message;
-      if (trimmedErr) message = trimmedErr;
+      if (tooShort) message = `agy returned ${out.length} chars, below the ${minChars}-char answer floor (likely a preamble, not an answer): ${out.slice(0, 200)}`;
+      else if (trimmedErr) message = trimmedErr;
       else if (stdoutIsError(out)) message = out;
       else if (!out) message = `No output from agy`;
       else message = `agy exited with code ${code}`;
 
       const err = new Error(message);
-      if (/timed out/i.test(message)) {
+      if (tooShort) {
+        err.code = "empty";
+      } else if (/timed out/i.test(message)) {
         err.code = "timeout";
       } else if (!trimmedErr && !out) {
         // Clean exit, nothing on either stream: empty/garbage output.
@@ -755,7 +799,11 @@ const handlers = {
         return;
       }
 
-      const timeoutMs = (typeof args.timeout === "number" && args.timeout > 0) ? args.timeout : DEFAULT_TIMEOUT_MS;
+      // Precedence: per-call arg > providers.gemini.timeout / providers.defaults.timeout
+      // (resolved in the config layer) > the 300s built-in.
+      const timeoutMs = (typeof args.timeout === "number" && args.timeout > 0)
+        ? args.timeout
+        : (configuredTimeout() ?? DEFAULT_TIMEOUT_MS);
       const recoveryGraceMs = (typeof args["recovery-grace"] === "number" && args["recovery-grace"] >= 0)
         ? args["recovery-grace"]
         : DEFAULT_RECOVERY_GRACE_MS;
@@ -854,6 +902,8 @@ if (typeof module !== "undefined" && module.exports) {
   module.exports.resolveConversationId = resolveConversationId;
   module.exports.goDuration = goDuration;
   module.exports.stdoutIsError = stdoutIsError;
+  module.exports.minAnswerChars = minAnswerChars;
+  module.exports.configuredTimeout = configuredTimeout;
 
   // Production exports (used by core adapters as well as tests)
   module.exports.runGemini = runGemini;

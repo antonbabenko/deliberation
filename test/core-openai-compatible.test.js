@@ -101,3 +101,25 @@ test("OC7: inlineFiles skip notes are surfaced in the result text (no silent dro
   assert.equal(r.isError, false);
   assert.match(r.text, /\[files\] big\.bin: skipped \(binary\)/);
 });
+
+test("OC-timeout-1: opts.timeoutMs is the construction default; req.timeoutMs (a pinned alias) still wins", async () => {
+  process.env.FAKE_KEY = "k";
+  let seen;
+  const capturing = { ...fakeBridge, callOpenRouter: async (/** @type {any} */ a) => { seen = a.timeoutMs; return { text: "ok" }; } };
+  const p = makeOpenAICompatibleProvider({ name: "openrouter", apiBase: "http://x", apiKeyEnv: "FAKE_KEY",
+    resolveModel: () => "m", bridge: capturing, timeoutMs: 600000 });
+  await p.ask({ prompt: "hi" });
+  assert.equal(seen, 600000, "construction default is applied");
+  // registry.js pinAlias merges models.<id>.timeout into req.timeoutMs before this runs.
+  await p.ask({ prompt: "hi", timeoutMs: 60000 });
+  assert.equal(seen, 60000, "a pinned alias timeout wins over the provider default");
+});
+
+test("OC-timeout-2: no configured timeout injects undefined so the bridge default applies", async () => {
+  process.env.FAKE_KEY = "k";
+  let seen = "unset";
+  const capturing = { ...fakeBridge, callOpenRouter: async (/** @type {any} */ a) => { seen = a.timeoutMs; return { text: "ok" }; } };
+  await makeOpenAICompatibleProvider({ name: "openrouter", apiBase: "http://x", apiKeyEnv: "FAKE_KEY",
+    resolveModel: () => "m", bridge: capturing }).ask({ prompt: "hi" });
+  assert.equal(seen, undefined, "undefined, not 0 - a falsy value would read as no timeout");
+});

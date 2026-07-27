@@ -84,3 +84,30 @@ test("GK9: opts.reasoningEffort (the config pin) applies, and the request still 
   await bare.ask({ prompt: "hi" });
   assert.equal(seen, "BUILTIN", "absent pin falls through to the bridge resolver");
 });
+
+test("GK-timeout-1: opts.timeoutMs is the construction default; req.timeoutMs still wins", async () => {
+  process.env.XAI_API_KEY = "k";
+  let seen;
+  const capturing = { ...fakeBridge, runGrok: async (/** @type {any} */ a) => { seen = a.timeoutMs; return { text: "ok", output: null }; } };
+  const p = makeGrokProvider({ bridge: capturing, model: "grok-4.5", timeoutMs: 600000 });
+  await p.ask({ prompt: "hi" });
+  assert.equal(seen, 600000, "construction default is applied");
+  await p.ask({ prompt: "hi", timeoutMs: 5000 });
+  assert.equal(seen, 5000, "per-call value wins");
+});
+
+test("GK-timeout-2: no configured timeout injects undefined so the bridge default applies", async () => {
+  process.env.XAI_API_KEY = "k";
+  let seen = "unset";
+  const capturing = { ...fakeBridge, runGrok: async (/** @type {any} */ a) => { seen = a.timeoutMs; return { text: "ok", output: null }; } };
+  await makeGrokProvider({ bridge: capturing }).ask({ prompt: "hi" });
+  assert.equal(seen, undefined, "undefined, not 0 - a falsy value would read as no timeout");
+});
+
+test("GK-timeout-3: the files path receives the same resolved ceiling", async () => {
+  process.env.XAI_API_KEY = "k";
+  let seen;
+  const capturing = { ...fakeBridge, runWithFiles: async (/** @type {any} */ a) => { seen = a.timeout; return { text: "ok", output: null, refs: [], ownedIds: [] }; } };
+  await makeGrokProvider({ bridge: capturing, timeoutMs: 450000 }).ask({ prompt: "hi", files: [{ path: "a.md" }] });
+  assert.equal(seen, 450000);
+});

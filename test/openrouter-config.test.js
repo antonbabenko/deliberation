@@ -639,3 +639,50 @@ test("PM7: openrouter ignores providers.reasoningEffort (defaults block owns it)
   });
   assert.equal(resolved.providers.openrouter.reasoningEffort, undefined);
 });
+
+// --- providers timeout ladder ---
+// providers.<name>.timeout (providers.openrouter.defaults.timeout for OpenRouter, which
+// already owns a defaults block) > providers.defaults.timeout > adapter built-in. A
+// pinned alias's models.<id>.timeout wins over all of it, but that is merged into the
+// REQUEST by registry.js, not resolved here.
+
+test("PT1: providers.defaults.timeout reaches every provider", () => {
+  const { resolved } = validateConfig({ version: 1, providers: { defaults: { timeout: 600000 } } });
+  for (const name of ["codex", "gemini", "grok", "openrouter"]) {
+    assert.equal(resolved.providers[name].timeout, 600000, `${name} inherits the shared timeout`);
+  }
+});
+
+test("PT2: providers.<name>.timeout overrides the shared default", () => {
+  const { resolved } = validateConfig({
+    version: 1,
+    providers: { defaults: { timeout: 600000 }, grok: { enabled: true, timeout: 90000 } },
+  });
+  assert.equal(resolved.providers.grok.timeout, 90000);
+  assert.equal(resolved.providers.codex.timeout, 600000, "siblings keep the shared value");
+});
+
+test("PT3: OpenRouter's slot is providers.openrouter.defaults.timeout", () => {
+  const { resolved } = validateConfig({
+    version: 1,
+    providers: { defaults: { timeout: 600000 }, openrouter: { enabled: true, defaults: { timeout: 120000 } } },
+  });
+  assert.equal(resolved.providers.openrouter.timeout, 120000);
+});
+
+test("PT4: no timeout anywhere leaves it undefined so each adapter keeps its built-in", () => {
+  const { resolved } = validateConfig({ version: 1, providers: { grok: { enabled: true } } });
+  assert.equal(resolved.providers.grok.timeout, undefined);
+});
+
+test("PT5: a non-positive or non-integer timeout is dropped, not forwarded", () => {
+  for (const bad of [0, -1, 1.5, "600000", null]) {
+    const { resolved } = validateConfig({ version: 1, providers: { grok: { enabled: true, timeout: bad } } });
+    assert.equal(resolved.providers.grok.timeout, undefined, `timeout=${JSON.stringify(bad)} is dropped`);
+  }
+});
+
+test("PT6: `defaults` is a shared block, never a provider entry", () => {
+  const { resolved } = validateConfig({ version: 1, providers: { defaults: { timeout: 600000 } } });
+  assert.equal(resolved.providers.defaults, undefined);
+});

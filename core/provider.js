@@ -7,16 +7,47 @@
  * @param {string} name
  * @param {string} model
  * @param {number} started   // Date.now() at call start
- * @param {{status?:number, code?:string}} err
+ * @param {{status?:number, code?:string, retryAfterMs?:number}} err
  * @param {(status?:number, code?:string) => {errorKind:string, retryable:boolean}} classify
  * @param {Partial<DelegationError>} [extra]  merged onto the result (e.g. reasoningEffort)
  * @returns {DelegationError}
  */
 function toErrorResult(name, model, started, err, classify, extra) {
   const { errorKind, retryable } = classify(err && err.status, err && err.code);
+  // A 429 carries the upstream's own Retry-After hint (bridges parse the header onto
+  // the thrown error). Forward it so callProvider can honor it instead of guessing.
+  const retryAfterMs = err && typeof err.retryAfterMs === "number" && err.retryAfterMs >= 0 ? err.retryAfterMs : undefined;
   // Spread `extra` FIRST so the canonical envelope fields always win - a caller's
   // stray `extra` key (or a non-object) can never clobber provider/isError/ms/etc.
-  return { ...(extra && typeof extra === "object" ? extra : {}), provider: name, model, isError: true, errorKind, retryable, ms: Date.now() - started };
+  return {
+    ...(extra && typeof extra === "object" ? extra : {}),
+    provider: name, model, isError: true, errorKind, retryable, ms: Date.now() - started,
+    ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
+  };
+}
+
+/**
+ * Parse an HTTP `Retry-After` header into ms. Accepts both RFC 9110 forms:
+ * delta-seconds ("30") and an HTTP-date ("Wed, 21 Oct 2015 07:28:00 GMT"). Returns
+ * undefined for a missing/unparseable value, and clamps a past date to 0. Callers
+ * clamp the upper bound - a hostile hint must not stall a fan-out.
+ * @param {(string|null|undefined)} raw
+ * @returns {(number|undefined)}
+ */
+function parseRetryAfterMs(raw) {
+  if (typeof raw !== "string") return undefined;
+  const s = raw.trim();
+  if (!s) return undefined;
+  // Number.isFinite guard: a 400-digit header overflows to Infinity, which would
+  // serialize to null in the JSON result and break the finite-ms contract. The retry
+  // delay is clamped anyway, so dropping the hint just falls back to the default.
+  if (/^\d+$/.test(s)) { const ms = Number(s) * 1000; return Number.isFinite(ms) ? ms : undefined; }
+  // Require a letter before trying the date form. Date.parse("-5") and Date.parse("1.5")
+  // succeed as YEARS, which would clamp to 0 and turn a garbage header into "retry now".
+  if (!/[a-z]/i.test(s)) return undefined;
+  const at = Date.parse(s);
+  if (Number.isNaN(at)) return undefined;
+  return Math.max(0, at - Date.now());
 }
 
 /** Recursively freeze a plain object/array literal so the exported schema is truly immutable. */
@@ -388,6 +419,7 @@ function resolveIssues(lines) {
 
 module.exports = {
   toErrorResult,
+  parseRetryAfterMs,
   OPINION_SCHEMA,
   OPINION_INSTRUCTIONS,
   CONFIDENCE_ENUM,

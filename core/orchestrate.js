@@ -14,6 +14,26 @@ const { NULL_LOGGER } = require("./debug-log.js");
 // chronically-slow model cannot add its full per-call ceiling to every round.
 const CIRCUIT_BREAK_AFTER = 2;
 
+// errorKinds callProvider retries exactly once. See the comment at the retry site.
+const RETRY_ONCE_KINDS = new Set(["network", "rate-limit", "empty"]);
+// Fallback pause before a rate-limit retry when the upstream sent no Retry-After,
+// and the ceiling on one it did send (a multi-minute hint would stall the fan-out).
+const RATE_LIMIT_DEFAULT_DELAY_MS = 2000;
+const RATE_LIMIT_MAX_DELAY_MS = 30000;
+
+const sleep = (/** @type {number} */ ms) => new Promise((res) => setTimeout(res, ms));
+
+/**
+ * Pause before a rate-limit retry: the upstream's Retry-After when it sent one,
+ * else a flat default. Always clamped so one hostile hint cannot stall a fan-out.
+ * @param {import("./types.js").DelegationError} r
+ * @returns {number}
+ */
+function retryDelayMs(r) {
+  const hint = typeof r.retryAfterMs === "number" && r.retryAfterMs >= 0 ? r.retryAfterMs : RATE_LIMIT_DEFAULT_DELAY_MS;
+  return Math.min(hint, RATE_LIMIT_MAX_DELAY_MS);
+}
+
 /**
  * Emit one `provider_result` debug event for a settled call. Never throws.
  * @param {Logger} logger
@@ -89,11 +109,20 @@ async function callProvider(provider, req, logger, tool, cache, orientationFiles
   const askOnce = () => provider.ask({ ...req, files: req.files ? req.files.map((f) => ({ ...f })) : undefined });
   try {
     r = await askOnce();
-    // Consume `retryable` for the ONE safe case: a pre-response transport failure
-    // (errorKind "network" == connect/DNS/socket error before any bytes). Retry it
-    // exactly once. NEVER retry timeout (may have burned tokens / risks the
-    // slow-but-good case), rate-limit (same limit), or auth/config (won't self-heal).
-    if (r.isError && r.errorKind === "network") {
+    // Consume `retryable` for the cases that actually self-heal, each exactly ONCE:
+    //   network    - pre-response transport failure (connect/DNS/socket, no bytes sent).
+    //   rate-limit - a 429; the upstream told us to come back, so honor Retry-After.
+    //   empty      - the provider exited clean but returned a stub, not an answer
+    //                (e.g. agy printing only a preamble); cheap to redo.
+    // NEVER retry timeout (may have burned tokens / risks the slow-but-good case) or
+    // auth/config (won't self-heal). One extra attempt, no exponential backoff.
+    if (r.isError && RETRY_ONCE_KINDS.has(r.errorKind)) {
+      // Log the FAILED first attempt before retrying. Only the final result is logged
+      // below, so without this a retry that succeeds erases every trace of the
+      // rate-limit / stub - and the debug log is exactly how provider health is
+      // diagnosed. A retried call therefore emits two provider_result rows.
+      logProviderResult(logger, tool, r);
+      if (r.errorKind === "rate-limit") await sleep(retryDelayMs(r));
       r = await askOnce();
     }
   } catch (e) {

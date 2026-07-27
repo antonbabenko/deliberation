@@ -14,6 +14,8 @@
 const DEFAULT_TIMEOUT_MS = 180_000;
 const MAX_MS = 600_000;
 
+const { parseRetryAfterMs } = require("../../core/provider.js");
+
 function isNonEmptyString(v) { return typeof v === "string" && v.trim().length > 0; }
 function truncate(s, n) { s = String(s == null ? "" : s); return s.length > n ? s.slice(0, n) + "..." : s; }
 
@@ -79,18 +81,35 @@ async function callOpenRouter({ apiBase, apiKey, model, messages, reasoningEffor
   const t = (typeof timeoutMs === "number" && timeoutMs > 0) ? timeoutMs : DEFAULT_TIMEOUT_MS;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), t);
-  let res;
+  // The timer stays armed until the BODY is read, not just the headers. Clearing it at
+  // the end of the fetch left `res.text()` unbounded - a slow body could run for tens of
+  // minutes past the ceiling while sibling calls died exactly on it.
+  let res, bodyText = "";
   try {
     res = await f(url, { method: "POST", headers, body: JSON.stringify(payload), signal: controller.signal, redirect: "error" });
+    try { bodyText = await res.text(); } catch (bodyErr) {
+      // An abort DURING the body read is still a timeout, not a network fault.
+      const bmsg = String((bodyErr && bodyErr.message) || bodyErr);
+      if ((bodyErr && bodyErr.name === "AbortError") || /abort/i.test(bmsg)) throw bodyErr;
+      // A mid-body socket failure on an OK status (e.g. "TypeError: terminated") must
+      // surface as `network` (retryable). Swallowing it left an empty body that then
+      // failed JSON.parse as `parse` - non-retryable, so the retry never ran.
+      if (res.ok) throw bodyErr;
+      // On an error status the body is only diagnostic; keep the status and report empty.
+      bodyText = "";
+    }
   } catch (err) {
     const msg = String((err && err.message) || err);
     if ((err && err.name === "AbortError") || /abort/i.test(msg)) { const e = new Error(`OpenRouter timed out after ${Math.round(t / 1000)}s`); e.code = "timeout"; throw e; }
     const e = new Error(`Network error: ${msg}`); e.code = "network"; throw e;
   } finally { clearTimeout(timer); }
 
-  let bodyText = "";
-  try { bodyText = await res.text(); } catch (_) { bodyText = ""; }
-  if (!res.ok) { const e = new Error(`OpenRouter API error ${res.status}: ${truncate(bodyText, 500)}`); e.status = res.status; throw e; }
+  if (!res.ok) {
+    const e = new Error(`OpenRouter API error ${res.status}: ${truncate(bodyText, 500)}`);
+    e.status = res.status;
+    if (res.status === 429) { const ra = parseRetryAfterMs(res.headers && res.headers.get("retry-after")); if (ra !== undefined) e.retryAfterMs = ra; }
+    throw e;
+  }
   let data;
   try { data = JSON.parse(bodyText); } catch (e2) { const e = new Error(`Parse error: invalid JSON: ${e2.message}`); e.code = "parse"; throw e; }
   // `usage` is normalized for the debug log only (token counts); never displayed.
@@ -285,7 +304,12 @@ const handlers = {
 
     const reasoningEffort = pick(args.reasoning_effort, delegate.reasoning_effort, or.defaults.reasoning_effort);
     const temperature = pick(args.temperature, delegate.temperature, or.defaults.temperature);
-    const timeoutMs = pick(args.timeout, delegate.timeout, or.defaults.timeout);
+    // providers.openrouter.timeout is the config layer's merge of
+    // providers.openrouter.defaults.timeout with providers.defaults.timeout, so the
+    // shared knob reaches this standalone bridge too - not only the unified server.
+    const resolvedProviders = (cfg.resolved && cfg.resolved.providers) || {};
+    const cfgProviderTimeout = (resolvedProviders.openrouter && resolvedProviders.openrouter.timeout) || undefined;
+    const timeoutMs = pick(args.timeout, delegate.timeout, or.defaults.timeout !== undefined ? or.defaults.timeout : cfgProviderTimeout);
     const apiBase = delegate.apiBase || or.apiBase;
     const apiKey = process.env[or.apiKeyEnv] || "";
 

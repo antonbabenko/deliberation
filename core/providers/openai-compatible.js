@@ -15,10 +15,15 @@ const MAX_SESSIONS = 100;
  * @param {string} opts.apiKeyEnv
  * @param {(req:DelegationRequest)=>string} opts.resolveModel
  * @param {Object} [opts.bridge]  // injectable for tests; defaults to the real bridge
+ * @param {number} [opts.timeoutMs]  construction-time default per-call ceiling (ms), from
+ *   providers.openrouter.timeout / providers.defaults.timeout. A pinned alias's
+ *   models.<alias>.timeout still wins - registry.js merges it into req.timeoutMs first.
  * @returns {Provider}
  */
 function makeOpenAICompatibleProvider(opts) {
   const { name = "openrouter", apiBase, apiKeyEnv, resolveModel } = opts;
+  // Undefined (not 0) when unset, so the bridge applies its own default.
+  const defaultTimeoutMs = typeof opts.timeoutMs === "number" && opts.timeoutMs > 0 ? opts.timeoutMs : undefined;
   // Core is transport-agnostic: the caller injects the bridge. Cast to any - the
   // CJS bridge exports as a bare Object, and the cast also stops tsc from
   // deep-checking the legacy bridge transitively.
@@ -57,7 +62,8 @@ function makeOpenAICompatibleProvider(opts) {
         const { text, usage } = await bridge.callOpenRouter({
           apiBase, apiKey: (req && req.apiKey) || process.env[apiKeyEnv], model,
           messages: bridge.buildMessages(turns),
-          reasoningEffort: req.reasoningEffort, temperature: req.temperature, timeoutMs: req.timeoutMs,
+          reasoningEffort: req.reasoningEffort, temperature: req.temperature,
+          timeoutMs: typeof req.timeoutMs === "number" && req.timeoutMs > 0 ? req.timeoutMs : defaultTimeoutMs,
         });
         const threadId = req.threadId || crypto.randomUUID();
         sessions.set(threadId, [...turns, { role: "assistant", text }]);

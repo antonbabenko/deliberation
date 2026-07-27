@@ -2,7 +2,7 @@
 name: ask-all
 description: Ask GPT, Gemini, Grok, and any configured OpenRouter models in parallel for independent second opinions, then synthesize and compare. Zero cross-contamination.
 allowed-tools: mcp__deliberation__panel, mcp__deliberation__ask-one, mcp__deliberation__ask-all, mcp__deliberation-openrouter__openrouter-list, Read, Bash
-timeout: 300000
+timeout: 660000
 ---
 
 # Ask All (GPT + Gemini + Grok + OpenRouter)

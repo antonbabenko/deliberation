@@ -2,7 +2,7 @@
 name: ask-gpt
 description: Get GPT (Codex) second opinion on a question or current work. Single-shot, advisory, no contamination.
 allowed-tools: mcp__deliberation-codex__codex, Read, Bash
-timeout: 180000
+timeout: 660000
 ---
 
 # Ask GPT

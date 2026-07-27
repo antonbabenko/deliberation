@@ -20,6 +20,14 @@
       "description": "Per-provider CONNECTION config only (enable + auth/endpoint). Not where models live.",
       "additionalProperties": false,
       "properties": {
+        "defaults": {
+          "type": "object",
+          "description": "Cross-provider defaults. Applies to every provider that has no key of its own.",
+          "additionalProperties": false,
+          "properties": {
+            "timeout": { "type": "integer", "minimum": 1, "examples": [600000], "description": "Per-call wall-time ceiling in ms for EVERY provider. Overridden by providers.<name>.timeout (providers.openrouter.defaults.timeout for OpenRouter), and by a pinned alias's models.<id>.timeout. Read once at MCP startup, so a change needs a restart." }
+          }
+        },
         "codex": { "$ref": "#/$defs/simpleProvider" },
         "gemini": { "$ref": "#/$defs/geminiProvider" },
         "grok": { "$ref": "#/$defs/grokProvider" },
@@ -170,7 +178,8 @@
       "description": "A CLI-managed provider (Codex). Connection AND model selection are handled by its own CLI config (~/.codex/config.toml); only the enable flag applies here.",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean", "default": true, "description": "Whether this provider participates." }
+        "enabled": { "type": "boolean", "default": true, "description": "Whether this provider participates." },
+        "timeout": { "type": "integer", "minimum": 1, "examples": [600000], "description": "Per-call wall-time ceiling in ms. Falls back to providers.defaults.timeout, then the built-in default (600000). Read once at MCP startup, so a change needs a restart." }
       }
     },
     "geminiProvider": {
@@ -182,7 +191,8 @@
         "model": {
           "type": "string",
           "description": "agy model id, passed through to agy's --model so it wins over ~/.gemini/settings.json. Ids fuse family and reasoning effort (e.g. \"gemini-3.6-flash-high\"); a bare family is rejected with \"requires --effort\". Run `agy models` for the catalog on THIS machine - ids differ per install, which is why the built-in default is the portable \"auto-gemini-3\" router alias. Prefer a concrete pin: the alias routes server-side and agy's catalog also carries Claude and GPT-OSS entries, so a routed call can seat a non-Gemini model in the Gemini slot and silently collapse cross-vendor independence in ask-all/consensus. Precedence: per-call model > this key > GEMINI_DEFAULT_MODEL > built-in."
-        }
+        },
+        "timeout": { "type": "integer", "minimum": 1, "examples": [600000], "description": "Per-call wall-time ceiling in ms. Falls back to providers.defaults.timeout, then the built-in default (300000). Read once at MCP startup, so a change needs a restart." }
       }
     },
     "grokProvider": {
@@ -200,7 +210,8 @@
           "type": "string",
           "enum": ["low", "medium", "high", "none"],
           "description": "How hard Grok reasons. \"none\" omits the field so the model uses its own default. Precedence: per-call reasoning_effort > this key > GROK_REASONING_EFFORT > \"high\"."
-        }
+        },
+        "timeout": { "type": "integer", "minimum": 1, "examples": [600000], "description": "Per-call wall-time ceiling in ms for the answer call. Falls back to providers.defaults.timeout, then the built-in default (180000). File uploads are bounded separately by GROK_UPLOAD_TIMEOUT_MS. Read once at MCP startup, so a change needs a restart." }
       }
     },
     "openrouterProvider": {
@@ -220,7 +231,7 @@
           "properties": {
             "reasoningEffort": { "type": "string", "examples": ["high"] },
             "temperature": { "type": "number", "examples": [0.2] },
-            "timeout": { "type": "integer", "minimum": 1, "examples": [120000] }
+            "timeout": { "type": "integer", "minimum": 1, "examples": [120000], "description": "Per-call wall-time ceiling in ms for OpenRouter. This is OpenRouter's equivalent of providers.<name>.timeout and overrides providers.defaults.timeout; a pinned alias's models.<id>.timeout still wins." }
           }
         }
       }
