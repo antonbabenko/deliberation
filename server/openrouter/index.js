@@ -91,6 +91,11 @@ async function callOpenRouter({ apiBase, apiKey, model, messages, reasoningEffor
       // An abort DURING the body read is still a timeout, not a network fault.
       const bmsg = String((bodyErr && bodyErr.message) || bodyErr);
       if ((bodyErr && bodyErr.name === "AbortError") || /abort/i.test(bmsg)) throw bodyErr;
+      // A mid-body socket failure on an OK status (e.g. "TypeError: terminated") must
+      // surface as `network` (retryable). Swallowing it left an empty body that then
+      // failed JSON.parse as `parse` - non-retryable, so the retry never ran.
+      if (res.ok) throw bodyErr;
+      // On an error status the body is only diagnostic; keep the status and report empty.
       bodyText = "";
     }
   } catch (err) {
@@ -299,7 +304,12 @@ const handlers = {
 
     const reasoningEffort = pick(args.reasoning_effort, delegate.reasoning_effort, or.defaults.reasoning_effort);
     const temperature = pick(args.temperature, delegate.temperature, or.defaults.temperature);
-    const timeoutMs = pick(args.timeout, delegate.timeout, or.defaults.timeout);
+    // providers.openrouter.timeout is the config layer's merge of
+    // providers.openrouter.defaults.timeout with providers.defaults.timeout, so the
+    // shared knob reaches this standalone bridge too - not only the unified server.
+    const resolvedProviders = (cfg.resolved && cfg.resolved.providers) || {};
+    const cfgProviderTimeout = (resolvedProviders.openrouter && resolvedProviders.openrouter.timeout) || undefined;
+    const timeoutMs = pick(args.timeout, delegate.timeout, or.defaults.timeout !== undefined ? or.defaults.timeout : cfgProviderTimeout);
     const apiBase = delegate.apiBase || or.apiBase;
     const apiKey = process.env[or.apiKeyEnv] || "";
 

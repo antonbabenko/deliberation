@@ -65,6 +65,16 @@ function configuredReasoningEffort() {
   const e = grokConfigBlock().reasoningEffort;
   return isNonEmptyString(e) ? e : undefined;
 }
+/**
+ * providers.grok.timeout, already merged with providers.defaults.timeout by the config
+ * layer. Without this the standalone bridge (what /ask-grok calls) would stay pinned to
+ * the 180s built-in no matter what the config says - only the unified server would honor it.
+ * @returns {(number|undefined)}
+ */
+function configuredTimeout() {
+  const t = grokConfigBlock().timeout;
+  return typeof t === "number" && t > 0 ? t : undefined;
+}
 const { parseRetryAfterMs } = require("../../core/provider.js");
 
 const DEFAULT_API_BASE = process.env.XAI_API_BASE || "https://api.x.ai/v1";
@@ -669,6 +679,11 @@ async function runGrok({ turns, model, timeoutMs, apiKey, apiBase, fetchImpl, re
       // An abort DURING the body read is still a timeout, not a network fault.
       const bmsg = String((bodyErr && bodyErr.message) || bodyErr);
       if ((bodyErr && bodyErr.name === "AbortError") || /abort/i.test(bmsg)) throw bodyErr;
+      // A mid-body socket failure on an OK status (e.g. "TypeError: terminated") must
+      // surface as `network` (retryable). Swallowing it left an empty body that then
+      // failed JSON.parse as `parse` - non-retryable, so the retry never ran.
+      if (res.ok) throw bodyErr;
+      // On an error status the body is only diagnostic; keep the status and report empty.
       bodyText = "";
     }
   } catch (err) {
@@ -1081,7 +1096,9 @@ const handlers = {
         cacheFile: process.env.XAI_DISABLE_FILE_CACHE ? null : DEFAULT_CACHE_FILE,
         model: args.model,
         reasoningEffort: resolveReasoningEffort(args.reasoning_effort ?? configuredReasoningEffort()),
-        timeout: args.timeout,
+        // Precedence: per-call arg > providers.grok.timeout / providers.defaults.timeout
+        // (resolved in the config layer) > the 180s built-in inside runGrok.
+        timeout: args.timeout ?? configuredTimeout(),
         cid: id,
       });
 
@@ -1200,5 +1217,6 @@ if (typeof module !== "undefined" && module.exports) {
 }
 
 // Production exports (used by later tasks as well as tests)
+module.exports.configuredTimeout = configuredTimeout;
 module.exports.validateRoots = validateRoots;
 module.exports.resolvePathUnderRoots = resolvePathUnderRoots;

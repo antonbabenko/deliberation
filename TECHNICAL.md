@@ -903,10 +903,20 @@ Every provider call is bounded. The ceiling resolves highest-first:
 Levels 3 and 4 are read once at MCP startup (constructor args, like `model` and
 `reasoningEffort`), so a change needs an MCP restart; the `models` map still hot-reloads.
 
+This applies to **both** entry points. The unified server reads the resolved value in its
+composition root; the standalone bridges that `/ask-grok`, `/ask-gemini`, and
+`/ask-openrouter` call read it themselves (`configuredTimeout()` in the Grok and Gemini
+bridges, the `pick` chain in the OpenRouter bridge). Wiring only the unified server would
+leave those three commands pinned to their built-ins.
+
 Two things the ceiling covers that are easy to get wrong:
 
 - **The response body, not just the headers.** Both HTTP bridges keep the `AbortController`
-  armed until `res.text()` resolves. A slow body is a timeout, not a `network` error.
+  armed until `res.text()` resolves. A slow body is a timeout, not a `network` error. A
+  *non-abort* body failure on an OK status (a mid-stream socket drop, `TypeError:
+  terminated`) surfaces as `network` and is retried; swallowing it left an empty body that
+  then failed `JSON.parse` as the non-retryable `parse`. On an error status the body is
+  only diagnostic, so the status is kept and the body reported empty.
 - **A killed Codex child.** The kill timer is authoritative, so a SIGKILL'd `codex exec`
   reports `timeout` even when it wrote nothing to stderr (stderr-substring classification
   would otherwise call it `unknown` - and an `unknown` can never trip the circuit breaker).
@@ -922,9 +932,16 @@ full answer, so that stub reached the caller as a real opinion - and inside cons
 silently blocked convergence with no diagnostic (`parseReview` yields `verdict: null`).
 
 A clean exit whose trimmed stdout is shorter than `GEMINI_MIN_ANSWER_CHARS` (default 80)
-now fails with `errorKind: "empty"`, which `callProvider` retries once. `0` disables the
-floor. The floor applies only on the normal clean-exit path: after a soft timeout, a short
-recovered answer still beats a hard timeout, so the drain branch is unaffected.
+fails with `errorKind: "empty"`, which `callProvider` retries once. `0` disables the floor.
+
+The floor applies on **both** the clean-exit and the soft-timeout drain path. Exempting the
+drain would make validity timing-dependent - the same stub would fail when `agy` is fast and
+pass when it is slow. A sub-floor stub recovered after a soft timeout is not an answer
+either, so it falls through to the hard timeout.
+
+The default is calibrated to the observed failure: the preamble that motivated this is 51
+characters, so a floor much below 80 would not catch it. Answers that are legitimately
+terse are the tradeoff - lower the value, or set `0`, if your usage skews short.
 
 A character count is a proxy for "announced intent instead of answering" - the upgrade
 path is a structured-output check once `parseOpinion` is wired into the pipeline.

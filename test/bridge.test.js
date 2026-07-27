@@ -621,3 +621,41 @@ test("MA3: output at or above the floor still succeeds", async () => {
   const r = (await responsesP).find((x) => x.id === 2);
   assert.ok(!r.result.isError, "11 chars clears a 5-char floor: " + JSON.stringify(r.result));
 });
+
+test("MA4: the answer floor also applies on the drain path (validity is not timing-dependent)", async () => {
+  // Exempting the drain would mean the SAME stub fails when agy is fast and passes when
+  // it is slow. A sub-floor stub recovered after a soft timeout is not an answer either.
+  // The fixture streams a partial line, sleeps past the soft timeout, then exits 0 with
+  // "RECOVERED ANSWER OK" (19 chars) - a clean drain recovery that is under the floor.
+  const child = startBridge({
+    fakeBin: "fake-agy-timeout-recover.sh",
+    env: { GEMINI_MIN_ANSWER_CHARS: "80", FAKE_AGY_SLEEP: "1" },
+  });
+  const responsesP = collectResponses(child);
+  send(child, { jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+  send(child, {
+    jsonrpc: "2.0", id: 2, method: "tools/call",
+    params: { name: "gemini", arguments: { prompt: "hi", timeout: 300, "recovery-grace": 5000 } },
+  });
+  setTimeout(() => child.stdin.end(), 7000);
+  const r = (await responsesP).find((x) => x.id === 2);
+  assert.ok(r, "got tools/call response");
+  assert.equal(r.result.isError, true, "a sub-floor stub must not recover as success");
+});
+
+test("MA5: a drain recovery ABOVE the floor still succeeds with recovered:true", async () => {
+  const child = startBridge({
+    fakeBin: "fake-agy-timeout-recover.sh",
+    env: { GEMINI_MIN_ANSWER_CHARS: "5", FAKE_AGY_SLEEP: "1" },
+  });
+  const responsesP = collectResponses(child);
+  send(child, { jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+  send(child, {
+    jsonrpc: "2.0", id: 2, method: "tools/call",
+    params: { name: "gemini", arguments: { prompt: "hi", timeout: 300, "recovery-grace": 5000 } },
+  });
+  setTimeout(() => child.stdin.end(), 7000);
+  const r = (await responsesP).find((x) => x.id === 2);
+  assert.ok(!r.result.isError, "19 chars clears a 5-char floor: " + JSON.stringify(r.result));
+  assert.equal(r.result.content[0].text, "RECOVERED ANSWER OK");
+});

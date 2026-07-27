@@ -38,7 +38,10 @@ function parseRetryAfterMs(raw) {
   if (typeof raw !== "string") return undefined;
   const s = raw.trim();
   if (!s) return undefined;
-  if (/^\d+$/.test(s)) return Number(s) * 1000;
+  // Number.isFinite guard: a 400-digit header overflows to Infinity, which would
+  // serialize to null in the JSON result and break the finite-ms contract. The retry
+  // delay is clamped anyway, so dropping the hint just falls back to the default.
+  if (/^\d+$/.test(s)) { const ms = Number(s) * 1000; return Number.isFinite(ms) ? ms : undefined; }
   // Require a letter before trying the date form. Date.parse("-5") and Date.parse("1.5")
   // succeed as YEARS, which would clamp to 0 and turn a garbage header into "retry now".
   if (!/[a-z]/i.test(s)) return undefined;

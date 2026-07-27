@@ -342,6 +342,26 @@ function stdoutIsError(s) {
 // available here.
 // ponytail: char count is a proxy for "announced intent instead of answering"; upgrade
 // to a structured-output check once parseOpinion is wired into the pipeline.
+// providers.gemini.timeout, already merged with providers.defaults.timeout by the config
+// layer. Without this the standalone bridge (what /ask-gemini calls) would stay pinned to
+// the 300s built-in no matter what the config says. Lazy + fail-soft, mirroring the Grok
+// bridge: a broken config must never take the bridge down, only lose the pin.
+let _cfgReader = null;
+/** @returns {(number|undefined)} */
+function configuredTimeout() {
+  try {
+    if (!_cfgReader) {
+      const { makeConfigReader } = require("../openrouter/config.js");
+      _cfgReader = makeConfigReader(require("../../core/paths.js").resolveConfigPath());
+    }
+    const r = _cfgReader.get();
+    const t = r && r.resolved && r.resolved.providers && r.resolved.providers.gemini && r.resolved.providers.gemini.timeout;
+    return typeof t === "number" && t > 0 ? t : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 const DEFAULT_MIN_ANSWER_CHARS = 80;
 /** Minimum stdout length for a clean exit to count as an answer. 0 disables the floor. */
 function minAnswerChars() {
@@ -541,17 +561,18 @@ async function runGemini(args, cwd, timeoutMs, recoveryGraceMs, opts = {}) {
       const out = stdout.trim();
       const trimmedErr = stderr.trim();
       const success = code === 0 && out && !stdoutIsError(out);
-      // Answer floor: only on the clean-exit path below. The draining branch is left
-      // alone - after a soft timeout, a short recovered answer still beats a hard
-      // timeout, and that branch already refuses partial output on anything but success.
+      // Answer floor, applied on BOTH the clean-exit and the drain path. Exempting the
+      // drain would make validity timing-dependent: the same stub would fail when agy is
+      // fast and pass when it is slow. A stub recovered after a soft timeout is not an
+      // answer either - it falls through to the hard timeout, which is the honest result.
       const minChars = minAnswerChars();
       const tooShort = Boolean(success) && minChars > 0 && out.length < minChars;
 
       if (draining) {
         // Soft timeout already fired. Only a clean exit meeting the success
         // contract recovers; anything else is a hard timeout. NEVER return
-        // partial buffered stdout as success.
-        if (success) {
+        // partial buffered stdout - or a sub-floor stub - as success.
+        if (success && !tooShort) {
           settled = true;
           clearTimers();
           process.stderr.write(
@@ -778,7 +799,11 @@ const handlers = {
         return;
       }
 
-      const timeoutMs = (typeof args.timeout === "number" && args.timeout > 0) ? args.timeout : DEFAULT_TIMEOUT_MS;
+      // Precedence: per-call arg > providers.gemini.timeout / providers.defaults.timeout
+      // (resolved in the config layer) > the 300s built-in.
+      const timeoutMs = (typeof args.timeout === "number" && args.timeout > 0)
+        ? args.timeout
+        : (configuredTimeout() ?? DEFAULT_TIMEOUT_MS);
       const recoveryGraceMs = (typeof args["recovery-grace"] === "number" && args["recovery-grace"] >= 0)
         ? args["recovery-grace"]
         : DEFAULT_RECOVERY_GRACE_MS;
@@ -877,6 +902,8 @@ if (typeof module !== "undefined" && module.exports) {
   module.exports.resolveConversationId = resolveConversationId;
   module.exports.goDuration = goDuration;
   module.exports.stdoutIsError = stdoutIsError;
+  module.exports.minAnswerChars = minAnswerChars;
+  module.exports.configuredTimeout = configuredTimeout;
 
   // Production exports (used by core adapters as well as tests)
   module.exports.runGemini = runGemini;

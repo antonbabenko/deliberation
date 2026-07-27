@@ -119,6 +119,9 @@ slot is the `defaults` block it already owns (`providers.openrouter.defaults.tim
 A pinned model's `models.<id>.timeout` still beats all of it. These are read once at MCP
 start, so a change needs a restart; the `models` map keeps hot-reloading.
 
+This covers both paths: the tools on the unified server, and the standalone bridges behind
+`/ask-grok`, `/ask-gemini`, and `/ask-openrouter`.
+
 If a fan-out drops a model at almost exactly 180000 ms, it hit the built-in ceiling -
 that is the knob to turn.
 

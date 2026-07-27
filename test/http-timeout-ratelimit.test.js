@@ -106,3 +106,53 @@ test("HT6: a non-429 error does NOT pick up a Retry-After hint", async () => {
     );
   } finally { server.close(); }
 });
+
+test("HT7: a mid-body socket failure on an OK status is `network`, not `parse`", async () => {
+  // Swallowing the body error left an empty body that then failed JSON.parse as
+  // `parse` - non-retryable - so the network retry never ran.
+  const fakeRes = {
+    ok: true, status: 200,
+    headers: { get: () => null },
+    text: async () => { const e = new TypeError("terminated"); throw e; },
+  };
+  await assert.rejects(
+    () => callOpenRouter({
+      apiBase: "http://x/v1", apiKey: "k", model: "m",
+      messages: buildMessages([{ role: "user", text: "q" }]),
+      fetchImpl: async () => fakeRes,
+    }),
+    (e) => e.code === "network"
+  );
+});
+
+test("HT8: a body failure on an ERROR status keeps the status (body is only diagnostic)", async () => {
+  const fakeRes = {
+    ok: false, status: 500,
+    headers: { get: () => null },
+    text: async () => { throw new TypeError("terminated"); },
+  };
+  await assert.rejects(
+    () => callOpenRouter({
+      apiBase: "http://x/v1", apiKey: "k", model: "m",
+      messages: buildMessages([{ role: "user", text: "q" }]),
+      fetchImpl: async () => fakeRes,
+    }),
+    (e) => e.status === 500 && e.code === undefined
+  );
+});
+
+test("HT9: an overflowing Retry-After is dropped rather than forwarded as Infinity", async () => {
+  const fakeRes = {
+    ok: false, status: 429,
+    headers: { get: (h) => (h === "retry-after" ? "1".repeat(400) : null) },
+    text: async () => "{}",
+  };
+  await assert.rejects(
+    () => callOpenRouter({
+      apiBase: "http://x/v1", apiKey: "k", model: "m",
+      messages: buildMessages([{ role: "user", text: "q" }]),
+      fetchImpl: async () => fakeRes,
+    }),
+    (e) => e.status === 429 && e.retryAfterMs === undefined
+  );
+});
