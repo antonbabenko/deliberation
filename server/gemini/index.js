@@ -82,6 +82,35 @@ function applyReadOnlyGuard(prompt, readOnly) {
   return readOnly ? `${READ_ONLY_GUARD}\n\n${prompt}` : prompt;
 }
 
+// --model landed in agy 1.0.9. Older binaries reject unknown flags outright
+// ("flags provided but not defined: -model"), which would fail EVERY call rather
+// than just ignore the pin - so probe once and degrade to the pre-pin behavior
+// (agy reads ~/.gemini/settings.json) with a single stderr warning.
+//
+// Probed from `agy --help`, the same call the startup health check already makes.
+// Cached for process lifetime: agy cannot change under a running bridge. A probe
+// that throws is treated as SUPPORTED - a missing binary fails loudly elsewhere,
+// and assuming unsupported would silently drop a pin the operator asked for.
+/** @type {(boolean|null)} */
+let modelFlagSupported = null;
+/** @returns {boolean} */
+function agySupportsModelFlag() {
+  if (modelFlagSupported !== null) return modelFlagSupported;
+  try {
+    const help = execFileSync(AGY_BIN, ["--help"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    modelFlagSupported = /(^|\s)--model(\s|$)/m.test(help);
+  } catch {
+    modelFlagSupported = true;
+  }
+  if (modelFlagSupported === false) {
+    console.error(
+      `[deliberation-gemini] ${AGY_BIN} does not support --model; the configured model pin will be ignored ` +
+      "and agy will use ~/.gemini/settings.json instead. Upgrade agy to 1.0.9 or newer to pin per call."
+    );
+  }
+  return modelFlagSupported;
+}
+
 /**
  * @param {{prompt:string, model?:string, includeDirs?:string[], sandbox?:string, developerInstructions?:string}} req
  * @returns {string[]}
@@ -95,9 +124,13 @@ function buildAgyArgs(req) {
   // Extra workspace dirs.
   for (const d of req.includeDirs || []) args.push("--add-dir", d);
   // Pin the model per call so the run does not inherit the operator's global
-  // ~/.gemini/settings.json. Must precede the "-p <prompt>" tail.
-  const model = isNonEmptyString(req.model) ? req.model : DEFAULT_MODEL;
-  args.push("--model", model);
+  // ~/.gemini/settings.json. Must precede the "-p <prompt>" tail. Skipped on an
+  // agy too old to know the flag - it would reject the whole argv (see
+  // agySupportsModelFlag), which would break every call rather than one pin.
+  if (agySupportsModelFlag()) {
+    const model = isNonEmptyString(req.model) ? req.model : DEFAULT_MODEL;
+    args.push("--model", model);
+  }
   // Fold expert instructions into the prompt (no system channel in print mode),
   // with the advisory guard outermost.
   let prompt = applyReadOnlyGuard(req.prompt, readOnly);

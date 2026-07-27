@@ -244,7 +244,7 @@ This is the single source of truth for the bridge environment variables.
 | `XAI_API_KEY` | Grok | unset (required) | xAI API key; missing key returns `missing-auth` |
 | `GROK_DEFAULT_MODEL` | Grok | `grok-4.5` | Default model when neither the call nor `providers.grok.model` sets one |
 | `XAI_API_BASE` | Grok | `https://api.x.ai/v1` | API endpoint override |
-| `GROK_REASONING_EFFORT` | Grok | `high` | `low`/`medium`/`high`; `none` or `off` omits the field |
+| `GROK_REASONING_EFFORT` | Grok | `high` | `low`/`medium`/`high`; `none` or `off` omits the field. Overridden by `providers.grok.reasoningEffort` |
 | `GROK_FILE_TTL_SECONDS` | Grok | `604800` (7 days) | Upload lifetime, clamped 1h..30d |
 | `DELIBERATION_SESSIONS` | sessions | `<XDG cache>/deliberation/sessions` | Override the session store directory (see [Session persistence](#session-persistence)) |
 | `DELIBERATION_DEBUG_LOG` | debug | `<XDG cache>/deliberation/debug.jsonl` | Override the debug log path (see [Observability](#observability--per-provider-progress)); only written when `debug.enabled` |

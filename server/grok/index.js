@@ -36,27 +36,34 @@ const { stat, readFile } = require("node:fs/promises");
 
 const DEFAULT_MODEL = process.env.GROK_DEFAULT_MODEL || "grok-4.5";
 
-// providers.grok.model from the unified config.json, so this standalone bridge
-// resolves the same pin the `deliberation` server does instead of drifting to
-// env-only. Reader is lazy + stat-gated (hot-reload) and never throws: any
-// failure yields undefined and falls through to GROK_DEFAULT_MODEL/built-in.
+// providers.grok.* from the unified config.json, so this standalone bridge resolves
+// the same pins the `deliberation` server does instead of drifting to env-only.
+// Reader is lazy + stat-gated (hot-reload) and never throws: any failure yields an
+// empty block, falling through to the env var then the built-in.
 /** @type {any} */
 let configReader;
-/** @returns {(string|undefined)} */
-function configuredModel() {
+/** @returns {{model?:string, reasoningEffort?:string}} */
+function grokConfigBlock() {
   try {
     if (!configReader) {
       const { makeConfigReader } = require("../openrouter/config.js");
       configReader = makeConfigReader(require("../../core/paths.js").resolveConfigPath());
     }
     const r = configReader.get();
-    const m = r && r.resolved && r.resolved.providers && r.resolved.providers.grok
-      ? r.resolved.providers.grok.model
-      : undefined;
-    return isNonEmptyString(m) ? m : undefined;
+    return (r && r.resolved && r.resolved.providers && r.resolved.providers.grok) || {};
   } catch {
-    return undefined;
+    return {};
   }
+}
+/** @returns {(string|undefined)} */
+function configuredModel() {
+  const m = grokConfigBlock().model;
+  return isNonEmptyString(m) ? m : undefined;
+}
+/** @returns {(string|undefined)} */
+function configuredReasoningEffort() {
+  const e = grokConfigBlock().reasoningEffort;
+  return isNonEmptyString(e) ? e : undefined;
 }
 const DEFAULT_API_BASE = process.env.XAI_API_BASE || "https://api.x.ai/v1";
 const DEFAULT_TIMEOUT_MS = 180_000; // 3 minutes
@@ -132,6 +139,11 @@ const DIR_UPLOAD_CONCURRENCY = 4;
 // Reasoning effort: per-call value wins, then GROK_REASONING_EFFORT, then the
 // default. "", "none", or "off" omit the field so the model uses its own default.
 const DEFAULT_REASONING_EFFORT = "high";
+// Deliberately PURE (env + argument only): it does not read config.json. Callers
+// inject the config pin by passing `perCall ?? configuredReasoningEffort()`, which
+// keeps this function testable without a machine's real config deciding the result.
+// Full ladder at the call sites: per-call > providers.grok.reasoningEffort >
+// GROK_REASONING_EFFORT > built-in.
 function resolveReasoningEffort(perCall) {
   let raw = perCall;
   if (raw === undefined || raw === null) raw = process.env.GROK_REASONING_EFFORT;
@@ -1030,7 +1042,7 @@ const handlers = {
         cwd: args.cwd,
         cacheFile: process.env.XAI_DISABLE_FILE_CACHE ? null : DEFAULT_CACHE_FILE,
         model: args.model,
-        reasoningEffort: resolveReasoningEffort(args.reasoning_effort),
+        reasoningEffort: resolveReasoningEffort(args.reasoning_effort ?? configuredReasoningEffort()),
         timeout: args.timeout,
         cid: id,
       });

@@ -195,6 +195,11 @@
         "model": {
           "type": "string",
           "description": "xAI model id (e.g. \"grok-4.5\"). Precedence: per-call model > this key > GROK_DEFAULT_MODEL > built-in default."
+        },
+        "reasoningEffort": {
+          "type": "string",
+          "enum": ["low", "medium", "high", "none"],
+          "description": "How hard Grok reasons. \"none\" omits the field so the model uses its own default. Precedence: per-call reasoning_effort > this key > GROK_REASONING_EFFORT > \"high\"."
         }
       }
     },

@@ -38,7 +38,7 @@ Minimal example:
   "providers": {
     "codex":  { "enabled": true },
     "gemini": { "enabled": true, "model": "auto-gemini-3" },
-    "grok":   { "enabled": true, "apiKeyEnv": "XAI_API_KEY", "model": "grok-4.5" },
+    "grok":   { "enabled": true, "apiKeyEnv": "XAI_API_KEY", "model": "grok-4.5", "reasoningEffort": "high" },
     "openrouter": {
       "enabled": true,
       "apiKeyEnv": "OPENROUTER_API_KEY",
@@ -82,6 +82,14 @@ the `model` field takes any slug listed there. Each record's `provider` must be
 touching their own config files. Precedence for both: per-call `model` argument, then
 this key, then the env var (`GEMINI_DEFAULT_MODEL` / `GROK_DEFAULT_MODEL`), then the
 built-in default. Both are read once at MCP start, so changing them needs a restart.
+
+`providers.grok.reasoningEffort` (`low` / `medium` / `high` / `none`) sets how hard Grok
+reasons, on the same ladder: per-call `reasoning_effort`, then this key, then
+`GROK_REASONING_EFFORT`, then `high`. `none` omits the field entirely so the model uses
+its own default. Unlike the model pin this one is read per call, so it picks up an edit
+without a restart. Gemini has no equivalent key - agy fuses reasoning effort into the
+model id itself (`gemini-3.6-flash-high` vs `gemini-3.6-flash-low`), so you change it by
+changing `providers.gemini.model`.
 
 For Gemini, run `agy models` to see the catalog on your machine - ids fuse family and
 reasoning effort (`gemini-3.6-flash-high`); a bare family is rejected with `requires

@@ -62,3 +62,25 @@ test("GK6: req.apiKey overrides process.env.XAI_API_KEY; absent -> falls back to
   await p.ask({ prompt: "hi" });
   assert.equal(seen, "env-key"); // no override -> process.env fallback
 });
+
+test("GK9: opts.reasoningEffort (the config pin) applies, and the request still wins", async () => {
+  process.env.XAI_API_KEY = "k";
+  let seen;
+  const capturing = {
+    ...fakeBridge,
+    resolveReasoningEffort: (/** @type {any} */ v) => v ?? "BUILTIN",
+    runGrok: async (/** @type {any} */ a) => { seen = a.reasoningEffort; return { text: "ok", output: null }; },
+  };
+  const p = makeGrokProvider({ bridge: capturing, model: "grok-4.5", reasoningEffort: "low" });
+
+  await p.ask({ prompt: "hi" });
+  assert.equal(seen, "low", "config pin used when the request sets none");
+
+  await p.ask({ prompt: "hi", reasoningEffort: "high" });
+  assert.equal(seen, "high", "per-request value beats the config pin");
+
+  // No pin configured -> nothing injected, so the bridge's own ladder decides.
+  const bare = makeGrokProvider({ bridge: capturing, model: "grok-4.5" });
+  await bare.ask({ prompt: "hi" });
+  assert.equal(seen, "BUILTIN", "absent pin falls through to the bridge resolver");
+});

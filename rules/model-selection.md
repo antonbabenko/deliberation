@@ -219,7 +219,7 @@ the MCP registration). The `model` parameter above overrides it for a single cal
 | `roots` | string[] | Optional absolute directory roots used to resolve `files[].path` and `files[].dir`. First root containing the entry wins. Falls back to `[cwd]` when omitted. Use for cross-repo attachments. |
 | `cwd` | path | Base directory used when `roots` is omitted. Set it to the repo root that contains the files. Defaults to the server cwd. |
 | `model` | e.g. `grok-4.5` | Falls back to `providers.grok.model`, then `GROK_DEFAULT_MODEL`, then `grok-4.5`. |
-| `reasoning_effort` | `low` \| `medium` \| `high` \| `none` | Defaults to `GROK_REASONING_EFFORT` or `high`. |
+| `reasoning_effort` | `low` \| `medium` \| `high` \| `none` | Falls back to `providers.grok.reasoningEffort`, then `GROK_REASONING_EFFORT`, then `high`. |
 
 ### `mcp__deliberation-grok__grok-reply` (Continue Session)
 

@@ -214,21 +214,28 @@ function resolveDefaults(raw) {
   return { defaults: out, warnings };
 }
 
-// Build resolved.providers as { name: { enabled, model? } }. The enable flag is the
-// registry/arbiter contract; `model` is carried through for the CLI/HTTP providers
-// that accept a pin (gemini, grok) so the composition root can hand it to the adapter.
-// openrouter-specific connection keys stay hoisted into resolved.openrouter, and
-// openrouter's model selection lives in the models map - so `model` is ignored there.
-// A non-string or blank model is dropped (never sent as a bogus id); the provider then
-// falls through to its env var and built-in default.
+// Build resolved.providers as { name: { enabled, model?, reasoningEffort? } }. The
+// enable flag is the registry/arbiter contract; `model` and `reasoningEffort` are
+// carried through for the providers that accept a pin so the composition root (and
+// the standalone Grok bridge) can hand them to the adapter. openrouter-specific
+// connection keys stay hoisted into resolved.openrouter, and openrouter's own model
+// and effort live in the models map - so both are ignored there.
+//
+// Blank or non-string values are DROPPED rather than forwarded: a bogus id or effort
+// would be sent upstream verbatim, and falling through to the env var and built-in is
+// the safer failure. Schema validation reports the bad value separately.
+const PINNABLE_KEYS = ["model", "reasoningEffort"];
 function resolveProviders(providersRaw) {
   const out = {};
   for (const name of Object.keys(providersRaw)) {
     const block = providersRaw[name];
-    /** @type {{enabled:boolean, model?:string}} */
+    /** @type {{enabled:boolean, model?:string, reasoningEffort?:string}} */
     const resolved = { enabled: !(isObject(block) && block.enabled === false) };
-    if (name !== "openrouter" && isObject(block) && block.model !== undefined) {
-      if (typeof block.model === "string" && block.model.trim()) resolved.model = block.model;
+    if (name !== "openrouter" && isObject(block)) {
+      for (const key of PINNABLE_KEYS) {
+        const v = block[key];
+        if (typeof v === "string" && v.trim()) resolved[key] = v;
+      }
     }
     out[name] = resolved;
   }

@@ -6,6 +6,7 @@ const { toErrorResult } = require("../provider.js");
  * @param {Object} [opts]
  * @param {Object} [opts.bridge]
  * @param {string} [opts.model]
+ * @param {string} [opts.reasoningEffort]  default effort from providers.grok.reasoningEffort
  * @param {string} [opts.apiBase]
  * @returns {Provider}
  */
@@ -27,7 +28,9 @@ function makeGrokProvider(opts = {}) {
     },
     async ask(req) {
       const started = Date.now();
-      const reasoningEffort = bridge.resolveReasoningEffort(req.reasoningEffort);
+      // opts.reasoningEffort carries providers.grok.reasoningEffort from the
+      // composition root; the request still wins. Core never reads config itself.
+      const reasoningEffort = bridge.resolveReasoningEffort(req.reasoningEffort ?? opts.reasoningEffort);
       const apiKey = (req && req.apiKey) || process.env.XAI_API_KEY;
       try {
         // runWithFiles builds its own turns from prompt + developer-instructions;

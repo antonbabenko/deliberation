@@ -1222,21 +1222,26 @@ function startStdio() {
   };
 
   const initialOr = (getConfig().openrouter) || {};
+  const initialProviders = getConfig().providers || {};
+  const geminiCfg = initialProviders.gemini || {};
+  const grokCfg = initialProviders.grok || {};
   /** @type {Provider[]} */
   // Composition root: core is transport-agnostic, so wire each adapter to its
   // bridge here. Codex spawns the `codex` CLI directly and needs no bridge.
   const providers = [
     makeCodexProvider({}),
-    // providers.<name>.model is read ONCE here (constructor arg), so unlike the
-    // hot-reloading models map a change needs an MCP restart. Absent -> undefined,
-    // which lets each adapter fall through to its env var then its built-in default.
+    // providers.<name>.{model,reasoningEffort} are read ONCE here (constructor args),
+    // so unlike the hot-reloading models map a change needs an MCP restart. Absent ->
+    // undefined, letting each adapter fall through to its env var then its built-in.
+    // Codex is excluded on purpose: it resolves its model from ~/.codex/config.toml.
     makeAntigravityProvider({
       bridge: require("../gemini/index.js"),
-      model: (getConfig().providers && getConfig().providers.gemini || {}).model,
+      model: geminiCfg.model,
     }),
     makeGrokProvider({
       bridge: require("../grok/index.js"),
-      model: (getConfig().providers && getConfig().providers.grok || {}).model,
+      model: grokCfg.model,
+      reasoningEffort: grokCfg.reasoningEffort,
     }),
     makeOpenAICompatibleProvider({
       name: "openrouter",

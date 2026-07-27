@@ -345,7 +345,11 @@ test("M1: model param reaches argv as --model, before the -p tail", async () => 
 });
 
 test("M1b: absent model falls back to the pinned default, not settings.json", async () => {
-  const child = startBridge({ fakeBin: "fake-agy.sh" });
+  // Blank GEMINI_DEFAULT_MODEL in the CHILD env: DEFAULT_MODEL reads that var at
+  // module load, so without this the assertion below pins whatever the developer
+  // or CI runner happens to export rather than the built-in constant. "" is falsy,
+  // which is how the env is neutralized (a merged env cannot delete a key).
+  const child = startBridge({ fakeBin: "fake-agy.sh", env: { GEMINI_DEFAULT_MODEL: "" } });
   const responsesP = collectResponses(child);
   send(child, { jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
   send(child, {
@@ -359,6 +363,25 @@ test("M1b: absent model falls back to the pinned default, not settings.json", as
   const i = argv.indexOf("--model");
   assert.ok(i >= 0, "--model always pinned");
   assert.equal(argv[i + 1], "auto-gemini-3", "portable built-in default applied");
+});
+
+test("M1c: an agy without --model support gets no --model in argv (call still succeeds)", async () => {
+  // agy < 1.0.9 rejects unknown flags outright, so passing --model there would fail
+  // EVERY call. The capability probe must degrade to the pre-pin behavior instead.
+  // The fixture errors out if it ever sees --model, so a regression fails loudly.
+  const child = startBridge({ fakeBin: "fake-agy-nomodel.sh" });
+  const responsesP = collectResponses(child);
+  send(child, { jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+  send(child, {
+    jsonrpc: "2.0", id: 2, method: "tools/call",
+    params: { name: "gemini", arguments: { prompt: "hi", model: "gemini-3.1-pro-low" } },
+  });
+  setTimeout(() => child.stdin.end(), 1000);
+  const responses = await responsesP;
+  assert.ok(!responses.find((x) => x.id === 2).error, "call succeeds on an old agy");
+  const argv = readArgv(child.argvLog)[0];
+  assert.ok(!argv.includes("--model"), "no --model flag for an agy that cannot parse it");
+  assert.ok(argv.lastIndexOf("-p") >= 0, "prompt tail still intact");
 });
 
 test("M1: model empty string -> -32602", async () => {

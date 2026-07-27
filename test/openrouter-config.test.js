@@ -612,3 +612,30 @@ test("PM4: openrouter ignores providers.model (its models map owns selection)", 
   });
   assert.equal(resolved.providers.openrouter.model, undefined);
 });
+
+test("PM5: providers.grok.reasoningEffort is carried into resolved.providers", () => {
+  const { resolved } = validateConfig({
+    version: 1,
+    providers: { grok: { enabled: true, model: "grok-4.5", reasoningEffort: "low" } },
+  });
+  assert.equal(resolved.providers.grok.reasoningEffort, "low");
+  assert.equal(resolved.providers.grok.model, "grok-4.5");
+});
+
+test("PM6: a blank or non-string reasoningEffort is dropped, so env/built-in still apply", () => {
+  const { resolved } = validateConfig({
+    version: 1,
+    providers: { grok: { enabled: true, reasoningEffort: "  " } },
+  });
+  assert.equal(resolved.providers.grok.reasoningEffort, undefined);
+  const bad = validateConfig({ version: 1, providers: { grok: { enabled: true, reasoningEffort: 3 } } });
+  assert.equal(bad.resolved.providers.grok.reasoningEffort, undefined);
+});
+
+test("PM7: openrouter ignores providers.reasoningEffort (defaults block owns it)", () => {
+  const { resolved } = validateConfig({
+    version: 1,
+    providers: { openrouter: { enabled: true, reasoningEffort: "low" } },
+  });
+  assert.equal(resolved.providers.openrouter.reasoningEffort, undefined);
+});
