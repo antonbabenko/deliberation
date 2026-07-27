@@ -1,3 +1,10 @@
+## [3.12.1](https://github.com/antonbabenko/deliberation/compare/v3.12.0...v3.12.1) (2026-07-27)
+
+
+### Bug Fixes
+
+* **ci:** publish to npm on Node 24 and make a failed publish retryable ([#165](https://github.com/antonbabenko/deliberation/issues/165)) ([451eea7](https://github.com/antonbabenko/deliberation/commit/451eea788f9782439fc0c3318ed820f4d4f57f9b))
+
 ## [3.12.0](https://github.com/antonbabenko/deliberation/compare/v3.11.0...v3.12.0) (2026-07-27)
 
 
@@ -25,11 +32,4 @@
 ### Features
 
 * **sessions:** opt-in sessions.captureText for response-body capture ([#153](https://github.com/antonbabenko/deliberation/issues/153)) ([4000dd4](https://github.com/antonbabenko/deliberation/commit/4000dd4184e567e9d5979f94f3589fdb2503f193))
-
-## [3.9.0](https://github.com/antonbabenko/deliberation/compare/v3.8.1...v3.9.0) (2026-06-22)
-
-
-### Features
-
-* **consensus:** persist host-driven consensus-step loop records ([#152](https://github.com/antonbabenko/deliberation/issues/152)) ([f973bbe](https://github.com/antonbabenko/deliberation/commit/f973bbe4a1010ce5bec0dba7facdd575653b59dc))
 
