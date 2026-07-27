@@ -1,3 +1,10 @@
+## [3.12.0](https://github.com/antonbabenko/deliberation/compare/v3.11.0...v3.12.0) (2026-07-27)
+
+
+### Features
+
+* **providers:** pin Gemini and Grok models via config.json ([#162](https://github.com/antonbabenko/deliberation/issues/162)) ([aff8026](https://github.com/antonbabenko/deliberation/commit/aff80263239e64390cdb3ee4dc12d8f81fed010d))
+
 ## [3.11.0](https://github.com/antonbabenko/deliberation/compare/v3.10.1...v3.11.0) (2026-06-26)
 
 
@@ -25,11 +32,4 @@
 ### Features
 
 * **consensus:** persist host-driven consensus-step loop records ([#152](https://github.com/antonbabenko/deliberation/issues/152)) ([f973bbe](https://github.com/antonbabenko/deliberation/commit/f973bbe4a1010ce5bec0dba7facdd575653b59dc))
-
-## [3.8.1](https://github.com/antonbabenko/deliberation/compare/v3.8.0...v3.8.1) (2026-06-18)
-
-
-### Bug Fixes
-
-* **mcp:** accurate tool annotations + full schema descriptions ([#150](https://github.com/antonbabenko/deliberation/issues/150)) ([115be33](https://github.com/antonbabenko/deliberation/commit/115be33cc910d12ec2e6999827c6fd4119345bf5))
 
