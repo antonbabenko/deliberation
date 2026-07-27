@@ -9,6 +9,17 @@ on:
   push:
     branches:
       - master
+  # Retry hatch: a release whose npm publish failed cannot be fixed by re-running
+  # the original run (GitHub replays the workflow file from that commit, bugs and
+  # all). Dispatch with the existing tag to re-drive the publish steps from the
+  # CURRENT workflow file. Every step below is idempotent, so this is safe to
+  # repeat.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag to (re)publish, e.g. v3.12.0'
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -22,17 +33,22 @@ jobs:
   tag-release:
     name: Tag and publish
     runs-on: ubuntu-latest
-    # Only act on the merged release commit.
-    if: ${{ startsWith(github.event.head_commit.message, 'chore(release):') }}
+    # Only act on the merged release commit, or on an explicit retry dispatch.
+    if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, 'chore(release):') }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          # On a retry, work from the released tag, not master HEAD - master has
+          # moved on and its version.json/CHANGELOG no longer describe that release.
+          ref: ${{ inputs.tag || github.sha }}
           fetch-depth: 0
           token: ${{ secrets.RELEASE_TOKEN }}
 
       - name: Resolve version and tag
         id: ver
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
           VERSION="$(jq -r '.version' version.json)"
@@ -40,13 +56,21 @@ jobs:
             echo "::error::version.json has no version"; exit 1
           fi
           TAG="v${VERSION}"
-          # Guard: commit subject must reference this version (catches a desync
-          # between version.json and the release commit).
-          SUBJECT="$(git log -1 --pretty=%s)"
-          case "$SUBJECT" in
-            *"$TAG"*) : ;;
-            *) echo "::error::release commit subject '$SUBJECT' does not match $TAG"; exit 1 ;;
-          esac
+          if [ -n "${INPUT_TAG:-}" ]; then
+            # Retry path: the dispatched tag must be the one checked out, so a
+            # typo cannot republish a different version under this tag's name.
+            if [ "$INPUT_TAG" != "$TAG" ]; then
+              echo "::error::dispatched tag '$INPUT_TAG' does not match version.json ($TAG)"; exit 1
+            fi
+          else
+            # Push path: commit subject must reference this version (catches a
+            # desync between version.json and the release commit).
+            SUBJECT="$(git log -1 --pretty=%s)"
+            case "$SUBJECT" in
+              *"$TAG"*) : ;;
+              *) echo "::error::release commit subject '$SUBJECT' does not match $TAG"; exit 1 ;;
+            esac
+          fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
@@ -56,15 +80,18 @@ jobs:
           TAG: ${{ steps.ver.outputs.tag }}
         run: |
           set -euo pipefail
+          # The checked-out commit, not $GITHUB_SHA: on a retry dispatch the
+          # workflow's SHA is master HEAD while the checkout is the release tag.
+          SHA="$(git rev-parse HEAD)"
           if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
             EXISTING="$(git rev-list -n1 "${TAG}")"
-            if [ "$EXISTING" != "$GITHUB_SHA" ]; then
-              echo "::error::tag ${TAG} already exists at ${EXISTING}, not ${GITHUB_SHA}"; exit 1
+            if [ "$EXISTING" != "$SHA" ]; then
+              echo "::error::tag ${TAG} already exists at ${EXISTING}, not ${SHA}"; exit 1
             fi
-            echo "Tag ${TAG} already at ${GITHUB_SHA}; skipping create."
+            echo "Tag ${TAG} already at ${SHA}; skipping create."
             echo "created=false" >> "$GITHUB_OUTPUT"
           else
-            git tag "${TAG}" "${GITHUB_SHA}"
+            git tag "${TAG}" "${SHA}"
             git push origin "refs/tags/${TAG}"
             echo "created=true" >> "$GITHUB_OUTPUT"
           fi
@@ -94,18 +121,39 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
 
       # Publish the npm package via OIDC trusted publishing (no stored token).
-      # Gated on a freshly-created tag so a re-run never double-publishes a version.
       # Requires a one-time "trusted publisher" config on npmjs.com for
       # @antonbabenko/deliberation-mcp linked to this repo + workflow.
+      #
+      # Gate on "is this version already on npm?" rather than "did we just create
+      # the tag?". The old gate made a failed publish unrecoverable: the tag
+      # exists forever after the first attempt, so every retry skipped the publish.
+      # The registry is the actual source of truth for what has shipped, and it
+      # rejects a duplicate version anyway.
+      - name: Check npm for this version
+        id: npmcheck
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -uo pipefail
+          PKG="$(jq -r '.name' server/mcp/package.json)"
+          if npm view "${PKG}@${VERSION}" version >/dev/null 2>&1; then
+            echo "${PKG}@${VERSION} is already published; skipping npm publish."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Set up Node for publish
-        if: steps.tag.outputs.created == 'true'
+        if: steps.npmcheck.outputs.publish == 'true'
         uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          # npm@latest is npm 12, which refuses Node 20 (requires ^22.22.2 ||
+          # ^24.15.0 || >=26). Node 20 here is what broke the v3.12.0 publish.
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
 
       - name: Publish to npm (OIDC trusted publishing + provenance)
-        if: steps.tag.outputs.created == 'true'
+        if: steps.npmcheck.outputs.publish == 'true'
         run: |
           set -euo pipefail
           npm ci
@@ -117,7 +165,7 @@ jobs:
       # identity). Best-effort: a registry hiccup must not red an already-published
       # npm release - it can be re-published manually with mcp-publisher.
       - name: Publish to the MCP Registry
-        if: steps.tag.outputs.created == 'true'
+        if: steps.npmcheck.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
