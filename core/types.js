@@ -74,6 +74,7 @@
  * @property {string}   [message]
  * @property {number}   ms
  * @property {(string|null)} [reasoningEffort]
+ * @property {number}   [retryAfterMs]  upstream Retry-After hint on a 429, in ms.
  */
 
 /** @typedef {DelegationSuccess | DelegationError} DelegationResult */

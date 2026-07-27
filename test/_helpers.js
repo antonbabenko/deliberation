@@ -21,6 +21,10 @@ function startBridge({ env = {}, fakeBin = "fake-agy.sh" } = {}) {
       // wrapper denies workspace writes, which would block the fixture's own argv log.
       // Tests that exercise the wrapper opt back in by overriding this via `env`.
       DELIBERATION_DISABLE_OS_SANDBOX: "1",
+      // The fixtures print short sentinels ("FAKE AGY OK") to assert PLUMBING, not answer
+      // length, so the non-answer floor is off by default here. Tests that exercise the
+      // floor opt back in by overriding this via `env`.
+      GEMINI_MIN_ANSWER_CHARS: "0",
       ...env,
     },
     stdio: ["pipe", "pipe", "pipe"],

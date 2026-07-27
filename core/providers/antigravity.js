@@ -9,6 +9,8 @@ const { toErrorResult } = require("../provider.js");
  * @param {boolean} [opts.allowImplement]  construction-time lock (first of two AND-ed locks).
  *   When false/absent, this provider is read-only no matter what `req.mode` says. Set ONLY in a
  *   composition root that has a local workspace + a human-gated write surface (section 3).
+ * @param {number} [opts.timeoutMs]  construction-time default per-call ceiling (ms), from
+ *   providers.gemini.timeout / providers.defaults.timeout. Falls through to the bridge default.
  * @returns {Provider}
  */
 function makeAntigravityProvider(opts = {}) {
@@ -25,6 +27,9 @@ function makeAntigravityProvider(opts = {}) {
   // independence in ask-all / consensus. Bridge applies the same default.
   const model = opts.model || process.env.GEMINI_DEFAULT_MODEL || "auto-gemini-3";
   const allowImplement = opts.allowImplement === true;
+  // Construction-time ceiling. Undefined (not 0) when unset, so the bridge applies its
+  // own default rather than being handed a falsy value it would treat as "no timeout".
+  const defaultTimeoutMs = typeof opts.timeoutMs === "number" && opts.timeoutMs > 0 ? opts.timeoutMs : undefined;
 
   return {
     name: "gemini",
@@ -53,7 +58,8 @@ function makeAntigravityProvider(opts = {}) {
       });
       try {
         // runGemini(args, cwd, timeoutMs, recoveryGraceMs, opts). recovered:true => normal success.
-        const out = await bridge.runGemini(args, req.cwd, req.timeoutMs, undefined, { readOnly: !implement, includeDirs });
+        const timeoutMs = typeof req.timeoutMs === "number" && req.timeoutMs > 0 ? req.timeoutMs : defaultTimeoutMs;
+        const out = await bridge.runGemini(args, req.cwd, timeoutMs, undefined, { readOnly: !implement, includeDirs });
         // out.response can be undefined on a degenerate clean run; coerce to ""
         // so the DelegationSuccess.text contract (string, not string|undefined) holds.
         // Gemini (agy CLI) has no per-call reasoning-effort knob -> null.

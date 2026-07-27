@@ -36,6 +36,7 @@ Minimal example:
   "$schema": "https://raw.githubusercontent.com/antonbabenko/deliberation/master/config/config.schema.json",
   "version": 1,
   "providers": {
+    "defaults": { "timeout": 600000 },
     "codex":  { "enabled": true },
     "gemini": { "enabled": true, "model": "auto-gemini-3" },
     "grok":   { "enabled": true, "apiKeyEnv": "XAI_API_KEY", "model": "grok-4.5", "reasoningEffort": "high" },
@@ -101,6 +102,29 @@ quietly cost you the cross-model independence that `/ask-all` and `/consensus` r
 
 Codex has no such key - it resolves its model from `~/.codex/config.toml` and
 deliberation never overrides it.
+
+### Timeouts
+
+Every provider ships a different built-in ceiling (codex 600s, gemini 300s, grok 180s,
+OpenRouter 180s). To raise them all at once, set one key:
+
+```json
+"providers": {
+  "defaults": { "timeout": 600000 }
+}
+```
+
+Override a single provider with `providers.<name>.timeout` - except OpenRouter, whose
+slot is the `defaults` block it already owns (`providers.openrouter.defaults.timeout`).
+A pinned model's `models.<id>.timeout` still beats all of it. These are read once at MCP
+start, so a change needs a restart; the `models` map keeps hot-reloading.
+
+If a fan-out drops a model at almost exactly 180000 ms, it hit the built-in ceiling -
+that is the knob to turn.
+
+A rate-limited call (HTTP 429) is retried once, waiting for the upstream's `Retry-After`
+when it sends one. A timeout is deliberately not retried: the call may already have
+burned tokens, and a slow-but-good answer should not be thrown away.
 
 `reasoningEffort` (`low` / `medium` / `high`) sets how hard a reasoning model
 thinks. Put it on `providers.openrouter.defaults` to cover every model, or on a single

@@ -224,18 +224,42 @@ function resolveDefaults(raw) {
 // Blank or non-string values are DROPPED rather than forwarded: a bogus id or effort
 // would be sent upstream verbatim, and falling through to the env var and built-in is
 // the safer failure. Schema validation reports the bad value separately.
+// `timeout` resolves HERE rather than in the composition root, so the precedence
+// ladder lives in the config SSOT: providers.<name>.timeout (providers.openrouter
+// .defaults.timeout for OpenRouter, which already owns a defaults block) beats
+// providers.defaults.timeout, which beats the adapter's built-in. A pinned alias's
+// models.<id>.timeout still wins over all of it - registry.js merges that into the
+// request itself. `defaults` is a shared block, NOT a provider: it never becomes an
+// entry in the resolved map.
 const PINNABLE_KEYS = ["model", "reasoningEffort"];
+const KNOWN_PROVIDERS = ["codex", "gemini", "grok", "openrouter"];
+const positiveInt = (/** @type {any} */ v) => (Number.isInteger(v) && v > 0 ? v : undefined);
 function resolveProviders(providersRaw) {
   const out = {};
-  for (const name of Object.keys(providersRaw)) {
+  const sharedTimeout = positiveInt(isObject(providersRaw.defaults) ? providersRaw.defaults.timeout : undefined);
+  // Union the known providers in so a config that sets ONLY providers.defaults still
+  // produces an entry per provider to carry the shared timeout. Absent = enabled, which
+  // is what an omitted block already meant to the registry.
+  const names = new Set([...KNOWN_PROVIDERS, ...Object.keys(providersRaw)]);
+  for (const name of names) {
+    if (name === "defaults") continue;
     const block = providersRaw[name];
-    /** @type {{enabled:boolean, model?:string, reasoningEffort?:string}} */
+    /** @type {{enabled:boolean, model?:string, reasoningEffort?:string, timeout?:number}} */
     const resolved = { enabled: !(isObject(block) && block.enabled === false) };
-    if (name !== "openrouter" && isObject(block)) {
-      for (const key of PINNABLE_KEYS) {
-        const v = block[key];
-        if (typeof v === "string" && v.trim()) resolved[key] = v;
+    if (isObject(block)) {
+      if (name !== "openrouter") {
+        for (const key of PINNABLE_KEYS) {
+          const v = block[key];
+          if (typeof v === "string" && v.trim()) resolved[key] = v;
+        }
       }
+      const own = name === "openrouter"
+        ? positiveInt(isObject(block.defaults) ? block.defaults.timeout : undefined)
+        : positiveInt(block.timeout);
+      const t = own !== undefined ? own : sharedTimeout;
+      if (t !== undefined) resolved.timeout = t;
+    } else if (sharedTimeout !== undefined) {
+      resolved.timeout = sharedTimeout;
     }
     out[name] = resolved;
   }

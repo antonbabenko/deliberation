@@ -325,3 +325,61 @@ test("ORX-retry-3: two consecutive network errors retry exactly once (no third c
   assert.equal(r.errorKind, "network");
   assert.equal(p.calls, 2);
 });
+
+// --- retry ladder ---
+// callProvider retries exactly once, only for kinds that actually self-heal.
+
+function countingProvider(/** @type {any[]} */ results) {
+  let calls = 0;
+  return {
+    name: "p", capabilities: { canImplement: false, fileUpload: false, multiTurn: false },
+    async health() { return { ok: true }; },
+    async ask() { const r = results[Math.min(calls, results.length - 1)]; calls++; return r; },
+    get calls() { return calls; },
+  };
+}
+const errResult = (/** @type {any} */ extra) => ({ provider: "p", model: "m", isError: true, retryable: true, ms: 1, ...extra });
+const okResult = { provider: "p", model: "m", isError: false, text: "fine", ms: 1, reasoningEffort: null };
+
+test("RT1: a rate-limit is retried once and the retry's success is returned", async () => {
+  const p = countingProvider([errResult({ errorKind: "rate-limit", retryAfterMs: 0 }), okResult]);
+  const r = await askOne(p, { prompt: "x" });
+  assert.equal(p.calls, 2, "exactly one retry");
+  assert.equal(r.isError, false);
+});
+
+test("RT2: an empty (non-answer) result is retried once", async () => {
+  const p = countingProvider([errResult({ errorKind: "empty" }), okResult]);
+  const r = await askOne(p, { prompt: "x" });
+  assert.equal(p.calls, 2);
+  assert.equal(r.isError, false);
+});
+
+test("RT3: timeout and auth are NOT retried", async () => {
+  for (const kind of ["timeout", "auth", "parse", "config"]) {
+    const p = countingProvider([errResult({ errorKind: kind }), okResult]);
+    const r = await askOne(p, { prompt: "x" });
+    assert.equal(p.calls, 1, `${kind} must not retry`);
+    assert.equal(r.isError, true);
+  }
+});
+
+test("RT4: a second failure is returned as-is (one retry, not a loop)", async () => {
+  const p = countingProvider([errResult({ errorKind: "rate-limit", retryAfterMs: 0 }), errResult({ errorKind: "rate-limit", retryAfterMs: 0 })]);
+  const r = await askOne(p, { prompt: "x" });
+  assert.equal(p.calls, 2);
+  assert.equal(r.isError, true);
+  assert.equal(r.errorKind, "rate-limit");
+});
+
+test("RT5: the rate-limit retry waits for Retry-After, clamped to 30s", async () => {
+  // A hostile hint must not stall the fan-out, so the wait is capped. Assert the clamp
+  // by wall clock only at the cheap end: an oversized hint would hang this test if the
+  // cap were missing, since the suite has no fake timers.
+  const started = Date.now();
+  const p = countingProvider([errResult({ errorKind: "rate-limit", retryAfterMs: 60 }), okResult]);
+  await askOne(p, { prompt: "x" });
+  const waited = Date.now() - started;
+  assert.ok(waited >= 50, `honored the hint (waited ${waited}ms)`);
+  assert.ok(waited < 5000, `did not fall back to a long default (waited ${waited}ms)`);
+});

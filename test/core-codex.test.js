@@ -96,3 +96,24 @@ test("CX-timeout-3: a construction-time opts.timeoutMs is used when the request 
   await p.ask({ prompt: "x", timeoutMs: 5000 });
   assert.equal(seen, 5000);
 });
+
+test("CX-timeout-1: a run killed by the timer classifies as timeout even with empty stderr", async () => {
+  // A SIGKILL'd codex usually writes nothing, so stderr-substring classification would
+  // report `unknown` - and a codex timeout that is not `timeout` can never trip the
+  // consensus circuit breaker.
+  const run = async () => ({ code: 1, stdout: "", stderr: "", timedOut: true });
+  const r = await mkCx({ run }).ask({ prompt: "x" });
+  assert.equal(r.isError, true);
+  assert.equal(r.errorKind, "timeout");
+  assert.equal(r.retryable, true);
+});
+
+test("CX-timeout-2: the kill flag beats a misleading stderr (\"author\" must not read as auth)", async () => {
+  const run = async () => ({ code: 1, stdout: "", stderr: "reading author metadata", timedOut: true });
+  const killed = /** @type {any} */ (await mkCx({ run }).ask({ prompt: "x" }));
+  assert.equal(killed.errorKind, "timeout");
+  // Same stderr WITHOUT the kill still goes through the substring classifier.
+  const runNotKilled = async () => ({ code: 1, stdout: "", stderr: "reading author metadata", timedOut: false });
+  const notKilled = /** @type {any} */ (await mkCx({ run: runNotKilled }).ask({ prompt: "x" }));
+  assert.equal(notKilled.errorKind, "auth");
+});

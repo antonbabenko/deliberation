@@ -1225,23 +1225,31 @@ function startStdio() {
   const initialProviders = getConfig().providers || {};
   const geminiCfg = initialProviders.gemini || {};
   const grokCfg = initialProviders.grok || {};
+  // Per-call wall-time ceiling. The precedence ladder (providers.<name>.timeout >
+  // providers.defaults.timeout > adapter built-in) is resolved in the config layer, so
+  // this just reads the resolved value; undefined leaves the adapter on its own default.
+  // Read ONCE here like model/reasoningEffort - a change needs an MCP restart.
+  const providerTimeout = (/** @type {string} */ name) => (initialProviders[name] || {}).timeout;
   /** @type {Provider[]} */
   // Composition root: core is transport-agnostic, so wire each adapter to its
   // bridge here. Codex spawns the `codex` CLI directly and needs no bridge.
   const providers = [
-    makeCodexProvider({}),
-    // providers.<name>.{model,reasoningEffort} are read ONCE here (constructor args),
-    // so unlike the hot-reloading models map a change needs an MCP restart. Absent ->
-    // undefined, letting each adapter fall through to its env var then its built-in.
-    // Codex is excluded on purpose: it resolves its model from ~/.codex/config.toml.
+    makeCodexProvider({ timeoutMs: providerTimeout("codex") }),
+    // providers.<name>.{model,reasoningEffort,timeout} are read ONCE here (constructor
+    // args), so unlike the hot-reloading models map a change needs an MCP restart. Absent
+    // -> undefined, letting each adapter fall through to its env var then its built-in.
+    // Codex is excluded from the MODEL wiring on purpose: it resolves its model from
+    // ~/.codex/config.toml.
     makeAntigravityProvider({
       bridge: require("../gemini/index.js"),
       model: geminiCfg.model,
+      timeoutMs: providerTimeout("gemini"),
     }),
     makeGrokProvider({
       bridge: require("../grok/index.js"),
       model: grokCfg.model,
       reasoningEffort: grokCfg.reasoningEffort,
+      timeoutMs: providerTimeout("grok"),
     }),
     makeOpenAICompatibleProvider({
       name: "openrouter",
@@ -1249,6 +1257,7 @@ function startStdio() {
       apiKeyEnv: DEFAULT_API_KEY_ENV,
       resolveModel: (req) => req.model || (getConfig().openrouter && getConfig().openrouter.defaultModel) || "",
       bridge: require("../openrouter/index.js"),
+      timeoutMs: providerTimeout("openrouter"),
     }),
   ];
   const sessionsDir = require("../../core/paths.js").resolveSessionsDir();

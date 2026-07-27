@@ -206,3 +206,34 @@ test("P18: validateOpinion on a raw object missing recommendation is valid:false
   assert.equal(r.wellFormed, false);
   assert.ok(r.warnings.some((w) => /recommendation/.test(w)));
 });
+
+// --- Retry-After ---
+
+const { parseRetryAfterMs } = require("../core/provider.js");
+
+test("RA1: delta-seconds parses to ms", () => {
+  assert.equal(parseRetryAfterMs("30"), 30000);
+  assert.equal(parseRetryAfterMs("  0 "), 0);
+});
+
+test("RA2: an HTTP-date parses to a non-negative delta", () => {
+  const soon = new Date(Date.now() + 20000).toUTCString();
+  const ms = /** @type {number} */ (parseRetryAfterMs(soon));
+  assert.ok(ms > 5000 && ms <= 20000, `expected ~20s, got ${ms}`);
+  // A date already in the past clamps to 0 rather than going negative.
+  assert.equal(parseRetryAfterMs(new Date(Date.now() - 60000).toUTCString()), 0);
+});
+
+test("RA3: missing or unparseable values yield undefined", () => {
+  for (const v of [undefined, null, "", "   ", "soon", "-5", "1.5", 30]) {
+    assert.equal(parseRetryAfterMs(/** @type {any} */ (v)), undefined, `${JSON.stringify(v)} -> undefined`);
+  }
+});
+
+test("RA4: toErrorResult forwards retryAfterMs and omits it when absent", () => {
+  const classify = () => ({ errorKind: "rate-limit", retryable: true });
+  const withHint = toErrorResult("grok", "m", Date.now(), { status: 429, retryAfterMs: 4000 }, classify);
+  assert.equal(withHint.retryAfterMs, 4000);
+  const without = toErrorResult("grok", "m", Date.now(), { status: 429 }, classify);
+  assert.ok(!("retryAfterMs" in without), "absent hint adds no key");
+});

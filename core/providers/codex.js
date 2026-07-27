@@ -45,25 +45,28 @@ function codexExecArgs(mode) {
 /**
  * Default spawner: `codex exec` reading the prompt on stdin, capturing stdout.
  * @param {{prompt:string, cwd?:string, timeoutMs?:number, mode?:("advisory"|"implement")}} args
- * @returns {Promise<{code:number, stdout:string, stderr:string}>}
+ * @returns {Promise<{code:number, stdout:string, stderr:string, timedOut:boolean}>}
  */
 function defaultRun({ prompt, cwd, timeoutMs, mode }) {
   return new Promise((resolve) => {
     const child = spawn("codex", codexExecArgs(mode), { cwd: cwd || process.cwd() });
-    let stdout = "", stderr = "", settled = false;
-    const timer = timeoutMs ? setTimeout(() => child.kill("SIGKILL"), timeoutMs) : null;
+    let stdout = "", stderr = "", settled = false, timedOut = false;
+    // A SIGKILL'd codex usually writes nothing, so classifyCodex(stderr) would map the
+    // kill to `unknown` (or worse, to `auth` - "author" contains "auth"). Report the
+    // kill explicitly instead of inferring it from a stream that may be empty.
+    const timer = timeoutMs ? setTimeout(() => { timedOut = true; child.kill("SIGKILL"); }, timeoutMs) : null;
     if (timer) timer.unref(); // never hold the event loop open on the timeout timer
     child.stdout.on("data", (d) => (stdout += d));
     child.stderr.on("data", (d) => (stderr += d));
     child.on("error", (e) => {
       if (settled) return; settled = true;
       if (timer) clearTimeout(timer);
-      resolve({ code: 127, stdout: "", stderr: String((e && e.message) || e) });
+      resolve({ code: 127, stdout: "", stderr: String((e && e.message) || e), timedOut });
     });
     child.on("close", (code) => {
       if (settled) return; settled = true;
       if (timer) clearTimeout(timer);
-      resolve({ code: code == null ? 1 : code, stdout, stderr });
+      resolve({ code: code == null ? 1 : code, stdout, stderr, timedOut });
     });
     child.stdin.end(prompt);
   });
@@ -71,7 +74,7 @@ function defaultRun({ prompt, cwd, timeoutMs, mode }) {
 
 /**
  * @param {Object} [opts]
- * @param {(args:{prompt:string,cwd?:string,timeoutMs?:number,mode?:("advisory"|"implement")})=>Promise<{code:number,stdout:string,stderr:string}>} [opts.run]
+ * @param {(args:{prompt:string,cwd?:string,timeoutMs?:number,mode?:("advisory"|"implement")})=>Promise<{code:number,stdout:string,stderr:string,timedOut?:boolean}>} [opts.run]
  * @param {string} [opts.model]
  * @param {boolean} [opts.allowImplement]  construction-time lock (first of two AND-ed locks).
  *   When false/absent, this provider is read-only no matter what `req.mode` says. Set ONLY in a
@@ -101,12 +104,17 @@ function makeCodexProvider(opts = {}) {
       // else the module default. Always a positive number, so defaultRun's kill
       // timer is ALWAYS armed - no Codex call can run unbounded.
       const timeoutMs = typeof req.timeoutMs === "number" && req.timeoutMs > 0 ? req.timeoutMs : defaultTimeoutMs;
-      const { code, stdout, stderr } = await run({ prompt: full, cwd: req.cwd, timeoutMs, mode });
+      const { code, stdout, stderr, timedOut } = await run({ prompt: full, cwd: req.cwd, timeoutMs, mode });
       if (code === 0) {
         // Codex CLI has no per-call reasoning-effort knob in this integration -> null.
         return { provider: "codex", model, text: stdout.trim(), isError: false, ms: Date.now() - started, reasoningEffort: null };
       }
-      const { errorKind, retryable } = classifyCodex(stderr);
+      // The kill timer is authoritative: a run we killed is a timeout regardless of what
+      // (if anything) landed on stderr. Without this a codex timeout classifies as
+      // `unknown` and can never trip the consensus circuit breaker.
+      const { errorKind, retryable } = timedOut
+        ? { errorKind: "timeout", retryable: true }
+        : classifyCodex(stderr);
       return {
         provider: "codex",
         model,

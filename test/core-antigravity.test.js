@@ -93,3 +93,20 @@ test("AG-gate-open: both locks -> sandbox workspace-write, runGemini readOnly:fa
 test("AG5: capabilities.walksFilesystem is true (Gemini walks cwd under read-only sandbox)", () => {
   assert.equal(makeAntigravityProvider({ bridge: fakeBridge }).capabilities.walksFilesystem, true);
 });
+
+test("AG-timeout-1: opts.timeoutMs is the construction default; req.timeoutMs still wins", async () => {
+  let seen;
+  const capturing = { ...fakeBridge, runGemini: async (/** @type {any} */ _a, /** @type {any} */ _cwd, /** @type {any} */ t) => { seen = t; return { response: "ok", threadId: "g" }; } };
+  const p = makeAntigravityProvider({ bridge: capturing, timeoutMs: 600000 });
+  await p.ask({ prompt: "hi", cwd: "/tmp" });
+  assert.equal(seen, 600000, "construction default is applied");
+  await p.ask({ prompt: "hi", cwd: "/tmp", timeoutMs: 9000 });
+  assert.equal(seen, 9000, "per-call value wins");
+});
+
+test("AG-timeout-2: no configured timeout injects undefined so the bridge default applies", async () => {
+  let seen = "unset";
+  const capturing = { ...fakeBridge, runGemini: async (/** @type {any} */ _a, /** @type {any} */ _cwd, /** @type {any} */ t) => { seen = t; return { response: "ok", threadId: "g" }; } };
+  await makeAntigravityProvider({ bridge: capturing }).ask({ prompt: "hi", cwd: "/tmp" });
+  assert.equal(seen, undefined, "undefined, not 0 - a falsy value would read as no timeout");
+});

@@ -65,10 +65,19 @@ function configuredReasoningEffort() {
   const e = grokConfigBlock().reasoningEffort;
   return isNonEmptyString(e) ? e : undefined;
 }
+const { parseRetryAfterMs } = require("../../core/provider.js");
+
 const DEFAULT_API_BASE = process.env.XAI_API_BASE || "https://api.x.ai/v1";
 const DEFAULT_TIMEOUT_MS = 180_000; // 3 minutes
 const MAX_MS = 600_000;
 const VALID_SANDBOX_VALUES = new Set(["read-only", "workspace-write"]);
+
+const DEFAULT_UPLOAD_TIMEOUT_MS = 120_000; // 2 minutes for one Files API transfer
+/** Ceiling for a single Files API upload. `GROK_UPLOAD_TIMEOUT_MS=0` disables it. */
+function uploadTimeoutMs() {
+  const raw = Number(process.env.GROK_UPLOAD_TIMEOUT_MS);
+  return Number.isFinite(raw) && raw >= 0 ? raw : DEFAULT_UPLOAD_TIMEOUT_MS;
+}
 
 // xAI accepts expires_after between 1 hour and 30 days. Default 7 days.
 const FILE_TTL_MIN = 3600;
@@ -417,24 +426,46 @@ async function uploadFile({ filePath, filename, apiKey, apiBase, ttl, roots, cwd
     form.append("purpose", UPLOAD_PURPOSE);
     form.append("file", new Blob([buf]), storedName);
 
-    let res;
+    // The Files API call had NO abort signal, so a hung upload blocked the whole ask
+    // forever. Bounded by a fixed ceiling rather than the per-call answer timeout: an
+    // upload is a fixed-size transfer, not a model run. 0 disables the bound.
+    const upTimeout = uploadTimeoutMs();
+    const upController = new AbortController();
+    const upTimer = upTimeout > 0 ? setTimeout(() => upController.abort(), upTimeout) : null;
+    if (upTimer) upTimer.unref();
+
+    let res, bodyText = "";
     try {
       res = await f(`${base}/files`, {
         method: "POST",
         headers: { "Authorization": `Bearer ${apiKey}` },
         body: form,
         redirect: "error",
+        signal: upController.signal,
       });
+      try { bodyText = await res.text(); } catch (bodyErr) {
+        const bmsg = String((bodyErr && bodyErr.message) || bodyErr);
+        if ((bodyErr && bodyErr.name === "AbortError") || /abort/i.test(bmsg)) throw bodyErr;
+        bodyText = "";
+      }
     } catch (err) {
-      const e = new Error(`File upload network error: ${(err && err.message) || err}`);
+      const msg = String((err && err.message) || err);
+      if ((err && err.name === "AbortError") || /abort/i.test(msg)) {
+        const e = new Error(`Grok file upload timed out after ${Math.round(upTimeout / 1000)}s`);
+        e.code = "timeout";
+        throw e;
+      }
+      const e = new Error(`File upload network error: ${msg}`);
       e.code = "file-upload";
       throw e;
+    } finally {
+      if (upTimer) clearTimeout(upTimer);
     }
-    let bodyText = "";
-    try { bodyText = await res.text(); } catch (_) { bodyText = ""; }
+
     if (!res.ok) {
       const e = new Error(`xAI file upload error ${res.status}: ${truncate(bodyText, 300)}`);
       e.status = res.status;
+      if (res.status === 429) { const ra = parseRetryAfterMs(res.headers && res.headers.get("retry-after")); if (ra !== undefined) e.retryAfterMs = ra; }
       if (res.status < 400 || res.status >= 500) e.code = "file-upload";
       throw e;
     }
@@ -619,7 +650,10 @@ async function runGrok({ turns, model, timeoutMs, apiKey, apiBase, fetchImpl, re
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), t);
 
-  let res;
+  // The timer stays armed until the BODY is read, not just the headers. Clearing it at
+  // the end of the fetch left `res.text()` unbounded, so a slow body could run far past
+  // the ceiling that sibling calls died on.
+  let res, bodyText = "";
   try {
     res = await f(url, {
       method: "POST",
@@ -631,6 +665,12 @@ async function runGrok({ turns, model, timeoutMs, apiKey, apiBase, fetchImpl, re
       signal: controller.signal,
       redirect: "error",
     });
+    try { bodyText = await res.text(); } catch (bodyErr) {
+      // An abort DURING the body read is still a timeout, not a network fault.
+      const bmsg = String((bodyErr && bodyErr.message) || bodyErr);
+      if ((bodyErr && bodyErr.name === "AbortError") || /abort/i.test(bmsg)) throw bodyErr;
+      bodyText = "";
+    }
   } catch (err) {
     const name = err && err.name;
     const msg = String((err && err.message) || err);
@@ -646,12 +686,10 @@ async function runGrok({ turns, model, timeoutMs, apiKey, apiBase, fetchImpl, re
     clearTimeout(timer);
   }
 
-  let bodyText = "";
-  try { bodyText = await res.text(); } catch (_) { bodyText = ""; }
-
   if (!res.ok) {
     const e = new Error(`xAI API error ${res.status}: ${truncate(bodyText, 500)}`);
     e.status = res.status;
+    if (res.status === 429) { const ra = parseRetryAfterMs(res.headers && res.headers.get("retry-after")); if (ra !== undefined) e.retryAfterMs = ra; }
     throw e;
   }
 

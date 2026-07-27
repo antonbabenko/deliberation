@@ -2,7 +2,7 @@
 name: ask-gemini
 description: Get Gemini second opinion on a question or current work. Single-shot, advisory, no contamination. Model pinned per call.
 allowed-tools: mcp__deliberation-gemini__gemini, Read, Bash
-timeout: 300000
+timeout: 660000
 ---
 
 # Ask Gemini

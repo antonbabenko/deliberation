@@ -8,6 +8,8 @@ const { toErrorResult } = require("../provider.js");
  * @param {string} [opts.model]
  * @param {string} [opts.reasoningEffort]  default effort from providers.grok.reasoningEffort
  * @param {string} [opts.apiBase]
+ * @param {number} [opts.timeoutMs]  construction-time default per-call ceiling (ms), from
+ *   providers.grok.timeout / providers.defaults.timeout. Falls through to the bridge default.
  * @returns {Provider}
  */
 function makeGrokProvider(opts = {}) {
@@ -17,6 +19,9 @@ function makeGrokProvider(opts = {}) {
   if (!bridge) throw new Error("makeGrokProvider requires opts.bridge (core is transport-agnostic; inject the grok bridge)");
   const model = opts.model || process.env.GROK_DEFAULT_MODEL || "grok-4.5";
   const apiBase = opts.apiBase || process.env.XAI_API_BASE || "https://api.x.ai/v1";
+  // Construction-time ceiling. Undefined (not 0) when unset, so the bridge applies its
+  // own default rather than being handed a falsy value it would treat as "no timeout".
+  const defaultTimeoutMs = typeof opts.timeoutMs === "number" && opts.timeoutMs > 0 ? opts.timeoutMs : undefined;
 
   return {
     name: "grok",
@@ -32,17 +37,18 @@ function makeGrokProvider(opts = {}) {
       // composition root; the request still wins. Core never reads config itself.
       const reasoningEffort = bridge.resolveReasoningEffort(req.reasoningEffort ?? opts.reasoningEffort);
       const apiKey = (req && req.apiKey) || process.env.XAI_API_KEY;
+      const timeoutMs = typeof req.timeoutMs === "number" && req.timeoutMs > 0 ? req.timeoutMs : defaultTimeoutMs;
       try {
         // runWithFiles builds its own turns from prompt + developer-instructions;
         // runGrok takes pre-built turns. Both return { text, output }.
         const out = (req.files && req.files.length)
           ? await bridge.runWithFiles({
               files: req.files, prompt: req.prompt, "developer-instructions": req.developerInstructions,
-              apiKey, apiBase, model, reasoningEffort, timeout: req.timeoutMs, cwd: req.cwd,
+              apiKey, apiBase, model, reasoningEffort, timeout: timeoutMs, cwd: req.cwd,
             })
           : await bridge.runGrok({
               turns: bridge.buildInitialTurns(req.developerInstructions, req.prompt, []),
-              model, apiKey, apiBase, reasoningEffort, timeoutMs: req.timeoutMs,
+              model, apiKey, apiBase, reasoningEffort, timeoutMs,
             });
         return { provider: "grok", model, text: out.text || "", isError: false, ms: Date.now() - started, reasoningEffort: reasoningEffort ?? null, usage: out.usage };
       } catch (e) {

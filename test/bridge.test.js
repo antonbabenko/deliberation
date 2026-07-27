@@ -579,3 +579,45 @@ function makeGitRepo() {
   execFileSync("git", ["commit", "-m", "seed"], opts);
   return dir;
 }
+
+// --- non-answer floor ---
+// agy sometimes exits 0 having printed only a preamble ("I will begin by finding the
+// repository directory...") instead of an answer. Any non-empty stdout used to count as
+// a full answer, so that stub reached the caller as a real opinion.
+
+test("MA1: stdout below the answer floor is an `empty` error, not a success", async () => {
+  // The fixture prints "FAKE AGY OK" (11 chars); the suite default disables the floor,
+  // so this test opts back in with the production default.
+  const child = startBridge({ fakeBin: "fake-agy.sh", env: { GEMINI_MIN_ANSWER_CHARS: "80" } });
+  const responsesP = collectResponses(child);
+  send(child, { jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+  send(child, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "gemini", arguments: { prompt: "hi" } } });
+  setTimeout(() => child.stdin.end(), 1500);
+  const r = (await responsesP).find((x) => x.id === 2);
+  assert.ok(r, "got tools/call response");
+  assert.equal(r.result.isError, true, "short stub must not pass as an answer");
+  assert.equal(r.result.errorKind, "empty");
+  assert.equal(r.result.retryable, true, "retryable so callProvider redoes it once");
+  assert.match(r.result.content[0].text, /answer floor/);
+});
+
+test("MA2: GEMINI_MIN_ANSWER_CHARS=0 disables the floor (escape hatch)", async () => {
+  const child = startBridge({ fakeBin: "fake-agy.sh", env: { GEMINI_MIN_ANSWER_CHARS: "0" } });
+  const responsesP = collectResponses(child);
+  send(child, { jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+  send(child, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "gemini", arguments: { prompt: "hi" } } });
+  setTimeout(() => child.stdin.end(), 1500);
+  const r = (await responsesP).find((x) => x.id === 2);
+  assert.ok(!r.result.isError, "floor off: " + JSON.stringify(r.result));
+  assert.equal(r.result.content[0].text, "FAKE AGY OK");
+});
+
+test("MA3: output at or above the floor still succeeds", async () => {
+  const child = startBridge({ fakeBin: "fake-agy.sh", env: { GEMINI_MIN_ANSWER_CHARS: "5" } });
+  const responsesP = collectResponses(child);
+  send(child, { jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+  send(child, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "gemini", arguments: { prompt: "hi" } } });
+  setTimeout(() => child.stdin.end(), 1500);
+  const r = (await responsesP).find((x) => x.id === 2);
+  assert.ok(!r.result.isError, "11 chars clears a 5-char floor: " + JSON.stringify(r.result));
+});

@@ -335,6 +335,20 @@ function stdoutIsError(s) {
   return /^\s*Error:\s/m.test(s);
 }
 
+// agy sometimes exits 0 having printed only a preamble ("I will begin by finding the
+// repository directory...") instead of an answer. Any non-empty stdout used to count as
+// a full answer, so that stub flowed downstream as a real opinion - and in consensus it
+// silently blocked convergence with no diagnostic. A length floor is the only signal
+// available here.
+// ponytail: char count is a proxy for "announced intent instead of answering"; upgrade
+// to a structured-output check once parseOpinion is wired into the pipeline.
+const DEFAULT_MIN_ANSWER_CHARS = 80;
+/** Minimum stdout length for a clean exit to count as an answer. 0 disables the floor. */
+function minAnswerChars() {
+  const raw = Number(process.env.GEMINI_MIN_ANSWER_CHARS);
+  return Number.isFinite(raw) && raw >= 0 ? raw : DEFAULT_MIN_ANSWER_CHARS;
+}
+
 // --- Error Classification ---
 
 // Pure helper: given a runGemini rejection's message and code, produce the
@@ -343,6 +357,7 @@ function classifyGeminiError(errMsg, errCode) {
   const msg = String(errMsg || "");
   const lower = msg.toLowerCase();
   if (errCode === "timeout") return { errorKind: "timeout", retryable: true };
+  if (errCode === "empty")   return { errorKind: "empty",   retryable: true };
   if (errCode === "parse")   return { errorKind: "parse",   retryable: false };
   if (msg.includes("(agy) not found")) return { errorKind: "missing-cli", retryable: false };
   if (lower.includes("aborterror") || lower.includes("aborted")) {
@@ -526,6 +541,11 @@ async function runGemini(args, cwd, timeoutMs, recoveryGraceMs, opts = {}) {
       const out = stdout.trim();
       const trimmedErr = stderr.trim();
       const success = code === 0 && out && !stdoutIsError(out);
+      // Answer floor: only on the clean-exit path below. The draining branch is left
+      // alone - after a soft timeout, a short recovered answer still beats a hard
+      // timeout, and that branch already refuses partial output on anything but success.
+      const minChars = minAnswerChars();
+      const tooShort = Boolean(success) && minChars > 0 && out.length < minChars;
 
       if (draining) {
         // Soft timeout already fired. Only a clean exit meeting the success
@@ -548,7 +568,7 @@ async function runGemini(args, cwd, timeoutMs, recoveryGraceMs, opts = {}) {
       settled = true;
       clearTimers();
 
-      if (success) {
+      if (success && !tooShort) {
         const threadId = resolveConversationId(effCwd);
         if (threadId == null) {
           process.stderr.write(
@@ -564,13 +584,16 @@ async function runGemini(args, cwd, timeoutMs, recoveryGraceMs, opts = {}) {
       // Failure. Prefer stderr so it is not masked by an stdout banner; then an
       // stdout Error: sentinel; then a generic message.
       let message;
-      if (trimmedErr) message = trimmedErr;
+      if (tooShort) message = `agy returned ${out.length} chars, below the ${minChars}-char answer floor (likely a preamble, not an answer): ${out.slice(0, 200)}`;
+      else if (trimmedErr) message = trimmedErr;
       else if (stdoutIsError(out)) message = out;
       else if (!out) message = `No output from agy`;
       else message = `agy exited with code ${code}`;
 
       const err = new Error(message);
-      if (/timed out/i.test(message)) {
+      if (tooShort) {
+        err.code = "empty";
+      } else if (/timed out/i.test(message)) {
         err.code = "timeout";
       } else if (!trimmedErr && !out) {
         // Clean exit, nothing on either stream: empty/garbage output.
