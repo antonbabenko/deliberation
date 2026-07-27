@@ -62,7 +62,7 @@ jobs:
       # the required check.
       - name: Conventional Changelog (release branch)
         id: changelog
-        uses: TriPSs/conventional-changelog-action@v5
+        uses: TriPSs/conventional-changelog-action@v6
         with:
           github-token: ${{ secrets.RELEASE_TOKEN }}
           git-message: 'chore(release): {version}'
