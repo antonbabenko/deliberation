@@ -6,6 +6,7 @@ const { toErrorResult } = require("../provider.js");
  * @param {Object} [opts]
  * @param {Object} [opts.bridge]
  * @param {string} [opts.model]
+ * @param {string} [opts.reasoningEffort]  default effort from providers.grok.reasoningEffort
  * @param {string} [opts.apiBase]
  * @returns {Provider}
  */
@@ -14,7 +15,7 @@ function makeGrokProvider(opts = {}) {
   // bridge's module.exports is typed as bare Object (untyped CJS export).
   const bridge = /** @type {any} */ (opts.bridge);
   if (!bridge) throw new Error("makeGrokProvider requires opts.bridge (core is transport-agnostic; inject the grok bridge)");
-  const model = opts.model || process.env.GROK_DEFAULT_MODEL || "grok-4.3";
+  const model = opts.model || process.env.GROK_DEFAULT_MODEL || "grok-4.5";
   const apiBase = opts.apiBase || process.env.XAI_API_BASE || "https://api.x.ai/v1";
 
   return {
@@ -27,7 +28,9 @@ function makeGrokProvider(opts = {}) {
     },
     async ask(req) {
       const started = Date.now();
-      const reasoningEffort = bridge.resolveReasoningEffort(req.reasoningEffort);
+      // opts.reasoningEffort carries providers.grok.reasoningEffort from the
+      // composition root; the request still wins. Core never reads config itself.
+      const reasoningEffort = bridge.resolveReasoningEffort(req.reasoningEffort ?? opts.reasoningEffort);
       const apiKey = (req && req.apiKey) || process.env.XAI_API_KEY;
       try {
         // runWithFiles builds its own turns from prompt + developer-instructions;

@@ -17,6 +17,12 @@ function makeAntigravityProvider(opts = {}) {
   // the cast also stops tsc from deep-checking the legacy bridge transitively.
   const bridge = /** @type {any} */ (opts.bridge);
   if (!bridge) throw new Error("makeAntigravityProvider requires opts.bridge (core is transport-agnostic; inject the gemini bridge)");
+  // agy model id (family + fused reasoning effort), not a Gemini API id. The
+  // built-in is the portable router alias so an install lacking a given concrete
+  // id still works; opts.model carries providers.gemini.model from the composition
+  // root. Prefer a concrete pin where possible - the alias can seat a non-Gemini
+  // model (agy's catalog carries Claude/GPT-OSS), breaking cross-vendor
+  // independence in ask-all / consensus. Bridge applies the same default.
   const model = opts.model || process.env.GEMINI_DEFAULT_MODEL || "auto-gemini-3";
   const allowImplement = opts.allowImplement === true;
 

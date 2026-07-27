@@ -214,14 +214,30 @@ function resolveDefaults(raw) {
   return { defaults: out, warnings };
 }
 
-// Build resolved.providers as { name: { enabled } }. Only the enable flag is part
-// of the registry/arbiter contract; openrouter-specific connection keys are hoisted
-// into resolved.openrouter, not duplicated here.
+// Build resolved.providers as { name: { enabled, model?, reasoningEffort? } }. The
+// enable flag is the registry/arbiter contract; `model` and `reasoningEffort` are
+// carried through for the providers that accept a pin so the composition root (and
+// the standalone Grok bridge) can hand them to the adapter. openrouter-specific
+// connection keys stay hoisted into resolved.openrouter, and openrouter's own model
+// and effort live in the models map - so both are ignored there.
+//
+// Blank or non-string values are DROPPED rather than forwarded: a bogus id or effort
+// would be sent upstream verbatim, and falling through to the env var and built-in is
+// the safer failure. Schema validation reports the bad value separately.
+const PINNABLE_KEYS = ["model", "reasoningEffort"];
 function resolveProviders(providersRaw) {
   const out = {};
   for (const name of Object.keys(providersRaw)) {
     const block = providersRaw[name];
-    out[name] = { enabled: !(isObject(block) && block.enabled === false) };
+    /** @type {{enabled:boolean, model?:string, reasoningEffort?:string}} */
+    const resolved = { enabled: !(isObject(block) && block.enabled === false) };
+    if (name !== "openrouter" && isObject(block)) {
+      for (const key of PINNABLE_KEYS) {
+        const v = block[key];
+        if (typeof v === "string" && v.trim()) resolved[key] = v;
+      }
+    }
+    out[name] = resolved;
   }
   return out;
 }

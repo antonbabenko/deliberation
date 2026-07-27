@@ -19,6 +19,20 @@ const os = require("node:os");
 const path = require("node:path");
 
 const AGY_BIN = process.env.AGY_BIN || "agy";
+// The built-in stays the PORTABLE router alias: concrete agy ids come and go per
+// install (a machine without "gemini-3.6-flash-high" would hard-fail every call),
+// so shipping a pinned id would break users who do not have that exact model.
+// Concrete ids fuse family + reasoning effort ("gemini-3.6-flash-high"); the bare
+// family ("gemini-3.6-flash") is rejected with "requires --effort". `agy models`
+// prints display names ("Gemini 3.6 Flash (High)"), which --model also accepts, but
+// the slug is canonical (it is what ~/.gemini/settings.json stores) and carries no
+// spaces/parens through argv.
+//
+// Pin a concrete id when you can: the alias routes server-side and agy's catalog
+// also carries Claude and GPT-OSS entries, so a routed call can seat a non-Gemini
+// model in the Gemini slot and quietly collapse cross-vendor independence in
+// ask-all / consensus. Precedence: per-call `model` > providers.gemini.model in
+// config.json > GEMINI_DEFAULT_MODEL > this constant.
 const DEFAULT_MODEL = process.env.GEMINI_DEFAULT_MODEL || "auto-gemini-3";
 const DEFAULT_TIMEOUT_MS = 300_000; // 5 minutes (Gemini 3 deep prompts run 200-260s)
 const DEFAULT_RECOVERY_GRACE_MS = 120_000; // extra drain budget after the soft timeout
@@ -39,8 +53,9 @@ function goDuration(ms) {
 // Build the agy argv for a one-shot (non-reply) run. MUST end with
 // "-p <prompt>" - runGemini does args.lastIndexOf("-p") to splice in
 // --print-timeout before the prompt tail. The live `gemini` handler uses this
-// so the server path and the core adapter share one assembly. model is accepted
-// but never reaches argv (agy reads the model from ~/.gemini/settings.json).
+// so the server path and the core adapter share one assembly. model maps to agy's
+// --model flag (agy >= 1.0.9); absent, it falls back to DEFAULT_MODEL rather than
+// deferring to whatever ~/.gemini/settings.json happens to hold.
 // developerInstructions, when present, is folded into the prompt (agy print mode
 // has no system channel). The --conversation reply flag is NOT built here; that
 // stays in the gemini-reply handler branch.
@@ -67,6 +82,35 @@ function applyReadOnlyGuard(prompt, readOnly) {
   return readOnly ? `${READ_ONLY_GUARD}\n\n${prompt}` : prompt;
 }
 
+// --model landed in agy 1.0.9. Older binaries reject unknown flags outright
+// ("flags provided but not defined: -model"), which would fail EVERY call rather
+// than just ignore the pin - so probe once and degrade to the pre-pin behavior
+// (agy reads ~/.gemini/settings.json) with a single stderr warning.
+//
+// Probed from `agy --help`, the same call the startup health check already makes.
+// Cached for process lifetime: agy cannot change under a running bridge. A probe
+// that throws is treated as SUPPORTED - a missing binary fails loudly elsewhere,
+// and assuming unsupported would silently drop a pin the operator asked for.
+/** @type {(boolean|null)} */
+let modelFlagSupported = null;
+/** @returns {boolean} */
+function agySupportsModelFlag() {
+  if (modelFlagSupported !== null) return modelFlagSupported;
+  try {
+    const help = execFileSync(AGY_BIN, ["--help"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    modelFlagSupported = /(^|\s)--model(\s|$)/m.test(help);
+  } catch {
+    modelFlagSupported = true;
+  }
+  if (modelFlagSupported === false) {
+    console.error(
+      `[deliberation-gemini] ${AGY_BIN} does not support --model; the configured model pin will be ignored ` +
+      "and agy will use ~/.gemini/settings.json instead. Upgrade agy to 1.0.9 or newer to pin per call."
+    );
+  }
+  return modelFlagSupported;
+}
+
 /**
  * @param {{prompt:string, model?:string, includeDirs?:string[], sandbox?:string, developerInstructions?:string}} req
  * @returns {string[]}
@@ -79,6 +123,14 @@ function buildAgyArgs(req) {
   else args.push("--sandbox");
   // Extra workspace dirs.
   for (const d of req.includeDirs || []) args.push("--add-dir", d);
+  // Pin the model per call so the run does not inherit the operator's global
+  // ~/.gemini/settings.json. Must precede the "-p <prompt>" tail. Skipped on an
+  // agy too old to know the flag - it would reject the whole argv (see
+  // agySupportsModelFlag), which would break every call rather than one pin.
+  if (agySupportsModelFlag()) {
+    const model = isNonEmptyString(req.model) ? req.model : DEFAULT_MODEL;
+    args.push("--model", model);
+  }
   // Fold expert instructions into the prompt (no system channel in print mode),
   // with the advisory guard outermost.
   let prompt = applyReadOnlyGuard(req.prompt, readOnly);
@@ -557,7 +609,7 @@ const handlers = {
               "developer-instructions": { type: "string", description: "Expert system instructions" },
               sandbox: { type: "string", enum: ["read-only", "workspace-write"], default: "read-only" },
               cwd: { type: "string", description: "Current working directory" },
-              model: { type: "string", default: DEFAULT_MODEL, description: "Advisory only; agy reads the model from ~/.gemini/settings.json (default auto-gemini-3)." },
+              model: { type: "string", default: DEFAULT_MODEL, description: "agy model id fusing family + effort, e.g. \"gemini-3.6-flash-high\" (see `agy models`; display names also work). Passed as --model; defaults to providers.gemini.model, then GEMINI_DEFAULT_MODEL, then the \"auto-gemini-3\" router alias." },
               "include-directories": {
                 type: "array",
                 items: { type: "string" },
@@ -657,8 +709,8 @@ const handlers = {
       }
 
       if (name === "gemini") {
-        // model is accepted + validated but never reaches argv (agy reads the
-        // model from ~/.gemini/settings.json).
+        // model is validated here and passed through to agy's --model by
+        // buildAgyArgs (which supplies DEFAULT_MODEL when absent).
         if (args.model !== undefined && !isNonEmptyString(args.model)) {
           if (shouldRespond) sendError(id, -32602, "Invalid params: 'model' must be a non-empty string when provided");
           return;

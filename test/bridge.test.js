@@ -323,23 +323,65 @@ test("G3: gemini-reply threadId '' -> -32602", async () => {
   assert.equal(r.error && r.error.code, -32602);
 });
 
-// --- model param accepted but not passed to argv ---
+// --- model param is pinned onto argv via agy's --model ---
 
-test("M1: model param accepted, never reaches argv", async () => {
+test("M1: model param reaches argv as --model, before the -p tail", async () => {
   const child = startBridge({ fakeBin: "fake-agy.sh" });
   const responsesP = collectResponses(child);
   send(child, { jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
   send(child, {
     jsonrpc: "2.0", id: 2, method: "tools/call",
-    params: { name: "gemini", arguments: { prompt: "hi", model: "auto-gemini-3" } },
+    params: { name: "gemini", arguments: { prompt: "hi", model: "gemini-3.1-pro-low" } },
   });
   setTimeout(() => child.stdin.end(), 1000);
   const responses = await responsesP;
   const r = responses.find((x) => x.id === 2);
   assert.ok(!r.error, "model accepted");
   const argv = readArgv(child.argvLog)[0];
-  assert.ok(!argv.includes("auto-gemini-3"), "model value not in argv");
-  assert.ok(!argv.includes("-m"), "no -m flag");
+  const i = argv.indexOf("--model");
+  assert.ok(i >= 0, "--model flag present");
+  assert.equal(argv[i + 1], "gemini-3.1-pro-low", "caller's model wins");
+  assert.ok(i < argv.lastIndexOf("-p"), "--model precedes the -p prompt tail");
+});
+
+test("M1b: absent model falls back to the pinned default, not settings.json", async () => {
+  // Blank GEMINI_DEFAULT_MODEL in the CHILD env: DEFAULT_MODEL reads that var at
+  // module load, so without this the assertion below pins whatever the developer
+  // or CI runner happens to export rather than the built-in constant. "" is falsy,
+  // which is how the env is neutralized (a merged env cannot delete a key).
+  const child = startBridge({ fakeBin: "fake-agy.sh", env: { GEMINI_DEFAULT_MODEL: "" } });
+  const responsesP = collectResponses(child);
+  send(child, { jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+  send(child, {
+    jsonrpc: "2.0", id: 2, method: "tools/call",
+    params: { name: "gemini", arguments: { prompt: "hi" } },
+  });
+  setTimeout(() => child.stdin.end(), 1000);
+  const responses = await responsesP;
+  assert.ok(!responses.find((x) => x.id === 2).error, "call ok");
+  const argv = readArgv(child.argvLog)[0];
+  const i = argv.indexOf("--model");
+  assert.ok(i >= 0, "--model always pinned");
+  assert.equal(argv[i + 1], "auto-gemini-3", "portable built-in default applied");
+});
+
+test("M1c: an agy without --model support gets no --model in argv (call still succeeds)", async () => {
+  // agy < 1.0.9 rejects unknown flags outright, so passing --model there would fail
+  // EVERY call. The capability probe must degrade to the pre-pin behavior instead.
+  // The fixture errors out if it ever sees --model, so a regression fails loudly.
+  const child = startBridge({ fakeBin: "fake-agy-nomodel.sh" });
+  const responsesP = collectResponses(child);
+  send(child, { jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+  send(child, {
+    jsonrpc: "2.0", id: 2, method: "tools/call",
+    params: { name: "gemini", arguments: { prompt: "hi", model: "gemini-3.1-pro-low" } },
+  });
+  setTimeout(() => child.stdin.end(), 1000);
+  const responses = await responsesP;
+  assert.ok(!responses.find((x) => x.id === 2).error, "call succeeds on an old agy");
+  const argv = readArgv(child.argvLog)[0];
+  assert.ok(!argv.includes("--model"), "no --model flag for an agy that cannot parse it");
+  assert.ok(argv.lastIndexOf("-p") >= 0, "prompt tail still intact");
 });
 
 test("M1: model empty string -> -32602", async () => {

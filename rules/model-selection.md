@@ -189,7 +189,7 @@ the MCP registration). The `model` parameter above overrides it for a single cal
 | `prompt` | string | **Required.** The delegation prompt (use 7-section format) |
 | `developer-instructions` | string | Expert prompt injection (from `prompts/*.md`) |
 | `sandbox` | `read-only`, `workspace-write` | Controls file access. `read-only` is enforced by the bridge (macOS `sandbox-exec` write-deny + prompt guard + git mutation detection); `workspace-write` is an explicit opt-in that skips that enforcement. |
-| `model` | e.g. `auto-gemini-3`, `gemini-3-pro-preview` | Advisory only. agy reads the model from `~/.gemini/settings.json` (`model.name`) and has no per-call flag; the bridge defaults to `auto-gemini-3`. |
+| `model` | e.g. `gemini-3.6-flash-high`, `gemini-3.1-pro-low` | agy model id (family + fused reasoning effort; see `agy models`). Passed through to agy's `--model`, so it overrides `~/.gemini/settings.json`. Falls back to `providers.gemini.model`, then `GEMINI_DEFAULT_MODEL`, then `auto-gemini-3`. |
 | `cwd` | path | Working directory for the task |
 | `include-directories` | string[] | Extra dirs to include alongside `cwd`. Maps to repeated `--add-dir`. |
 | `timeout` | number (ms) | Soft timeout. 1..600000. Default 300000. On expiry the bridge keeps agy alive and drains buffered stdout (stdout-drain). |
@@ -218,8 +218,8 @@ the MCP registration). The `model` parameter above overrides it for a single cal
 | `files` | array | Attach local files for Grok to read. Each entry is EXACTLY ONE of `{ path }`, `{ file_id }`, `{ file_url }`, or `{ dir, include?, exclude?, maxFiles?, maxBytes? }`. Path/dir entries support optional `mode: "auto" \| "inline" \| "upload"` (default `"upload"`): inline embeds content as `input_text` so Grok reads line-by-line; auto picks inline for text ≤ `GROK_INLINE_MAX_BYTES` (default 256 KB), else upload. Uploaded files are SHA-256 dedup-cached locally. See `TECHNICAL.md` § "Grok files and cleanup". |
 | `roots` | string[] | Optional absolute directory roots used to resolve `files[].path` and `files[].dir`. First root containing the entry wins. Falls back to `[cwd]` when omitted. Use for cross-repo attachments. |
 | `cwd` | path | Base directory used when `roots` is omitted. Set it to the repo root that contains the files. Defaults to the server cwd. |
-| `model` | e.g. `grok-4.3` | Defaults to `GROK_DEFAULT_MODEL` or `grok-4.3`. |
-| `reasoning_effort` | `low` \| `medium` \| `high` \| `none` | Defaults to `GROK_REASONING_EFFORT` or `high`. |
+| `model` | e.g. `grok-4.5` | Falls back to `providers.grok.model`, then `GROK_DEFAULT_MODEL`, then `grok-4.5`. |
+| `reasoning_effort` | `low` \| `medium` \| `high` \| `none` | Falls back to `providers.grok.reasoningEffort`, then `GROK_REASONING_EFFORT`, then `high`. |
 
 ### `mcp__deliberation-grok__grok-reply` (Continue Session)
 

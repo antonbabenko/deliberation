@@ -4,9 +4,12 @@
 # the bridge's resolveConversationId returns a deterministic id.
 set -euo pipefail
 
-# Startup probe: bridge runs `agy --help`.
+# Startup probe + capability probe: bridge runs `agy --help`. Mimics agy >= 1.0.9,
+# which advertises --model (see fake-agy-nomodel.sh for the older shape).
 if [ "${1:-}" = "--help" ]; then
   echo "Usage of agy:"
+  echo "  --model                         Model for the current CLI session"
+  echo "  -p                              Short alias for --print"
   exit 0
 fi
 
