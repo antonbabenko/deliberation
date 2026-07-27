@@ -1227,8 +1227,17 @@ function startStdio() {
   // bridge here. Codex spawns the `codex` CLI directly and needs no bridge.
   const providers = [
     makeCodexProvider({}),
-    makeAntigravityProvider({ bridge: require("../gemini/index.js") }),
-    makeGrokProvider({ bridge: require("../grok/index.js") }),
+    // providers.<name>.model is read ONCE here (constructor arg), so unlike the
+    // hot-reloading models map a change needs an MCP restart. Absent -> undefined,
+    // which lets each adapter fall through to its env var then its built-in default.
+    makeAntigravityProvider({
+      bridge: require("../gemini/index.js"),
+      model: (getConfig().providers && getConfig().providers.gemini || {}).model,
+    }),
+    makeGrokProvider({
+      bridge: require("../grok/index.js"),
+      model: (getConfig().providers && getConfig().providers.grok || {}).model,
+    }),
     makeOpenAICompatibleProvider({
       name: "openrouter",
       apiBase: initialOr.apiBase || DEFAULT_API_BASE,

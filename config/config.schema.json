@@ -21,7 +21,7 @@
       "additionalProperties": false,
       "properties": {
         "codex": { "$ref": "#/$defs/simpleProvider" },
-        "gemini": { "$ref": "#/$defs/simpleProvider" },
+        "gemini": { "$ref": "#/$defs/geminiProvider" },
         "grok": { "$ref": "#/$defs/grokProvider" },
         "openrouter": { "$ref": "#/$defs/openrouterProvider" }
       }
@@ -167,10 +167,22 @@
   "$defs": {
     "simpleProvider": {
       "type": "object",
-      "description": "A CLI-managed provider (Codex, Gemini). Connection is handled by its CLI; only the enable flag applies.",
+      "description": "A CLI-managed provider (Codex). Connection AND model selection are handled by its own CLI config (~/.codex/config.toml); only the enable flag applies here.",
       "additionalProperties": false,
       "properties": {
         "enabled": { "type": "boolean", "default": true, "description": "Whether this provider participates." }
+      }
+    },
+    "geminiProvider": {
+      "type": "object",
+      "description": "Gemini (Antigravity CLI, agy) config. Connection is handled by agy; the model can be pinned here.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": true, "description": "Whether this provider participates." },
+        "model": {
+          "type": "string",
+          "description": "agy model id, passed through to agy's --model so it wins over ~/.gemini/settings.json. Ids fuse family and reasoning effort (e.g. \"gemini-3.6-flash-high\"); a bare family is rejected with \"requires --effort\". Run `agy models` for the catalog on THIS machine - ids differ per install, which is why the built-in default is the portable \"auto-gemini-3\" router alias. Prefer a concrete pin: the alias routes server-side and agy's catalog also carries Claude and GPT-OSS entries, so a routed call can seat a non-Gemini model in the Gemini slot and silently collapse cross-vendor independence in ask-all/consensus. Precedence: per-call model > this key > GEMINI_DEFAULT_MODEL > built-in."
+        }
       }
     },
     "grokProvider": {
@@ -179,7 +191,11 @@
       "additionalProperties": false,
       "properties": {
         "enabled": { "type": "boolean", "default": true },
-        "apiKeyEnv": { "type": "string", "default": "XAI_API_KEY", "description": "Env var holding the xAI API key." }
+        "apiKeyEnv": { "type": "string", "default": "XAI_API_KEY", "description": "Env var holding the xAI API key." },
+        "model": {
+          "type": "string",
+          "description": "xAI model id (e.g. \"grok-4.5\"). Precedence: per-call model > this key > GROK_DEFAULT_MODEL > built-in default."
+        }
       }
     },
     "openrouterProvider": {

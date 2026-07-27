@@ -1,13 +1,13 @@
 ---
 name: ask-gemini
-description: Get Gemini second opinion on a question or current work. Single-shot, advisory, no contamination. Pinned to auto-gemini-3.
+description: Get Gemini second opinion on a question or current work. Single-shot, advisory, no contamination. Model pinned per call.
 allowed-tools: mcp__deliberation-gemini__gemini, Read, Bash
 timeout: 300000
 ---
 
 # Ask Gemini
 
-Single-shot delegation to Gemini (Gemini 3 via the Antigravity CLI, `agy`) via MCP for an independent second opinion. Fresh thread, no shared context with prior calls. Advisory mode by default (read-only sandbox). Model pinned to `auto-gemini-3` on the call per `~/.claude/CLAUDE.md`; agy ultimately reads the model from `~/.gemini/settings.json`.
+Single-shot delegation to Gemini (Gemini 3 via the Antigravity CLI, `agy`) via MCP for an independent second opinion. Fresh thread, no shared context with prior calls. Advisory mode by default (read-only sandbox). The bridge passes the model to agy's `--model`, so the call wins over `~/.gemini/settings.json`; omit it to take `providers.gemini.model` from `config.json`.
 
 ## Input
 
@@ -41,7 +41,6 @@ User question or topic: $ARGUMENTS
      prompt: "[7-section delegation prompt]",
      "developer-instructions": "[contents of expert prompt file]",
      sandbox: "read-only",
-     model: "auto-gemini-3",
      cwd: "[current working directory]"
    })
    ```
@@ -55,7 +54,7 @@ User question or topic: $ARGUMENTS
 ## Rules
 
 - **Single-shot only** - never reuse a `threadId` from a prior `/ask-gemini` call. Each invocation is independent.
-- **Always pass `model: "auto-gemini-3"`** - the model is pinned via the call and ultimately read from `~/.gemini/settings.json` (`model.name`). agy has no per-call model flag, so the MCP `model` param is advisory; the bridge defaults to `auto-gemini-3`.
+- **Don't hardcode a model here** - concrete agy ids differ per install, so a pin in this command would hard-fail for anyone without that exact model. Set `providers.gemini.model` in `config.json` instead (run `agy models` for the local catalog). Resolution: per-call `model` > `providers.gemini.model` > `GEMINI_DEFAULT_MODEL` > `auto-gemini-3`. Ids fuse family and effort (`gemini-3.6-flash-high`); a bare family is rejected with `requires --effort`. Prefer a concrete pin over the `auto-gemini-3` alias where you can - agy's catalog includes Claude and GPT-OSS entries, so routing can seat a non-Gemini model in the Gemini slot.
 - **Advisory by default** - use `sandbox: "read-only"` unless user explicitly asks for implementation.
 - **No contamination** - do not include prior GPT opinions in the Gemini prompt. Each expert reasons independently.
 - **Print status line** immediately before the MCP dispatch: `Gemini working (typical 30-60s)...`

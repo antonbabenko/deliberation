@@ -323,23 +323,42 @@ test("G3: gemini-reply threadId '' -> -32602", async () => {
   assert.equal(r.error && r.error.code, -32602);
 });
 
-// --- model param accepted but not passed to argv ---
+// --- model param is pinned onto argv via agy's --model ---
 
-test("M1: model param accepted, never reaches argv", async () => {
+test("M1: model param reaches argv as --model, before the -p tail", async () => {
   const child = startBridge({ fakeBin: "fake-agy.sh" });
   const responsesP = collectResponses(child);
   send(child, { jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
   send(child, {
     jsonrpc: "2.0", id: 2, method: "tools/call",
-    params: { name: "gemini", arguments: { prompt: "hi", model: "auto-gemini-3" } },
+    params: { name: "gemini", arguments: { prompt: "hi", model: "gemini-3.1-pro-low" } },
   });
   setTimeout(() => child.stdin.end(), 1000);
   const responses = await responsesP;
   const r = responses.find((x) => x.id === 2);
   assert.ok(!r.error, "model accepted");
   const argv = readArgv(child.argvLog)[0];
-  assert.ok(!argv.includes("auto-gemini-3"), "model value not in argv");
-  assert.ok(!argv.includes("-m"), "no -m flag");
+  const i = argv.indexOf("--model");
+  assert.ok(i >= 0, "--model flag present");
+  assert.equal(argv[i + 1], "gemini-3.1-pro-low", "caller's model wins");
+  assert.ok(i < argv.lastIndexOf("-p"), "--model precedes the -p prompt tail");
+});
+
+test("M1b: absent model falls back to the pinned default, not settings.json", async () => {
+  const child = startBridge({ fakeBin: "fake-agy.sh" });
+  const responsesP = collectResponses(child);
+  send(child, { jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+  send(child, {
+    jsonrpc: "2.0", id: 2, method: "tools/call",
+    params: { name: "gemini", arguments: { prompt: "hi" } },
+  });
+  setTimeout(() => child.stdin.end(), 1000);
+  const responses = await responsesP;
+  assert.ok(!responses.find((x) => x.id === 2).error, "call ok");
+  const argv = readArgv(child.argvLog)[0];
+  const i = argv.indexOf("--model");
+  assert.ok(i >= 0, "--model always pinned");
+  assert.equal(argv[i + 1], "auto-gemini-3", "portable built-in default applied");
 });
 
 test("M1: model empty string -> -32602", async () => {

@@ -23,7 +23,8 @@
  *   - 4xx mid-/v1/responses whose body names a known file_/file- id triggers
  *     evict + re-upload + retry once.
  *
- * Auth: XAI_API_KEY (env). Model: GROK_DEFAULT_MODEL (env) or grok-4.3.
+ * Auth: XAI_API_KEY (env). Model: per-call > providers.grok.model (config.json)
+ * > GROK_DEFAULT_MODEL (env) > grok-4.5.
  * Endpoint: XAI_API_BASE (env) or https://api.x.ai/v1.
  * File TTL: GROK_FILE_TTL_SECONDS (env) or 604800 (7 days).
  * Cache off switch: XAI_DISABLE_FILE_CACHE=1.
@@ -33,7 +34,30 @@ const crypto = require("node:crypto");
 const path = require("node:path");
 const { stat, readFile } = require("node:fs/promises");
 
-const DEFAULT_MODEL = process.env.GROK_DEFAULT_MODEL || "grok-4.3";
+const DEFAULT_MODEL = process.env.GROK_DEFAULT_MODEL || "grok-4.5";
+
+// providers.grok.model from the unified config.json, so this standalone bridge
+// resolves the same pin the `deliberation` server does instead of drifting to
+// env-only. Reader is lazy + stat-gated (hot-reload) and never throws: any
+// failure yields undefined and falls through to GROK_DEFAULT_MODEL/built-in.
+/** @type {any} */
+let configReader;
+/** @returns {(string|undefined)} */
+function configuredModel() {
+  try {
+    if (!configReader) {
+      const { makeConfigReader } = require("../openrouter/config.js");
+      configReader = makeConfigReader(require("../../core/paths.js").resolveConfigPath());
+    }
+    const r = configReader.get();
+    const m = r && r.resolved && r.resolved.providers && r.resolved.providers.grok
+      ? r.resolved.providers.grok.model
+      : undefined;
+    return isNonEmptyString(m) ? m : undefined;
+  } catch {
+    return undefined;
+  }
+}
 const DEFAULT_API_BASE = process.env.XAI_API_BASE || "https://api.x.ai/v1";
 const DEFAULT_TIMEOUT_MS = 180_000; // 3 minutes
 const MAX_MS = 600_000;
@@ -576,7 +600,8 @@ async function runGrok({ turns, model, timeoutMs, apiKey, apiBase, fetchImpl, re
 
   const base = (apiBase || DEFAULT_API_BASE).replace(/\/+$/, "");
   const url = `${base}/responses`;
-  const payload = { model: model || DEFAULT_MODEL, input: turnsToInput(turns), stream: false };
+  // Precedence: per-call model > providers.grok.model > GROK_DEFAULT_MODEL > built-in.
+  const payload = { model: model || configuredModel() || DEFAULT_MODEL, input: turnsToInput(turns), stream: false };
   if (isNonEmptyString(reasoningEffort)) payload.reasoning_effort = reasoningEffort;
   const t = (typeof timeoutMs === "number" && timeoutMs > 0) ? timeoutMs : DEFAULT_TIMEOUT_MS;
   const controller = new AbortController();
@@ -813,7 +838,7 @@ const FILES_SCHEMA = {
 const GROK_PROPERTIES = {
   prompt: { type: "string", description: "The delegation prompt" },
   "developer-instructions": { type: "string", description: "Expert system instructions (sent as a system message)" },
-  model: { type: "string", description: "xAI model id. Defaults to GROK_DEFAULT_MODEL or grok-4.3.", default: DEFAULT_MODEL },
+  model: { type: "string", description: "xAI model id. Defaults to providers.grok.model (config.json), then GROK_DEFAULT_MODEL, then grok-4.5.", default: DEFAULT_MODEL },
   reasoning_effort: { type: "string", description: "Reasoning effort (low, medium, high). 'none' omits the field.", default: DEFAULT_REASONING_EFFORT },
   timeout: { type: "number", description: "Soft timeout in ms. 1..600000. Default 180000.", default: DEFAULT_TIMEOUT_MS },
   files: FILES_SCHEMA,

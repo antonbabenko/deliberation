@@ -575,3 +575,40 @@ test("SESS8: captureText defaults OFF; boolean honored; non-boolean -> false + w
   assert.equal(sessions.captureText, false);
   assert.ok(warnings.some((w) => /captureText must be a boolean/.test(w)));
 });
+
+// --- providers.<name>.model pin (gemini / grok) ---
+
+test("PM1: providers.gemini/grok model is carried into resolved.providers", () => {
+  const { resolved } = validateConfig({
+    version: 1,
+    providers: {
+      gemini: { enabled: true, model: "gemini-3.6-flash-high" },
+      grok: { enabled: true, model: "grok-4.5" },
+    },
+  });
+  assert.equal(resolved.providers.gemini.model, "gemini-3.6-flash-high");
+  assert.equal(resolved.providers.grok.model, "grok-4.5");
+});
+
+test("PM2: absent model leaves the key undefined so env/built-in defaults still apply", () => {
+  const { resolved } = validateConfig({ version: 1, providers: { gemini: { enabled: true } } });
+  assert.equal(resolved.providers.gemini.enabled, true);
+  assert.equal(resolved.providers.gemini.model, undefined);
+});
+
+test("PM3: a blank or non-string model is dropped, never forwarded as a bogus id", () => {
+  const { resolved } = validateConfig({
+    version: 1,
+    providers: { gemini: { enabled: true, model: "   " }, grok: { enabled: true, model: 42 } },
+  });
+  assert.equal(resolved.providers.gemini.model, undefined);
+  assert.equal(resolved.providers.grok.model, undefined);
+});
+
+test("PM4: openrouter ignores providers.model (its models map owns selection)", () => {
+  const { resolved } = validateConfig({
+    version: 1,
+    providers: { openrouter: { enabled: true, model: "should/be-ignored" } },
+  });
+  assert.equal(resolved.providers.openrouter.model, undefined);
+});

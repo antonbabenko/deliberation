@@ -37,8 +37,8 @@ Minimal example:
   "version": 1,
   "providers": {
     "codex":  { "enabled": true },
-    "gemini": { "enabled": true },
-    "grok":   { "enabled": true, "apiKeyEnv": "XAI_API_KEY" },
+    "gemini": { "enabled": true, "model": "auto-gemini-3" },
+    "grok":   { "enabled": true, "apiKeyEnv": "XAI_API_KEY", "model": "grok-4.5" },
     "openrouter": {
       "enabled": true,
       "apiKeyEnv": "OPENROUTER_API_KEY",
@@ -77,6 +77,22 @@ outcomes - never prompts, responses, or issue text. Useful for debugging slow ru
 Browse model slugs at [openrouter.ai/models](https://openrouter.ai/models?input_modalities=text);
 the `model` field takes any slug listed there. Each record's `provider` must be
 `"openrouter"` in v1 (codex / gemini / grok are managed by their own CLI / API).
+
+`providers.gemini.model` and `providers.grok.model` pin those two providers without
+touching their own config files. Precedence for both: per-call `model` argument, then
+this key, then the env var (`GEMINI_DEFAULT_MODEL` / `GROK_DEFAULT_MODEL`), then the
+built-in default. Both are read once at MCP start, so changing them needs a restart.
+
+For Gemini, run `agy models` to see the catalog on your machine - ids fuse family and
+reasoning effort (`gemini-3.6-flash-high`); a bare family is rejected with `requires
+--effort`. The shipped default is the portable `auto-gemini-3` router alias, because a
+concrete id that does not exist locally fails every call. **Pin a concrete id if you
+have one:** the alias routes server-side and agy's catalog also carries Claude and
+GPT-OSS entries, so a routed call can seat a non-Gemini model in the Gemini slot and
+quietly cost you the cross-model independence that `/ask-all` and `/consensus` rely on.
+
+Codex has no such key - it resolves its model from `~/.codex/config.toml` and
+deliberation never overrides it.
 
 `reasoningEffort` (`low` / `medium` / `high`) sets how hard a reasoning model
 thinks. Put it on `providers.openrouter.defaults` to cover every model, or on a single

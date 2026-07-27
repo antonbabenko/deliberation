@@ -126,11 +126,22 @@ Flag mapping the bridge applies to `agy`:
 | `gemini-reply` (multi-turn) | `--conversation <id>` |
 | always | `--print-timeout <duration>` and `-p <prompt>` |
 
-There is no `-m`/`--model` flag and no `-o json`. The model is read from
-`~/.gemini/settings.json` (`model.name`, default `auto-gemini-3`); the MCP `model`
-parameter is advisory only. The bridge default model is `auto-gemini-3`; override the
-default with `GEMINI_DEFAULT_MODEL`, or point at a different `agy` binary with
-`AGY_BIN`. `agy` print mode does not enforce folder trust.
+There is no `-o json`. `agy` (>= 1.0.9) does take `--model`, and the bridge always
+pins it, so a run never inherits the operator's `~/.gemini/settings.json`
+(`model.name`). Model ids fuse family and reasoning effort - `gemini-3.6-flash-high`;
+the bare family (`gemini-3.6-flash`) is rejected with `requires --effort`. `agy models`
+prints display names (`Gemini 3.6 Flash (High)`) which `--model` also accepts, but the
+slug is canonical. Resolution order is per-call `model` > `providers.gemini.model` in
+`config.json` > `GEMINI_DEFAULT_MODEL` > the built-in `auto-gemini-3`. Point at a
+different `agy` binary with `AGY_BIN`. `agy` print mode does not enforce folder trust.
+
+The built-in stays the portable `auto-gemini-3` router alias because the concrete
+catalog differs per install - shipping a pinned id would hard-fail every call on a
+machine that lacks it. **Pin a concrete id in `config.json` where you can**: the alias
+routes server-side, and agy's catalog also carries Claude and GPT-OSS entries, so a
+routed call can seat a non-Gemini model in the Gemini slot and silently collapse
+cross-vendor independence in `ask-all` / `consensus`, with nothing in the result
+envelope showing it. Run `agy models` to see what this machine actually offers.
 
 **Read-only is enforced by the bridge, not by `agy`.** `agy`'s `--sandbox`
 restricts only terminal commands - the agent's file-edit tool is unrestricted, and
@@ -171,7 +182,7 @@ omitted. Uploaded files are SHA-256 dedup-cached locally and carry an
 `expires_after` (default 7 days); manage with `/grok-files`
 (`list` / `prune` / `gc`). See [Grok files and cleanup](#grok-files-and-cleanup).
 
-The bridge default model is `grok-4.3`. It needs `XAI_API_KEY` in its environment;
+The bridge default model is `grok-4.5`. It needs `XAI_API_KEY` in its environment;
 a missing key surfaces `errorKind: "missing-auth"`.
 
 ## Implementation mode (core capability)
@@ -226,12 +237,12 @@ This is the single source of truth for the bridge environment variables.
 
 | Variable | Provider | Default | Purpose |
 |----------|----------|---------|---------|
-| `GEMINI_DEFAULT_MODEL` | Gemini | `auto-gemini-3` | Default model when the call sets none |
+| `GEMINI_DEFAULT_MODEL` | Gemini | `auto-gemini-3` | Default model when neither the call nor `providers.gemini.model` sets one |
 | `GEMINI_DISABLE_TIMEOUT_RECOVERY` | Gemini | unset | `1` forces legacy timeout (no drain) |
 | `AGY_BIN` | Gemini | `agy` | Override the path to the `agy` binary |
 | `AGY_LAST_CONVERSATIONS` | Gemini | `~/.gemini/antigravity-cli/cache/last_conversations.json` | Override the conversation-id map file (mainly for tests) |
 | `XAI_API_KEY` | Grok | unset (required) | xAI API key; missing key returns `missing-auth` |
-| `GROK_DEFAULT_MODEL` | Grok | `grok-4.3` | Default model when the call sets none |
+| `GROK_DEFAULT_MODEL` | Grok | `grok-4.5` | Default model when neither the call nor `providers.grok.model` sets one |
 | `XAI_API_BASE` | Grok | `https://api.x.ai/v1` | API endpoint override |
 | `GROK_REASONING_EFFORT` | Grok | `high` | `low`/`medium`/`high`; `none` or `off` omits the field |
 | `GROK_FILE_TTL_SECONDS` | Grok | `604800` (7 days) | Upload lifetime, clamped 1h..30d |

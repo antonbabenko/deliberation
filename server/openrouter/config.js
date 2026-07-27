@@ -214,14 +214,23 @@ function resolveDefaults(raw) {
   return { defaults: out, warnings };
 }
 
-// Build resolved.providers as { name: { enabled } }. Only the enable flag is part
-// of the registry/arbiter contract; openrouter-specific connection keys are hoisted
-// into resolved.openrouter, not duplicated here.
+// Build resolved.providers as { name: { enabled, model? } }. The enable flag is the
+// registry/arbiter contract; `model` is carried through for the CLI/HTTP providers
+// that accept a pin (gemini, grok) so the composition root can hand it to the adapter.
+// openrouter-specific connection keys stay hoisted into resolved.openrouter, and
+// openrouter's model selection lives in the models map - so `model` is ignored there.
+// A non-string or blank model is dropped (never sent as a bogus id); the provider then
+// falls through to its env var and built-in default.
 function resolveProviders(providersRaw) {
   const out = {};
   for (const name of Object.keys(providersRaw)) {
     const block = providersRaw[name];
-    out[name] = { enabled: !(isObject(block) && block.enabled === false) };
+    /** @type {{enabled:boolean, model?:string}} */
+    const resolved = { enabled: !(isObject(block) && block.enabled === false) };
+    if (name !== "openrouter" && isObject(block) && block.model !== undefined) {
+      if (typeof block.model === "string" && block.model.trim()) resolved.model = block.model;
+    }
+    out[name] = resolved;
   }
   return out;
 }

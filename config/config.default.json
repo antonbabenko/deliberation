@@ -6,11 +6,13 @@
       "enabled": true
     },
     "gemini": {
-      "enabled": true
+      "enabled": true,
+      "model": "auto-gemini-3"
     },
     "grok": {
       "enabled": true,
-      "apiKeyEnv": "XAI_API_KEY"
+      "apiKeyEnv": "XAI_API_KEY",
+      "model": "grok-4.5"
     },
     "openrouter": {
       "enabled": false,
