@@ -1,5 +1,7 @@
 # Deliberation
 
+[![MCP Toplist](https://mcptoplist.com/badge/glama%2Fantonbabenko%2Fdeliberation.svg)](https://mcptoplist.com/server/glama%2Fantonbabenko%2Fdeliberation)
+
 Get a second opinion in Claude Code from GPT, Gemini, and Grok - plus 400+ more models through OpenRouter, including Qwen, Kimi, and DeepSeek. Seven domain experts (Architect, Code Reviewer, Security Analyst, and four more) review your plans, find bugs, and debate edge cases until they agree.
 
 ![Four chairs at the table: Claude, GPT, Gemini, Grok - one verdict you can ship](assets/agents.png)<br>Recent blog post: [Meet Deliberation: 400+ models is easy, knowing which ones earn a place is hard.](https://builder.aws.com/content/3Eaq94hQW8HywInrVaQm9qNih1P/meet-deliberation-400-models-is-easy-knowing-which-ones-earn-a-place-is-hard)
