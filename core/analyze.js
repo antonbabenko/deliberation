@@ -36,6 +36,14 @@ const HIGH_AGREEMENT = 0.9;
 const MIN_VOTES = 3;
 /** OpenRouter provider-name prefix; the suffix is the config `models` map key (alias). */
 const OR_PREFIX = "openrouter:";
+/** Upper bound for a `since` window (ms). Larger values ERROR rather than clamp: a silently
+ * clamped window would report a period it never covered, which is the lie the coverage
+ * fields exist to prevent. */
+const MAX_WINDOW_MS = 10 * 365 * 24 * 60 * 60 * 1000;
+/** Max models per compare link (the OpenRouter /compare surface takes a handful). */
+const COMPARE_MAX = 4;
+/** Base for the OpenRouter model-comparison surface. */
+const COMPARE_BASE = "https://openrouter.ai/compare";
 
 /**
  * @typedef {import("./debug-log.js").DebugEvent} DebugEvent
@@ -43,24 +51,76 @@ const OR_PREFIX = "openrouter:";
  */
 
 /**
+ * Latency over SUCCESSFUL calls only. Every field is null when okCalls === 0:
+ * an all-error model has no latency, and reporting 0 would make it the fastest
+ * model in the panel.
  * @typedef {Object} LatencyStat
- * @property {number} p50
- * @property {number} p95
- * @property {number} max
- * @property {number} mean
+ * @property {(number|null)} p50
+ * @property {(number|null)} p95
+ * @property {(number|null)} max
+ * @property {(number|null)} mean
  */
 
 /**
  * @typedef {Object} ModelStat
  * @property {string} provider
  * @property {string} model
- * @property {number} calls
+ * @property {number} calls  every event, errors included
+ * @property {number} okCalls  successful calls - the denominator of `ms`
  * @property {number} errors
- * @property {number} errorRate
- * @property {LatencyStat} ms
+ * @property {number} errorRate  errors/calls
+ * @property {LatencyStat} ms  over okCalls only; a timeout is an error, not a latency sample
  * @property {(number|null)} meanTokens  mean total tokens (HTTP providers); null for CLI providers
  * @property {string[]} reasoningEfforts  distinct efforts seen ("n/a" for the CLI null)
  * @property {string[]} tools  distinct tools the model was called under
+ */
+
+/**
+ * A row dropped by the configured-model filter, kept so the report can say what it
+ * hid and why rather than silently shrinking the table.
+ * @typedef {Object} ExcludedModel
+ * @property {string} provider
+ * @property {string} model
+ * @property {number} calls
+ * @property {string} reason
+ */
+
+/**
+ * @typedef {Object} CompareLink
+ * @property {("slow-outlier"|"variant"|"most-called")} group
+ * @property {string[]} providers  `openrouter:<alias>` names, joining back to Suggestion.subject
+ * @property {string} url
+ */
+
+/**
+ * Providers observed running more than one model string in-window. Deliberately NOT
+ * called "dated": naming a slug dated is a characterisation, and this module does not
+ * characterise models - it flags them so the caller can look them up.
+ * @typedef {Object} ModelVariant
+ * @property {string} provider
+ * @property {string[]} models
+ */
+
+/**
+ * The slice of the RESOLVED config analyze needs. Note the asymmetry, which is
+ * deliberate: we READ the resolved shape (`openrouter.models[]` with `alias` and
+ * snake_case `reasoning_effort`) but every suggestion NAMES the ON-DISK path
+ * (`models.<alias>.*`, `routing.maxFanout`). Both are correct - they are different
+ * namespaces. Do not "fix" one to match the other.
+ * @typedef {Object} ResolvedConfigView
+ * @property {{enabled?:boolean, maxFanout?:number, apiBase?:string, models?:{alias?:string, model?:string, askAll?:boolean, consensus?:boolean, reasoning_effort?:string, apiBase?:string}[], invalidModels?:{alias?:(string|null)}[]}} [openrouter]
+ * @property {Record<string, {enabled?:boolean}>} [providers]
+ */
+
+/**
+ * @typedef {Object} AnalysisWindow
+ * @property {string} since  the caller's spelling, echoed back (already regex-validated)
+ * @property {number} fromMs
+ * @property {number} toMs
+ * @property {(number|null)} coverageFromMs  earliest timestamp actually surviving, ACROSS BOTH
+ *   lenses (min of event `at` and record `createdAt`); null when neither lens has one.
+ *   This is real coverage, not requested coverage - they differ when the byte tail bounds
+ *   the read before the window does.
  */
 
 /**
@@ -95,11 +155,21 @@ const OR_PREFIX = "openrouter:";
  * @property {string} [logPath]
  * @property {boolean} debugEnabled
  * @property {boolean} sessionsPersist
- * @property {number} eventsParsed
- * @property {number} sessionsRead
+ * @property {number} eventsParsed  post-window count
+ * @property {number} sessionsRead  UNFILTERED: what doctor reads as a read-path signal
  * @property {(string|null)} sessionsDir  dir the running server resolved (for the doctor drift check)
- * @property {number} agreementVotes  total agreement votes across models (0 with sessionsRead>0 => no per-opinion verdicts)
- * @property {boolean} insufficientData  true when there are no provider_result events to analyze
+ * @property {number} agreementVotes  UNFILTERED total votes (0 with sessionsRead>0 => no per-opinion verdicts)
+ * @property {boolean} insufficientData  true when nothing survived to analyze. Never set merely
+ *   because the configured-model filter hid rows - but a `since` window that excludes every
+ *   event DOES set it, so branch on `window` before blaming the debug log
+ * @property {ExcludedModel[]} excluded  rows the configured-model filter removed
+ * @property {(AnalysisWindow|null)} window
+ * @property {{log:boolean, sessions:boolean}} truncated  present always: the default 1 MB tail
+ *   truncates silently today and there is no window object to hang that on
+ * @property {(string|null)} configError  when set, the filter is SKIPPED - a syntax error must not
+ *   be reported as "none of your models are configured"
+ * @property {ModelVariant[]} modelVariants
+ * @property {string[]} warnings
  */
 
 /**
@@ -108,6 +178,7 @@ const OR_PREFIX = "openrouter:";
  * @property {AgreementStat[]} agreement  Lens B (verdict agreement), least-agreeing first
  * @property {Outlier[]} outliers
  * @property {Suggestion[]} recommendations
+ * @property {CompareLink[]} compare
  * @property {AnalysisMeta} meta
  */
 
@@ -135,6 +206,31 @@ function parseDebugLog(text) {
     }
   }
   return out;
+}
+
+/**
+ * Parse a `since` window into milliseconds. Same grammar as the Grok files-admin CLI
+ * (`server/grok/files-admin.js` `parseOlderThan`): `30m`, `24h`, `7d`, or a bare number
+ * of seconds. Copied rather than imported - that module is a bridge CLI that throws, and
+ * coupling the MCP server to it to save four lines is the wrong trade. Keep the two
+ * grammars recognisably the same.
+ *
+ * Returns a result object instead of throwing, because an invalid window must surface as
+ * a tool error rather than silently degrading to "all time".
+ * @param {unknown} raw
+ * @returns {{ok:true, ms:number}|{ok:false, error:string}}
+ */
+function parseWindowMs(raw) {
+  if (typeof raw !== "string" || !raw.trim()) return { ok: false, error: "since must be a non-empty string like \"24h\", \"7d\" or a number of seconds" };
+  const m = /^(\d+)\s*([smhd]?)$/i.exec(raw.trim());
+  if (!m) return { ok: false, error: `invalid since: ${JSON.stringify(raw)} (expected e.g. "30m", "24h", "7d", or seconds)` };
+  const n = Number(m[1]);
+  if (!Number.isFinite(n) || n <= 0) return { ok: false, error: `invalid since: ${JSON.stringify(raw)} (must be > 0)` };
+  const unit = (m[2] || "s").toLowerCase();
+  const mult = unit === "d" ? 86400000 : unit === "h" ? 3600000 : unit === "m" ? 60000 : 1000;
+  const ms = n * mult;
+  if (!Number.isFinite(ms) || ms > MAX_WINDOW_MS) return { ok: false, error: `since out of range: ${JSON.stringify(raw)} (max 10 years)` };
+  return { ok: true, ms };
 }
 
 /**
@@ -176,7 +272,10 @@ function aggregateByModel(events) {
     }
     g.calls += 1;
     if (e.isError) g.errors += 1;
-    if (typeof e.ms === "number" && Number.isFinite(e.ms)) g.ms.push(e.ms);
+    // Latency samples come from SUCCESSFUL calls only. A timeout is recorded with its
+    // full `ms`, so counting errors here reports the timeout ceiling as model latency -
+    // which is how an aborted round showed up as a 935s p95 instead of the model's 488s.
+    if (!e.isError && typeof e.ms === "number" && Number.isFinite(e.ms)) g.ms.push(e.ms);
     const tot = e.usage && typeof e.usage.totalTokens === "number" ? e.usage.totalTokens : undefined;
     if (typeof tot === "number" && Number.isFinite(tot)) g.tokens.push(tot);
     g.efforts.add(e.reasoningEffort == null ? "n/a" : String(e.reasoningEffort));
@@ -186,25 +285,30 @@ function aggregateByModel(events) {
   const stats = [];
   for (const g of groups.values()) {
     const sorted = g.ms.slice().sort((a, b) => a - b);
-    const mean = sorted.length ? sorted.reduce((a, b) => a + b, 0) / sorted.length : 0;
+    const ok = sorted.length;
+    const mean = ok ? sorted.reduce((a, b) => a + b, 0) / ok : 0;
     stats.push({
       provider: g.provider,
       model: g.model,
       calls: g.calls,
+      okCalls: ok,
       errors: g.errors,
       errorRate: g.calls ? g.errors / g.calls : 0,
+      // null, not 0, when nothing succeeded: percentile() returns 0 for an empty array,
+      // and a 0ms p95 would make an all-error model the fastest peer in the panel.
       ms: {
-        p50: Math.round(percentile(sorted, 50)),
-        p95: Math.round(percentile(sorted, 95)),
-        max: sorted.length ? sorted[sorted.length - 1] : 0,
-        mean: Math.round(mean),
+        p50: ok ? Math.round(percentile(sorted, 50)) : null,
+        p95: ok ? Math.round(percentile(sorted, 95)) : null,
+        max: ok ? sorted[ok - 1] : null,
+        mean: ok ? Math.round(mean) : null,
       },
       meanTokens: g.tokens.length ? Math.round(g.tokens.reduce((a, b) => a + b, 0) / g.tokens.length) : null,
       reasoningEfforts: Array.from(g.efforts).sort(),
       tools: Array.from(g.tools).sort(),
     });
   }
-  stats.sort((a, b) => b.ms.p95 - a.ms.p95);
+  // Slowest p95 first; rows with no successful call sort last (they have no latency).
+  stats.sort((a, b) => (b.ms.p95 == null ? -1 : b.ms.p95) - (a.ms.p95 == null ? -1 : a.ms.p95));
   return stats;
 }
 
@@ -274,23 +378,35 @@ function aggregateAgreement(records) {
  * @returns {Outlier[]}
  */
 function detectOutliers(stats) {
-  const eligible = (Array.isArray(stats) ? stats : []).filter((s) => s.calls >= MIN_CALLS);
-  if (!eligible.length) return [];
-  const fastestP95 = Math.min(...eligible.map((s) => s.ms.p95));
-  const baseline = Math.max(fastestP95, MIN_BASELINE_MS);
+  const all = Array.isArray(stats) ? stats : [];
+  // Two different eligibility gates on purpose. The error check counts EVERY call, because
+  // that is what "unreliable" means. The latency checks count only SUCCESSFUL calls, because
+  // since errors left the percentiles an all-error model has p95 null - and if it were
+  // admitted as 0 it would become the fastest-peer baseline every other model is judged by.
+  const latencyEligible = all.filter((s) => s.okCalls >= MIN_CALLS && s.ms.p95 != null);
+  const p95s = latencyEligible.map((s) => (s.ms.p95 == null ? 0 : s.ms.p95));
+  const baseline = p95s.length ? Math.max(Math.min(...p95s), MIN_BASELINE_MS) : null;
   /** @type {Outlier[]} */
   const out = [];
-  for (const s of eligible) {
-    if (s.errorRate >= HIGH_ERROR_RATE) {
+  for (const s of all) {
+    if (s.calls >= MIN_CALLS && s.errorRate >= HIGH_ERROR_RATE) {
       out.push({ provider: s.provider, model: s.model, kind: "high-error", detail: `${Math.round(s.errorRate * 100)}% of ${s.calls} calls errored` });
     }
-    if (s.ms.p95 >= ABS_SLOW_MS) {
-      out.push({ provider: s.provider, model: s.model, kind: "slow-absolute", detail: `p95 ${s.ms.p95}ms (>= ${ABS_SLOW_MS}ms)` });
-    } else if (s.ms.p95 >= SLOW_FACTOR * baseline) {
-      out.push({ provider: s.provider, model: s.model, kind: "slow-relative", detail: `p95 ${s.ms.p95}ms vs fastest-peer baseline ${Math.round(baseline)}ms` });
+    const p95 = s.ms.p95;
+    if (p95 == null || s.okCalls < MIN_CALLS || baseline == null) continue;
+    if (p95 >= ABS_SLOW_MS) {
+      out.push({ provider: s.provider, model: s.model, kind: "slow-absolute", detail: `p95 ${p95}ms (>= ${ABS_SLOW_MS}ms)` });
+    } else if (p95 >= SLOW_FACTOR * baseline) {
+      out.push({ provider: s.provider, model: s.model, kind: "slow-relative", detail: `p95 ${p95}ms vs fastest-peer baseline ${Math.round(baseline)}ms` });
     }
   }
   return out;
+}
+
+/** Stable identity for one report row. Every aggregation in this module keys on
+ * provider+model, and so does the configured-model filter. */
+function rowKey(/** @type {string} */ provider, /** @type {any} */ model) {
+  return `${provider}|${typeof model === "string" ? model : ""}`;
 }
 
 /**
@@ -299,10 +415,88 @@ function detectOutliers(stats) {
  * @returns {{kind:"openrouter"|"external"|"grok"|"unknown", alias?:string}}
  */
 function leverFor(provider) {
-  if (provider.startsWith(OR_PREFIX)) return { kind: "openrouter", alias: provider.slice(OR_PREFIX.length) };
+  // Guard the prefix before slicing: a bare "openrouter" provider string would otherwise
+  // yield an empty alias and match nothing in config for confusing reasons.
+  if (provider.startsWith(OR_PREFIX) && provider.length > OR_PREFIX.length) {
+    return { kind: "openrouter", alias: provider.slice(OR_PREFIX.length) };
+  }
   if (provider === "codex" || provider === "gemini") return { kind: "external" };
   if (provider === "grok") return { kind: "grok" };
   return { kind: "unknown" };
+}
+
+/**
+ * Project the RESOLVED config into the levers analyze needs, in ONE place, because
+ * both the configured-model filter and `recommend` want the same three facts and
+ * duplicating the resolved-shape reads is how the raw-vs-resolved bug comes back.
+ * @param {any} config
+ * @returns {{byAlias:Map<string,{alias?:string, model?:string, askAll?:boolean, reasoning_effort?:string, apiBase?:string}>, invalidAliases:Set<string>, orEnabled:boolean, orIsOpenRouter:boolean, maxFanout:(number|null), providers:Record<string, any>}}
+ */
+function configLevers(config) {
+  const cfg = config && typeof config === "object" ? /** @type {ResolvedConfigView} */ (config) : {};
+  const or = cfg.openrouter && typeof cfg.openrouter === "object" ? cfg.openrouter : {};
+  /** @type {Map<string, any>} */
+  const byAlias = new Map();
+  for (const m of Array.isArray(or.models) ? or.models : []) {
+    if (m && typeof m.alias === "string" && m.alias) byAlias.set(m.alias, m);
+  }
+  /** @type {Set<string>} */
+  const invalidAliases = new Set();
+  for (const m of Array.isArray(or.invalidModels) ? or.invalidModels : []) {
+    if (m && typeof m.alias === "string" && m.alias) invalidAliases.add(m.alias);
+  }
+  // A custom provider-wide apiBase means the slugs are not openrouter.ai's, so no compare
+  // link built from them can be trusted - same reasoning as the per-record override.
+  const base = typeof or.apiBase === "string" ? or.apiBase : "";
+  return {
+    byAlias,
+    invalidAliases,
+    orEnabled: or.enabled !== false,
+    orIsOpenRouter: !base || /(^|\/\/)([^/]*\.)?openrouter\.ai(\/|$)/i.test(base),
+    maxFanout: typeof or.maxFanout === "number" ? or.maxFanout : null,
+    providers: cfg.providers && typeof cfg.providers === "object" ? cfg.providers : {},
+  };
+}
+
+/**
+ * Why a row is not in the current config, or null when it is.
+ *
+ * OpenRouter rows resolve by alias. Native rows (codex/gemini/grok) are excluded ONLY on an
+ * explicit `enabled: false` - never on a model mismatch against `providers.<name>.model`.
+ * That pin is a router alias for Gemini (`auto-gemini-3`), so the log records the RESOLVED
+ * model and equality would hide every active row; it is also read once at startup and never
+ * hot-reloaded, and the env defaults supply models the config layer cannot see. Codex has no
+ * model key at all and logs the literal "default".
+ * For an OpenRouter row the check also covers the MODEL, not just the alias: an alias whose
+ * `model` was edited leaves the old slug in the log under the same alias, and matching on
+ * alias alone would let that retired model drive recommendations against the current one.
+ * This is safe here and not for the native providers, because an OpenRouter alias resolves
+ * to a literal slug (no router alias) and the models map is hot-reloaded.
+ * @param {string} provider
+ * @param {ReturnType<typeof configLevers>} levers
+ * @param {string} [model]  the row's logged model; omit to check the alias only
+ * @returns {(string|null)}
+ */
+function excludeReason(provider, levers, model) {
+  const lever = leverFor(provider);
+  if (lever.kind === "openrouter") {
+    const alias = typeof lever.alias === "string" ? lever.alias : "";
+    const entry = levers.byAlias.get(alias);
+    if (entry) {
+      const configured = typeof entry.model === "string" ? entry.model : "";
+      if (model && configured && model !== configured) return `model retired under alias ${alias} (now ${configured})`;
+      return null;
+    }
+    // `models` is forced to [] when the provider is disabled, so membership alone cannot
+    // tell "retired alias" from "openrouter turned off" from "record rejected".
+    if (!levers.orEnabled) return "openrouter provider disabled";
+    if (levers.invalidAliases.has(alias)) return "rejected by config validation";
+    return "not in config";
+  }
+  const block = levers.providers[provider];
+  if (block && typeof block === "object" && block.enabled === false) return "provider disabled";
+  // Absent `providers` map means enabled, matching resolveProviders' own semantics.
+  return null;
 }
 
 /**
@@ -313,16 +507,18 @@ function leverFor(provider) {
  * candidate, not a joined fact.
  * @param {ModelStat[]} stats
  * @param {AgreementStat[]} agreement
- * @param {any} config  untrusted config.json contents
+ * @param {any} config  the RESOLVED config (see ResolvedConfigView)
  * @returns {Suggestion[]}
  */
 function recommend(stats, agreement, config) {
-  const cfg = config && typeof config === "object" ? config : {};
-  const models = cfg.models && typeof cfg.models === "object" ? cfg.models : {};
+  const levers = configLevers(config);
   const outliers = detectOutliers(stats);
+  // Keyed by provider|model, matching every other aggregation in this module. Keying on
+  // provider alone attributes one model's agreement to another model's latency outlier
+  // whenever a provider has run more than one model - which modelVariants now surfaces.
   /** @type {Map<string, AgreementStat>} */
   const agreeBy = new Map();
-  for (const a of Array.isArray(agreement) ? agreement : []) agreeBy.set(a.provider, a);
+  for (const a of Array.isArray(agreement) ? agreement : []) agreeBy.set(`${a.provider}|${a.model}`, a);
   /** @type {Suggestion[]} */
   const out = [];
   let slowOpenRouterCount = 0;
@@ -341,7 +537,7 @@ function recommend(stats, agreement, config) {
     }
     // A slow model. Find which alias-config key to suggest, and fold in agreement.
     const lever = leverFor(o.provider);
-    const agree = agreeBy.get(o.provider);
+    const agree = agreeBy.get(`${o.provider}|${o.model}`);
     const rarelyDissents = !!(agree && agree.agreementRate != null && agree.votes >= MIN_VOTES && agree.agreementRate >= HIGH_AGREEMENT);
     const valueNote = rarelyDissents
       ? ` It also agreed with the final verdict ${agree ? Math.round((agree.agreementRate || 0) * 100) : 0}% of ${agree ? agree.votes : 0} votes (rarely adds dissent), so it is the strongest cut candidate.`
@@ -350,12 +546,18 @@ function recommend(stats, agreement, config) {
     if (lever.kind === "openrouter") {
       slowOpenRouterCount += 1;
       const alias = typeof lever.alias === "string" ? lever.alias : "";
-      const entry = models[alias] && typeof models[alias] === "object" ? models[alias] : null;
-      const effort = entry && typeof entry.reasoningEffort === "string" ? entry.reasoningEffort : null;
+      const entry = levers.byAlias.get(alias) || null;
+      // Resolved records carry snake_case `reasoning_effort`; the on-disk `reasoningEffort`
+      // is renamed once, in server/openrouter/config.js. Reading the camelCase name here is
+      // what made this suggestion dead in production.
+      const effort = entry && typeof entry.reasoning_effort === "string" ? entry.reasoning_effort : null;
       if (effort && effort !== "low") {
         out.push({ target: "deliberation", subject: o.provider, configKey: `models.${alias}.reasoningEffort`, action: `lower models.${alias}.reasoningEffort (currently ${effort})`, rationale: `Slowest in the panel (${o.detail}).${valueNote}` });
       }
-      out.push({ target: "deliberation", subject: o.provider, configKey: `models.${alias}.askAll`, action: `set models.${alias}.askAll=false to drop it from /ask-all fan-out`, rationale: `In parallel fan-out, wall-time is the slowest model (${o.detail}).${valueNote}` });
+      // Suggesting askAll=false on a record that already has it is a no-op recommendation.
+      if (!entry || entry.askAll !== false) {
+        out.push({ target: "deliberation", subject: o.provider, configKey: `models.${alias}.askAll`, action: `set models.${alias}.askAll=false to drop it from /ask-all fan-out`, rationale: `In parallel fan-out, wall-time is the slowest model (${o.detail}).${valueNote}` });
+      }
     } else if (lever.kind === "external") {
       out.push({ target: "external", subject: o.provider, configKey: null, action: o.provider === "codex" ? "lower model_reasoning_effort in ~/.codex/config.toml (or pass it per-call)" : "lower the Gemini/agy reasoning setting", rationale: `Slowest in the panel (${o.detail}); its reasoning lever is outside deliberation's config.${valueNote}` });
     } else {
@@ -364,8 +566,141 @@ function recommend(stats, agreement, config) {
   }
 
   if (slowOpenRouterCount >= 2) {
-    const fanout = cfg.routing && typeof cfg.routing.maxFanout === "number" ? cfg.routing.maxFanout : null;
+    const fanout = levers.maxFanout;
     out.push({ target: "deliberation", subject: "panel", configKey: "routing.maxFanout", action: fanout ? `lower routing.maxFanout (currently ${fanout})` : "set routing.maxFanout to 1-2", rationale: `${slowOpenRouterCount} OpenRouter models are slow outliers; a smaller fan-out cuts cost and parallel wall-time.` });
+  }
+  return out;
+}
+
+/**
+ * Providers seen running more than one model string. Flags only - no date parsing and no
+ * "dated" label, because calling a slug dated is a characterisation and this module does
+ * not characterise models.
+ * @param {ModelStat[]} stats
+ * @returns {ModelVariant[]}
+ */
+function detectModelVariants(stats) {
+  /** @type {Map<string, Set<string>>} */
+  const byProvider = new Map();
+  for (const s of Array.isArray(stats) ? stats : []) {
+    if (!s || typeof s.provider !== "string") continue;
+    let set = byProvider.get(s.provider);
+    if (!set) {
+      set = new Set();
+      byProvider.set(s.provider, set);
+    }
+    if (s.model) set.add(s.model);
+  }
+  /** @type {ModelVariant[]} */
+  const out = [];
+  for (const [provider, set] of byProvider) {
+    if (set.size > 1) out.push({ provider, models: Array.from(set).sort() });
+  }
+  out.sort((a, b) => a.provider.localeCompare(b.provider));
+  return out;
+}
+
+/**
+ * The OpenRouter slug for a row, or null when it is not linkable. Prefers the logged
+ * `model` (for an OpenRouter row that IS the slug) and falls back to the configured
+ * record when only the alias is known. Records with a custom `apiBase` are never
+ * linkable: their slug may not resolve on openrouter.ai at all.
+ * @param {ModelStat} s
+ * @param {ReturnType<typeof configLevers>} levers
+ * @returns {(string|null)}
+ */
+function slugFor(s, levers) {
+  const lever = leverFor(s.provider);
+  if (lever.kind !== "openrouter") return null;
+  if (!levers.orIsOpenRouter) return null;
+  const entry = levers.byAlias.get(typeof lever.alias === "string" ? lever.alias : "");
+  if (entry && typeof entry.apiBase === "string" && entry.apiBase) return null;
+  // A compare link needs a real `vendor/name` catalog slug; anything else would 404.
+  if (typeof s.model === "string" && /^[^/\s]+\/[^/\s]+$/.test(s.model)) return s.model;
+  if (entry && typeof entry.model === "string" && /^[^/\s]+\/[^/\s]+$/.test(entry.model)) return entry.model;
+  return null;
+}
+
+/**
+ * Build an openrouter.ai/compare URL from slugs. Each path segment is encoded separately
+ * so a vendor/name slug keeps its separator while a data-driven value cannot escape the path.
+ * @param {string[]} slugs
+ * @returns {string}
+ */
+function compareUrl(slugs) {
+  const path = slugs
+    .map((slug) => slug.split("/").map((seg) => encodeURIComponent(seg)).join("/"))
+    .join("/");
+  return `${COMPARE_BASE}/${path}`;
+}
+
+/**
+ * OpenRouter compare links, one per finding group, up to COMPARE_MAX models each.
+ * OpenRouter rows only - a native provider's model id is not a catalog slug, so a link
+ * built from it would 404.
+ * @param {ModelStat[]} stats
+ * @param {Outlier[]} outliers
+ * @param {ModelVariant[]} variants
+ * @param {ReturnType<typeof configLevers>} levers
+ * @returns {CompareLink[]}
+ */
+function buildCompare(stats, outliers, variants, levers) {
+  const rows = (Array.isArray(stats) ? stats : []).filter((s) => slugFor(s, levers) !== null);
+  /** @type {CompareLink[]} */
+  const out = [];
+  /** @type {Set<string>} */
+  const seen = new Set();
+  const push = (/** @type {CompareLink["group"]} */ group, /** @type {ModelStat[]} */ picks) => {
+    if (picks.length < 2) return;
+    /** @type {string[]} */
+    const slugs = [];
+    /** @type {string[]} */
+    const providers = [];
+    // Collect slugs and providers together, so the two never disagree in length when a pick
+    // has no slug or repeats one another pick already contributed.
+    for (const p of picks) {
+      if (slugs.length >= COMPARE_MAX) break;
+      const slug = slugFor(p, levers);
+      if (!slug || slugs.includes(slug)) continue;
+      slugs.push(slug);
+      providers.push(p.provider);
+    }
+    if (slugs.length < 2) return;
+    // Dedupe on the SET of models, not the ordered URL: one link per outlier otherwise
+    // emits the same four models in a different order once per outlier, which is noise.
+    const key = slugs.slice().sort().join("|");
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ group, providers, url: compareUrl(slugs) });
+  };
+
+  // slow-outlier: the outlier plus its nearest peers by p95, so the link answers
+  // "is this model worth its latency against comparable peers".
+  for (const o of Array.isArray(outliers) ? outliers : []) {
+    if (o.kind === "high-error") continue;
+    const target = rows.find((s) => s.provider === o.provider && s.model === o.model);
+    if (!target || target.ms.p95 == null) continue;
+    const tp95 = target.ms.p95;
+    const peers = rows
+      .filter((s) => s !== target && s.ms.p95 != null)
+      .sort((a, b) => Math.abs((a.ms.p95 || 0) - tp95) - Math.abs((b.ms.p95 || 0) - tp95))
+      .slice(0, COMPARE_MAX - 1);
+    push("slow-outlier", [target, ...peers]);
+  }
+
+  // variant: an alias whose logged slug changed over time (config edited under the same id).
+  for (const v of Array.isArray(variants) ? variants : []) {
+    const picks = rows
+      .filter((s) => s.provider === v.provider)
+      .sort((a, b) => b.calls - a.calls)
+      .slice(0, COMPARE_MAX);
+    push("variant", picks);
+  }
+
+  // most-called: a single fallback so the report still offers a comparison when nothing
+  // was flagged.
+  if (!out.length) {
+    push("most-called", rows.slice().sort((a, b) => b.calls - a.calls).slice(0, COMPARE_MAX));
   }
   return out;
 }
@@ -373,40 +708,218 @@ function recommend(stats, agreement, config) {
 /**
  * Build the full Analysis from already-read inputs. Pure: no IO. The MCP tool
  * does the file reads and passes parsed events, parsed records, and the config.
+ * The window (`windowMs`) gates BOTH lenses: Lens A here, Lens B in the caller, which
+ * already dropped out-of-window records before passing them. A report whose timing spans
+ * months and whose agreement spans days would make the combined "slow AND rarely dissents"
+ * candidate a mixed-period claim.
  * @param {DebugEvent[]} events
- * @param {SessionRecord[]} records
- * @param {any} config
- * @param {{logPath?:string, debugEnabled?:boolean, sessionsPersist?:boolean, sessionsDir?:(string|null)}} [meta]
+ * @param {SessionRecord[]} records  already time-filtered by the caller
+ * @param {any} config  the RESOLVED config
+ * @param {{logPath?:string, debugEnabled?:boolean, sessionsPersist?:boolean, sessionsDir?:(string|null), windowMs?:(number|null), since?:(string|null), nowMs?:number, configuredOnly?:boolean, configError?:(string|null), truncated?:{log?:boolean, sessions?:boolean}}} [meta]
  * @returns {Analysis}
  */
 function buildAnalysis(events, records, config, meta) {
-  const evs = Array.isArray(events) ? events : [];
+  const m = meta || {};
   const recs = Array.isArray(records) ? records : [];
-  const stats = aggregateByModel(evs);
-  const agreement = aggregateAgreement(recs);
+  // The caller passes nowMs so both lenses share one clock (and so tests are deterministic).
+  // Date.now() is only a fallback for a direct call that omits it; it is the single
+  // non-pure line in this module and it is reachable only when a window is requested.
+  const nowMs = typeof m.nowMs === "number" ? m.nowMs : Date.now();
+  const windowMs = typeof m.windowMs === "number" && m.windowMs > 0 ? m.windowMs : null;
+  const fromMs = windowMs == null ? null : nowMs - windowMs;
+
+  // An event with no usable `at` is dropped under a window (it cannot be shown to be
+  // inside it) and kept without one.
+  // Closed interval [fromMs, nowMs]: without the upper bound a future-dated event (clock
+  // skew, a hand-edited log) lands inside every window.
+  const allEvents = Array.isArray(events) ? events : [];
+  const evs = fromMs == null
+    ? allEvents
+    : allEvents.filter((e) => e && typeof e.at === "number" && Number.isFinite(e.at) && e.at >= fromMs && e.at <= nowMs);
+
+  const allStats = aggregateByModel(evs);
+  const allAgreement = aggregateAgreement(recs);
+
+  // Counters come from the UNFILTERED aggregates. doctor reads them as read-path signals,
+  // and a zero produced by the configured-model filter would masquerade as broken
+  // persistence or a drifted sessions dir.
+  const agreementVotes = allAgreement.reduce((n, a) => n + (a && a.votes ? a.votes : 0), 0);
+  const insufficientData = allStats.length === 0;
+
+  const levers = configLevers(config);
+  const configError = typeof m.configError === "string" && m.configError ? m.configError : null;
+  // A syntax error must never be reported as "none of your models are configured".
+  const filtering = m.configuredOnly !== false && !configError;
+  /** @type {ExcludedModel[]} */
+  const excluded = [];
+  /** @type {string[]} */
+  const warnings = [];
+
+  let stats = allStats;
+  let agreement = allAgreement;
+  /**
+   * Rows visible in the report, as `provider|model` keys - the only data allowed to set
+   * window coverage. Evaluated AFTER the configured-model filter and BEFORE the window is
+   * built (no circularity). It is the UNION of both lenses: Lens B can show a row with no
+   * timing row in the window, and a session made of those opinions is genuinely visible,
+   * so barring it from coverage would report a later start than the data actually shown.
+   */
+  const shownKeys = () => new Set([
+    ...stats.map((s) => rowKey(s.provider, s.model)),
+    ...agreement.map((a) => rowKey(a.provider, a.model)),
+  ]);
+  if (filtering) {
+    // Decide over the UNION of both lenses, PER ROW. Building the set from stats alone
+    // leaks a retired provider into Lens B whenever it has session opinions but no timing
+    // rows in the window; keying by provider alone keeps a retired model that shares an
+    // alias with the current one.
+    /** @type {Map<string, string>} */
+    const reasonByKey = new Map();
+    const consider = (/** @type {string} */ provider, /** @type {string} */ model) => {
+      const key = rowKey(provider, model);
+      if (reasonByKey.has(key)) return;
+      const reason = excludeReason(provider, levers, model);
+      if (reason) reasonByKey.set(key, reason);
+    };
+    for (const s of allStats) consider(s.provider, s.model);
+    for (const a of allAgreement) consider(a.provider, a.model);
+
+    for (const s of allStats) {
+      const reason = reasonByKey.get(rowKey(s.provider, s.model));
+      if (reason) excluded.push({ provider: s.provider, model: s.model, calls: s.calls, reason });
+    }
+    for (const a of allAgreement) {
+      // An agreement-only row still has to be visible, or the filter hides it with no
+      // trace of why.
+      const reason = reasonByKey.get(rowKey(a.provider, a.model));
+      if (reason && !allStats.some((s) => s.provider === a.provider && s.model === a.model)) {
+        excluded.push({ provider: a.provider, model: a.model, calls: 0, reason });
+      }
+    }
+    const kept = allStats.filter((s) => !reasonByKey.has(rowKey(s.provider, s.model)));
+    if (allStats.length && !kept.length) {
+      // Show the rows, but do NOT feed them to detectOutliers/recommend: the whole point
+      // is that a retired model must not be recommended. Analysis stays empty and says so.
+      warnings.push("Every model in the log was filtered out as unconfigured; showing rows for reference only, with no recommendations. Pass configuredOnly:false to analyze them.");
+      stats = allStats;
+      agreement = allAgreement;
+      const outliers = /** @type {Outlier[]} */ ([]);
+      return {
+        stats,
+        agreement,
+        outliers,
+        recommendations: [],
+        compare: [],
+        meta: buildMeta(m, evs, recs, {
+          agreementVotes,
+          insufficientData,
+          excluded,
+          window: buildWindow({ ...m, shownKeys: shownKeys() }, windowMs, fromMs, nowMs, evs, recs),
+          configError,
+          modelVariants: detectModelVariants(allStats),
+          warnings,
+        }),
+      };
+    }
+    stats = kept;
+    agreement = allAgreement.filter((a) => !reasonByKey.has(rowKey(a.provider, a.model)));
+  }
+
   const outliers = detectOutliers(stats);
   const recommendations = recommend(stats, agreement, config);
+  const modelVariants = detectModelVariants(stats);
   return {
     stats,
     agreement,
     outliers,
     recommendations,
-    meta: {
-      logPath: meta && meta.logPath,
-      debugEnabled: !!(meta && meta.debugEnabled),
-      sessionsPersist: !!(meta && meta.sessionsPersist),
-      eventsParsed: evs.length,
-      sessionsRead: recs.length,
-      // sessionsDir is the dir the RUNNING server resolved (passed by the caller).
-      // /deliberation:doctor compares this to the shell-resolved path to detect the
-      // XDG_CACHE_HOME / DELIBERATION_SESSIONS drift that silently empties Lens B.
-      sessionsDir: (meta && meta.sessionsDir) || null,
-      // Total agreement votes across all models. sessionsRead>0 with agreementVotes==0
-      // means records exist but none carry a per-opinion verdict (old or ask-all runs) -
-      // Lens B is empty for a content reason, not a read-path one.
-      agreementVotes: agreement.reduce((n, a) => n + (a && a.votes ? a.votes : 0), 0),
-      insufficientData: stats.length === 0,
-    },
+    compare: buildCompare(stats, outliers, modelVariants, levers),
+    meta: buildMeta(m, evs, recs, {
+      agreementVotes,
+      insufficientData,
+      excluded,
+      window: buildWindow({ ...m, shownKeys: shownKeys() }, windowMs, fromMs, nowMs, evs, recs),
+      configError,
+      modelVariants,
+      warnings,
+    }),
+  };
+}
+
+/**
+ * @param {any} m
+ * @param {(number|null)} windowMs
+ * @param {(number|null)} fromMs
+ * @param {number} nowMs
+ * @param {DebugEvent[]} evs
+ * @param {SessionRecord[]} recs
+ * @returns {(AnalysisWindow|null)}
+ */
+function buildWindow(m, windowMs, fromMs, nowMs, evs, recs) {
+  if (windowMs == null || fromMs == null) return null;
+  /** @type {number[]} */
+  const earliest = [];
+  // Only data that actually reached a lens may set coverage. `dispatch_start` and `round`
+  // events are parsed but never aggregated, and an opinion-less record contributes nothing
+  // to Lens B - letting either set the earliest timestamp would claim coverage the report
+  // does not have. Same for a provider the configured-model filter removed.
+  const shown = m && m.shownKeys instanceof Set ? m.shownKeys : null;
+  const inReport = (/** @type {string} */ provider, /** @type {any} */ model) =>
+    !shown || shown.has(rowKey(provider, typeof model === "string" ? model : ""));
+  for (const e of evs) {
+    if (!e || e.event !== "provider_result" || typeof e.provider !== "string") continue;
+    if (!inReport(e.provider, e.model)) continue;
+    if (typeof e.at === "number" && Number.isFinite(e.at)) earliest.push(e.at);
+  }
+  for (const r of recs) {
+    if (!r || !Array.isArray(r.opinions) || !r.opinions.length) continue;
+    // A record counts only if at least one of its opinions survived into the report -
+    // otherwise a session made entirely of excluded providers sets the earliest coverage
+    // for data the reader can never see.
+    if (!r.opinions.some((op) => op && typeof op.provider === "string" && inReport(op.provider, op.model))) continue;
+    const t = typeof r.createdAt === "string" ? Date.parse(r.createdAt) : NaN;
+    if (Number.isFinite(t)) earliest.push(t);
+  }
+  return {
+    since: typeof m.since === "string" ? m.since : `${Math.round(windowMs / 1000)}s`,
+    fromMs,
+    toMs: nowMs,
+    // Real coverage across both lenses, not requested coverage: they differ whenever the
+    // byte tail bounded the read before the window did.
+    coverageFromMs: earliest.length ? Math.min(...earliest) : null,
+  };
+}
+
+/**
+ * @param {any} m
+ * @param {DebugEvent[]} evs
+ * @param {SessionRecord[]} recs
+ * @param {{agreementVotes:number, insufficientData:boolean, excluded:ExcludedModel[], window:(AnalysisWindow|null), configError:(string|null), modelVariants:ModelVariant[], warnings:string[]}} parts
+ * @returns {AnalysisMeta}
+ */
+function buildMeta(m, evs, recs, parts) {
+  const trunc = m.truncated && typeof m.truncated === "object" ? m.truncated : {};
+  return {
+    logPath: m.logPath,
+    debugEnabled: !!m.debugEnabled,
+    sessionsPersist: !!m.sessionsPersist,
+    eventsParsed: evs.length,
+    sessionsRead: recs.length,
+    // sessionsDir is the dir the RUNNING server resolved (passed by the caller).
+    // /deliberation:doctor compares this to the shell-resolved path to detect the
+    // XDG_CACHE_HOME / DELIBERATION_SESSIONS drift that silently empties Lens B.
+    sessionsDir: m.sessionsDir || null,
+    // Total agreement votes across all models, BEFORE the configured-model filter.
+    // sessionsRead>0 with agreementVotes==0 means records exist but none carry a
+    // per-opinion verdict (old or ask-all runs) - a content reason, not a read-path one.
+    agreementVotes: parts.agreementVotes,
+    insufficientData: parts.insufficientData,
+    excluded: parts.excluded,
+    window: parts.window,
+    truncated: { log: !!trunc.log, sessions: !!trunc.sessions },
+    configError: parts.configError,
+    modelVariants: parts.modelVariants,
+    warnings: parts.warnings,
   };
 }
 
@@ -417,11 +930,18 @@ module.exports = {
   HIGH_ERROR_RATE,
   HIGH_AGREEMENT,
   MIN_VOTES,
+  MAX_WINDOW_MS,
+  COMPARE_MAX,
   parseDebugLog,
+  parseWindowMs,
   percentile,
   aggregateByModel,
   aggregateAgreement,
   detectOutliers,
+  detectModelVariants,
+  configLevers,
+  excludeReason,
+  buildCompare,
   recommend,
   buildAnalysis,
 };

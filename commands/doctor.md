@@ -100,8 +100,12 @@ echo "== end local checks =="
 Call the tool, then compare the server's resolved sessions dir to the shell's:
 
 ```
-mcp__deliberation__analyze({})
+mcp__deliberation__analyze({ sessions: 20, configuredOnly: false })
 ```
+
+Both args are deliberate: a bounded `sessions` keeps this diagnostic cheap (the default is
+uncapped), and `configuredOnly: false` shows every model that ever ran, because this step is
+diagnosing read paths and persistence, not tuning a panel.
 
 - Read `meta.sessionsDir` (the dir the **running server** uses) and compare it to
   `SHELL_SESSIONS_DIR` from step 1.
