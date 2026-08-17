@@ -108,7 +108,7 @@ const COMPARE_BASE = "https://openrouter.ai/compare";
  * (`models.<alias>.*`, `routing.maxFanout`). Both are correct - they are different
  * namespaces. Do not "fix" one to match the other.
  * @typedef {Object} ResolvedConfigView
- * @property {{enabled?:boolean, maxFanout?:number, models?:{alias?:string, model?:string, askAll?:boolean, consensus?:boolean, reasoning_effort?:string, apiBase?:string}[], invalidModels?:{alias?:(string|null)}[]}} [openrouter]
+ * @property {{enabled?:boolean, maxFanout?:number, apiBase?:string, models?:{alias?:string, model?:string, askAll?:boolean, consensus?:boolean, reasoning_effort?:string, apiBase?:string}[], invalidModels?:{alias?:(string|null)}[]}} [openrouter]
  * @property {Record<string, {enabled?:boolean}>} [providers]
  */
 
@@ -423,7 +423,7 @@ function leverFor(provider) {
  * both the configured-model filter and `recommend` want the same three facts and
  * duplicating the resolved-shape reads is how the raw-vs-resolved bug comes back.
  * @param {any} config
- * @returns {{byAlias:Map<string,{alias?:string, model?:string, askAll?:boolean, reasoning_effort?:string, apiBase?:string}>, invalidAliases:Set<string>, orEnabled:boolean, maxFanout:(number|null), providers:Record<string, any>}}
+ * @returns {{byAlias:Map<string,{alias?:string, model?:string, askAll?:boolean, reasoning_effort?:string, apiBase?:string}>, invalidAliases:Set<string>, orEnabled:boolean, orIsOpenRouter:boolean, maxFanout:(number|null), providers:Record<string, any>}}
  */
 function configLevers(config) {
   const cfg = config && typeof config === "object" ? /** @type {ResolvedConfigView} */ (config) : {};
@@ -438,10 +438,14 @@ function configLevers(config) {
   for (const m of Array.isArray(or.invalidModels) ? or.invalidModels : []) {
     if (m && typeof m.alias === "string" && m.alias) invalidAliases.add(m.alias);
   }
+  // A custom provider-wide apiBase means the slugs are not openrouter.ai's, so no compare
+  // link built from them can be trusted - same reasoning as the per-record override.
+  const base = typeof or.apiBase === "string" ? or.apiBase : "";
   return {
     byAlias,
     invalidAliases,
     orEnabled: or.enabled !== false,
+    orIsOpenRouter: !base || /(^|\/\/)([^/]*\.)?openrouter\.ai(\/|$)/i.test(base),
     maxFanout: typeof or.maxFanout === "number" ? or.maxFanout : null,
     providers: cfg.providers && typeof cfg.providers === "object" ? cfg.providers : {},
   };
@@ -590,10 +594,12 @@ function detectModelVariants(stats) {
 function slugFor(s, levers) {
   const lever = leverFor(s.provider);
   if (lever.kind !== "openrouter") return null;
+  if (!levers.orIsOpenRouter) return null;
   const entry = levers.byAlias.get(typeof lever.alias === "string" ? lever.alias : "");
   if (entry && typeof entry.apiBase === "string" && entry.apiBase) return null;
-  if (typeof s.model === "string" && s.model.includes("/")) return s.model;
-  if (entry && typeof entry.model === "string" && entry.model) return entry.model;
+  // A compare link needs a real `vendor/name` catalog slug; anything else would 404.
+  if (typeof s.model === "string" && /^[^/\s]+\/[^/\s]+$/.test(s.model)) return s.model;
+  if (entry && typeof entry.model === "string" && /^[^/\s]+\/[^/\s]+$/.test(entry.model)) return entry.model;
   return null;
 }
 
@@ -630,18 +636,24 @@ function buildCompare(stats, outliers, variants, levers) {
     if (picks.length < 2) return;
     /** @type {string[]} */
     const slugs = [];
+    /** @type {string[]} */
+    const providers = [];
+    // Collect slugs and providers together, so the two never disagree in length when a pick
+    // has no slug or repeats one another pick already contributed.
     for (const p of picks) {
+      if (slugs.length >= COMPARE_MAX) break;
       const slug = slugFor(p, levers);
-      if (slug && !slugs.includes(slug)) slugs.push(slug);
+      if (!slug || slugs.includes(slug)) continue;
+      slugs.push(slug);
+      providers.push(p.provider);
     }
     if (slugs.length < 2) return;
-    const chosen = slugs.slice(0, COMPARE_MAX);
     // Dedupe on the SET of models, not the ordered URL: one link per outlier otherwise
     // emits the same four models in a different order once per outlier, which is noise.
-    const key = chosen.slice().sort().join("|");
+    const key = slugs.slice().sort().join("|");
     if (seen.has(key)) return;
     seen.add(key);
-    out.push({ group, providers: picks.slice(0, COMPARE_MAX).map((p) => p.provider), url: compareUrl(chosen) });
+    out.push({ group, providers, url: compareUrl(slugs) });
   };
 
   // slow-outlier: the outlier plus its nearest peers by p95, so the link answers
@@ -691,16 +703,21 @@ function buildCompare(stats, outliers, variants, levers) {
 function buildAnalysis(events, records, config, meta) {
   const m = meta || {};
   const recs = Array.isArray(records) ? records : [];
+  // The caller passes nowMs so both lenses share one clock (and so tests are deterministic).
+  // Date.now() is only a fallback for a direct call that omits it; it is the single
+  // non-pure line in this module and it is reachable only when a window is requested.
   const nowMs = typeof m.nowMs === "number" ? m.nowMs : Date.now();
   const windowMs = typeof m.windowMs === "number" && m.windowMs > 0 ? m.windowMs : null;
   const fromMs = windowMs == null ? null : nowMs - windowMs;
 
   // An event with no usable `at` is dropped under a window (it cannot be shown to be
   // inside it) and kept without one.
+  // Closed interval [fromMs, nowMs]: without the upper bound a future-dated event (clock
+  // skew, a hand-edited log) lands inside every window.
   const allEvents = Array.isArray(events) ? events : [];
   const evs = fromMs == null
     ? allEvents
-    : allEvents.filter((e) => e && typeof e.at === "number" && Number.isFinite(e.at) && e.at >= fromMs);
+    : allEvents.filter((e) => e && typeof e.at === "number" && Number.isFinite(e.at) && e.at >= fromMs && e.at <= nowMs);
 
   const allStats = aggregateByModel(evs);
   const allAgreement = aggregateAgreement(recs);
@@ -722,14 +739,27 @@ function buildAnalysis(events, records, config, meta) {
 
   let stats = allStats;
   let agreement = allAgreement;
+  /** Providers whose rows reached the report - the only ones allowed to set window coverage. */
+  const shownProviders = () => new Set(stats.map((s) => s.provider));
   if (filtering) {
+    // Decide over the UNION of both lenses. Building the exclusion set from stats alone
+    // leaks a retired provider into Lens B whenever it has session opinions but no timing
+    // rows in the window - and filters nothing at all when there is no timing data.
     /** @type {Map<string, string>} */
     const reasonByProvider = new Map();
+    for (const provider of new Set([...allStats.map((s) => s.provider), ...allAgreement.map((a) => a.provider)])) {
+      const reason = excludeReason(provider, levers);
+      if (reason) reasonByProvider.set(provider, reason);
+    }
     for (const s of allStats) {
-      const reason = excludeReason(s.provider, levers);
-      if (reason) {
-        reasonByProvider.set(s.provider, reason);
-        excluded.push({ provider: s.provider, model: s.model, calls: s.calls, reason });
+      const reason = reasonByProvider.get(s.provider);
+      if (reason) excluded.push({ provider: s.provider, model: s.model, calls: s.calls, reason });
+    }
+    for (const a of allAgreement) {
+      // An agreement-only provider still has to be visible, or the filter hides a row with
+      // no trace of why.
+      if (reasonByProvider.has(a.provider) && !allStats.some((s) => s.provider === a.provider)) {
+        excluded.push({ provider: a.provider, model: a.model, calls: 0, reason: reasonByProvider.get(a.provider) || "not in config" });
       }
     }
     const kept = allStats.filter((s) => !reasonByProvider.has(s.provider));
@@ -750,7 +780,7 @@ function buildAnalysis(events, records, config, meta) {
           agreementVotes,
           insufficientData,
           excluded,
-          window: buildWindow(m, windowMs, fromMs, nowMs, evs, recs),
+          window: buildWindow({ ...m, shownProviders: shownProviders() }, windowMs, fromMs, nowMs, evs, recs),
           configError,
           modelVariants: detectModelVariants(allStats),
           warnings,
@@ -774,7 +804,7 @@ function buildAnalysis(events, records, config, meta) {
       agreementVotes,
       insufficientData,
       excluded,
-      window: buildWindow(m, windowMs, fromMs, nowMs, evs, recs),
+      window: buildWindow({ ...m, shownProviders: shownProviders() }, windowMs, fromMs, nowMs, evs, recs),
       configError,
       modelVariants,
       warnings,
@@ -795,11 +825,19 @@ function buildWindow(m, windowMs, fromMs, nowMs, evs, recs) {
   if (windowMs == null || fromMs == null) return null;
   /** @type {number[]} */
   const earliest = [];
+  // Only data that actually reached a lens may set coverage. `dispatch_start` and `round`
+  // events are parsed but never aggregated, and an opinion-less record contributes nothing
+  // to Lens B - letting either set the earliest timestamp would claim coverage the report
+  // does not have. Same for a provider the configured-model filter removed.
+  const shown = m && m.shownProviders instanceof Set ? m.shownProviders : null;
   for (const e of evs) {
-    if (e && typeof e.at === "number" && Number.isFinite(e.at)) earliest.push(e.at);
+    if (!e || e.event !== "provider_result") continue;
+    if (shown && typeof e.provider === "string" && !shown.has(e.provider)) continue;
+    if (typeof e.at === "number" && Number.isFinite(e.at)) earliest.push(e.at);
   }
   for (const r of recs) {
-    const t = r && typeof r.createdAt === "string" ? Date.parse(r.createdAt) : NaN;
+    if (!r || !Array.isArray(r.opinions) || !r.opinions.length) continue;
+    const t = typeof r.createdAt === "string" ? Date.parse(r.createdAt) : NaN;
     if (Number.isFinite(t)) earliest.push(t);
   }
   return {

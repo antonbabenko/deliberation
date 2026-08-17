@@ -334,7 +334,11 @@ test("A19: the window gates Lens A and reports real coverage across both lenses"
     { ...ev("noAt", "m", 100), at: undefined },
   ];
   const recs = [
-    { id: "a", schemaVersion: 1, tool: "consensus", createdAt: new Date(now - 3000).toISOString(), question: "q", verdict: "APPROVE", opinions: [] },
+    // Carries an opinion, so it actually contributes to Lens B and may set coverage.
+    { id: "a", schemaVersion: 1, tool: "consensus", createdAt: new Date(now - 3000).toISOString(), question: "q", verdict: "APPROVE",
+      opinions: [{ provider: "grok", model: "m", verdict: "APPROVE" }] },
+    // Opinion-less: contributes to neither lens, so it must NOT set coverage.
+    { id: "b", schemaVersion: 1, tool: "ask-all", createdAt: new Date(now - 9000).toISOString(), question: "q", opinions: [] },
   ];
   const out = buildAnalysis(/** @type {any} */ (events), /** @type {any} */ (recs), {}, { windowMs: 10_000, nowMs: now, since: "10s" });
   const providers = out.stats.map((s) => s.provider);
@@ -428,4 +432,57 @@ test("A23: compare links are OpenRouter-only, capped at 4, deduped, and skip cus
   assert.ok(!link.url.includes("vendor/priv"), "a custom apiBase may not resolve on openrouter.ai");
   assert.ok(link.url.split("/compare/")[1].split("/").length <= 8, "at most 4 vendor/name slugs");
   assert.equal(new Set(out.compare.map((c) => c.url)).size, out.compare.length, "urls are deduped");
+});
+
+test("A24: a retired provider with sessions but no timing rows is still filtered from Lens B", () => {
+  // The filter used to be decided from the stats rows alone, so a provider that appears
+  // only in the session store leaked straight through into Lens B.
+  const events = [ev("openrouter:live", "v/live", 100), ev("openrouter:live", "v/live", 100)];
+  /** @type {any[]} */
+  const recs = [{
+    id: "a", schemaVersion: 1, tool: "consensus", createdAt: new Date().toISOString(), question: "q", verdict: "APPROVE",
+    opinions: [
+      { provider: "openrouter:live", model: "v/live", verdict: "APPROVE" },
+      { provider: "openrouter:retired", model: "v/retired", verdict: "REJECT" },
+    ],
+  }];
+  const out = buildAnalysis(events, recs, resolved([{ alias: "live", model: "v/live" }]), {});
+  assert.deepEqual(out.agreement.map((a) => a.provider), ["openrouter:live"]);
+  const retired = out.meta.excluded.find((e) => e.provider === "openrouter:retired");
+  assert.ok(retired, "an agreement-only exclusion is still reported, not silently dropped");
+  assert.equal(retired.calls, 0);
+});
+
+test("A25: window coverage ignores data that reached no lens, and rejects future timestamps", () => {
+  const now = 2_000_000_000;
+  /** @type {any[]} */
+  const events = [
+    // Parsed but never aggregated - must not set coverage.
+    { event: "round", at: now - 9000, tool: "consensus", round: 1 },
+    { event: "dispatch_start", at: now - 8000, tool: "ask-all", voices: 3 },
+    { ...ev("grok", "m", 100), at: now - 1000 },
+    { ...ev("grok", "m", 100), at: now - 1500 },
+    // Future-dated (clock skew): inside [fromMs, now] only if the upper bound is missing.
+    { ...ev("future", "m", 100), at: now + 60_000 },
+  ];
+  const out = buildAnalysis(events, [], {}, { windowMs: 10_000, nowMs: now, since: "10s" });
+  assert.ok(out.meta.window);
+  assert.equal(out.meta.window.coverageFromMs, now - 1500,
+    "a round/dispatch_start event reaches no lens and cannot claim coverage");
+  assert.ok(!out.stats.some((s) => s.provider === "future"), "a future-dated event is outside the window");
+});
+
+test("A26: an excluded provider cannot extend the reported coverage", () => {
+  const now = 2_000_000_000;
+  /** @type {any[]} */
+  const events = [
+    { ...ev("openrouter:gone", "v/gone", 100), at: now - 9000 },
+    { ...ev("openrouter:gone", "v/gone", 100), at: now - 9500 },
+    { ...ev("openrouter:live", "v/live", 100), at: now - 1000 },
+    { ...ev("openrouter:live", "v/live", 100), at: now - 1200 },
+  ];
+  const out = buildAnalysis(events, [], resolved([{ alias: "live", model: "v/live" }]), { windowMs: 20_000, nowMs: now, since: "20s" });
+  assert.ok(out.meta.window);
+  assert.equal(out.meta.window.coverageFromMs, now - 1200,
+    "the filtered-out rows are not in the report, so they cannot describe its coverage");
 });

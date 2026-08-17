@@ -1006,6 +1006,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
     // A bad `since` is an ERROR, not a silent fallback. `limitBytes`/`sessions` degrade
     // quietly because a wrong value there costs completeness; a wrong window costs truth -
     // you would get an all-time report labelled "24h".
+    const nowMs = Date.now();
     /** @type {number|null} */
     let windowMs = null;
     if (args.since !== undefined && args.since !== null) {
@@ -1055,7 +1056,9 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       // -1 (or omitted) means "no caller cap", still bounded by MAX_SESSION_RECORDS.
       const raw = args.sessions;
       const cap = Number.isInteger(raw) && raw > 0 ? Math.min(raw, MAX_SESSION_RECORDS) : MAX_SESSION_RECORDS;
-      const cutoff = windowMs == null ? null : Date.now() - windowMs;
+      // One clock for both lenses: nowMs is passed to buildAnalysis too, so the event cutoff
+      // and the record cutoff cannot land a few milliseconds apart.
+      const cutoff = windowMs == null ? null : nowMs - windowMs;
       // listSessions is newest-mtime-first, but it only sorts AFTER stat-ing every entry,
       // so there is no sound way to bound the enumeration without losing recency. Bound the
       // PARSE instead: take the newest `cap` records, then apply the window to those.
@@ -1066,9 +1069,12 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
           sessionsTruncated = true;
           break;
         }
+        // Count the ATTEMPT, not the success: a corrupt record still costs a read and a
+        // parse, so charging only parsed records would let a directory of broken files
+        // blow straight through the budget.
+        read += 1;
         const rec = sessions.readSession(e.id, { dir: sessionsDir });
         if (!rec) continue;
-        read += 1;
         if (cutoff != null) {
           // createdAt decides, not mtime: session-annotate rewrites the file and moves mtime
           // forward. Date.parse returns NaN on garbage and NaN comparisons are always false,
@@ -1085,6 +1091,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       sessionsPersist: persist,
       sessionsDir,
       windowMs,
+      nowMs,
       since: typeof args.since === "string" ? args.since : null,
       configuredOnly: args.configuredOnly !== false,
       configError: typeof getConfigError === "function" ? getConfigError() : null,
