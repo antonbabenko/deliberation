@@ -21,6 +21,13 @@ const analyzeCore = require("../../core/analyze.js");
 // client/Glama misinterpretation (annotations postdate this server's 2024-11-05
 // protocol, so no single default is authoritative).
 const LOCAL_RO = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };  // local read-only: panel, analyze, session-get
+/** analyze: default debug-log tail (bytes). */
+const DEFAULT_LOG_BYTES = 1024 * 1024;
+/** analyze: hard ceiling on the debug-log read (bytes), including an explicit limitBytes. */
+const MAX_LOG_BYTES = 32 * 1024 * 1024;
+/** analyze: hard ceiling on session records PARSED (not scanned - listSessions must stat
+ * everything before it can sort newest-first, so bounding the scan would lose recency). */
+const MAX_SESSION_RECORDS = 500;
 const EXT_RO = { readOnlyHint: true, destructiveHint: false, openWorldHint: true };     // advisory + external LLMs: ask-*, experts, ask-one, ask-all, consensus
 const LOCAL_RW = { readOnlyHint: false, destructiveHint: false, openWorldHint: false }; // local additive write: session-annotate
 const EXT_RW = { readOnlyHint: false, destructiveHint: false, openWorldHint: true };    // writes state + calls providers: consensus-step, session-revisit
@@ -94,8 +101,10 @@ function analyzeInputSchema() {
   return {
     type: "object",
     properties: {
-      sessions: { type: "integer", description: "How many recent session records to read for the agreement lens (default 50)." },
-      limitBytes: { type: "integer", description: "Tail size of the debug log to read, in bytes (default 1048576)." },
+      sessions: { type: "integer", description: "How many recent session records to read for the agreement lens. Default -1 (no caller cap), still bounded to 500 parsed records; truncation is reported in meta.truncated.sessions." },
+      limitBytes: { type: "integer", description: "Tail size of the debug log to read, in bytes (default 1048576, or 33554432 when `since` is set). Clamped to 33554432." },
+      since: { type: "string", description: "Only analyze runs newer than this window, e.g. \"30m\", \"24h\", \"7d\", or a bare number of seconds. Gates BOTH lenses so timing and agreement cover the same period. Omit for all time. Max 10 years; an invalid or out-of-range value is an error, never a silent fallback." },
+      configuredOnly: { type: "boolean", description: "Report only models present in the current config (default true). Excluded rows and the reason each was dropped are listed in meta.excluded. Set false to include retired/unconfigured models." },
     },
   };
 }
@@ -983,19 +992,42 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
    * @param {any} args  // untrusted JSON-RPC tool arguments
    * @returns {import("../../core/analyze.js").Analysis}
    */
+  /**
+   * @param {any} args
+   * @returns {import("../../core/analyze.js").Analysis|{error:string, detail:string}}
+   */
   function runAnalyze(args) {
     const fs = require("node:fs");
     const cfg = getConfig() || {};
     const dbg = cfg.debug || {};
     const debugEnabled = !!dbg.enabled;
     const logPath = (typeof dbg.path === "string" && dbg.path) || resolveDebugLogPath();
-    const limitBytes = Number.isInteger(args.limitBytes) && args.limitBytes > 0 ? args.limitBytes : 1024 * 1024;
+
+    // A bad `since` is an ERROR, not a silent fallback. `limitBytes`/`sessions` degrade
+    // quietly because a wrong value there costs completeness; a wrong window costs truth -
+    // you would get an all-time report labelled "24h".
+    /** @type {number|null} */
+    let windowMs = null;
+    if (args.since !== undefined && args.since !== null) {
+      const parsed = analyzeCore.parseWindowMs(args.since);
+      if (!parsed.ok) return { error: "invalid-since", detail: parsed.error };
+      windowMs = parsed.ms;
+    }
+
+    // With a window and no explicit limitBytes, widen the read: the byte tail is applied
+    // BEFORE the time filter, so a narrow tail would silently return a shorter period than
+    // the caller asked for. Either way the cap is hard - a ceiling a caller can raise is
+    // not a ceiling.
+    const explicitLimit = Number.isInteger(args.limitBytes) && args.limitBytes > 0 ? Math.min(args.limitBytes, MAX_LOG_BYTES) : null;
+    const limitBytes = explicitLimit != null ? explicitLimit : windowMs != null ? MAX_LOG_BYTES : DEFAULT_LOG_BYTES;
     let text = "";
+    let logTruncated = false;
     try {
       const fd = fs.openSync(logPath, "r");
       try {
         const size = fs.fstatSync(fd).size;
         const start = size > limitBytes ? size - limitBytes : 0;
+        logTruncated = start > 0;
         const len = size - start;
         if (len > 0) {
           const buf = Buffer.alloc(len);
@@ -1018,14 +1050,46 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
     /** @type {any[]} */
     const records = [];
     const persist = persistEnabled();
+    let sessionsTruncated = false;
     if (persist) {
-      const n = Number.isInteger(args.sessions) && args.sessions > 0 ? args.sessions : 50;
-      for (const e of sessions.listSessions({ dir: sessionsDir }).slice(0, n)) {
+      // -1 (or omitted) means "no caller cap", still bounded by MAX_SESSION_RECORDS.
+      const raw = args.sessions;
+      const cap = Number.isInteger(raw) && raw > 0 ? Math.min(raw, MAX_SESSION_RECORDS) : MAX_SESSION_RECORDS;
+      const cutoff = windowMs == null ? null : Date.now() - windowMs;
+      // listSessions is newest-mtime-first, but it only sorts AFTER stat-ing every entry,
+      // so there is no sound way to bound the enumeration without losing recency. Bound the
+      // PARSE instead: take the newest `cap` records, then apply the window to those.
+      const entries = sessions.listSessions({ dir: sessionsDir });
+      let read = 0;
+      for (const e of entries) {
+        if (read >= cap) {
+          sessionsTruncated = true;
+          break;
+        }
         const rec = sessions.readSession(e.id, { dir: sessionsDir });
-        if (rec) records.push(rec);
+        if (!rec) continue;
+        read += 1;
+        if (cutoff != null) {
+          // createdAt decides, not mtime: session-annotate rewrites the file and moves mtime
+          // forward. Date.parse returns NaN on garbage and NaN comparisons are always false,
+          // so guard explicitly or an unparseable record silently survives the window.
+          const t = typeof rec.createdAt === "string" ? Date.parse(rec.createdAt) : NaN;
+          if (!Number.isFinite(t) || t < cutoff) continue;
+        }
+        records.push(rec);
       }
     }
-    return analyzeCore.buildAnalysis(events, records, cfg, { logPath, debugEnabled, sessionsPersist: persist, sessionsDir });
+    return analyzeCore.buildAnalysis(events, records, cfg, {
+      logPath,
+      debugEnabled,
+      sessionsPersist: persist,
+      sessionsDir,
+      windowMs,
+      since: typeof args.since === "string" ? args.since : null,
+      configuredOnly: args.configuredOnly !== false,
+      configError: typeof getConfigError === "function" ? getConfigError() : null,
+      truncated: { log: logTruncated, sessions: sessionsTruncated },
+    });
   }
 
   /**

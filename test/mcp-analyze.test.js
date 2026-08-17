@@ -40,7 +40,13 @@ test("M2: analyze aggregates a debug log pointed at by config.debug.path", async
     line("openrouter:foo", "vendor/foo", 6000, { reasoningEffort: "high", usage: { totalTokens: 3200 } }),
     "", "{ broken json",
   ].join("\n") + "\n");
-  const config = { debug: { enabled: true, path: logPath }, models: { foo: { provider: "openrouter", reasoningEffort: "high", askAll: true } } };
+  // getConfig() returns the RESOLVED config in production: openrouter.models is an ARRAY
+  // keyed by `alias`, with snake_case reasoning_effort. Injecting the raw on-disk shape here
+  // used to hide the fact that the engine read keys the server never produces.
+  const config = {
+    debug: { enabled: true, path: logPath },
+    openrouter: { models: [{ alias: "foo", model: "vendor/foo", reasoning_effort: "high", askAll: true }] },
+  };
   const srv = buildServer({ providers: [], getConfig: () => config });
 
   const out = await callAnalyze(srv, {});
@@ -86,7 +92,11 @@ test("M4: analyze folds in the agreement lens when sessions persist", async () =
   };
   fs.writeFileSync(path.join(sessionsDir, rec.id + ".json"), JSON.stringify(rec));
 
-  const config = { debug: { enabled: true, path: logPath }, sessions: { persist: true }, models: { foo: { provider: "openrouter", askAll: true } } };
+  const config = {
+    debug: { enabled: true, path: logPath },
+    sessions: { persist: true },
+    openrouter: { models: [{ alias: "foo", model: "vendor/foo", askAll: true }] },
+  };
   const srv = buildServer({ providers: [], getConfig: () => config, sessionsDir });
   const out = await callAnalyze(srv, {});
   assert.equal(out.meta.sessionsPersist, true);
@@ -106,4 +116,81 @@ test("M5: analyze skips the agreement lens when persistence is off", async () =>
   assert.equal(out.meta.sessionsPersist, false);
   assert.equal(out.meta.sessionsRead, 0);
   assert.deepEqual(out.agreement, []);
+});
+
+test("M6: an invalid `since` is an error, never a silent all-time report", async () => {
+  const dir = tmpdir();
+  const logPath = path.join(dir, "debug.jsonl");
+  fs.writeFileSync(logPath, [line("grok", "grok-m", 100), line("grok", "grok-m", 100)].join("\n") + "\n");
+  const srv = buildServer({ providers: [], getConfig: () => ({ debug: { enabled: true, path: logPath } }) });
+
+  for (const bad of ["7w", "abc", "-1d", "99999d"]) {
+    const out = await callAnalyze(srv, { since: bad });
+    assert.equal(out.error, "invalid-since", `expected ${bad} to be rejected`);
+    assert.ok(out.detail, "the error names what was wrong");
+    assert.equal(out.stats, undefined, "no analysis is returned alongside the error");
+  }
+  const ok = await callAnalyze(srv, { since: "24h" });
+  assert.equal(ok.error, undefined);
+});
+
+test("M7: `since` filters the debug log and reports the applied window", async () => {
+  const dir = tmpdir();
+  const logPath = path.join(dir, "debug.jsonl");
+  const now = Date.now();
+  const at = (/** @type {number} */ ms) => ({ at: ms });
+  fs.writeFileSync(logPath, [
+    JSON.stringify({ event: "provider_result", tool: "ask-one", provider: "recent", model: "m", ms: 100, isError: false, ...at(now - 60_000) }),
+    JSON.stringify({ event: "provider_result", tool: "ask-one", provider: "recent", model: "m", ms: 100, isError: false, ...at(now - 61_000) }),
+    JSON.stringify({ event: "provider_result", tool: "ask-one", provider: "ancient", model: "m", ms: 100, isError: false, ...at(now - 40 * 86400_000) }),
+  ].join("\n") + "\n");
+  const srv = buildServer({ providers: [], getConfig: () => ({ debug: { enabled: true, path: logPath } }) });
+
+  const all = await callAnalyze(srv, {});
+  assert.equal(all.stats.length, 2);
+  assert.equal(all.meta.window, null);
+
+  const windowed = await callAnalyze(srv, { since: "24h" });
+  assert.deepEqual(windowed.stats.map((/** @type {any} */ s) => s.provider), ["recent"]);
+  assert.equal(windowed.meta.window.since, "24h");
+  assert.equal(windowed.meta.truncated.log, false, "the whole log fitted, so coverage is the window");
+  assert.ok(windowed.meta.window.coverageFromMs >= now - 62_000);
+});
+
+test("M8: configuredOnly hides unconfigured models by default and says why", async () => {
+  const dir = tmpdir();
+  const logPath = path.join(dir, "debug.jsonl");
+  fs.writeFileSync(logPath, [
+    line("openrouter:live", "vendor/live", 100), line("openrouter:live", "vendor/live", 100),
+    line("openrouter:retired", "vendor/retired", 900000), line("openrouter:retired", "vendor/retired", 900000),
+  ].join("\n") + "\n");
+  const config = {
+    debug: { enabled: true, path: logPath },
+    openrouter: { models: [{ alias: "live", model: "vendor/live", askAll: true }] },
+  };
+  const srv = buildServer({ providers: [], getConfig: () => config });
+
+  const out = await callAnalyze(srv, {});
+  assert.deepEqual(out.stats.map((/** @type {any} */ s) => s.provider), ["openrouter:live"]);
+  assert.equal(out.meta.excluded.length, 1);
+  assert.equal(out.meta.excluded[0].reason, "not in config");
+  assert.ok(!out.recommendations.some((/** @type {any} */ r) => r.subject === "openrouter:retired"),
+    "the whole point: a retired model is never recommended for cutting");
+
+  const everything = await callAnalyze(srv, { configuredOnly: false });
+  assert.equal(everything.stats.length, 2);
+  assert.deepEqual(everything.meta.excluded, []);
+});
+
+test("M9: meta.truncated is present on every response, window or not", async () => {
+  const dir = tmpdir();
+  const logPath = path.join(dir, "debug.jsonl");
+  fs.writeFileSync(logPath, [line("grok", "grok-m", 100), line("grok", "grok-m", 100)].join("\n") + "\n");
+  const srv = buildServer({ providers: [], getConfig: () => ({ debug: { enabled: true, path: logPath } }) });
+  const out = await callAnalyze(srv, {});
+  assert.deepEqual(out.meta.truncated, { log: false, sessions: false });
+
+  // The default 1 MB tail truncates silently today; with a tiny limit the flag must fire.
+  const clipped = await callAnalyze(srv, { limitBytes: 40 });
+  assert.equal(clipped.meta.truncated.log, true);
 });

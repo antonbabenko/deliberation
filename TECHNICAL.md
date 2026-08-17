@@ -335,8 +335,12 @@ in two lenses that are **never joined** (the debug log and the session store sha
 
 - **Lens A - timing/cost** (debug log): `aggregateByModel` -> per provider+model count,
   error rate, p50/p95/max latency, mean tokens (HTTP only), reasoning efforts + tools seen.
-  The tool tail-reads the log (last ~1 MB by default; `limitBytes`) so a large file cannot
-  bloat memory, and returns pre-aggregated stats, never raw lines.
+  The tool tail-reads the log (last ~1 MB by default; `limitBytes`, clamped to 32 MB) so a
+  large file cannot bloat memory, and returns pre-aggregated stats, never raw lines.
+  **Latency covers successful calls only** - `okCalls` is the percentile denominator, and a
+  row with none reports `null` rather than `0`. A timeout is logged with its full `ms`, so
+  counting errors as latency reported the timeout ceiling as model speed (and a `0` p95
+  would have made an all-error model the fastest-peer baseline).
 - **Lens B - agreement** (sessions): `aggregateAgreement` -> per model, the share of its
   review verdicts that matched the run's FINAL verdict. Only consensus-loop records (which
   carry a final verdict) contribute votes; ask-all opinions are abstentions. This is the
@@ -351,6 +355,26 @@ agy) since it is outside deliberation's config. The tool writes nothing; `/delib
 renders it for humans and prints suggested edits without applying them. Needs `debug.enabled`
 for Lens A and `sessions.persist` for Lens B; when the log is empty it returns
 `meta.insufficientData:true` instead of fabricating numbers.
+
+**Scope controls.** `configuredOnly` (default `true`) reports only models present in the
+current config, so a retired model can no longer drive the headline numbers or earn a
+"cut this" suggestion. OpenRouter rows match by alias against `openrouter.models[]`; native
+rows (codex/gemini/grok) are dropped only on an explicit `providers.<name>.enabled:false`,
+never on a model mismatch - `auto-gemini-3` is a router alias, so the log records the
+*resolved* model and pin-equality would hide every active row. Dropped rows are listed in
+`meta.excluded` with a reason (`not in config`, `rejected by config validation`,
+`openrouter provider disabled`, `provider disabled`); a config parse error skips the filter
+entirely rather than reporting every model as unconfigured. `since` (`30m`/`24h`/`7d`/seconds,
+max 10 years) windows **both** lenses, since `recommend` crosses "slow" with "rarely dissents"
+in one suggestion and split windows would make that a mixed-period claim. `meta.window`
+reports real coverage across both lenses, and `meta.truncated` reports whether a bound cut
+the data short. `meta.modelVariants` flags providers seen running several model ids - a
+prompt to look them up, deliberately not a claim about which is newer.
+
+The engine reads the **resolved** config (`openrouter.models[]` with `alias` and snake_case
+`reasoning_effort`, `openrouter.maxFanout`) while every suggestion **names the on-disk path**
+(`models.<id>.*`, `routing.maxFanout`). Those are different namespaces on purpose; reading the
+raw on-disk shape is what made the `reasoningEffort` suggestion silently dead in production.
 
 ## Manual MCP setup
 

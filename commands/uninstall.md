@@ -70,7 +70,9 @@ echo "Removed Grok file cache."
 
 # --- short command aliases: remove ONLY if byte-identical to the bundled command ---
 removed=""; kept=""
-for c in ask-gpt ask-gemini ask-grok ask-openrouter ask-all consensus grok-files; do
+# Superset of every name any setup version ever installed: `grok-files` and `analyze` are no
+# longer installed, but older installs still have them and should still be cleaned up.
+for c in ask-gpt ask-gemini ask-grok ask-openrouter ask-all consensus grok-files analyze; do
   dest="$HOME/.claude/commands/$c.md"
   src="$PLUGIN_ROOT/commands/$c.md"
   [ ! -e "$dest" ] && continue

@@ -217,6 +217,8 @@ After it runs, report the printed status to the user.
 
 The commands are always available namespaced (`/deliberation:ask-gpt`, `:ask-all`, `:consensus`,
 ...). The short aliases (`/ask-gpt` etc.) are an opt-in copy into `~/.claude/commands/`.
+`analyze` is NOT among them - `/analyze` is a common name and a bare copy collides with any
+other plugin that ships one.
 
 Ask with `AskUserQuestion` (this turn has NO Bash call): "Also install short command names
 (/ask-gpt etc.) into ~/.claude/commands?" Options: "Yes (recommended)" / "No, keep namespaced
@@ -236,13 +238,22 @@ resolve_plugin_root() {
 PLUGIN_ROOT="$(resolve_plugin_root)" || { echo "Error: cannot locate the deliberation plugin root."; exit 1; }
 mkdir -p "$HOME/.claude/commands"
 collisions=""
-for c in ask-gpt ask-gemini ask-grok ask-openrouter ask-all consensus analyze; do
+for c in ask-gpt ask-gemini ask-grok ask-openrouter ask-all consensus; do
   dest="$HOME/.claude/commands/$c.md"
   if [ -e "$dest" ]; then collisions="$collisions $c"
   else cp "$PLUGIN_ROOT/commands/$c.md" "$dest" && echo "installed /$c"; fi
 done
 echo "COLLISIONS:${collisions:- none}"
+[ -e "$HOME/.claude/commands/analyze.md" ] && echo "LEGACY_ANALYZE:$HOME/.claude/commands/analyze.md"
 ```
+
+`analyze` is deliberately NOT in that list. `/analyze` is a common name and a bare copy
+collides with any other plugin that ships one; use `/deliberation:analyze`, which is always
+available and never collides.
+
+If the output contains a `LEGACY_ANALYZE:` line, an older setup installed that alias. Tell the
+user the path and that deleting it removes the collision - do NOT delete it yourself, since a
+file at that path may be their own.
 
 If `COLLISIONS` is `none`, done. If it lists names, ask with `AskUserQuestion` (own turn, no Bash):
 "These alias file(s) already exist:[list]. Overwrite with the bundled versions?" Options (default
