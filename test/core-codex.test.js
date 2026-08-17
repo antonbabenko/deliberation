@@ -2,7 +2,7 @@
 "use strict";
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { makeCodexProvider, codexExecArgs } = require("../core/providers/codex.js");
+const { makeCodexProvider, codexExecArgs, buildSpawnPlan, classifyCodex } = require("../core/providers/codex.js");
 
 test("CX5: codexExecArgs defaults to --sandbox read-only (advisory cannot inherit a writable global default)", () => {
   assert.deepEqual(codexExecArgs(), ["exec", "--sandbox", "read-only", "--skip-git-repo-check"]);
@@ -116,4 +116,94 @@ test("CX-timeout-2: the kill flag beats a misleading stderr (\"author\" must not
   const runNotKilled = async () => ({ code: 1, stdout: "", stderr: "reading author metadata", timedOut: false });
   const notKilled = /** @type {any} */ (await mkCx({ run: runNotKilled }).ask({ prompt: "x" }));
   assert.equal(notKilled.errorKind, "auth");
+});
+
+// --- Windows spawn resolution (issue #170) -----------------------------------
+//
+// `defaultRun` spawns a real process and cannot be unit-tested, so the platform
+// DECISION lives in `buildSpawnPlan`, which is pure and fully injectable. That is the
+// only way to assert Windows behaviour here: CI runs ubuntu-latest only.
+
+const NODE_EXE = "C:\\Program Files\\nodejs\\node.exe";
+const NPM_DIR = "C:\\Users\\t\\AppData\\Roaming\\npm";
+const WIN_ENV = { PATH: NPM_DIR, PATHEXT: ".COM;.EXE;.BAT;.CMD" };
+const CODEX_JS = `${NPM_DIR}\\node_modules\\@openai\\codex\\bin\\codex.js`;
+
+test("CX-win-1: on darwin the plan is byte-identical to the pre-fix spawn (no behaviour change)", () => {
+  const plan = buildSpawnPlan({ mode: "advisory", platform: "darwin", env: {} });
+  assert.equal(plan.cmd, "codex");
+  assert.deepEqual(plan.argv, codexExecArgs("advisory"));
+  assert.equal(plan.shim, false);
+});
+
+test("CX-win-2: a win32 .cmd-only install spawns node against the npm entry, entry first in argv", () => {
+  const plan = buildSpawnPlan({
+    mode: "advisory",
+    platform: "win32",
+    env: WIN_ENV,
+    exists: (p) => p === `${NPM_DIR}\\codex.cmd` || p === CODEX_JS,
+    nodePath: NODE_EXE,
+  });
+  assert.equal(plan.cmd, NODE_EXE);
+  // Order matters: `node <entry> exec --sandbox ...`, never the reverse.
+  assert.deepEqual(plan.argv, [CODEX_JS, "exec", "--sandbox", "read-only", "--skip-git-repo-check"]);
+  assert.equal(plan.shim, false);
+});
+
+test("CX-win-3: the implement sandbox flag survives the win32 rewrite", () => {
+  const plan = buildSpawnPlan({
+    mode: "implement",
+    platform: "win32",
+    env: WIN_ENV,
+    exists: (p) => p === `${NPM_DIR}\\codex.cmd` || p === CODEX_JS,
+    nodePath: NODE_EXE,
+  });
+  assert.deepEqual(plan.argv, [CODEX_JS, "exec", "--sandbox", "workspace-write", "--skip-git-repo-check"]);
+});
+
+test("CX-win-4: a shim with no npm entry is reported, not spawned", () => {
+  const plan = buildSpawnPlan({
+    platform: "win32",
+    env: WIN_ENV,
+    exists: (p) => p === `${NPM_DIR}\\codex.cmd`,
+    nodePath: NODE_EXE,
+  });
+  assert.equal(plan.shim, true);
+  assert.equal(plan.cmd, `${NPM_DIR}\\codex.cmd`);
+});
+
+test("CX-win-5: CODEX_BIN overrides the command name that gets resolved", () => {
+  const plan = buildSpawnPlan({ platform: "darwin", env: { CODEX_BIN: "/opt/codex/bin/codex" } });
+  assert.equal(plan.cmd, "/opt/codex/bin/codex");
+  assert.equal(plan.name, "/opt/codex/bin/codex");
+  assert.deepEqual(plan.argv, codexExecArgs());
+});
+
+test("CX-notfound-1: a run that never started classifies as not-found, non-retryable", async () => {
+  // Before the fix this was `unknown`, which tells a Windows user nothing about why nothing
+  // ran. Non-retryable matters too: callProvider retries network/rate-limit/empty, and
+  // retrying a missing CLI just burns the round.
+  const run = async () => ({ code: 127, stdout: "", stderr: "spawn codex ENOENT", timedOut: false, spawnFailed: true });
+  const r = /** @type {any} */ (await mkCx({ run }).ask({ prompt: "x" }));
+  assert.equal(r.isError, true);
+  assert.equal(r.errorKind, "not-found");
+  assert.equal(r.retryable, false);
+});
+
+test("CX-notfound-2: ENOENT in codex's OWN output is not a missing CLI", async () => {
+  // A coding agent legitimately says ENOENT about files in the user's repo. Classifying the
+  // launch from the child's own text would tell that user to go fix their CODEX_BIN.
+  for (const s of ["ENOENT: no such file or directory, open 'src/missing.ts'", "EINVAL reading config"]) {
+    assert.equal(classifyCodex(s).errorKind, "unknown", s);
+  }
+  const run = async () => ({ code: 1, stdout: "", stderr: "ENOENT: no such file or directory", timedOut: false });
+  const r = /** @type {any} */ (await mkCx({ run }).ask({ prompt: "x" }));
+  assert.equal(r.errorKind, "unknown");
+});
+
+test("CX-notfound-3: the timeout flag still wins over a spawn failure flag", async () => {
+  const run = async () => ({ code: 137, stdout: "", stderr: "", timedOut: true, spawnFailed: true });
+  const r = /** @type {any} */ (await mkCx({ run }).ask({ prompt: "x" }));
+  assert.equal(r.errorKind, "timeout");
+  assert.equal(r.retryable, true);
 });

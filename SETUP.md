@@ -103,6 +103,29 @@ quietly cost you the cross-model independence that `/ask-all` and `/consensus` r
 Codex has no such key - it resolves its model from `~/.codex/config.toml` and
 deliberation never overrides it.
 
+### Windows: the CLI providers
+
+GPT and Gemini launch a real CLI (`codex`, `agy`); Grok and OpenRouter are HTTP bridges and
+launch nothing, so they need none of this.
+
+`npm install -g` on Windows installs `codex.cmd`, a shell shim rather than an executable, and
+Node cannot launch one directly. deliberation resolves the CLI before spawning it - preferring a
+real `.exe` on PATH, otherwise running the package's own entry point with Node - so a standard
+npm install works with no setup.
+
+If it still cannot find your CLI, name it explicitly:
+
+```json
+"env": {
+  "CODEX_BIN": "C:\\Path\\To\\codex.exe",
+  "AGY_BIN": "C:\\Path\\To\\agy.exe"
+}
+```
+
+Point them at an **executable**, not at a `.cmd` shim or a `.js` file: a full path is passed
+through and spawned as given, with no resolution and no shell. When only a shim can be found, the
+call fails naming that shim and the variable to set, instead of reporting the CLI as missing.
+
 ### Timeouts
 
 Every provider ships a different built-in ceiling (codex 600s, gemini 300s, grok 180s,

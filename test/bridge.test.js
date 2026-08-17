@@ -410,6 +410,11 @@ test("C2: classifyGeminiError preserves timeout / parse / missing-cli / abort", 
   const abort = classifyGeminiError("AbortError: signal aborted", null);
   assert.equal(abort.errorKind, "upstream-abort");
   assert.equal(abort.retryable, true);
+  // The Windows shim rejection (issue #170) carries code "missing-cli" rather than matching
+  // the "(agy) not found" phrase, because a found-but-unspawnable shim is not a missing install.
+  const shim = classifyGeminiError("agy resolved only to a shell shim (C:\\npm\\agy.cmd)", "missing-cli");
+  assert.equal(shim.errorKind, "missing-cli");
+  assert.equal(shim.retryable, false);
 });
 
 test("C3: classifyGeminiError falls back to unknown for unrelated text", () => {
@@ -508,6 +513,25 @@ test("S5: buildSpawnCommand stays unwrapped when not eligible (not read-only / l
   const u = buildSpawnCommand({ ...base, readOnly: false });
   assert.equal(u.cmd, "agy");
   assert.deepEqual(u.argv, ["-p", "hi"]);
+});
+
+test("S5b: on win32 the plan is unwrapped and carries an interposed interpreter through intact", () => {
+  // Seatbelt is darwin-only, so Windows must stay unwrapped - and it is the caller that
+  // resolves the shim (issue #170), so whatever cmd/args it hands in must survive verbatim,
+  // interpreter first. A reorder here would spawn node with agy's flags.
+  const { buildSpawnCommand } = require("../server/gemini/index.js");
+  const r = buildSpawnCommand({
+    bin: "C:\\Program Files\\nodejs\\node.exe",
+    args: ["C:\\npm\\node_modules\\agy\\bin\\agy.js", "-p", "hi"],
+    readOnly: true,
+    platform: "win32",
+    home: "C:\\Users\\x",
+    tmpdir: "C:\\Temp",
+    sandboxExecPath: "/usr/bin/sandbox-exec",
+  });
+  assert.equal(r.osSandbox, false);
+  assert.equal(r.cmd, "C:\\Program Files\\nodejs\\node.exe");
+  assert.deepEqual(r.argv, ["C:\\npm\\node_modules\\agy\\bin\\agy.js", "-p", "hi"]);
 });
 
 test("S6: a home path with a quote is escaped into the seatbelt literal", () => {
@@ -658,4 +682,21 @@ test("MA5: a drain recovery ABOVE the floor still succeeds with recovered:true",
   const r = (await responsesP).find((x) => x.id === 2);
   assert.ok(!r.result.isError, "19 chars clears a 5-char floor: " + JSON.stringify(r.result));
   assert.equal(r.result.content[0].text, "RECOVERED ANSWER OK");
+});
+
+test("S5c: agyShimError turns a shim-only resolution into a missing-cli rejection", () => {
+  // AGY_TARGET resolves at module load from the real platform, so this pure helper is the only
+  // part of the Windows shim path assertable off Windows. runGemini and the startup gate both
+  // route through it - the WIRING is still unverified without a Windows runner.
+  const { agyShimError, classifyGeminiError } = require("../server/gemini/index.js");
+  assert.equal(agyShimError({ cmd: "/usr/local/bin/agy", shim: false }, "agy"), null);
+  assert.equal(agyShimError({ cmd: "agy" }, "agy"), null);
+  const err = agyShimError({ cmd: "C:\\npm\\agy.cmd", shim: true }, "agy");
+  assert.ok(err instanceof Error);
+  assert.equal(err.code, "missing-cli");
+  assert.match(err.message, /shell shim/);
+  assert.ok(err.message.includes("C:\\npm\\agy.cmd"), "names the shim it found");
+  assert.match(err.message, /AGY_BIN/, "names the override");
+  // The code must be one classifyGeminiError already understands, or the rejection lands as unknown.
+  assert.deepEqual(classifyGeminiError(err.message, err.code), { errorKind: "missing-cli", retryable: false });
 });
