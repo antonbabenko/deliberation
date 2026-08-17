@@ -486,3 +486,64 @@ test("A26: an excluded provider cannot extend the reported coverage", () => {
   assert.equal(out.meta.window.coverageFromMs, now - 1200,
     "the filtered-out rows are not in the report, so they cannot describe its coverage");
 });
+
+test("A27: a retired model under a REUSED alias is excluded, not just an unknown alias", () => {
+  // Edit an alias's `model` in config and the log keeps rows under the old slug with the
+  // same alias. Alias-only matching kept the retired row and let it drive recommendations
+  // against the model that replaced it.
+  const events = [
+    ev("openrouter:foo", "vendor/old", 900000), ev("openrouter:foo", "vendor/old", 900000),
+    ev("openrouter:foo", "vendor/new", 100), ev("openrouter:foo", "vendor/new", 100),
+  ];
+  const out = buildAnalysis(events, [], resolved([{ alias: "foo", model: "vendor/new" }]), {});
+  assert.deepEqual(out.stats.map((s) => s.model), ["vendor/new"]);
+  assert.equal(out.meta.excluded.length, 1);
+  assert.equal(out.meta.excluded[0].model, "vendor/old");
+  assert.match(out.meta.excluded[0].reason, /retired under alias foo/);
+  assert.ok(!out.recommendations.some((r) => /900000|slow/.test(r.rationale) && r.subject === "openrouter:foo"),
+    "the retired slug's latency no longer earns a cut recommendation for the live alias");
+});
+
+test("A28: a session whose opinions were all excluded cannot set coverage", () => {
+  const now = 3_000_000_000;
+  /** @type {any[]} */
+  const events = [
+    { ...ev("openrouter:live", "v/live", 100), at: now - 1000 },
+    { ...ev("openrouter:live", "v/live", 100), at: now - 1200 },
+  ];
+  /** @type {any[]} */
+  const recs = [
+    // Every opinion is from an excluded provider -> must not set coverage.
+    { id: "a", schemaVersion: 1, tool: "consensus", createdAt: new Date(now - 9000).toISOString(), question: "q", verdict: "APPROVE",
+      opinions: [{ provider: "openrouter:gone", model: "v/gone", verdict: "APPROVE" }] },
+  ];
+  const out = buildAnalysis(events, recs, resolved([{ alias: "live", model: "v/live" }]), { windowMs: 20_000, nowMs: now, since: "20s" });
+  assert.ok(out.meta.window);
+  assert.equal(out.meta.window.coverageFromMs, now - 1200,
+    "a session made entirely of excluded providers describes data the reader cannot see");
+});
+
+test("A29: an agreement-only row is visible, so its sessions may set coverage", () => {
+  // shownKeys used to map over stats alone. Lens B can show a provider+model with no timing
+  // row in the window; barring its sessions from coverage reported a LATER start than the
+  // data the reader can actually see.
+  const now = 4_000_000_000;
+  /** @type {any[]} */
+  const events = [
+    { ...ev("openrouter:live", "v/live", 100), at: now - 1000 },
+    { ...ev("openrouter:live", "v/live", 100), at: now - 1200 },
+  ];
+  /** @type {any[]} */
+  const recs = [{
+    id: "a", schemaVersion: 1, tool: "consensus", createdAt: new Date(now - 5000).toISOString(),
+    question: "q", verdict: "APPROVE",
+    // voter is configured, but never appears in the timing lens for this window
+    opinions: [{ provider: "openrouter:voter", model: "v/voter", verdict: "APPROVE" }],
+  }];
+  const cfg = resolved([{ alias: "live", model: "v/live" }, { alias: "voter", model: "v/voter" }]);
+  const out = buildAnalysis(events, recs, cfg, { windowMs: 20_000, nowMs: now, since: "20s" });
+  assert.ok(out.agreement.some((a) => a.provider === "openrouter:voter"), "the voter is shown in Lens B");
+  assert.ok(out.meta.window);
+  assert.equal(out.meta.window.coverageFromMs, now - 5000,
+    "its session is visible data, so coverage starts there and not at the first timing event");
+});

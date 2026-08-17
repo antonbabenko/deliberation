@@ -1079,8 +1079,10 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
           // createdAt decides, not mtime: session-annotate rewrites the file and moves mtime
           // forward. Date.parse returns NaN on garbage and NaN comparisons are always false,
           // so guard explicitly or an unparseable record silently survives the window.
+          // Closed interval [cutoff, nowMs], matching the event filter: without the upper
+          // bound a future-dated createdAt lands inside every window.
           const t = typeof rec.createdAt === "string" ? Date.parse(rec.createdAt) : NaN;
-          if (!Number.isFinite(t) || t < cutoff) continue;
+          if (!Number.isFinite(t) || t < cutoff || t > nowMs) continue;
         }
         records.push(rec);
       }

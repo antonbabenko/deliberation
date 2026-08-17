@@ -159,8 +159,9 @@ const COMPARE_BASE = "https://openrouter.ai/compare";
  * @property {number} sessionsRead  UNFILTERED: what doctor reads as a read-path signal
  * @property {(string|null)} sessionsDir  dir the running server resolved (for the doctor drift check)
  * @property {number} agreementVotes  UNFILTERED total votes (0 with sessionsRead>0 => no per-opinion verdicts)
- * @property {boolean} insufficientData  UNFILTERED: true when there was nothing to analyze at all,
- *   never merely because the configured-model filter hid everything
+ * @property {boolean} insufficientData  true when nothing survived to analyze. Never set merely
+ *   because the configured-model filter hid rows - but a `since` window that excludes every
+ *   event DOES set it, so branch on `window` before blaming the debug log
  * @property {ExcludedModel[]} excluded  rows the configured-model filter removed
  * @property {(AnalysisWindow|null)} window
  * @property {{log:boolean, sessions:boolean}} truncated  present always: the default 1 MB tail
@@ -402,6 +403,12 @@ function detectOutliers(stats) {
   return out;
 }
 
+/** Stable identity for one report row. Every aggregation in this module keys on
+ * provider+model, and so does the configured-model filter. */
+function rowKey(/** @type {string} */ provider, /** @type {any} */ model) {
+  return `${provider}|${typeof model === "string" ? model : ""}`;
+}
+
 /**
  * Map a debug-log provider name to where its tuning lever lives.
  * @param {string} provider
@@ -460,15 +467,26 @@ function configLevers(config) {
  * model and equality would hide every active row; it is also read once at startup and never
  * hot-reloaded, and the env defaults supply models the config layer cannot see. Codex has no
  * model key at all and logs the literal "default".
+ * For an OpenRouter row the check also covers the MODEL, not just the alias: an alias whose
+ * `model` was edited leaves the old slug in the log under the same alias, and matching on
+ * alias alone would let that retired model drive recommendations against the current one.
+ * This is safe here and not for the native providers, because an OpenRouter alias resolves
+ * to a literal slug (no router alias) and the models map is hot-reloaded.
  * @param {string} provider
  * @param {ReturnType<typeof configLevers>} levers
+ * @param {string} [model]  the row's logged model; omit to check the alias only
  * @returns {(string|null)}
  */
-function excludeReason(provider, levers) {
+function excludeReason(provider, levers, model) {
   const lever = leverFor(provider);
   if (lever.kind === "openrouter") {
     const alias = typeof lever.alias === "string" ? lever.alias : "";
-    if (levers.byAlias.has(alias)) return null;
+    const entry = levers.byAlias.get(alias);
+    if (entry) {
+      const configured = typeof entry.model === "string" ? entry.model : "";
+      if (model && configured && model !== configured) return `model retired under alias ${alias} (now ${configured})`;
+      return null;
+    }
     // `models` is forced to [] when the provider is disabled, so membership alone cannot
     // tell "retired alias" from "openrouter turned off" from "record rejected".
     if (!levers.orEnabled) return "openrouter provider disabled";
@@ -739,30 +757,46 @@ function buildAnalysis(events, records, config, meta) {
 
   let stats = allStats;
   let agreement = allAgreement;
-  /** Providers whose rows reached the report - the only ones allowed to set window coverage. */
-  const shownProviders = () => new Set(stats.map((s) => s.provider));
+  /**
+   * Rows visible in the report, as `provider|model` keys - the only data allowed to set
+   * window coverage. Evaluated AFTER the configured-model filter and BEFORE the window is
+   * built (no circularity). It is the UNION of both lenses: Lens B can show a row with no
+   * timing row in the window, and a session made of those opinions is genuinely visible,
+   * so barring it from coverage would report a later start than the data actually shown.
+   */
+  const shownKeys = () => new Set([
+    ...stats.map((s) => rowKey(s.provider, s.model)),
+    ...agreement.map((a) => rowKey(a.provider, a.model)),
+  ]);
   if (filtering) {
-    // Decide over the UNION of both lenses. Building the exclusion set from stats alone
+    // Decide over the UNION of both lenses, PER ROW. Building the set from stats alone
     // leaks a retired provider into Lens B whenever it has session opinions but no timing
-    // rows in the window - and filters nothing at all when there is no timing data.
+    // rows in the window; keying by provider alone keeps a retired model that shares an
+    // alias with the current one.
     /** @type {Map<string, string>} */
-    const reasonByProvider = new Map();
-    for (const provider of new Set([...allStats.map((s) => s.provider), ...allAgreement.map((a) => a.provider)])) {
-      const reason = excludeReason(provider, levers);
-      if (reason) reasonByProvider.set(provider, reason);
-    }
+    const reasonByKey = new Map();
+    const consider = (/** @type {string} */ provider, /** @type {string} */ model) => {
+      const key = rowKey(provider, model);
+      if (reasonByKey.has(key)) return;
+      const reason = excludeReason(provider, levers, model);
+      if (reason) reasonByKey.set(key, reason);
+    };
+    for (const s of allStats) consider(s.provider, s.model);
+    for (const a of allAgreement) consider(a.provider, a.model);
+
     for (const s of allStats) {
-      const reason = reasonByProvider.get(s.provider);
+      const reason = reasonByKey.get(rowKey(s.provider, s.model));
       if (reason) excluded.push({ provider: s.provider, model: s.model, calls: s.calls, reason });
     }
     for (const a of allAgreement) {
-      // An agreement-only provider still has to be visible, or the filter hides a row with
-      // no trace of why.
-      if (reasonByProvider.has(a.provider) && !allStats.some((s) => s.provider === a.provider)) {
-        excluded.push({ provider: a.provider, model: a.model, calls: 0, reason: reasonByProvider.get(a.provider) || "not in config" });
+      // An agreement-only row still has to be visible, or the filter hides it with no
+      // trace of why.
+      const reason = reasonByKey.get(rowKey(a.provider, a.model));
+      if (reason && !allStats.some((s) => s.provider === a.provider && s.model === a.model)) {
+        excluded.push({ provider: a.provider, model: a.model, calls: 0, reason });
       }
     }
-    const kept = allStats.filter((s) => !reasonByProvider.has(s.provider));
+    const kept = allStats.filter((s) => !reasonByKey.has(rowKey(s.provider, s.model)));
     if (allStats.length && !kept.length) {
       // Show the rows, but do NOT feed them to detectOutliers/recommend: the whole point
       // is that a retired model must not be recommended. Analysis stays empty and says so.
@@ -780,7 +814,7 @@ function buildAnalysis(events, records, config, meta) {
           agreementVotes,
           insufficientData,
           excluded,
-          window: buildWindow({ ...m, shownProviders: shownProviders() }, windowMs, fromMs, nowMs, evs, recs),
+          window: buildWindow({ ...m, shownKeys: shownKeys() }, windowMs, fromMs, nowMs, evs, recs),
           configError,
           modelVariants: detectModelVariants(allStats),
           warnings,
@@ -788,7 +822,7 @@ function buildAnalysis(events, records, config, meta) {
       };
     }
     stats = kept;
-    agreement = allAgreement.filter((a) => !reasonByProvider.has(a.provider));
+    agreement = allAgreement.filter((a) => !reasonByKey.has(rowKey(a.provider, a.model)));
   }
 
   const outliers = detectOutliers(stats);
@@ -804,7 +838,7 @@ function buildAnalysis(events, records, config, meta) {
       agreementVotes,
       insufficientData,
       excluded,
-      window: buildWindow({ ...m, shownProviders: shownProviders() }, windowMs, fromMs, nowMs, evs, recs),
+      window: buildWindow({ ...m, shownKeys: shownKeys() }, windowMs, fromMs, nowMs, evs, recs),
       configError,
       modelVariants,
       warnings,
@@ -829,14 +863,20 @@ function buildWindow(m, windowMs, fromMs, nowMs, evs, recs) {
   // events are parsed but never aggregated, and an opinion-less record contributes nothing
   // to Lens B - letting either set the earliest timestamp would claim coverage the report
   // does not have. Same for a provider the configured-model filter removed.
-  const shown = m && m.shownProviders instanceof Set ? m.shownProviders : null;
+  const shown = m && m.shownKeys instanceof Set ? m.shownKeys : null;
+  const inReport = (/** @type {string} */ provider, /** @type {any} */ model) =>
+    !shown || shown.has(rowKey(provider, typeof model === "string" ? model : ""));
   for (const e of evs) {
-    if (!e || e.event !== "provider_result") continue;
-    if (shown && typeof e.provider === "string" && !shown.has(e.provider)) continue;
+    if (!e || e.event !== "provider_result" || typeof e.provider !== "string") continue;
+    if (!inReport(e.provider, e.model)) continue;
     if (typeof e.at === "number" && Number.isFinite(e.at)) earliest.push(e.at);
   }
   for (const r of recs) {
     if (!r || !Array.isArray(r.opinions) || !r.opinions.length) continue;
+    // A record counts only if at least one of its opinions survived into the report -
+    // otherwise a session made entirely of excluded providers sets the earliest coverage
+    // for data the reader can never see.
+    if (!r.opinions.some((op) => op && typeof op.provider === "string" && inReport(op.provider, op.model))) continue;
     const t = typeof r.createdAt === "string" ? Date.parse(r.createdAt) : NaN;
     if (Number.isFinite(t)) earliest.push(t);
   }

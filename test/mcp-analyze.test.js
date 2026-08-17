@@ -194,3 +194,36 @@ test("M9: meta.truncated is present on every response, window or not", async () 
   const clipped = await callAnalyze(srv, { limitBytes: 40 });
   assert.equal(clipped.meta.truncated.log, true);
 });
+
+test("M10: a future-dated session record is outside the window, like a future-dated event", async () => {
+  // The record-side upper bound lives in runAnalyze, so it is unreachable from a core test.
+  // Without it, clock skew or a hand-edited createdAt lands inside every window.
+  const dir = tmpdir();
+  const logPath = path.join(dir, "debug.jsonl");
+  const now = Date.now();
+  fs.writeFileSync(logPath, [
+    JSON.stringify({ event: "provider_result", tool: "ask-one", provider: "grok", model: "m", ms: 100, isError: false, at: now - 1000 }),
+    JSON.stringify({ event: "provider_result", tool: "ask-one", provider: "grok", model: "m", ms: 100, isError: false, at: now - 2000 }),
+  ].join("\n") + "\n");
+  const sessionsDir = path.join(dir, "sessions");
+  fs.mkdirSync(sessionsDir);
+  const mk = (/** @type {string} */ id, /** @type {number} */ createdMs) => {
+    const rec = {
+      id, schemaVersion: 1, tool: "consensus", createdAt: new Date(createdMs).toISOString(),
+      question: "q", verdict: "APPROVE",
+      opinions: [{ provider: "grok", model: "m", verdict: "APPROVE" }],
+    };
+    fs.writeFileSync(path.join(sessionsDir, id + ".json"), JSON.stringify(rec));
+  };
+  mk("11111111-1111-1111-1111-111111111111", now - 60_000);      // inside
+  mk("22222222-2222-2222-2222-222222222222", now + 86_400_000);  // a day in the future
+
+  const config = { debug: { enabled: true, path: logPath }, sessions: { persist: true } };
+  const srv = buildServer({ providers: [], getConfig: () => config, sessionsDir });
+
+  const windowed = await callAnalyze(srv, { since: "24h" });
+  assert.equal(windowed.meta.sessionsRead, 1, "only the in-window record survives");
+
+  const all = await callAnalyze(srv, {});
+  assert.equal(all.meta.sessionsRead, 2, "without a window both records are read");
+});

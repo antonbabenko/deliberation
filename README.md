@@ -181,7 +181,7 @@ Bundled with the plugin (available once installed):
 
 `/setup` can also install short aliases (`/ask-gpt`, `/ask-gemini`, `/ask-grok`, `/ask-openrouter`, `/ask-all`, `/consensus`) into `~/.claude/commands/`. This is opt-in. Existing same-named commands are kept by default; setup asks before overwriting any of them. `/deliberation:uninstall` removes an alias only if it is byte-identical to the bundled copy.
 
-`analyze` is deliberately excluded: `/analyze` is a common name and a bare copy collides with any other plugin that ships one. Use `/deliberation:analyze`, which is always available. If an earlier setup installed `~/.claude/commands/analyze.md`, setup now points it out so you can delete it; `/deliberation:uninstall` also removes it when it is byte-identical to the bundled copy.
+`analyze` is deliberately excluded: `/analyze` is a common name and a bare copy collides with any other plugin that ships one. Use `/deliberation:analyze`, which is always available. If an earlier setup installed `~/.claude/commands/analyze.md`, setup now points out the path so you can delete it. `/deliberation:uninstall` also lists `analyze`, but its byte-identical guard only matches a copy of the *current* bundled file - an alias copied from an older release will differ and is deliberately left alone rather than deleted on a guess.
 
 ## The Experts
 
