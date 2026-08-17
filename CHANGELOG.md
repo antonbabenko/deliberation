@@ -1,3 +1,10 @@
+## [3.14.0](https://github.com/antonbabenko/deliberation/compare/v3.13.0...v3.14.0) (2026-08-17)
+
+
+### Features
+
+* **analyze:** report only configured models, add time window, compare links, and model verification ([#171](https://github.com/antonbabenko/deliberation/issues/171)) ([73c0a69](https://github.com/antonbabenko/deliberation/commit/73c0a69e01e8ccd67985922170af033af23ae703))
+
 ## [3.13.0](https://github.com/antonbabenko/deliberation/compare/v3.12.1...v3.13.0) (2026-07-27)
 
 
@@ -25,11 +32,4 @@
 ### Features
 
 * **consensus:** bound worst-case wall-time without truncating slow-but-good responses ([#159](https://github.com/antonbabenko/deliberation/issues/159)) ([3073a9e](https://github.com/antonbabenko/deliberation/commit/3073a9e9acbde37dad31a40d17daaf53b2742fcd))
-
-## [3.10.1](https://github.com/antonbabenko/deliberation/compare/v3.10.0...v3.10.1) (2026-06-23)
-
-
-### Performance Improvements
-
-* **consensus:** overlap arbiter adjudication and revision on dissent rounds ([#157](https://github.com/antonbabenko/deliberation/issues/157)) ([da18ab9](https://github.com/antonbabenko/deliberation/commit/da18ab9ba4bb795b552f94767e4577bc871a51a4))
 
