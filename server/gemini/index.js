@@ -18,7 +18,27 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
+const { resolveCommand, shimMessage } = require("../../core/resolve-bin.js");
+
 const AGY_BIN = process.env.AGY_BIN || "agy";
+// Windows installs a CLI as a `.cmd` shim that Node's spawn cannot execute (issue #170), so
+// resolve the name to something spawnable once, at boot - agy cannot change under a running
+// bridge. On every other platform, and for an AGY_BIN that is already a path (which is how the
+// test harness points at its fixtures), this is an identity transform.
+//
+// There is no npm package publishing an `agy` bin, so no node-entry bypass is possible: a
+// shim-only install resolves to `shim: true` and the startup gate below says so explicitly
+// rather than reporting a missing install.
+//
+// OPERATIONAL NOTE: resolving once means an agy INSTALLED after the server started is not picked
+// up, and one UNINSTALLED after a successful resolve leaves a stale path that fails ENOENT rather
+// than re-searching PATH. Either way the fix is a restart - worth knowing before chasing a
+// phantom missing-cli through an upgrade. (When resolution finds nothing it passes the bare name
+// through, so THAT case does re-search PATH on every spawn.)
+const AGY_TARGET = resolveCommand(AGY_BIN, {});
+const AGY_CMD = AGY_TARGET.cmd;
+/** Args that must lead agy's own argv (empty unless an interpreter was interposed). */
+const AGY_PREFIX_ARGS = AGY_TARGET.prefixArgs;
 // The built-in stays the PORTABLE router alias: concrete agy ids come and go per
 // install (a machine without "gemini-3.6-flash-high" would hard-fail every call),
 // so shipping a pinned id would break users who do not have that exact model.
@@ -44,6 +64,22 @@ const VALID_SANDBOX_VALUES = new Set(["read-only", "workspace-write"]);
 // it. Total length 1..128. Applies to both the gemini-reply threadId input and
 // the agy-sourced id read from last_conversations.json.
 const THREAD_ID_RE = /^[A-Za-z0-9_][A-Za-z0-9_-]{0,127}$/;
+
+/**
+ * The error a shim-only resolution must fail with, or null when the target is spawnable.
+ * Pure, and exported for tests: AGY_TARGET is resolved at module load from the real platform,
+ * so this is the only part of the shim path that can be asserted off Windows.
+ * @param {{shim?:boolean, cmd?:string}} target
+ * @param {string} binName
+ * @returns {(Error & {code?:string})|null}
+ */
+function agyShimError(target, binName) {
+  if (!target || target.shim !== true) return null;
+  const err = new Error(shimMessage(binName, target.cmd, "AGY_BIN"));
+  // Reuses the existing vocabulary: classifyGeminiError maps this code to missing-cli.
+  err.code = "missing-cli";
+  return err;
+}
 
 // agy's --print-timeout takes a Go duration string ("420s"). Convert ms.
 function goDuration(ms) {
@@ -97,7 +133,7 @@ let modelFlagSupported = null;
 function agySupportsModelFlag() {
   if (modelFlagSupported !== null) return modelFlagSupported;
   try {
-    const help = execFileSync(AGY_BIN, ["--help"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    const help = execFileSync(AGY_CMD, [...AGY_PREFIX_ARGS, "--help"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
     modelFlagSupported = /(^|\s)--model(\s|$)/m.test(help);
   } catch {
     modelFlagSupported = true;
@@ -379,6 +415,7 @@ function classifyGeminiError(errMsg, errCode) {
   if (errCode === "timeout") return { errorKind: "timeout", retryable: true };
   if (errCode === "empty")   return { errorKind: "empty",   retryable: true };
   if (errCode === "parse")   return { errorKind: "parse",   retryable: false };
+  if (errCode === "missing-cli") return { errorKind: "missing-cli", retryable: false };
   if (msg.includes("(agy) not found")) return { errorKind: "missing-cli", retryable: false };
   if (lower.includes("aborterror") || lower.includes("aborted")) {
     return { errorKind: "upstream-abort", retryable: true };
@@ -422,6 +459,15 @@ function resolveConversationId(cwd) {
  */
 async function runGemini(args, cwd, timeoutMs, recoveryGraceMs, opts = {}) {
   return new Promise((resolve, reject) => {
+    // AGY_BIN resolved only to a Windows shell shim Node cannot execute. Reject BEFORE
+    // spawning, and do it here rather than only at the startup gate below: the unified MCP
+    // server require()s this file, so `require.main === module` is false there and the boot
+    // gate never runs in the process that actually serves Gemini calls.
+    const shimErr = agyShimError(AGY_TARGET, AGY_BIN);
+    if (shimErr) {
+      reject(shimErr);
+      return;
+    }
     const t = (typeof timeoutMs === "number" && timeoutMs > 0) ? timeoutMs : DEFAULT_TIMEOUT_MS;
     const effCwd = cwd || process.cwd();
     const spawnStartMs = Date.now();
@@ -455,8 +501,8 @@ async function runGemini(args, cwd, timeoutMs, recoveryGraceMs, opts = {}) {
     // The credential env scrub, by contrast, runs in BOTH modes (see env: below): a
     // write-capable run still has no need for the operator's keys / SSH agent.
     const spawnPlan = buildSpawnCommand({
-      bin: AGY_BIN,
-      args: agyArgs,
+      bin: AGY_CMD,
+      args: [...AGY_PREFIX_ARGS, ...agyArgs],
       readOnly,
       platform: process.platform,
       home: os.homedir(),
@@ -888,8 +934,15 @@ if (require.main === module) {
   });
 
   // Startup Check
+  // A found-but-unspawnable shim is a different problem from a missing install, and the
+  // generic message below sends the user off to reinstall something they already have.
+  const bootShimErr = agyShimError(AGY_TARGET, AGY_BIN);
+  if (bootShimErr) {
+    console.error(bootShimErr.message);
+    process.exit(1);
+  }
   try {
-    execFileSync(AGY_BIN, ["--help"], { stdio: "ignore" });
+    execFileSync(AGY_CMD, [...AGY_PREFIX_ARGS, "--help"], { stdio: "ignore" });
   } catch (e) {
     console.error("Antigravity CLI (agy) not found. Install from https://antigravity.google and run `agy` once to sign in.");
     process.exit(1);
@@ -899,6 +952,7 @@ if (require.main === module) {
 // Test-only exports
 if (typeof module !== "undefined" && module.exports) {
   module.exports.classifyGeminiError = classifyGeminiError;
+  module.exports.agyShimError = agyShimError;
   module.exports.resolveConversationId = resolveConversationId;
   module.exports.goDuration = goDuration;
   module.exports.stdoutIsError = stdoutIsError;

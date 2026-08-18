@@ -249,10 +249,12 @@ This is the single source of truth for the bridge environment variables.
 | `GROK_FILE_TTL_SECONDS` | Grok | `604800` (7 days) | Upload lifetime, clamped 1h..30d |
 | `GROK_UPLOAD_TIMEOUT_MS` | Grok | `120000` | Ceiling for one Files API upload (separate from the answer timeout). `0` disables it |
 | `DELIBERATION_SESSIONS` | sessions | `<XDG cache>/deliberation/sessions` | Override the session store directory (see [Session persistence](#session-persistence)) |
+| `CODEX_BIN` | Codex | `codex` | Override the path to the `codex` binary (see [Windows CLI resolution](#windows-cli-resolution)) |
 | `DELIBERATION_DEBUG_LOG` | debug | `<XDG cache>/deliberation/debug.jsonl` | Override the debug log path (see [Observability](#observability--per-provider-progress)); only written when `debug.enabled` |
 
-Codex has no bridge environment variables: it ships its own native MCP server and
-reads `~/.codex/config.toml` directly. The **model** comes from the `model` key in
+Codex has no bridge: it ships its own native MCP server and
+reads `~/.codex/config.toml` directly. `CODEX_BIN` above is the one exception - it is read by the
+`core` provider (`core/providers/codex.js`), which spawns `codex exec` itself. The **model** comes from the `model` key in
 that file by default (the Codex analog of `GEMINI_DEFAULT_MODEL` /
 `GROK_DEFAULT_MODEL`). Override it on the server with `-c model=<id>` on the
 `claude mcp add ... deliberation-codex` registration, or per call with the `model` parameter of
@@ -266,6 +268,73 @@ block a consensus round indefinitely. Raise or lower it with `providers.codex.ti
 **Timeouts and retries.** See [Timeouts](#timeouts) for the full precedence ladder
 (`providers.defaults.timeout` is the one knob that covers every provider) and
 [Retries](#retries) for which error kinds are retried.
+
+## Windows CLI resolution
+
+Only the two CLI providers are affected: Codex and Gemini spawn a child process, while Grok and
+OpenRouter are HTTP bridges that never touch `child_process`.
+
+`npm install -g` on Windows does not install an executable. It writes a `codex.cmd` / `codex.ps1`
+shim, and since the CVE-2024-27980 hardening in Node 18.20 / 20.12, `child_process.spawn` with
+`shell: false` refuses to execute one - the process never starts. That was
+[issue #170](https://github.com/antonbabenko/deliberation/issues/170): every GPT call failed with a
+bare spawn error, and the Gemini bridge failed the same way in three more places, including a
+startup gate that exits the process.
+
+`core/resolve-bin.js` resolves the command name once, before spawning:
+
+| Input | Result |
+|-------|--------|
+| Anything containing a path separator | passed through untouched - an explicit path is the caller's business |
+| Any non-win32 platform | passed through untouched - zero behaviour change off Windows |
+| win32, a `.exe`/`.com` found on PATH (PATHEXT order) | that absolute path, spawned directly |
+| win32, only a `.cmd`/`.bat`/`.ps1` shim, npm entry point present | `process.execPath` + the package's own JS entry, bypassing the shim (all three extensions are treated identically) |
+| win32, a PATHEXT match that is neither of the above (`.vbs`, `.py`, a custom entry) | skipped entirely, so the scan can never return a target Node cannot launch |
+| win32, only a shim and no usable entry point | reported as a shim: the call fails with a message naming the shim and the override env var |
+| win32, nothing found | passed through untouched, preserving the existing ENOENT |
+
+**A hand-written `.cmd` wrapper is not supported on Windows**, and cannot be: Node refuses to
+execute any `.cmd`, which is the whole bug. If one is found first on PATH with no npm package
+beside it, the resolver treats it as an unusable shim and looks for something spawnable further
+down - so a later npm install runs, and the wrapper's own flags or env do NOT apply. Set
+`CODEX_BIN` / `AGY_BIN` to a real executable if you need a specific target.
+
+The npm bypass applies to Codex only (`@openai/codex` declares `bin: {"codex": "bin/codex.js"}`);
+no npm package publishes an `agy` bin, so a shim-only Antigravity install gets the explicit error
+instead. `CODEX_BIN` and `AGY_BIN` override the name being resolved; a value containing a path
+separator is spawned exactly as given, so point them at an executable rather than at a shim or a
+`.js` entry point.
+
+PATH is walked **first-match-wins**, in PATH order then PATHEXT order - the precedence libuv and
+`where` apply - so a resolvable first match is always the one taken, never a "better" one further
+down. The scan continues past the first match only when it is a shim with no package behind it (a
+partial install): whatever turns up next and is usable wins, whether that is a real `.exe` or
+another npm shim that does have its package. That is deliberately out of shell order, on the
+grounds that failing while a working install sits on PATH is the worse outcome. If nothing usable
+turns up, the FIRST shim is the one reported, since that is the one the user believes they run.
+
+**`shell: true` was rejected**, and not for argument injection - the prompt travels on stdin and the
+argv is a fixed constant. The problem is lifecycle: with a shell interposed, the shell becomes the
+child, so the provider's `child.kill("SIGKILL")` would kill the shell and leave the CLI running past
+its timeout. Those timeouts feed the consensus circuit breaker, so trading them for shim
+compatibility is a bad deal.
+
+**A failed launch is now `errorKind: "not-found"`** (non-retryable) for Codex, and `missing-cli` for
+Gemini, rather than `unknown`. This is the one part of the change that applies on **every**
+platform, not just Windows: a missing CLI on macOS or Linux now reports the same way, and the error
+text names what was tried.
+
+The signal is a structural `spawnFailed` flag on the run result, never a pattern matched against the
+child's stderr - mirroring the existing `timedOut` flag, and for the same reason. A coding agent
+legitimately prints `ENOENT` about files in the user's repo; classifying the launch from the child's
+own output would answer that with advice to go fix `CODEX_BIN`.
+
+**Not verified on Windows by CI.** Every workflow is `runs-on: ubuntu-latest`, so the win32 branch
+is asserted through injected `platform` / `env` / `exists` (`test/core-resolve-bin.test.js`,
+`buildSpawnPlan` in `test/core-codex.test.js`), the same technique `core/paths.js` uses. The Gemini
+bridge resolves at module load from the real platform, so only its guard LOGIC is asserted
+(`agyShimError`, test S5c) - the wiring from that guard to a genuinely shim-only `AGY_TARGET` is
+not. A real Windows CI lane is blocked on the bash test fixtures and is tracked separately.
 
 ## Observability + per-provider progress
 

@@ -160,6 +160,13 @@ You need at least one provider:
 - **Grok (xAI)**: no CLI to install; the bridge ships with the plugin (needs Node 18+). Set `XAI_API_KEY` (get a key at https://console.x.ai).
 - **OpenRouter**: no CLI; the bridge ships with the plugin (needs Node 18+). Set `OPENROUTER_API_KEY` (get a key at https://openrouter.ai/keys), then declare models in `~/.config/deliberation/config.json` (Windows: `%APPDATA%\deliberation\config.json`; override with `DELIBERATION_CONFIG`). Works with any OpenAI-compatible endpoint (Ollama, vLLM, LM Studio, HuggingFace Inference) - auth is skipped automatically when the key env var is empty.
 
+**Windows note (CLI providers).** `npm install -g` on Windows installs a `codex.cmd` shim, not an
+executable, and Node cannot launch a `.cmd` directly - so GPT calls used to fail with nothing but a
+spawn error. deliberation now resolves the CLI itself (PATHEXT, falling back to the package's own
+entry point) and keeps it out of a shell. If resolution ever misses on your machine, point
+`CODEX_BIN` (GPT) or `AGY_BIN` (Gemini) at the real executable. Grok and OpenRouter are unaffected -
+they are HTTP bridges and spawn nothing.
+
 ## Commands
 
 Bundled with the plugin (available once installed):
