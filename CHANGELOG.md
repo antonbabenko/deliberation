@@ -1,3 +1,10 @@
+## [3.14.1](https://github.com/antonbabenko/deliberation/compare/v3.14.0...v3.14.1) (2026-08-18)
+
+
+### Bug Fixes
+
+* resolve provider CLI shims so Codex and Gemini spawn on Windows ([#173](https://github.com/antonbabenko/deliberation/issues/173)) ([a3598f0](https://github.com/antonbabenko/deliberation/commit/a3598f0af00e16db9427d5555ebb51c858899475))
+
 ## [3.14.0](https://github.com/antonbabenko/deliberation/compare/v3.13.0...v3.14.0) (2026-08-17)
 
 
@@ -25,11 +32,4 @@
 ### Features
 
 * **providers:** pin Gemini and Grok models via config.json ([#162](https://github.com/antonbabenko/deliberation/issues/162)) ([aff8026](https://github.com/antonbabenko/deliberation/commit/aff80263239e64390cdb3ee4dc12d8f81fed010d))
-
-## [3.11.0](https://github.com/antonbabenko/deliberation/compare/v3.10.1...v3.11.0) (2026-06-26)
-
-
-### Features
-
-* **consensus:** bound worst-case wall-time without truncating slow-but-good responses ([#159](https://github.com/antonbabenko/deliberation/issues/159)) ([3073a9e](https://github.com/antonbabenko/deliberation/commit/3073a9e9acbde37dad31a40d17daaf53b2742fcd))
 
