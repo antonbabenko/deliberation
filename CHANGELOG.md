@@ -1,3 +1,10 @@
+## [3.14.2](https://github.com/antonbabenko/deliberation/compare/v3.14.1...v3.14.2) (2026-08-28)
+
+
+### Bug Fixes
+
+* **grok:** reject agentic intent stubs and tell the model it has no tools ([#175](https://github.com/antonbabenko/deliberation/issues/175)) ([f983fd2](https://github.com/antonbabenko/deliberation/commit/f983fd29310856d1afd783ff4859222e089a3a10))
+
 ## [3.14.1](https://github.com/antonbabenko/deliberation/compare/v3.14.0...v3.14.1) (2026-08-18)
 
 
@@ -25,11 +32,4 @@
 ### Bug Fixes
 
 * **ci:** publish to npm on Node 24 and make a failed publish retryable ([#165](https://github.com/antonbabenko/deliberation/issues/165)) ([451eea7](https://github.com/antonbabenko/deliberation/commit/451eea788f9782439fc0c3318ed820f4d4f57f9b))
-
-## [3.12.0](https://github.com/antonbabenko/deliberation/compare/v3.11.0...v3.12.0) (2026-07-27)
-
-
-### Features
-
-* **providers:** pin Gemini and Grok models via config.json ([#162](https://github.com/antonbabenko/deliberation/issues/162)) ([aff8026](https://github.com/antonbabenko/deliberation/commit/aff80263239e64390cdb3ee4dc12d8f81fed010d))
 
