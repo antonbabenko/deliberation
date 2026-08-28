@@ -239,7 +239,7 @@ This is the single source of truth for the bridge environment variables.
 |----------|----------|---------|---------|
 | `GEMINI_DEFAULT_MODEL` | Gemini | `auto-gemini-3` | Default model when neither the call nor `providers.gemini.model` sets one |
 | `GEMINI_DISABLE_TIMEOUT_RECOVERY` | Gemini | unset | `1` forces legacy timeout (no drain) |
-| `GEMINI_MIN_ANSWER_CHARS` | Gemini | `80` | Minimum stdout length for a clean exit to count as an answer; shorter output fails as `empty` (see [Gemini answer floor](#gemini-answer-floor)). `0` disables the floor |
+| `GEMINI_MIN_ANSWER_CHARS` | Gemini | `80` | Minimum stdout length for a clean exit to count as an answer; shorter output fails as `empty` (see [Answer floor](#answer-floor-gemini-grok)). `0` disables the floor |
 | `AGY_BIN` | Gemini | `agy` | Override the path to the `agy` binary |
 | `AGY_LAST_CONVERSATIONS` | Gemini | `~/.gemini/antigravity-cli/cache/last_conversations.json` | Override the conversation-id map file (mainly for tests) |
 | `XAI_API_KEY` | Grok | unset (required) | xAI API key; missing key returns `missing-auth` |
@@ -248,6 +248,7 @@ This is the single source of truth for the bridge environment variables.
 | `GROK_REASONING_EFFORT` | Grok | `high` | `low`/`medium`/`high`; `none` or `off` omits the field. Overridden by `providers.grok.reasoningEffort` |
 | `GROK_FILE_TTL_SECONDS` | Grok | `604800` (7 days) | Upload lifetime, clamped 1h..30d |
 | `GROK_UPLOAD_TIMEOUT_MS` | Grok | `120000` | Ceiling for one Files API upload (separate from the answer timeout). `0` disables it |
+| `GROK_MIN_ANSWER_CHARS` | Grok | `80` | Minimum trimmed answer length; shorter text, or a reply under 400 chars that only announces intent ("I'll verify the cited files..."), fails as `empty` (see [Answer floor](#answer-floor-gemini-grok)). `0` disables both checks |
 | `DELIBERATION_SESSIONS` | sessions | `<XDG cache>/deliberation/sessions` | Override the session store directory (see [Session persistence](#session-persistence)) |
 | `CODEX_BIN` | Codex | `codex` | Override the path to the `codex` binary (see [Windows CLI resolution](#windows-cli-resolution)) |
 | `DELIBERATION_DEBUG_LOG` | debug | `<XDG cache>/deliberation/debug.jsonl` | Override the debug log path (see [Observability](#observability--per-provider-progress)); only written when `debug.enabled` |
@@ -955,7 +956,7 @@ token count. There is no hard spend cap - the warning is informational only.
 | `rate-limit` | HTTP 429 from upstream. Carries `retryAfterMs` when the response sent a `Retry-After` header |
 | `timeout` | Request exceeded the configured timeout (headers **and** body read are covered) |
 | `network` | Connection error or DNS failure |
-| `empty` | Provider exited clean but returned a stub instead of an answer (see the Gemini answer floor) |
+| `empty` | Provider exited clean but returned a stub instead of an answer (see [Answer floor](#answer-floor-gemini-grok)) |
 | `parse` | Response body could not be parsed |
 | `upstream` | Non-2xx from the endpoint (other than auth/rate-limit) |
 | `config` | Config file missing, invalid JSON, or schema violation |
@@ -1017,9 +1018,13 @@ Two things the ceiling covers that are easy to get wrong:
 Grok's Files API upload is bounded separately by `GROK_UPLOAD_TIMEOUT_MS` (default 120000,
 `0` disables it) - an upload is a fixed-size transfer, not a model run.
 
-### Gemini answer floor
+### Answer floor (Gemini, Grok)
 
-`agy` sometimes exits 0 having printed only a preamble ("I will begin by finding the
+A provider stub is an error, not an answer. Both bridges enforce a floor so a stub fails as
+`errorKind: "empty"` (retried once by `callProvider`) instead of reaching the caller as an
+opinion - inside consensus a stub yields `verdict: null` and silently blocks convergence.
+
+**Gemini.** `agy` sometimes exits 0 having printed only a preamble ("I will begin by finding the
 repository directory...") instead of an answer. Any non-empty stdout used to count as a
 full answer, so that stub reached the caller as a real opinion - and inside consensus it
 silently blocked convergence with no diagnostic (`parseReview` yields `verdict: null`).
@@ -1038,6 +1043,25 @@ terse are the tradeoff - lower the value, or set `0`, if your usage skews short.
 
 A character count is a proxy for "announced intent instead of answering" - the upgrade
 path is a structured-output check once `parseOpinion` is wired into the pipeline.
+
+**Grok.** `grok-4.6` is agentic-trained and is reached through ONE `/v1/responses` call with
+no tools declared. A prompt that mentions repositories or asks it to "verify the cited files"
+(the expert prompts invite this "when you have filesystem access") can make it announce a
+plan - `I'll verify the cited files and edit anchors so the review is based on what's actually
+in the repo.` - and end its turn as if a tool result were coming: `status: "completed"`, zero
+tool calls, a 99-162 character reply. Two guards, both in `server/grok/index.js` so the
+standalone `grok` tool and the unified server share them:
+
+- `buildInitialTurns` always seeds a system turn ending with a fixed runtime note: no tools,
+  no filesystem or repository access, no web, no further turns; attached files are reference
+  material; answer completely now. `grok-reply` continuations inherit it from the persisted
+  turns.
+- `runGrok` rejects the answer with `.code = "empty"` when the trimmed text is shorter than
+  `GROK_MIN_ANSWER_CHARS` (default 80) OR is under 400 characters and opens with an intent
+  phrase (`I'll` / `I will` / `I'm going to` / `Let me` / `First, I`). The observed stubs are
+  above 80 characters, so the length floor alone would miss them; a long answer that merely
+  opens with "I'll" is not a stub. `0` disables both checks. An empty message body (`""`),
+  which used to return as a silent success, is caught by the length floor.
 
 ## Orientation auto-attach
 

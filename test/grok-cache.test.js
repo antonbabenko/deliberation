@@ -1,4 +1,5 @@
 "use strict";
+process.env.GROK_MIN_ANSWER_CHARS = "0"; // one-word fixture replies; the answer floor is tested in grok.test.js
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const cache = require("../server/grok/cache.js");
