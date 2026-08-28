@@ -12,7 +12,8 @@ const BRIDGE = path.join(__dirname, "..", "server", "grok", "index.js");
 // Spawn the Grok bridge with a controlled environment.
 function startGrokBridge(env = {}) {
   return spawn(process.execPath, [BRIDGE], {
-    env: { ...process.env, ...env },
+    // Transport tests reply with one-word fixtures; the answer floor has its own tests (GF*).
+    env: { ...process.env, GROK_MIN_ANSWER_CHARS: "0", ...env },
     stdio: ["pipe", "pipe", "pipe"],
   });
 }
@@ -103,11 +104,11 @@ test("G1: grok then grok-reply build /v1/responses input and accumulate turns", 
     assert.equal(r2.result.threadId, threadId);
 
     assert.deepEqual(bodies[0].input, [
-      { role: "system", content: [{ type: "input_text", text: "sys" }] },
+      { role: "system", content: [{ type: "input_text", text: `sys\n\n${grok.NO_TOOLS_NOTE}` }] },
       { role: "user", content: [{ type: "input_text", text: "hello" }] },
     ]);
     assert.deepEqual(bodies[1].input, [
-      { role: "system", content: [{ type: "input_text", text: "sys" }] },
+      { role: "system", content: [{ type: "input_text", text: `sys\n\n${grok.NO_TOOLS_NOTE}` }] },
       { role: "user", content: [{ type: "input_text", text: "hello" }] },
       { type: "message", role: "assistant", content: [{ type: "output_text", text: "reply-1" }] },
       { role: "user", content: [{ type: "input_text", text: "again" }] },
@@ -292,7 +293,7 @@ test("G9: classifyGrokError maps transport codes and HTTP statuses", () => {
 test("G10: buildInitialTurns + turnsToInput produce the responses input shape", () => {
   const turns = grok.buildInitialTurns("sys", "hi", [{ file_id: "f1" }, { file_url: "https://u/x" }]);
   assert.deepEqual(grok.turnsToInput(turns), [
-    { role: "system", content: [{ type: "input_text", text: "sys" }] },
+    { role: "system", content: [{ type: "input_text", text: `sys\n\n${grok.NO_TOOLS_NOTE}` }] },
     {
       role: "user",
       content: [
@@ -302,8 +303,11 @@ test("G10: buildInitialTurns + turnsToInput produce the responses input shape", 
       ],
     },
   ]);
-  // No developer-instructions -> no system turn.
-  assert.deepEqual(grok.buildInitialTurns("", "hi", []), [{ role: "user", text: "hi", fileRefs: [] }]);
+  // No developer-instructions -> the system turn still carries the no-tools note.
+  assert.deepEqual(grok.buildInitialTurns("", "hi", []), [
+    { role: "system", text: grok.NO_TOOLS_NOTE },
+    { role: "user", text: "hi", fileRefs: [] },
+  ]);
 });
 
 test("G11: parseResponsesOutput handles output_text, nested output[], and malformed", () => {
@@ -326,16 +330,18 @@ test("G12: validateFiles enforces exactly-one-of and types", () => {
   assert.ok(grok.validateFiles([{ path: "a", filename: "" }]));
 });
 
+const REAL_ANSWER = "The change is safe: one file, two callers, and the existing tests cover both paths. VERDICT: APPROVE";
+
 test("G13: runGrok posts to /responses via injected fetch (success, http error, missing key)", async () => {
   let calledUrl = null;
   let calledOpts = null;
   const okFetch = async (url, opts) => {
     calledUrl = url;
     calledOpts = opts;
-    return { ok: true, status: 200, text: async () => JSON.stringify({ output: [{ content: [{ type: "output_text", text: "ok" }] }] }) };
+    return { ok: true, status: 200, text: async () => JSON.stringify({ output: [{ content: [{ type: "output_text", text: REAL_ANSWER }] }] }) };
   };
   const out = await grok.runGrok({ turns: [{ role: "user", text: "x", fileRefs: [] }], apiKey: "k", apiBase: "https://api.x.ai/v1", fetchImpl: okFetch });
-  assert.equal(out.text, "ok");
+  assert.equal(out.text, REAL_ANSWER);
   assert.match(calledUrl, /\/responses$/);
   assert.equal(calledOpts.redirect, "error", "redirect:error prevents the bearer token following a 3xx to another host");
 
@@ -500,4 +506,59 @@ test("G18: prune lists, filters, and deletes only prunable ids when not a dry ru
   assert.deepEqual(dry.candidates.map((f) => f.id), ["old"]);
   assert.deepEqual(dry.deleted, []);
   assert.deepEqual(deleted, []);
+});
+
+// --- Answer floor: an announced-intent stub is an error, not an answer ---
+
+const STUB_TEXT = "I'll verify the cited files and edit anchors so the review is based on what's actually in the repo.";
+const responsesFetch = (text) => async () => ({
+  ok: true, status: 200,
+  text: async () => JSON.stringify({ output: [{ type: "message", content: [{ type: "output_text", text }] }] }),
+});
+const runWithText = (text) => grok.runGrok({ turns: [{ role: "user", text: "x", fileRefs: [] }], apiKey: "k", apiBase: "https://api.x.ai/v1", fetchImpl: responsesFetch(text) });
+
+test("GF1: runGrok rejects an announced-intent stub (\"I'll verify...\") as code=empty", async () => {
+  await assert.rejects(runWithText(STUB_TEXT), (e) => e.code === "empty" && /stub/i.test(e.message));
+});
+
+test("GF2: runGrok rejects an empty message as code=empty (not a silent success)", async () => {
+  await assert.rejects(runWithText(""), (e) => e.code === "empty");
+  await assert.rejects(runWithText("   "), (e) => e.code === "empty");
+});
+
+test("GF3: runGrok accepts a real answer, including a short non-intent one above the floor", async () => {
+  const long = "**Summary**: the plan is complete.\n\n**Critical issues**: none.\n\nVERDICT: APPROVE".repeat(3);
+  assert.equal((await runWithText(long)).text, long);
+  const short = "VERDICT: APPROVE - the plan names files, has executable checks, and no blocking gaps remain.";
+  assert.equal((await runWithText(short)).text, short);
+});
+
+test("GF4: a long answer that merely opens with \"I'll\" is not a stub", async () => {
+  const long = "I'll be direct: the plan is sound. " + "Every task names a starting file and an executable check. ".repeat(8) + "VERDICT: APPROVE";
+  assert.equal((await runWithText(long)).text, long);
+});
+
+test("GF5: GROK_MIN_ANSWER_CHARS=0 disables the floor entirely", async () => {
+  process.env.GROK_MIN_ANSWER_CHARS = "0";
+  try {
+    assert.equal((await runWithText(STUB_TEXT)).text, STUB_TEXT);
+    assert.equal((await runWithText("")).text, "");
+  } finally {
+    delete process.env.GROK_MIN_ANSWER_CHARS;
+  }
+});
+
+test("GF6: classifyGrokError maps code=empty to a retryable empty", () => {
+  assert.deepEqual(grok.classifyGrokError(null, "empty"), { errorKind: "empty", retryable: true });
+});
+
+test("GF7: buildInitialTurns always seeds a system turn that tells the model it has no tools", () => {
+  const withSys = grok.buildInitialTurns("sys", "hi", []);
+  assert.equal(withSys[0].role, "system");
+  assert.ok(withSys[0].text.startsWith("sys\n\n"), "developer-instructions come first");
+  assert.match(withSys[0].text, /no tools/i);
+  assert.match(withSys[0].text, /no further turns/i);
+  const noSys = grok.buildInitialTurns(undefined, "hi", []);
+  assert.equal(noSys[0].role, "system");
+  assert.equal(noSys[0].text, grok.NO_TOOLS_NOTE);
 });

@@ -583,11 +583,11 @@ test("PM1: providers.gemini/grok model is carried into resolved.providers", () =
     version: 1,
     providers: {
       gemini: { enabled: true, model: "gemini-3.6-flash-high" },
-      grok: { enabled: true, model: "grok-4.5" },
+      grok: { enabled: true, model: "grok-4.6" },
     },
   });
   assert.equal(resolved.providers.gemini.model, "gemini-3.6-flash-high");
-  assert.equal(resolved.providers.grok.model, "grok-4.5");
+  assert.equal(resolved.providers.grok.model, "grok-4.6");
 });
 
 test("PM2: absent model leaves the key undefined so env/built-in defaults still apply", () => {
@@ -616,10 +616,10 @@ test("PM4: openrouter ignores providers.model (its models map owns selection)", 
 test("PM5: providers.grok.reasoningEffort is carried into resolved.providers", () => {
   const { resolved } = validateConfig({
     version: 1,
-    providers: { grok: { enabled: true, model: "grok-4.5", reasoningEffort: "low" } },
+    providers: { grok: { enabled: true, model: "grok-4.6", reasoningEffort: "low" } },
   });
   assert.equal(resolved.providers.grok.reasoningEffort, "low");
-  assert.equal(resolved.providers.grok.model, "grok-4.5");
+  assert.equal(resolved.providers.grok.model, "grok-4.6");
 });
 
 test("PM6: a blank or non-string reasoningEffort is dropped, so env/built-in still apply", () => {

@@ -1,3 +1,4 @@
+process.env.GROK_MIN_ANSWER_CHARS = "0"; // one-word fixture replies; the answer floor is tested in grok.test.js
 // test/standalone-timeout-config.test.js
 "use strict";
 // `/ask-grok`, `/ask-gemini` and `/ask-openrouter` call the STANDALONE bridges, not the

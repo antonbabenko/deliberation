@@ -7,7 +7,7 @@ timeout: 660000
 
 # Ask Grok
 
-Single-shot delegation to Grok (xAI) via MCP for an independent second opinion. Fresh thread, no shared context with prior calls. Advisory only - the Grok bridge talks to the xAI HTTP API and has no filesystem access, so it cannot implement changes (unlike `/ask-gpt` and `/ask-gemini`, which can). Model defaults to `GROK_DEFAULT_MODEL` (or `grok-4.5`).
+Single-shot delegation to Grok (xAI) via MCP for an independent second opinion. Fresh thread, no shared context with prior calls. Advisory only - the Grok bridge talks to the xAI HTTP API and has no filesystem access, so it cannot implement changes (unlike `/ask-gpt` and `/ask-gemini`, which can). Model defaults to `GROK_DEFAULT_MODEL` (or `grok-4.6`). The bridge tells the model it has no tools and no further turns, and a reply that only announces intent ("I'll verify the cited files...") or is shorter than `GROK_MIN_ANSWER_CHARS` (default 80) comes back as `errorKind: "empty"` (retryable) instead of a stub answer.
 
 ## Input
 
@@ -114,7 +114,7 @@ User question or topic: $ARGUMENTS
 - **Single-shot only** - never reuse a `threadId` from a prior `/ask-grok` call. Each invocation is independent.
 - **Advisory only** - the Grok bridge cannot edit files; there is no implementation mode. For file-editing delegation use `/ask-gpt` or `/ask-gemini`. (It can READ attached files via `files`.)
 - **Files** - `files:[{path|file_id|file_url}]` attaches documents (PDF, code, md, csv, json, txt; <= 48 MB) to the query. Attach referenced local files by default and pass `cwd` = repo root so `path` entries resolve (a path outside `cwd` is refused). On `errorKind: "file-read"` / `"file-too-large"`, tell the user which file failed.
-- **No model pin in-command** - the bridge defaults to `GROK_DEFAULT_MODEL` (or `grok-4.5`). To change it, set `GROK_DEFAULT_MODEL` in the MCP server's environment rather than hardcoding a (drift-prone) id here.
+- **No model pin in-command** - the bridge defaults to `GROK_DEFAULT_MODEL` (or `grok-4.6`). To change it, set `GROK_DEFAULT_MODEL` in the MCP server's environment rather than hardcoding a (drift-prone) id here.
 - **No contamination** - do not include prior GPT or Gemini opinions in the Grok prompt. Each expert reasons independently.
 - **Auth required** - Grok needs `XAI_API_KEY`. If the call returns `errorKind: "missing-auth"`, tell the user to `export XAI_API_KEY=xai-...` (or rerun `/deliberation:setup`) and restart Claude Code.
 - **Print status line** immediately before the MCP dispatch: `Grok working (typical 30-60s)...`

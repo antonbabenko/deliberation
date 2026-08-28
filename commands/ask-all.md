@@ -108,7 +108,7 @@ User question or topic: $ARGUMENTS
    Worked in parallel:
      - Codex (GPT)                   gpt-5.5                       reasoning: n/a (CLI)
      - Gemini                        auto-gemini-3                 reasoning: n/a (CLI)
-     - Grok (xAI)                    grok-4.5                      reasoning: high
+     - Grok (xAI)                    grok-4.6                      reasoning: high
      - OpenRouter / deepseek-v4-pro  deepseek/deepseek-v4-pro      reasoning: high
      - OpenRouter / kimi-k2-thinking moonshotai/kimi-k2-thinking   reasoning: medium
    ```
