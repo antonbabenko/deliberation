@@ -23,18 +23,18 @@ test("GK1b: capabilities.walksFilesystem is false (Grok cannot walk the repo)", 
 
 test("GK2: ask with no files uses runGrok and returns success text", async () => {
   process.env.XAI_API_KEY = "k";
-  const p = makeGrokProvider({ bridge: fakeBridge, model: "grok-4.5" });
+  const p = makeGrokProvider({ bridge: fakeBridge, model: "grok-4.6" });
   const r = await p.ask({ prompt: "hi" });
   assert.equal(r.isError, false);
   assert.equal(r.provider, "grok");
-  assert.equal(r.text, "grok grok-4.5");
+  assert.equal(r.text, "grok grok-4.6");
 });
 
 test("GK3: ask WITH files routes through runWithFiles", async () => {
   process.env.XAI_API_KEY = "k";
-  const p = makeGrokProvider({ bridge: fakeBridge, model: "grok-4.5" });
+  const p = makeGrokProvider({ bridge: fakeBridge, model: "grok-4.6" });
   const r = await p.ask({ prompt: "hi", files: [{ path: "x.js", mode: "auto" }] });
-  assert.equal(/** @type {any} */ (r).text, "grok+files grok-4.5");
+  assert.equal(/** @type {any} */ (r).text, "grok+files grok-4.6");
 });
 
 test("GK4: missing XAI_API_KEY -> health false", async () => {
@@ -54,7 +54,7 @@ test("GK6: req.apiKey overrides process.env.XAI_API_KEY; absent -> falls back to
   let seen;
   const capturing = { ...fakeBridge, runGrok: async (/** @type {any} */ a) => { seen = a.apiKey; return { text: "ok", output: null }; } };
   process.env.XAI_API_KEY = "env-key";
-  const p = makeGrokProvider({ bridge: capturing, model: "grok-4.5" });
+  const p = makeGrokProvider({ bridge: capturing, model: "grok-4.6" });
 
   await p.ask({ prompt: "hi", apiKey: "tenant-key" });
   assert.equal(seen, "tenant-key"); // per-request override wins
@@ -71,7 +71,7 @@ test("GK9: opts.reasoningEffort (the config pin) applies, and the request still 
     resolveReasoningEffort: (/** @type {any} */ v) => v ?? "BUILTIN",
     runGrok: async (/** @type {any} */ a) => { seen = a.reasoningEffort; return { text: "ok", output: null }; },
   };
-  const p = makeGrokProvider({ bridge: capturing, model: "grok-4.5", reasoningEffort: "low" });
+  const p = makeGrokProvider({ bridge: capturing, model: "grok-4.6", reasoningEffort: "low" });
 
   await p.ask({ prompt: "hi" });
   assert.equal(seen, "low", "config pin used when the request sets none");
@@ -80,7 +80,7 @@ test("GK9: opts.reasoningEffort (the config pin) applies, and the request still 
   assert.equal(seen, "high", "per-request value beats the config pin");
 
   // No pin configured -> nothing injected, so the bridge's own ladder decides.
-  const bare = makeGrokProvider({ bridge: capturing, model: "grok-4.5" });
+  const bare = makeGrokProvider({ bridge: capturing, model: "grok-4.6" });
   await bare.ask({ prompt: "hi" });
   assert.equal(seen, "BUILTIN", "absent pin falls through to the bridge resolver");
 });
@@ -89,7 +89,7 @@ test("GK-timeout-1: opts.timeoutMs is the construction default; req.timeoutMs st
   process.env.XAI_API_KEY = "k";
   let seen;
   const capturing = { ...fakeBridge, runGrok: async (/** @type {any} */ a) => { seen = a.timeoutMs; return { text: "ok", output: null }; } };
-  const p = makeGrokProvider({ bridge: capturing, model: "grok-4.5", timeoutMs: 600000 });
+  const p = makeGrokProvider({ bridge: capturing, model: "grok-4.6", timeoutMs: 600000 });
   await p.ask({ prompt: "hi" });
   assert.equal(seen, 600000, "construction default is applied");
   await p.ask({ prompt: "hi", timeoutMs: 5000 });

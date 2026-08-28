@@ -24,7 +24,7 @@
  *     evict + re-upload + retry once.
  *
  * Auth: XAI_API_KEY (env). Model: per-call > providers.grok.model (config.json)
- * > GROK_DEFAULT_MODEL (env) > grok-4.5.
+ * > GROK_DEFAULT_MODEL (env) > grok-4.6.
  * Endpoint: XAI_API_BASE (env) or https://api.x.ai/v1.
  * File TTL: GROK_FILE_TTL_SECONDS (env) or 604800 (7 days).
  * Cache off switch: XAI_DISABLE_FILE_CACHE=1.
@@ -34,7 +34,7 @@ const crypto = require("node:crypto");
 const path = require("node:path");
 const { stat, readFile } = require("node:fs/promises");
 
-const DEFAULT_MODEL = process.env.GROK_DEFAULT_MODEL || "grok-4.5";
+const DEFAULT_MODEL = process.env.GROK_DEFAULT_MODEL || "grok-4.6";
 
 // providers.grok.* from the unified config.json, so this standalone bridge resolves
 // the same pins the `deliberation` server does instead of drifting to env-only.
@@ -949,7 +949,7 @@ const FILES_SCHEMA = {
 const GROK_PROPERTIES = {
   prompt: { type: "string", description: "The delegation prompt" },
   "developer-instructions": { type: "string", description: "Expert system instructions (sent as a system message)" },
-  model: { type: "string", description: "xAI model id. Defaults to providers.grok.model (config.json), then GROK_DEFAULT_MODEL, then grok-4.5.", default: DEFAULT_MODEL },
+  model: { type: "string", description: "xAI model id. Defaults to providers.grok.model (config.json), then GROK_DEFAULT_MODEL, then grok-4.6.", default: DEFAULT_MODEL },
   reasoning_effort: { type: "string", description: "Reasoning effort (low, medium, high). 'none' omits the field.", default: DEFAULT_REASONING_EFFORT },
   timeout: { type: "number", description: "Soft timeout in ms. 1..600000. Default 180000.", default: DEFAULT_TIMEOUT_MS },
   files: FILES_SCHEMA,

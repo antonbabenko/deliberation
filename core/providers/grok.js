@@ -17,7 +17,7 @@ function makeGrokProvider(opts = {}) {
   // bridge's module.exports is typed as bare Object (untyped CJS export).
   const bridge = /** @type {any} */ (opts.bridge);
   if (!bridge) throw new Error("makeGrokProvider requires opts.bridge (core is transport-agnostic; inject the grok bridge)");
-  const model = opts.model || process.env.GROK_DEFAULT_MODEL || "grok-4.5";
+  const model = opts.model || process.env.GROK_DEFAULT_MODEL || "grok-4.6";
   const apiBase = opts.apiBase || process.env.XAI_API_BASE || "https://api.x.ai/v1";
   // Construction-time ceiling. Undefined (not 0) when unset, so the bridge applies its
   // own default rather than being handed a falsy value it would treat as "no timeout".

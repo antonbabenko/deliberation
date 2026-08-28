@@ -15,7 +15,7 @@
     "grok": {
       "enabled": true,
       "apiKeyEnv": "XAI_API_KEY",
-      "model": "grok-4.5",
+      "model": "grok-4.6",
       "reasoningEffort": "high"
     },
     "openrouter": {

@@ -204,7 +204,7 @@
         "apiKeyEnv": { "type": "string", "default": "XAI_API_KEY", "description": "Env var holding the xAI API key." },
         "model": {
           "type": "string",
-          "description": "xAI model id (e.g. \"grok-4.5\"). Precedence: per-call model > this key > GROK_DEFAULT_MODEL > built-in default."
+          "description": "xAI model id (e.g. \"grok-4.6\"). Precedence: per-call model > this key > GROK_DEFAULT_MODEL > built-in default."
         },
         "reasoningEffort": {
           "type": "string",

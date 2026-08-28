@@ -182,7 +182,7 @@ omitted. Uploaded files are SHA-256 dedup-cached locally and carry an
 `expires_after` (default 7 days); manage with `/grok-files`
 (`list` / `prune` / `gc`). See [Grok files and cleanup](#grok-files-and-cleanup).
 
-The bridge default model is `grok-4.5`. It needs `XAI_API_KEY` in its environment;
+The bridge default model is `grok-4.6`. It needs `XAI_API_KEY` in its environment;
 a missing key surfaces `errorKind: "missing-auth"`.
 
 ## Implementation mode (core capability)
@@ -243,7 +243,7 @@ This is the single source of truth for the bridge environment variables.
 | `AGY_BIN` | Gemini | `agy` | Override the path to the `agy` binary |
 | `AGY_LAST_CONVERSATIONS` | Gemini | `~/.gemini/antigravity-cli/cache/last_conversations.json` | Override the conversation-id map file (mainly for tests) |
 | `XAI_API_KEY` | Grok | unset (required) | xAI API key; missing key returns `missing-auth` |
-| `GROK_DEFAULT_MODEL` | Grok | `grok-4.5` | Default model when neither the call nor `providers.grok.model` sets one |
+| `GROK_DEFAULT_MODEL` | Grok | `grok-4.6` | Default model when neither the call nor `providers.grok.model` sets one |
 | `XAI_API_BASE` | Grok | `https://api.x.ai/v1` | API endpoint override |
 | `GROK_REASONING_EFFORT` | Grok | `high` | `low`/`medium`/`high`; `none` or `off` omits the field. Overridden by `providers.grok.reasoningEffort` |
 | `GROK_FILE_TTL_SECONDS` | Grok | `604800` (7 days) | Upload lifetime, clamped 1h..30d |

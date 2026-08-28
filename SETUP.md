@@ -39,7 +39,7 @@ Minimal example:
     "defaults": { "timeout": 600000 },
     "codex":  { "enabled": true },
     "gemini": { "enabled": true, "model": "auto-gemini-3" },
-    "grok":   { "enabled": true, "apiKeyEnv": "XAI_API_KEY", "model": "grok-4.5", "reasoningEffort": "high" },
+    "grok":   { "enabled": true, "apiKeyEnv": "XAI_API_KEY", "model": "grok-4.6", "reasoningEffort": "high" },
     "openrouter": {
       "enabled": true,
       "apiKeyEnv": "OPENROUTER_API_KEY",
