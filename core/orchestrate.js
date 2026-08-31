@@ -10,15 +10,21 @@ const { NULL_LOGGER } = require("./debug-log.js");
 
 /** @typedef {import("./debug-log.js").Logger} Logger */
 
-// Drop a peer from the panel after this many CONSECUTIVE rounds of timeout, so one
-// chronically-slow model cannot add its full per-call ceiling to every round.
-const CIRCUIT_BREAK_AFTER = 2;
+// Drop a peer from the panel after this many CONSECUTIVE FAILED rounds, so one
+// chronically-broken model cannot add its full per-call ceiling to every round. The
+// constant lives in the loop engine so both drivers break the circuit identically.
+const { CIRCUIT_BREAK_AFTER } = loop;
 
 // errorKinds callProvider retries exactly once. See the comment at the retry site.
-const RETRY_ONCE_KINDS = new Set(["network", "rate-limit", "empty"]);
+const RETRY_ONCE_KINDS = new Set(["network", "rate-limit", "empty", "upstream"]);
 // Fallback pause before a rate-limit retry when the upstream sent no Retry-After,
 // and the ceiling on one it did send (a multi-minute hint would stall the fan-out).
 const RATE_LIMIT_DEFAULT_DELAY_MS = 2000;
+// Pause before a `network` retry. Without it the retry fired in the SAME millisecond
+// as the failure, which cannot help a transport fault and just doubled the log rows
+// for a deterministic one. One second is enough for a transient socket/DNS blip and
+// stays invisible next to a multi-minute provider call.
+const NETWORK_RETRY_DELAY_MS = 1000;
 const RATE_LIMIT_MAX_DELAY_MS = 30000;
 
 const sleep = (/** @type {number} */ ms) => new Promise((res) => setTimeout(res, ms));
@@ -52,6 +58,11 @@ function logProviderResult(logger, tool, r) {
       ms: r.ms,
       isError: r.isError,
       errorKind: r.isError ? r.errorKind : undefined,
+      // The transport symbol behind a coarse kind (UND_ERR_HEADERS_TIMEOUT / ENOTFOUND
+      // / ECONNRESET). `errorKind` alone made every transport failure look alike, so a
+      // 300s undici ceiling and an instant DNS failure were indistinguishable in the
+      // log - which is the only place provider health is diagnosed.
+      errorCode: r.isError ? r.transportCode : undefined,
       usage: r.isError ? undefined : r.usage,
     });
   } catch { /* logging must never break a call */ }
@@ -114,6 +125,8 @@ async function callProvider(provider, req, logger, tool, cache, orientationFiles
     //   rate-limit - a 429; the upstream told us to come back, so honor Retry-After.
     //   empty      - the provider exited clean but returned a stub, not an answer
     //                (e.g. agy printing only a preamble); cheap to redo.
+    //   upstream   - a 5xx, or a generation the provider itself aborted mid-stream.
+    //                The request was fine; the other side failed.
     // NEVER retry timeout (may have burned tokens / risks the slow-but-good case) or
     // auth/config (won't self-heal). One extra attempt, no exponential backoff.
     if (r.isError && RETRY_ONCE_KINDS.has(r.errorKind)) {
@@ -123,6 +136,7 @@ async function callProvider(provider, req, logger, tool, cache, orientationFiles
       // diagnosed. A retried call therefore emits two provider_result rows.
       logProviderResult(logger, tool, r);
       if (r.errorKind === "rate-limit") await sleep(retryDelayMs(r));
+      else if (r.errorKind === "network") await sleep(NETWORK_RETRY_DELAY_MS);
       r = await askOnce();
     }
   } catch (e) {
@@ -350,8 +364,6 @@ async function runToConvergence(providers, req, opts = {}) {
   /** @type {(string|null)} */
   let stopReason = null;
   let activeProviders = providers;
-  /** @type {Map<string, number>} consecutive-timeout streak per provider name */
-  const timeoutStreak = new Map();
   if (!arbiter) return { converged: false, verdict: null, confidence: "none", rounds: [], opinions: [], error: "no-arbiter" };
 
   let state = loop.initConsensusLoop({
@@ -371,7 +383,9 @@ async function runToConvergence(providers, req, opts = {}) {
       // Budget gates STARTING a round; it never interrupts the in-flight fan-out
       // below, so a legitimately slow peer answer is always collected in full.
       if (maxWallMs !== null && now() - startedAt >= maxWallMs) { stopReason = "budget-exhausted"; break; }
-      if (!activeProviders.length) { stopReason = "all-providers-circuit-broken"; break; }
+      // Distinguish "the breaker emptied the panel" from "there was never a panel" -
+      // the same distinction the host-driven driver makes, so the two agree.
+      if (!activeProviders.length) { stopReason = providers.length ? "all-providers-circuit-broken" : "no-providers"; break; }
       const { peerPrompt, blindPrompt } = loop.prepareRound(state);
       // Blind pass runs concurrently with the peer fan-out; isolate its failure.
       const roundNo = state.round;
@@ -389,13 +403,11 @@ async function runToConvergence(providers, req, opts = {}) {
       );
       state = loop.addOpinions(state, lastResults);
 
-      // Update per-peer timeout streaks from THIS round, then trim the panel for the
-      // next round. A non-timeout result (success or any other error) resets the streak.
-      for (const rr of lastResults) {
-        if (rr.isError && rr.errorKind === "timeout") timeoutStreak.set(rr.source, (timeoutStreak.get(rr.source) || 0) + 1);
-        else timeoutStreak.set(rr.source, 0);
-      }
-      activeProviders = providers.filter((p) => (timeoutStreak.get(p.name) || 0) < CIRCUIT_BREAK_AFTER);
+      // Trim the panel for the next round. `addOpinions` already folded this round's
+      // results into state.errorStreak, so the breaker reads the same state the
+      // host-driven driver does - one rule, two drivers.
+      const tripped = new Set(loop.trippedProviders(state.errorStreak, CIRCUIT_BREAK_AFTER));
+      activeProviders = providers.filter((p) => !tripped.has(p.name));
 
       // Peer dissent => this round CANNOT converge (checkConvergence requires every
       // responding peer to APPROVE), so the revision is GUARANTEED needed: overlap it

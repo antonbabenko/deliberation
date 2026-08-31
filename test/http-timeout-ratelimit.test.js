@@ -156,3 +156,61 @@ test("HT9: an overflowing Retry-After is dropped rather than forwarded as Infini
     (e) => e.status === 429 && e.retryAfterMs === undefined
   );
 });
+
+// --- undici's own ceilings -------------------------------------------------
+// Node's fetch gives up after headersTimeout (300s) waiting for response headers and
+// after bodyTimeout (300s) between chunks, and there is no public API to raise them.
+// Both arrive as a bare `TypeError: fetch failed` whose only signal is `cause.code`.
+// They used to be classified `network` - which callProvider RETRIES - so a provider
+// that merely thought for over five minutes was billed for a second five-minute wait
+// and still failed. They are timeouts, and a timeout is never retried.
+const undiciFailure = (code) => {
+  const e = new TypeError("fetch failed");
+  e.cause = Object.assign(new Error(code), { code });
+  return e;
+};
+
+for (const code of ["UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT"]) {
+  test(`HT10: OpenRouter maps ${code} to timeout, not network`, async () => {
+    await assert.rejects(
+      () => callOpenRouter({
+        apiBase: "http://127.0.0.1:1/v1", apiKey: "k", model: "m",
+        messages: buildMessages([{ role: "user", text: "q" }]),
+        fetchImpl: () => Promise.reject(undiciFailure(code)),
+      }),
+      (e) => e.code === "timeout" && e.transportCode === code
+    );
+  });
+
+  test(`HT11: Grok maps ${code} to timeout, not network`, async () => {
+    await assert.rejects(
+      () => runGrok({
+        turns: [{ role: "user", text: "q" }], apiKey: "k", apiBase: "http://127.0.0.1:1/v1",
+        fetchImpl: () => Promise.reject(undiciFailure(code)),
+      }),
+      (e) => e.code === "timeout" && e.transportCode === code
+    );
+  });
+}
+
+test("HT12: a genuine transport fault stays `network` and carries its cause code", async () => {
+  await assert.rejects(
+    () => callOpenRouter({
+      apiBase: "http://127.0.0.1:1/v1", apiKey: "k", model: "m",
+      messages: buildMessages([{ role: "user", text: "q" }]),
+      fetchImpl: () => Promise.reject(undiciFailure("ECONNRESET")),
+    }),
+    (e) => e.code === "network" && e.transportCode === "ECONNRESET"
+  );
+});
+
+test("HT13: an abort is still a timeout even though it carries no undici cause", async () => {
+  await assert.rejects(
+    () => runGrok({
+      turns: [{ role: "user", text: "q" }], apiKey: "k", apiBase: "http://127.0.0.1:1/v1",
+      timeoutMs: 5000,
+      fetchImpl: () => Promise.reject(Object.assign(new Error("This operation was aborted"), { name: "AbortError" })),
+    }),
+    (e) => e.code === "timeout" && /timed out after 5s/.test(e.message)
+  );
+});

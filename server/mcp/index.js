@@ -852,6 +852,57 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
   }
 
   /**
+   * The loop's wall-clock budget in ms, or null when disabled. The config layer already
+   * defaults it, so this only guards a hand-edited/absent block.
+   * @param {any} cfg
+   * @returns {(number|null)}
+   */
+  function wallBudgetMs(cfg) {
+    const v = cfg && cfg.consensus && cfg.consensus.maxWallMs;
+    return Number.isInteger(v) && v > 0 ? v : null;
+  }
+
+  /**
+   * End a live loop early as `unresolved` with a machine-readable reason. Mirrors the
+   * converged/unresolved terminal paths exactly (atomic take, at-most-one persist) so a
+   * budget or circuit stop is a real terminal transition, not a dangling session the
+   * driver keeps polling.
+   * @param {string} sid
+   * @param {any} state
+   * @param {string} stopReason
+   * @returns {any}
+   */
+  function terminateLoop(sid, state, stopReason) {
+    // This fires from dispatch_peers, i.e. BEFORE the round's fan-out. Two consequences
+    // the naive `{...state, status}` got wrong:
+    //   - `state.results` was reset to [] by the previous round's submitRevision, so the
+    //     persisted record would drop every round that actually ran.
+    //   - `state.round` is the round about to START, so finalize would report one more
+    //     round than completed - disagreeing with the other terminal path on the same data.
+    const history = Array.isArray(state.history) ? state.history : [];
+    const last = history.length ? history[history.length - 1] : null;
+    const results = (Array.isArray(state.results) && state.results.length)
+      ? state.results
+      : (last && Array.isArray(last.results) ? last.results : []);
+    const terminal = {
+      ...state,
+      status: "unresolved",
+      results,
+      round: Math.max(1, history.length || state.round),
+    };
+    const { finalReport, confidence } = loop.finalize(terminal);
+    const taken = loopStore.take(sid);
+    const { id, persisted, errorCode } = taken
+      ? persistConsensusStep(terminal, sid, confidence)
+      : { id: null, persisted: false, errorCode: null };
+    return {
+      sessionId: id || undefined, loopSessionId: sid, persisted,
+      ...(errorCode ? { persistError: errorCode } : {}),
+      status: "unresolved", converged: false, confidence, finalReport, stopReason,
+    };
+  }
+
+  /**
    * Client-driven, host-arbitrated consensus loop - one action per MCP call,
    * LoopState carried in the ephemeral loop store by sessionId. The host model
    * supplies the blind verdict / adjudication / revision (visible in its
@@ -878,7 +929,10 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         // Stash the ORIGINAL prompt so a terminal record's `question` is the original
         // plan, not the final revision (currentPlan is overwritten each round). Rides
         // through every pure-machine transition via spread, like peerPrompt.
-        loopStore.put(sid, { ...entered.state, originalPrompt });
+        // Wall-clock origin for the maxWallMs budget. The host-driven loop is a series
+        // of stateless calls, so unlike runToConvergence there is no enclosing scope to
+        // hold it - it rides the stored state like peerPrompt/originalPrompt.
+        loopStore.put(sid, { ...entered.state, originalPrompt, startedAt: Date.now() });
         return { sessionId: sid, status: entered.state.status, round: entered.state.round, blindPrompt: entered.blindPrompt, note: "write your blind verdict, then call record_blind" };
       }
 
@@ -907,7 +961,32 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         const peerPrompt = cur.peerPrompt || cur.currentPlan || "";
         // One resolved expert for selection, persona, and the request - consistent.
         const ex = cur.expert || expert || undefined;
-        const { providers: selected } = registry.selectForConsensus({ config: getConfig() || {}, expert: ex || "" });
+        const { providers: candidates } = registry.selectForConsensus({ config: getConfig() || {}, expert: ex || "" });
+        // Circuit breaker. selectForConsensus re-reads config every round and has no
+        // memory, so without this a peer that has failed every round is re-dispatched
+        // every round - paying its full ceiling to contribute nothing. The streak is
+        // folded in by loop.addOpinions, the same state the provider-arbiter driver
+        // reads, so both paths break the circuit on the same rule.
+        // Intersect with THIS round's candidates: a peer that tripped earlier and has
+        // since left the config is not "dropped by the breaker", and letting a stale
+        // name keep `dropped` non-empty made every later empty panel look circuit-broken.
+        const trippedSet = new Set(loop.trippedProviders(cur.errorStreak, loop.CIRCUIT_BREAK_AFTER));
+        const dropped = candidates.filter((p) => trippedSet.has(p.name)).map((p) => p.name);
+        const selected = candidates.filter((p) => !trippedSet.has(p.name));
+        // A dropped peer's streak never decays (it is no longer dispatched), so `dropped`
+        // is identical on every later round. Announce only what is newly dropped - the
+        // server holds this state, so the docs' "report it once" must not be the model's job.
+        const announced = Array.isArray(cur.announcedDropped) ? cur.announcedDropped : [];
+        const newlyDropped = dropped.filter((name) => !announced.includes(name));
+        // Budget gate. Like runToConvergence this gates STARTING a fan-out and never
+        // interrupts one in flight, so a slow-but-good answer is always collected.
+        const budgetMs = wallBudgetMs(getConfig());
+        if (budgetMs !== null && typeof cur.startedAt === "number" && Date.now() - cur.startedAt >= budgetMs) {
+          return terminateLoop(sid, cur, "budget-exhausted");
+        }
+        // Only claim the breaker when it is actually why the panel is empty; a config
+        // with no eligible providers is a different problem and must say so.
+        if (!selected.length) return terminateLoop(sid, cur, dropped.length ? "all-providers-circuit-broken" : "no-providers");
         /** @type {DelegationRequest} */
         const peerReq = { prompt: peerPrompt, expert: ex, cwd: typeof args.cwd === "string" ? args.cwd : undefined };
         const lg = currentLogger();
@@ -922,7 +1001,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
             : { ...parseReview(typeof r.text === "string" ? r.text : ""), source: r.provider, isError: false, text: typeof r.text === "string" ? r.text : undefined, model: r.model, reasoningEffort: r.reasoningEffort ?? null, ms: r.ms }
         );
         const next = loop.addOpinions(cur, results);
-        loopStore.put(sid, next);
+        loopStore.put(sid, { ...next, announcedDropped: announced.concat(newlyDropped) });
         return {
           sessionId: sid,
           status: next.status,
@@ -930,6 +1009,9 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
           // model + reasoningEffort + ms ride along so the command can show real
           // reasoning effort per voice (no more hardcoded "n/a") and a time footer.
           opinions: results.map((r) => ({ source: r.source, isError: r.isError, errorKind: r.errorKind, verdict: r.verdict, criticalIssues: r.criticalIssues, model: r.model, reasoningEffort: r.reasoningEffort, ms: r.ms })),
+          // Peers the breaker has removed. Reported so the panel can say so ONCE
+          // instead of relisting them as ERRORED every round.
+          ...(newlyDropped.length ? { droppedProviders: newlyDropped } : {}),
           note: "adjudicate the opinions, then call submit_adjudication with your verdict + per-issue decisions",
         };
       }
@@ -972,7 +1054,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         // Re-stash originalPrompt EXPLICITLY across the revision loop-back (defensive,
         // mirrors the peerPrompt pin in record_blind) so a future pure-machine refactor
         // can't silently drop it and persist a revised plan as `question`.
-        loopStore.put(sid, { ...entered.state, originalPrompt: cur.originalPrompt });
+        loopStore.put(sid, { ...entered.state, originalPrompt: cur.originalPrompt, startedAt: cur.startedAt });
         return { sessionId: sid, status: entered.state.status, round: entered.state.round, blindPrompt: entered.blindPrompt, note: "next round - write your blind verdict, then call record_blind" };
       }
 

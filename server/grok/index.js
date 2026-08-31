@@ -75,7 +75,7 @@ function configuredTimeout() {
   const t = grokConfigBlock().timeout;
   return typeof t === "number" && t > 0 ? t : undefined;
 }
-const { parseRetryAfterMs } = require("../../core/provider.js");
+const { parseRetryAfterMs, fetchFailureError } = require("../../core/provider.js");
 
 const DEFAULT_API_BASE = process.env.XAI_API_BASE || "https://api.x.ai/v1";
 const DEFAULT_TIMEOUT_MS = 180_000; // 3 minutes
@@ -263,6 +263,7 @@ function classifyGrokError(status, errCode) {
     case "unknown-thread":  return { errorKind: "unknown-thread",  retryable: false };
     case "timeout":         return { errorKind: "timeout",         retryable: true };
     case "network":         return { errorKind: "network",         retryable: true };
+    case "upstream":        return { errorKind: "upstream",        retryable: true };
     case "empty":           return { errorKind: "empty",           retryable: true };
     case "parse":           return { errorKind: "parse",           retryable: false };
     case "file-too-large":  return { errorKind: "file-too-large",  retryable: false };
@@ -676,9 +677,17 @@ async function resolveFiles(files, opts) {
 
 // --- xAI Responses API Call ---
 
+
+// --- Streaming ------------------------------------------------------------
+// The bridge streams because undici's 300s headersTimeout is not raisable and xAI sends
+// nothing until a non-streaming answer is complete - see server/grok/stream.js for the
+// full reasoning. Framing lives in core/sse.js; xAI event semantics in ./stream.js.
+const STREAM_ENABLED = process.env.GROK_STREAM !== "0";
+const { readResponsesStream } = require("./stream.js");
+
 // One /v1/responses call returning the assistant text. Errors carry `.code`
 // and/or `.status`. `fetchImpl` is injectable for tests.
-async function runGrok({ turns, model, timeoutMs, apiKey, apiBase, fetchImpl, reasoningEffort }) {
+async function runGrok({ turns, model, timeoutMs, apiKey, apiBase, fetchImpl, reasoningEffort, forceNoStream }) {
   if (!isNonEmptyString(apiKey)) {
     const e = new Error("XAI_API_KEY is not set. Export it (export XAI_API_KEY=xai-...) or rerun /deliberation:setup.");
     e.code = "missing-auth";
@@ -694,7 +703,10 @@ async function runGrok({ turns, model, timeoutMs, apiKey, apiBase, fetchImpl, re
   const base = (apiBase || DEFAULT_API_BASE).replace(/\/+$/, "");
   const url = `${base}/responses`;
   // Precedence: per-call model > providers.grok.model > GROK_DEFAULT_MODEL > built-in.
-  const payload = { model: model || configuredModel() || DEFAULT_MODEL, input: turnsToInput(turns), stream: false };
+  // `forceNoStream` is the ONE-SHOT fallback re-entry (see the stream branch below);
+  // it can never recurse, because the second call takes the non-streaming path.
+  const wantStream = STREAM_ENABLED && !forceNoStream;
+  const payload = { model: model || configuredModel() || DEFAULT_MODEL, input: turnsToInput(turns), stream: wantStream };
   if (isNonEmptyString(reasoningEffort)) payload.reasoning_effort = reasoningEffort;
   const t = (typeof timeoutMs === "number" && timeoutMs > 0) ? timeoutMs : DEFAULT_TIMEOUT_MS;
   const controller = new AbortController();
@@ -703,7 +715,7 @@ async function runGrok({ turns, model, timeoutMs, apiKey, apiBase, fetchImpl, re
   // The timer stays armed until the BODY is read, not just the headers. Clearing it at
   // the end of the fetch left `res.text()` unbounded, so a slow body could run far past
   // the ceiling that sibling calls died on.
-  let res, bodyText = "";
+  let res, bodyText = "", streamed = null;
   try {
     res = await f(url, {
       method: "POST",
@@ -715,28 +727,27 @@ async function runGrok({ turns, model, timeoutMs, apiKey, apiBase, fetchImpl, re
       signal: controller.signal,
       redirect: "error",
     });
-    try { bodyText = await res.text(); } catch (bodyErr) {
-      // An abort DURING the body read is still a timeout, not a network fault.
-      const bmsg = String((bodyErr && bodyErr.message) || bodyErr);
-      if ((bodyErr && bodyErr.name === "AbortError") || /abort/i.test(bmsg)) throw bodyErr;
-      // A mid-body socket failure on an OK status (e.g. "TypeError: terminated") must
-      // surface as `network` (retryable). Swallowing it left an empty body that then
-      // failed JSON.parse as `parse` - non-retryable, so the retry never ran.
-      if (res.ok) throw bodyErr;
-      // On an error status the body is only diagnostic; keep the status and report empty.
-      bodyText = "";
+    // Read as SSE only when the server actually SAID so. An error status carries a
+    // plain JSON body even on a streaming request, and an upstream that ignores
+    // `stream:true` must still work - so branch on Content-Type, not on the request.
+    const isSse = /text\/event-stream/i.test((res.headers && res.headers.get("content-type")) || "");
+    if (wantStream && res.ok && isSse && res.body) {
+      streamed = await readResponsesStream(res.body);
+    } else {
+      try { bodyText = await res.text(); } catch (bodyErr) {
+        // An abort DURING the body read is still a timeout, not a network fault.
+        const bmsg = String((bodyErr && bodyErr.message) || bodyErr);
+        if ((bodyErr && bodyErr.name === "AbortError") || /abort/i.test(bmsg)) throw bodyErr;
+        // A mid-body socket failure on an OK status (e.g. "TypeError: terminated") must
+        // surface as `network` (retryable). Swallowing it left an empty body that then
+        // failed JSON.parse as `parse` - non-retryable, so the retry never ran.
+        if (res.ok) throw bodyErr;
+        // On an error status the body is only diagnostic; keep the status and report empty.
+        bodyText = "";
+      }
     }
   } catch (err) {
-    const name = err && err.name;
-    const msg = String((err && err.message) || err);
-    if (name === "AbortError" || /abort/i.test(msg)) {
-      const e = new Error(`Grok timed out after ${Math.round(t / 1000)}s`);
-      e.code = "timeout";
-      throw e;
-    }
-    const e = new Error(`Network error: ${msg}`);
-    e.code = "network";
-    throw e;
+    throw fetchFailureError("Grok", err, t);
   } finally {
     clearTimeout(timer);
   }
@@ -748,14 +759,56 @@ async function runGrok({ turns, model, timeoutMs, apiKey, apiBase, fetchImpl, re
     throw e;
   }
 
-  let data;
-  try { data = JSON.parse(bodyText); }
-  catch (e2) {
-    const e = new Error(`Parse error: invalid JSON body: ${e2.message}`);
-    e.code = "parse";
-    throw e;
+  let data, text;
+  if (streamed) {
+    if (streamed.failure) {
+      const e = new Error(`xAI stream failed: ${truncate(JSON.stringify(streamed.failure), 300)}`);
+      // An aborted generation is the upstream's problem, not the request's - worth the
+      // one retry `upstream` gets, unlike a parse error.
+      e.code = "upstream";
+      throw e;
+    }
+    const trimmedDeltas = streamed.deltas.trim();
+    // A stream we did not UNDERSTAND is a different failure from a stream that carried
+    // no answer, and it is the one real hazard of streaming by default: if the event
+    // vocabulary ever changes, every call would fail. Retry once without streaming so a
+    // contract drift degrades to the old behavior instead of taking Grok offline (and,
+    // inside /consensus, silently getting it dropped by the circuit breaker).
+    if (!streamed.sawEvent && !streamed.final && !trimmedDeltas) {
+      return await runGrok({ turns, model, timeoutMs, apiKey, apiBase, fetchImpl, reasoningEffort, forceNoStream: true });
+    }
+    // Whitespace-only deltas are `empty` (retryable), never `parse`: the shape was fine,
+    // the content was missing. Truthiness alone let "   " through to the parser, which
+    // rejected it as a non-retryable parse error.
+    if (!streamed.final && !trimmedDeltas) {
+      const e = new Error("Grok returned an empty stream (no output and no completion event)");
+      e.code = "empty";
+      throw e;
+    }
+    // The terminal object carries the same shape a non-streaming call returns, so the
+    // parser/usage/output path below is untouched. But it is only PREFERRED, not
+    // trusted: a completion event whose output we cannot read must not discard the
+    // answer already accumulated in the deltas.
+    if (streamed.final) {
+      data = streamed.final;
+      try { text = parseResponsesOutput(data); } catch (e2) {
+        if (!trimmedDeltas) throw e2;
+        data = { output_text: streamed.deltas };
+        text = parseResponsesOutput(data);
+      }
+    } else {
+      data = { output_text: streamed.deltas };
+      text = parseResponsesOutput(data);
+    }
+  } else {
+    try { data = JSON.parse(bodyText); }
+    catch (e2) {
+      const e = new Error(`Parse error: invalid JSON body: ${e2.message}`);
+      e.code = "parse";
+      throw e;
+    }
+    text = parseResponsesOutput(data);
   }
-  const text = parseResponsesOutput(data);
   const stub = stubReason(text);
   if (stub) {
     const e = new Error(`Grok returned a stub, not an answer (${stub}): ${truncate(text.trim(), 200)}`);

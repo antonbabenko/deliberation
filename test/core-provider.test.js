@@ -4,6 +4,7 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const {
   toErrorResult,
+  classifyFetchFailure,
   OPINION_SCHEMA,
   validateOpinion,
   parseOpinion,
@@ -236,4 +237,32 @@ test("RA4: toErrorResult forwards retryAfterMs and omits it when absent", () => 
   assert.equal(withHint.retryAfterMs, 4000);
   const without = toErrorResult("grok", "m", Date.now(), { status: 429 }, classify);
   assert.ok(!("retryAfterMs" in without), "absent hint adds no key");
+});
+
+// --- fetch failure classification -----------------------------------------
+
+test("FF1: a wrapped abort (TypeError: terminated + cause AbortError) is a timeout", () => {
+  // undici does NOT always reject with the AbortError itself: when the controller fires
+  // during the body/stream read it rejects with `TypeError: terminated` whose `cause` is
+  // a DOMException named AbortError. Classifying that as `network` makes it RETRYABLE,
+  // so the call pays a second full ceiling - the exact double-billing the timeout
+  // classification exists to prevent.
+  const e = new TypeError("terminated");
+  e.cause = new DOMException("This operation was aborted", "AbortError");
+  assert.deepEqual(classifyFetchFailure(e), { code: "timeout", transportCode: "AbortError" });
+});
+
+test("FF2: a DOMException's numeric legacy `code` never leaks as the transport code", () => {
+  const e = new TypeError("terminated");
+  e.cause = new DOMException("aborted", "AbortError");
+  assert.equal(/** @type {any} */ (e.cause).code, 20, "the legacy numeric code is present and must be skipped");
+  assert.equal(classifyFetchFailure(e).transportCode, "AbortError");
+});
+
+test("FF3: undici ceilings are timeouts; a real transport fault stays network", () => {
+  const undici = (/** @type {string} */ code) => Object.assign(new TypeError("fetch failed"), { cause: Object.assign(new Error(code), { code }) });
+  assert.equal(classifyFetchFailure(undici("UND_ERR_HEADERS_TIMEOUT")).code, "timeout");
+  assert.equal(classifyFetchFailure(undici("UND_ERR_BODY_TIMEOUT")).code, "timeout");
+  assert.equal(classifyFetchFailure(undici("ECONNRESET")).code, "network");
+  assert.equal(classifyFetchFailure(undici("ENOTFOUND")).transportCode, "ENOTFOUND");
 });

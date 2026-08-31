@@ -14,7 +14,7 @@
 const DEFAULT_TIMEOUT_MS = 180_000;
 const MAX_MS = 600_000;
 
-const { parseRetryAfterMs } = require("../../core/provider.js");
+const { parseRetryAfterMs, fetchFailureError } = require("../../core/provider.js");
 
 function isNonEmptyString(v) { return typeof v === "string" && v.trim().length > 0; }
 function truncate(s, n) { s = String(s == null ? "" : s); return s.length > n ? s.slice(0, n) + "..." : s; }
@@ -99,9 +99,7 @@ async function callOpenRouter({ apiBase, apiKey, model, messages, reasoningEffor
       bodyText = "";
     }
   } catch (err) {
-    const msg = String((err && err.message) || err);
-    if ((err && err.name === "AbortError") || /abort/i.test(msg)) { const e = new Error(`OpenRouter timed out after ${Math.round(t / 1000)}s`); e.code = "timeout"; throw e; }
-    const e = new Error(`Network error: ${msg}`); e.code = "network"; throw e;
+    throw fetchFailureError("OpenRouter", err, t);
   } finally { clearTimeout(timer); }
 
   if (!res.ok) {

@@ -183,7 +183,9 @@ omitted. Uploaded files are SHA-256 dedup-cached locally and carry an
 (`list` / `prune` / `gc`). See [Grok files and cleanup](#grok-files-and-cleanup).
 
 The bridge default model is `grok-4.6`. It needs `XAI_API_KEY` in its environment;
-a missing key surfaces `errorKind: "missing-auth"`.
+a missing key surfaces `errorKind: "missing-auth"`. Replies are read as a **stream**,
+which is what makes a configured timeout above 300s reachable at all - see
+[Grok streaming](#grok-streaming).
 
 ## Implementation mode (core capability)
 
@@ -248,6 +250,7 @@ This is the single source of truth for the bridge environment variables.
 | `GROK_REASONING_EFFORT` | Grok | `high` | `low`/`medium`/`high`; `none` or `off` omits the field. Overridden by `providers.grok.reasoningEffort` |
 | `GROK_FILE_TTL_SECONDS` | Grok | `604800` (7 days) | Upload lifetime, clamped 1h..30d |
 | `GROK_UPLOAD_TIMEOUT_MS` | Grok | `120000` | Ceiling for one Files API upload (separate from the answer timeout). `0` disables it |
+| `GROK_STREAM` | Grok | unset (streaming on) | `0` forces the legacy non-streaming request, which reinstates undici's 300s transport ceiling (see [Grok streaming](#grok-streaming)) |
 | `GROK_MIN_ANSWER_CHARS` | Grok | `80` | Minimum trimmed answer length; shorter text, or a reply under 400 chars that only announces intent ("I'll verify the cited files..."), fails as `empty` (see [Answer floor](#answer-floor-gemini-grok)). `0` disables both checks |
 | `DELIBERATION_SESSIONS` | sessions | `<XDG cache>/deliberation/sessions` | Override the session store directory (see [Session persistence](#session-persistence)) |
 | `CODEX_BIN` | Codex | `codex` | Override the path to the `codex` binary (see [Windows CLI resolution](#windows-cli-resolution)) |
@@ -387,6 +390,13 @@ HTTP token `usage`, and consensus round/verdict/converged/accepted-issue COUNT. 
 `ALLOWED_KEYS` whitelist is applied on every write, so prompts, responses, and free-text
 issue descriptions can never land in the file. Off by default; nothing is written unless
 `enabled`.
+
+A failed call also records `errorCode`: the low-level transport cause behind the coarse
+`errorKind`, taken from the rejection's `cause.code` (`UND_ERR_HEADERS_TIMEOUT`,
+`ENOTFOUND`, `ECONNRESET`, ...). Without it `network` conflated a DNS failure, a socket
+reset, undici's own header ceiling and a local throw - four different fixes behind one
+label - in the only place provider health is actually diagnosed. It is a bare errno /
+undici symbol, never a message, so it is content-free like every other logged key.
 
 ### In-session result cache
 
@@ -971,18 +981,59 @@ for the kinds that actually self-heal:
 
 | errorKind | Retried | Pause before the retry |
 |-----------|---------|------------------------|
-| `network` | yes | none - a pre-response transport failure sent no bytes |
+| `network` | yes | 1s - retrying in the same millisecond cannot help a transport fault, and just doubles the log rows for a deterministic one |
 | `rate-limit` | yes | the response's `Retry-After` (delta-seconds or HTTP-date), else 2s; clamped to 30s so a hostile hint cannot stall a fan-out |
 | `empty` | yes | none - a stub answer is cheap to redo |
+| `upstream` | yes | none - a 5xx, or a generation the provider itself aborted; the request was fine |
 | everything else | no | - |
 
 `timeout` is deliberately **not** retried: the call may already have burned tokens, and
 a slow-but-good answer would be thrown away. `auth` / `config` / `parse` do not self-heal.
 There is no exponential backoff and no second retry.
 
-Independently, the consensus loop circuit-breaks a peer after 2 **consecutive** rounds of
-`timeout` (`CIRCUIT_BREAK_AFTER`), dropping it from later rounds so one chronically slow
-model cannot add its full ceiling to every round.
+### Circuit breaker
+
+The consensus loop drops a peer after `CIRCUIT_BREAK_AFTER` (2) **consecutive failed
+rounds**, so one broken model cannot add its full per-call ceiling to every round. Any
+success resets the streak; a peer that is not dispatched keeps its streak (not being
+asked is not recovering).
+
+Two things about it are easy to get wrong, so they are pinned here:
+
+- **Every error kind counts**, not just `timeout`. The original condition counted
+  timeouts alone, so a peer failing every round with `network` - e.g. a transport
+  ceiling it can never beat - stayed on the panel forever.
+- **Both drivers share one rule.** The streak lives on `LoopState.errorStreak` in
+  `core/consensus-loop.js` (`updateErrorStreak` / `trippedProviders`), folded in by
+  `addOpinions`. The provider-arbiter driver (`runToConvergence`) and the host-driven
+  one (`consensus-step`) both read it. Previously only the former had a breaker at all,
+  which is exactly the path the `/consensus` command does **not** use.
+
+`consensus-step` reports removals as `droppedProviders[]` on the `dispatch_peers` reply.
+Only the NEWLY dropped are listed: a dropped peer's streak never decays, so the full
+tripped set is identical on every later round, and the server (not the host model)
+tracks what it has already announced. The set is also intersected with the round's
+actual candidates, so a peer that tripped earlier and has since left the config is not
+reported and does not keep `dropped` artificially non-empty.
+
+If every peer is dropped, the call returns a terminal `status: "unresolved"` with
+`stopReason: "all-providers-circuit-broken"` rather than looping on an empty fan-out. A
+panel that is empty because the config has no eligible providers reports `no-providers`
+instead - both drivers make that distinction.
+
+A terminal stop from `dispatch_peers` happens BEFORE the round's fan-out, so the record
+it persists takes the last COMPLETED round's opinions from `history` (the live
+`results` were reset by the previous `submitRevision`) and reports the number of rounds
+that finished, not the one about to start.
+
+### Wall-clock budget
+
+`consensus.maxWallMs` (default 1 200 000 ms, 20 min) bounds a whole loop. It gates
+**starting** a round and never interrupts a fan-out already in flight, so a legitimately
+slow answer is always collected in full. On exhaustion the loop stops with
+`stopReason: "budget-exhausted"`. It applies to both drivers; `consensus-step` carries
+the start time on its stored state, since it is a series of stateless calls with no
+enclosing scope to hold it.
 
 ### Timeouts
 
@@ -993,6 +1044,23 @@ Every provider call is bounded. The ceiling resolves highest-first:
 3. `providers.<name>.timeout` - for OpenRouter this is `providers.openrouter.defaults.timeout`
 4. `providers.defaults.timeout` - one knob for every provider
 5. the adapter's built-in default: codex 600000, gemini 300000, grok 180000, openrouter 180000
+
+**The transport has its own ceiling.** Node's `fetch` (undici) gives up after 300s
+waiting for response headers (`headersTimeout`) and after 300s between body chunks
+(`bodyTimeout`), and there is no public API to raise either. A configured timeout above
+300s is therefore only reachable while bytes are actually flowing - which is why the
+Grok bridge streams (see [Grok streaming](#grok-streaming)) and why OpenRouter survives
+past 300s (its API emits processing keepalives). Both ceilings arrive as a bare
+`TypeError: fetch failed` and are classified `timeout` (never retried) with
+`transportCode` `UND_ERR_HEADERS_TIMEOUT` / `UND_ERR_BODY_TIMEOUT`; before that they
+read as `network`, so a provider that merely thought for over five minutes was retried
+into a second five-minute wait and still failed.
+
+An abort reaches the classifier in two shapes and both must count as `timeout`: the
+`AbortError` itself, and the WRAPPED form undici produces when the controller fires
+during the body read - `TypeError: terminated` whose `cause` is a DOMException named
+`AbortError`, where neither the name nor the message mentions aborting. Missing the
+wrapped shape puts the bridge's OWN ceiling back in the retryable `network` bucket.
 
 Levels 3 and 4 are read once at MCP startup (constructor args, like `model` and
 `reasoningEffort`), so a change needs an MCP restart; the `models` map still hot-reloads.
@@ -1017,6 +1085,54 @@ Two things the ceiling covers that are easy to get wrong:
 
 Grok's Files API upload is bounded separately by `GROK_UPLOAD_TIMEOUT_MS` (default 120000,
 `0` disables it) - an upload is a fixed-size transfer, not a model run.
+
+### Grok streaming
+
+The Grok bridge posts `stream: true` to `/v1/responses` and reads the reply as SSE.
+
+The reason is the transport ceiling above, not progress reporting. xAI sends **nothing**
+until a non-streaming answer is complete, so any `grok-4.6` call that thought for more
+than five minutes was killed by undici's 300s `headersTimeout`, surfaced as a bare
+`TypeError: fetch failed`, and was then classified `network` - retryable - so the call
+was billed for a second five-minute wait before failing anyway. `providers.grok.timeout`
+above 300 000 could never be reached. Streaming puts the first byte on the wire in
+seconds and every chunk resets the body timeout, so the bridge's own `AbortController`
+becomes the real ceiling.
+
+How the reply is consumed:
+
+Framing lives in `core/sse.js` (provider-agnostic: split frames, return
+`{event, data}`) and the xAI event semantics in `server/grok/stream.js`. The split is
+deliberate - OpenRouter is still non-streaming and subject to the same ceiling, so the
+transport half is written once rather than copied when it streams.
+
+- The bridge branches on the **response** `Content-Type`, not on the request. An
+  upstream free to ignore `stream: true` still works, and an error status (which carries
+  a plain JSON body even on a streaming request) takes the existing diagnostic path.
+- Frames split on a blank line with **any** of the spec's line endings (LF, CRLF, CR).
+  Splitting on `"\n\n"` alone never matched a CRLF stream at all: the buffer grew to
+  hold the whole response and the end-of-stream flush handed every concatenated payload
+  to one JSON parse, turning a good answer into an empty stream.
+- The event name is read from the JSON payload's `type` when present and from the SSE
+  `event:` line otherwise, so a server that names events the spec's way is understood.
+- `response.completed` carries the same object a non-streaming call returns, so the
+  parser, `usage` normalization, and the `output` capture that `grok-reply` replays are
+  unchanged. It is PREFERRED, not trusted: if its output cannot be parsed, the answer
+  accumulated in the `response.output_text.delta` chunks is used instead of throwing.
+- `response.incomplete` is a TRUNCATED answer (max tokens, content filter), not a
+  failure - the non-streaming path returned its partial output, and discarding it would
+  throw away work already paid for. Only `response.failed` and `error` become `upstream`
+  (retryable): an aborted generation is the upstream's problem, not a malformed reply.
+- A clean stream carrying no output at all is `empty` (retryable), never `parse`: the
+  shape was fine, the content was missing. Whitespace-only output counts as none. The
+  [answer floor](#answer-floor-gemini-grok) applies to the assembled text as before.
+- A stream carrying no event we RECOGNIZE is a different failure from one carrying no
+  answer, and it is the real hazard of streaming by default. The bridge retries that
+  case exactly once with `stream: false`, so a drift in the event vocabulary degrades to
+  the old behavior instead of taking Grok offline (and, inside `/consensus`, getting it
+  circuit-broken off the panel). The fallback cannot recurse.
+- Set `GROK_STREAM=0` to force the non-streaming request outright. That reinstates the
+  300s ceiling, so use it only to isolate a suspected streaming problem.
 
 ### Answer floor (Gemini, Grok)
 

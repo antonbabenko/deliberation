@@ -259,6 +259,8 @@ The `/ask-*` commands carry a lighter version of the same rule. The external mod
 
 The loop converges when at least one responding external approves, none reject, zero critical issues remain accepted, and Claude adjudicates APPROVE - so Claude cannot self-approve. It otherwise stops at `consensus.maxRounds` (default 5, configurable) as `unresolved`. The confidence label reflects how fast it settled (round 1 = high, 2-3 = medium, 4-5 = low).
 
+A round only pays for voices that can still answer: a peer that fails 2 rounds running is dropped from the panel (reported once as `droppedProviders`, then never dispatched again), and the whole loop stops at `consensus.maxWallMs` (default 20 min) rather than starting another round. Both apply on every driver. See [TECHNICAL.md](TECHNICAL.md#circuit-breaker).
+
 The same engine backs the entry points other hosts use: the `consensus` tool (runs the whole loop server-side in one call with a provider arbiter, or a single synthesis pass with `synthesizeAlways:true`) and `consensus-step` (drive it yourself, one action per call). See [TECHNICAL.md](TECHNICAL.md#consensus-flow-details) for the taxonomy and the engine contract.
 
 > An earlier revision ran an extra "Stage 2" anonymized peer cross-review (each model scoring the others' answers blind, adapted from [karpathy/llm-council](https://github.com/karpathy/llm-council)). The engine-driven rewrite removed it to keep one source of truth; it may return as an engine feature.

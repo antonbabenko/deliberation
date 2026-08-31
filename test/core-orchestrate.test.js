@@ -408,3 +408,56 @@ test("RT7: a call that does NOT retry still logs exactly one row", async () => {
   await askOne(p, { prompt: "x" }, { logger, tool: "ask-one" });
   assert.equal(events.filter((e) => e.event === "provider_result").length, 1);
 });
+
+// --- transport observability + retry pacing --------------------------------
+
+test("ORX-retry-4: a network retry waits before firing again", async () => {
+  // Retrying in the SAME millisecond cannot help a transport fault; it only doubled the
+  // log rows for a deterministic one. The pause is what makes the second attempt mean
+  // something. Asserted as a lower bound so a slow machine cannot flake it.
+  const p = scriptedProvider("p", [ERR("network"), OK()]);
+  const started = Date.now();
+  const r = await askOneT(p, { prompt: "x" });
+  assert.equal(r.isError, false);
+  assert.equal(p.calls, 2);
+  assert.ok(Date.now() - started >= 900, `expected a pause before the retry, got ${Date.now() - started}ms`);
+});
+
+test("ORX-retry-5: a rate-limit retry still honors Retry-After, not the network pause", async () => {
+  const p = scriptedProvider("p", [{ ...ERR("rate-limit"), retryAfterMs: 0 }, OK()]);
+  const started = Date.now();
+  await askOneT(p, { prompt: "x" });
+  assert.equal(p.calls, 2);
+  assert.ok(Date.now() - started < 900, "an explicit Retry-After of 0 must not pick up the network pause");
+});
+
+test("ORX-log-1: provider_result logs the transport cause code behind a coarse kind", async () => {
+  // errorKind alone made a 300s undici ceiling and an instant DNS failure look
+  // identical in the only place provider health is diagnosed.
+  /** @type {any[]} */
+  const events = [];
+  const logger = { logEvent: (/** @type {any} */ e) => events.push(e) };
+  const p = scriptedProvider("p", [{ ...ERR("timeout"), transportCode: "UND_ERR_HEADERS_TIMEOUT" }]);
+  await askOneT(p, { prompt: "x" }, { logger, tool: "ask-one" });
+  const rows = events.filter((e) => e.event === "provider_result");
+  assert.equal(rows.length, 1, "a timeout is not retried, so it logs exactly one row");
+  assert.equal(rows[0].errorCode, "UND_ERR_HEADERS_TIMEOUT");
+});
+
+test("ORX-log-2: a successful result carries no errorCode", async () => {
+  /** @type {any[]} */
+  const events = [];
+  const logger = { logEvent: (/** @type {any} */ e) => events.push(e) };
+  await askOneT(scriptedProvider("p", [OK()]), { prompt: "x" }, { logger, tool: "ask-one" });
+  assert.equal(events.filter((e) => e.event === "provider_result")[0].errorCode, undefined);
+});
+
+test("ORX-retry-6: `upstream` is retried once, matching what the bridges advertise", async () => {
+  // classifyGrokError returns retryable:true for `upstream` and the docs said so in three
+  // places, but the retry set did not agree - so a transient 5xx or an aborted generation
+  // failed the round outright with no second attempt.
+  const p = scriptedProvider("p", [ERR("upstream"), OK()]);
+  const r = await askOneT(p, { prompt: "x" });
+  assert.equal(r.isError, false);
+  assert.equal(p.calls, 2);
+});

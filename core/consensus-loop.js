@@ -18,6 +18,11 @@
  */
 
 const MAX_ROUNDS_DEFAULT = 5;
+// Consecutive FAILED rounds after which a peer is dropped from the panel. A provider
+// that has errored twice running is not having a bad moment - re-dispatching it just
+// re-bills its ceiling every round while contributing no opinion. Lives here rather
+// than in a driver because both drivers must break the circuit identically.
+const CIRCUIT_BREAK_AFTER = 2;
 /** Closed verdict set a peer/host review can carry. */
 const VERDICTS = Object.freeze(["APPROVE", "REQUEST_CHANGES", "REJECT"]);
 
@@ -92,6 +97,8 @@ const REVIEW_FORMAT_INSTRUCTION =
  * @property {Decision[]} [decisions]
  * @property {(HostVerdict|null)} [hostVerdict]
  * @property {RoundRecord[]} history
+ * @property {Record<string, number>} [errorStreak]  consecutive failed rounds per peer
+ *   `source`. Drives the circuit breaker; reset to 0 by any non-error result.
  */
 
 /** Throw a clear status-guard error so a driver can recover (expected vs got). */
@@ -121,6 +128,7 @@ function initConsensusLoop(opts) {
     decisions: [],
     hostVerdict: null,
     history: [],
+    errorStreak: {},
   };
 }
 
@@ -173,7 +181,40 @@ function recordBlindVerdict(state, blindVerdict) {
 }
 
 /**
- * Attach the round's peer reviews.
+ * Fold ONE round's results into the per-peer consecutive-failure streak. Any error
+ * increments; any success resets to 0. Kinds are deliberately not distinguished - the
+ * original breaker counted only `timeout`, so a provider failing every round with
+ * `network` (e.g. a transport ceiling it can never beat) was never dropped.
+ *
+ * A peer absent from `results` keeps its streak: once dropped it is no longer
+ * dispatched, so it would otherwise silently "recover" by not being asked.
+ * @param {Record<string, number>} [prev]
+ * @param {ReviewResult[]} [results]
+ * @returns {Record<string, number>}
+ */
+function updateErrorStreak(prev, results) {
+  const next = { ...(prev || {}) };
+  for (const r of results || []) {
+    if (!r || typeof r.source !== "string") continue;
+    next[r.source] = r.isError ? (next[r.source] || 0) + 1 : 0;
+  }
+  return next;
+}
+
+/**
+ * Peers whose streak has reached the cap, i.e. those the next round must not dispatch.
+ * @param {Record<string, number>} [streak]
+ * @param {number} [cap]
+ * @returns {string[]}
+ */
+function trippedProviders(streak, cap) {
+  const limit = Number.isInteger(cap) && /** @type {number} */ (cap) > 0 ? /** @type {number} */ (cap) : CIRCUIT_BREAK_AFTER;
+  return Object.keys(streak || {}).filter((name) => (streak || {})[name] >= limit);
+}
+
+/**
+ * Attach the round's peer reviews, and fold them into the circuit-breaker streak so
+ * both drivers trim the panel from the same state.
  * @param {LoopState} state
  * @param {ReviewResult[]} results
  * @returns {LoopState}
@@ -183,7 +224,12 @@ function addOpinions(state, results) {
   // Copy the array AND each element so later caller mutation cannot corrupt
   // stored state or history (the pure-machine contract).
   const owned = Array.isArray(results) ? results.map((r) => ({ ...r })) : [];
-  return { ...state, results: owned, status: "await_adjudication" };
+  return {
+    ...state,
+    results: owned,
+    errorStreak: updateErrorStreak(state.errorStreak, owned),
+    status: "await_adjudication",
+  };
 }
 
 /**
@@ -307,6 +353,9 @@ function finalize(state) {
 
 module.exports = {
   MAX_ROUNDS_DEFAULT,
+  CIRCUIT_BREAK_AFTER,
+  updateErrorStreak,
+  trippedProviders,
   VERDICTS,
   initConsensusLoop,
   prepareRound,

@@ -42,6 +42,12 @@ Fan-out and single-provider:
   `submit_adjudication` (your verdict + per-issue accept/dismiss/defer, each dismiss
   needs a reason) -> `submit_revision` (your revised plan), looping until converged
   or the round cap. State is held server-side by `sessionId` (ephemeral).
+  `dispatch_peers` may report `droppedProviders[]` - peers the circuit breaker removed
+  after 2 consecutive failed rounds, so they are no longer dispatched or billed; print
+  them once, and stop listing them as errored. It can also return a TERMINAL
+  `status: "unresolved"` with `stopReason` `all-providers-circuit-broken` (every peer
+  dropped), `no-providers`, or `budget-exhausted` (`consensus.maxWallMs` spent) - report the reason and
+  the `finalReport`, then stop; there is no session left to step.
 - `ask-gpt` / `ask-gemini` / `ask-grok` / `ask-openrouter` - one question to one
   provider for a single-shot second opinion.
 - `panel` - return the exact provider names `ask-all` would dispatch for the current

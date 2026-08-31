@@ -47,7 +47,7 @@ the next action:
 |--------|-----------|----------------|------|
 | `init` | `prompt` (the plan), `expert`, `cwd` | `sessionId`, `status: await_blind`, `round`, `blindPrompt` | write blind, `record_blind` |
 | `record_blind` | `sessionId`, `blindVerdict` (your verdict text) | `status: await_peers` | `dispatch_peers` |
-| `dispatch_peers` | `sessionId` | `status: await_adjudication`, `opinions[]` (per-voice `{source, isError, verdict, criticalIssues}`) | adjudicate, `submit_adjudication` |
+| `dispatch_peers` | `sessionId` | `status: await_adjudication`, `opinions[]` (per-voice `{source, isError, verdict, criticalIssues}`), optional `droppedProviders[]`; or a terminal `status: unresolved` + `stopReason` | adjudicate, `submit_adjudication` |
 | `submit_adjudication` | `sessionId`, `verdict`, `decisions[]` | `converged: true` + `finalReport` + `confidence`, OR `status: await_revision` | done, OR revise |
 | `submit_revision` | `sessionId`, `revisedPlan`, `diffSummary` | `status: await_blind` (next round), OR `status: unresolved` + `finalReport` (hit the cap) | next round, OR done |
 
@@ -167,6 +167,18 @@ in-memory `LoopState` for that `sessionId` may be gone, so recover by re-running
      ```
      Round time: 52s (slowest: gemini 52s)
      ```
+   - The reply may also carry `droppedProviders[]`: voices the circuit breaker removed
+     after 2 consecutive failed rounds, so they are no longer dispatched (and no longer
+     billed). Print them ONCE, on the round they first appear, and never list them among
+     the ERRORED voices again:
+     ```
+     Dropped from the panel: grok (2 failed rounds running)
+     ```
+   - The reply can also be TERMINAL without an adjudication: `status: "unresolved"` with
+     a `stopReason` of `all-providers-circuit-broken` (every voice was dropped),
+     `no-providers` (none configured), or `budget-exhausted` (`consensus.maxWallMs`
+     spent). Report the reason and the `finalReport`, then STOP - there is no session
+     left to step.
 
    **Repo-wide context (file-blind voices):** Grok and OpenRouter delegates see only what
    the plan text names - they do not walk the filesystem. For a plan that asks reviewers
