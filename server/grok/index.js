@@ -75,7 +75,7 @@ function configuredTimeout() {
   const t = grokConfigBlock().timeout;
   return typeof t === "number" && t > 0 ? t : undefined;
 }
-const { parseRetryAfterMs } = require("../../core/provider.js");
+const { parseRetryAfterMs, fetchFailureError } = require("../../core/provider.js");
 
 const DEFAULT_API_BASE = process.env.XAI_API_BASE || "https://api.x.ai/v1";
 const DEFAULT_TIMEOUT_MS = 180_000; // 3 minutes
@@ -263,6 +263,7 @@ function classifyGrokError(status, errCode) {
     case "unknown-thread":  return { errorKind: "unknown-thread",  retryable: false };
     case "timeout":         return { errorKind: "timeout",         retryable: true };
     case "network":         return { errorKind: "network",         retryable: true };
+    case "upstream":        return { errorKind: "upstream",        retryable: true };
     case "empty":           return { errorKind: "empty",           retryable: true };
     case "parse":           return { errorKind: "parse",           retryable: false };
     case "file-too-large":  return { errorKind: "file-too-large",  retryable: false };
@@ -676,6 +677,57 @@ async function resolveFiles(files, opts) {
 
 // --- xAI Responses API Call ---
 
+
+// --- Streaming ------------------------------------------------------------
+// xAI sends NOTHING until a non-streaming answer is complete, and Node's fetch gives
+// up after undici's headersTimeout (300s) with no public API to raise it. So every
+// grok call that thought for more than five minutes died at exactly 300s as a bare
+// `TypeError: fetch failed` - a configured timeout above 300s could never be reached.
+// Streaming makes the first byte arrive in seconds and every subsequent chunk reset
+// the body timeout, so the bridge's own AbortController becomes the real ceiling.
+//
+// The terminal `response.completed` payload is the SAME object the non-streaming call
+// returns, so it feeds the existing parser/usage/output path unchanged; the deltas are
+// only a fallback for a stream that ends without one.
+const STREAM_ENABLED = process.env.GROK_STREAM !== "0";
+
+// Split one SSE block into its parsed `data:` payload, or null when there is none.
+function parseSseBlock(block) {
+  let raw = "";
+  for (const line of block.split("\n")) {
+    if (line.startsWith("data:")) raw += line.slice(5).trim();
+  }
+  if (!raw || raw === "[DONE]") return null;
+  try { return JSON.parse(raw); } catch { return null; }
+}
+
+// Consume the SSE body. Never throws on a malformed event (a stray keepalive or an
+// unknown event type is skipped); a transport failure propagates to the caller's
+// classifier, exactly like a failed res.text().
+async function readResponsesStream(body) {
+  const decoder = new TextDecoder();
+  let buf = "", deltas = "", final = null, failure = null;
+  const consume = (block) => {
+    const ev = parseSseBlock(block);
+    if (!ev) return;
+    if (ev.type === "response.output_text.delta" && typeof ev.delta === "string") deltas += ev.delta;
+    else if (ev.type === "response.completed" && ev.response) final = ev.response;
+    else if (ev.type === "response.failed" || ev.type === "response.incomplete") failure = ev.response || ev;
+    else if (ev.type === "error") failure = ev;
+  };
+  for await (const chunk of body) {
+    buf += decoder.decode(chunk, { stream: true });
+    let i;
+    while ((i = buf.indexOf("\n\n")) !== -1) {
+      consume(buf.slice(0, i));
+      buf = buf.slice(i + 2);
+    }
+  }
+  buf += decoder.decode();
+  if (buf.trim()) consume(buf);
+  return { final, deltas, failure };
+}
+
 // One /v1/responses call returning the assistant text. Errors carry `.code`
 // and/or `.status`. `fetchImpl` is injectable for tests.
 async function runGrok({ turns, model, timeoutMs, apiKey, apiBase, fetchImpl, reasoningEffort }) {
@@ -694,7 +746,8 @@ async function runGrok({ turns, model, timeoutMs, apiKey, apiBase, fetchImpl, re
   const base = (apiBase || DEFAULT_API_BASE).replace(/\/+$/, "");
   const url = `${base}/responses`;
   // Precedence: per-call model > providers.grok.model > GROK_DEFAULT_MODEL > built-in.
-  const payload = { model: model || configuredModel() || DEFAULT_MODEL, input: turnsToInput(turns), stream: false };
+  const wantStream = STREAM_ENABLED;
+  const payload = { model: model || configuredModel() || DEFAULT_MODEL, input: turnsToInput(turns), stream: wantStream };
   if (isNonEmptyString(reasoningEffort)) payload.reasoning_effort = reasoningEffort;
   const t = (typeof timeoutMs === "number" && timeoutMs > 0) ? timeoutMs : DEFAULT_TIMEOUT_MS;
   const controller = new AbortController();
@@ -703,7 +756,7 @@ async function runGrok({ turns, model, timeoutMs, apiKey, apiBase, fetchImpl, re
   // The timer stays armed until the BODY is read, not just the headers. Clearing it at
   // the end of the fetch left `res.text()` unbounded, so a slow body could run far past
   // the ceiling that sibling calls died on.
-  let res, bodyText = "";
+  let res, bodyText = "", streamed = null;
   try {
     res = await f(url, {
       method: "POST",
@@ -715,28 +768,27 @@ async function runGrok({ turns, model, timeoutMs, apiKey, apiBase, fetchImpl, re
       signal: controller.signal,
       redirect: "error",
     });
-    try { bodyText = await res.text(); } catch (bodyErr) {
-      // An abort DURING the body read is still a timeout, not a network fault.
-      const bmsg = String((bodyErr && bodyErr.message) || bodyErr);
-      if ((bodyErr && bodyErr.name === "AbortError") || /abort/i.test(bmsg)) throw bodyErr;
-      // A mid-body socket failure on an OK status (e.g. "TypeError: terminated") must
-      // surface as `network` (retryable). Swallowing it left an empty body that then
-      // failed JSON.parse as `parse` - non-retryable, so the retry never ran.
-      if (res.ok) throw bodyErr;
-      // On an error status the body is only diagnostic; keep the status and report empty.
-      bodyText = "";
+    // Read as SSE only when the server actually SAID so. An error status carries a
+    // plain JSON body even on a streaming request, and an upstream that ignores
+    // `stream:true` must still work - so branch on Content-Type, not on the request.
+    const isSse = /text\/event-stream/i.test((res.headers && res.headers.get("content-type")) || "");
+    if (wantStream && res.ok && isSse && res.body) {
+      streamed = await readResponsesStream(res.body);
+    } else {
+      try { bodyText = await res.text(); } catch (bodyErr) {
+        // An abort DURING the body read is still a timeout, not a network fault.
+        const bmsg = String((bodyErr && bodyErr.message) || bodyErr);
+        if ((bodyErr && bodyErr.name === "AbortError") || /abort/i.test(bmsg)) throw bodyErr;
+        // A mid-body socket failure on an OK status (e.g. "TypeError: terminated") must
+        // surface as `network` (retryable). Swallowing it left an empty body that then
+        // failed JSON.parse as `parse` - non-retryable, so the retry never ran.
+        if (res.ok) throw bodyErr;
+        // On an error status the body is only diagnostic; keep the status and report empty.
+        bodyText = "";
+      }
     }
   } catch (err) {
-    const name = err && err.name;
-    const msg = String((err && err.message) || err);
-    if (name === "AbortError" || /abort/i.test(msg)) {
-      const e = new Error(`Grok timed out after ${Math.round(t / 1000)}s`);
-      e.code = "timeout";
-      throw e;
-    }
-    const e = new Error(`Network error: ${msg}`);
-    e.code = "network";
-    throw e;
+    throw fetchFailureError("Grok", err, t);
   } finally {
     clearTimeout(timer);
   }
@@ -749,11 +801,31 @@ async function runGrok({ turns, model, timeoutMs, apiKey, apiBase, fetchImpl, re
   }
 
   let data;
-  try { data = JSON.parse(bodyText); }
-  catch (e2) {
-    const e = new Error(`Parse error: invalid JSON body: ${e2.message}`);
-    e.code = "parse";
-    throw e;
+  if (streamed) {
+    if (streamed.failure) {
+      const e = new Error(`xAI stream failed: ${truncate(JSON.stringify(streamed.failure), 300)}`);
+      // An aborted generation is the upstream's problem, not the request's - worth the
+      // one retry `upstream` gets, unlike a parse error.
+      e.code = "upstream";
+      throw e;
+    }
+    // A clean stream that carried no answer is `empty` (retryable), never `parse`:
+    // the shape was fine, the content was missing. Same rule as the answer floor.
+    if (!streamed.final && !streamed.deltas) {
+      const e = new Error("Grok returned an empty stream (no output and no completion event)");
+      e.code = "empty";
+      throw e;
+    }
+    // The completion event carries the same object a non-streaming call returns, so
+    // parser/usage/output below are untouched. Deltas are the fallback.
+    data = streamed.final || { output_text: streamed.deltas };
+  } else {
+    try { data = JSON.parse(bodyText); }
+    catch (e2) {
+      const e = new Error(`Parse error: invalid JSON body: ${e2.message}`);
+      e.code = "parse";
+      throw e;
+    }
   }
   const text = parseResponsesOutput(data);
   const stub = stubReason(text);

@@ -7,7 +7,7 @@
  * @param {string} name
  * @param {string} model
  * @param {number} started   // Date.now() at call start
- * @param {{status?:number, code?:string, retryAfterMs?:number}} err
+ * @param {{status?:number, code?:string, retryAfterMs?:number, transportCode?:string}} err
  * @param {(status?:number, code?:string) => {errorKind:string, retryable:boolean}} classify
  * @param {Partial<DelegationError>} [extra]  merged onto the result (e.g. reasoningEffort)
  * @returns {DelegationError}
@@ -17,13 +17,94 @@ function toErrorResult(name, model, started, err, classify, extra) {
   // A 429 carries the upstream's own Retry-After hint (bridges parse the header onto
   // the thrown error). Forward it so callProvider can honor it instead of guessing.
   const retryAfterMs = err && typeof err.retryAfterMs === "number" && err.retryAfterMs >= 0 ? err.retryAfterMs : undefined;
+  // The coarse `errorKind` vocabulary is deliberately small, which makes a `network`
+  // indistinguishable between DNS failure, a socket reset, undici's own header timeout
+  // and a local throw - four different fixes behind one label. Bridges stamp the cause
+  // code onto the thrown error; forward it so the debug log can name it. Content-free
+  // by construction (an errno/undici symbol), never a message.
+  const transportCode = err && typeof err.transportCode === "string" && err.transportCode ? err.transportCode : undefined;
   // Spread `extra` FIRST so the canonical envelope fields always win - a caller's
   // stray `extra` key (or a non-object) can never clobber provider/isError/ms/etc.
   return {
     ...(extra && typeof extra === "object" ? extra : {}),
     provider: name, model, isError: true, errorKind, retryable, ms: Date.now() - started,
     ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
+    ...(transportCode === undefined ? {} : { transportCode }),
   };
+}
+
+/**
+ * undici's OWN ceilings, which are NOT the bridge's AbortController: a Node
+ * `fetch` gives up after `headersTimeout` (300s) waiting for response headers and
+ * after `bodyTimeout` (300s) between body chunks, and there is no public API to
+ * raise them. Both surface as a bare `TypeError: fetch failed` whose `cause.code`
+ * is the only distinguishing signal - without this they were classified `network`
+ * (retryable), so a provider that simply thinks for more than five minutes was
+ * retried into a second five-minute wait. They are timeouts; name them as such.
+ * @type {ReadonlySet<string>}
+ */
+const UNDICI_TIMEOUT_CODES = new Set(["UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT"]);
+
+/**
+ * Extract the low-level transport cause from a failed `fetch`. Node wraps the real
+ * error as `cause`, so the useful symbol (ENOTFOUND / ECONNRESET /
+ * UND_ERR_HEADERS_TIMEOUT) is one level down; fall back to the error's own code,
+ * then its name, so a non-fetch throw is still labelled rather than silently blank.
+ * Returns a bare symbol only - never a message, so it is safe for the debug log.
+ * @param {any} err
+ * @returns {(string|undefined)}
+ */
+function transportCodeOf(err) {
+  if (!err || typeof err !== "object") return undefined;
+  const cause = /** @type {any} */ (err).cause;
+  const candidates = [cause && cause.code, cause && cause.name, err.code, err.name];
+  for (const c of candidates) if (typeof c === "string" && c && c !== "Error" && c !== "TypeError") return c;
+  return undefined;
+}
+
+/**
+ * Shared classification for a rejected `fetch` in the HTTP bridges. Both Grok and
+ * OpenRouter had byte-identical catch blocks; the divergence risk is the point of
+ * hoisting it. Returns the `code` the bridge should throw with plus the transport
+ * symbol to stamp on the error.
+ *
+ * `abort` stays a timeout because the bridge's own AbortController is the only
+ * thing that aborts these requests.
+ * @param {any} err
+ * @returns {{code: ("timeout"|"network"), transportCode: (string|undefined)}}
+ */
+function classifyFetchFailure(err) {
+  const transportCode = transportCodeOf(err);
+  const msg = String((err && err.message) || err);
+  const isAbort = (err && err.name === "AbortError") || /abort/i.test(msg);
+  if (isAbort || (transportCode && UNDICI_TIMEOUT_CODES.has(transportCode))) {
+    return { code: "timeout", transportCode };
+  }
+  return { code: "network", transportCode };
+}
+
+/**
+ * Build the Error a rejected `fetch` should throw, shared by the HTTP bridges.
+ * `timeout` covers BOTH the bridge's own AbortController and undici's un-raisable
+ * header/body ceilings; the latter used to read as `network`, which is retryable, so
+ * a slow-but-alive provider was billed for a second full wait before failing anyway.
+ * @param {string} label  provider name for the message ("Grok", "OpenRouter")
+ * @param {any} err  the rejection from fetch()
+ * @param {number} timeoutMs  the bridge's own ceiling, for the abort message
+ * @returns {Error & {code: string, transportCode?: string}}
+ */
+function fetchFailureError(label, err, timeoutMs) {
+  const { code, transportCode } = classifyFetchFailure(err);
+  const msg = String((err && err.message) || err);
+  const e = /** @type {Error & {code: string, transportCode?: string}} */ (new Error(
+    code !== "timeout" ? `Network error: ${msg}`
+      : transportCode && transportCode !== "AbortError"
+        ? `${label} transport timeout (${transportCode}); no response within the transport ceiling`
+        : `${label} timed out after ${Math.round(timeoutMs / 1000)}s`,
+  ));
+  e.code = code;
+  if (transportCode) e.transportCode = transportCode;
+  return e;
 }
 
 /**
@@ -420,6 +501,10 @@ function resolveIssues(lines) {
 module.exports = {
   toErrorResult,
   parseRetryAfterMs,
+  classifyFetchFailure,
+  fetchFailureError,
+  transportCodeOf,
+  UNDICI_TIMEOUT_CODES,
   OPINION_SCHEMA,
   OPINION_INSTRUCTIONS,
   CONFIDENCE_ENUM,

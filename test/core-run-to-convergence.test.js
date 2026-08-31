@@ -228,3 +228,21 @@ test("RC-breaker: a peer that times out 2 rounds running is dropped for later ro
   assert.equal(out.rounds.length, 5);   // healthy peer kept the loop going
   assert.equal(flaky.calls, 2);         // called rounds 1 & 2, then circuit-broken
 });
+
+test("RC-breaker-2: a NON-timeout failure trips the breaker too", async () => {
+  // The old condition counted only `timeout`, so a peer failing every round with a
+  // transport ceiling it could never beat (300s undici header timeout, surfaced as
+  // `network`) stayed on the panel and re-billed that ceiling on every round.
+  const dead = {
+    name: "dead", calls: 0,
+    capabilities: { canImplement: false, fileUpload: false, multiTurn: false },
+    health: async () => ({ ok: true }),
+    ask: async () => { dead.calls++; return { provider: "dead", model: "stub", isError: true, errorKind: "network", retryable: false, ms: 1 }; },
+  };
+  const healthy = stub("healthy", () => "**Verdict**: REQUEST_CHANGES\n- [ops] x");
+  const arb = stub("arb", (p) => (p.includes("ADJUDICATE") ? "**Verdict**: REQUEST_CHANGES" : p.includes("REVISE") ? "nope" : "**Verdict**: REQUEST_CHANGES"));
+  const out = await runToConvergence([dead, healthy], REQ, { arbiter: arb, maxRounds: 5 });
+  assert.equal(out.rounds.length, 5);
+  // 2 rounds x 2 attempts (`network` is retried once), then dropped.
+  assert.equal(dead.calls, 4);
+});

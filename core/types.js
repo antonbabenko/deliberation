@@ -75,6 +75,9 @@
  * @property {number}   ms
  * @property {(string|null)} [reasoningEffort]
  * @property {number}   [retryAfterMs]  upstream Retry-After hint on a 429, in ms.
+ * @property {string}   [transportCode]  low-level transport cause behind a coarse
+ *   `errorKind` (e.g. UND_ERR_HEADERS_TIMEOUT, ECONNRESET, ENOTFOUND). Content-free,
+ *   so it is safe to write to the debug log; see core/debug-log.js `errorCode`.
  */
 
 /** @typedef {DelegationSuccess | DelegationError} DelegationResult */

@@ -13,6 +13,7 @@ const {
   finalize,
   MAX_ROUNDS_DEFAULT,
 } = require("../core/consensus-loop.js");
+const loop = require("../core/consensus-loop.js");
 
 /**
  * A successful peer review result.
@@ -186,4 +187,48 @@ test("L15: prepareRound throws on a terminated state (guarded to await_blind)", 
   s = submitAdjudication(s, { verdict: "APPROVE", decisions: [] });
   assert.equal(s.status, "converged");
   assert.throws(() => prepareRound(s), /await_blind|status/i);
+});
+
+// --- circuit-breaker streak (shared by both drivers) -----------------------
+
+/**
+ * Minimal well-formed ReviewResult (the streak only reads source/isError).
+ * @param {string} source @param {boolean} isError @param {any} [extra] @returns {any}
+ */
+const rr = (source, isError, extra) => ({ source, isError, verdict: isError ? null : "APPROVE", criticalIssues: [], ...(extra || {}) });
+
+test("CB1: any error increments the streak; any success resets it", () => {
+  // The original breaker counted only `timeout`, so a peer failing every round with
+  // `network` (e.g. a transport ceiling it can never beat) was never dropped.
+  let streak = loop.updateErrorStreak({}, [rr("grok", true, { errorKind: "network" }), rr("gemini", false)]);
+  assert.deepEqual(streak, { grok: 1, gemini: 0 });
+  streak = loop.updateErrorStreak(streak, [rr("grok", true, { errorKind: "timeout" })]);
+  assert.equal(streak.grok, 2);
+  streak = loop.updateErrorStreak(streak, [rr("grok", false)]);
+  assert.equal(streak.grok, 0);
+});
+
+test("CB2: trippedProviders names only peers at or past the cap", () => {
+  const streak = { a: 0, b: 1, c: 2, d: 5 };
+  assert.deepEqual(loop.trippedProviders(streak).sort(), ["c", "d"]);
+  assert.deepEqual(loop.trippedProviders(streak, 5), ["d"]);
+});
+
+test("CB3: a peer absent from a round keeps its streak (it was dropped, not healed)", () => {
+  const streak = loop.updateErrorStreak({ grok: 2 }, [rr("gemini", false)]);
+  assert.equal(streak.grok, 2, "not being asked must not look like recovering");
+  assert.deepEqual(loop.trippedProviders(streak), ["grok"]);
+});
+
+test("CB4: addOpinions folds the round into the streak", () => {
+  let st = loop.initConsensusLoop({ plan: "p" });
+  assert.deepEqual(st.errorStreak, {});
+  st = loop.recordBlindVerdict(st, "VERDICT: APPROVE");
+  st = loop.addOpinions(st, [rr("grok", true, { errorKind: "network" })]);
+  assert.deepEqual(st.errorStreak, { grok: 1 });
+});
+
+test("CB5: malformed results never corrupt the streak", () => {
+  assert.deepEqual(loop.updateErrorStreak({ a: 1 }, /** @type {any} */ ([null, {}, { source: 5, isError: true }])), { a: 1 });
+  assert.deepEqual(loop.updateErrorStreak(undefined, undefined), {});
 });

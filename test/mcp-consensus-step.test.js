@@ -293,3 +293,116 @@ test("CS17: dispatch_peers wire response NEVER carries raw opinion text, even wi
   assert.equal(dp.opinions.length, 2);
   assert.ok(dp.opinions.every((o) => !("text" in o)), "raw response text must not leak onto the wire response");
 });
+
+// --- circuit breaker + wall budget on the HOST-arbiter path -----------------
+// These lived only in runToConvergence (the provider-arbiter driver). The live
+// /consensus command drives consensus-step, so a peer that failed every round was
+// re-dispatched every round - paying its ceiling to contribute nothing - and a run
+// had no wall-clock ceiling at all.
+
+/** A peer that always returns an error envelope, counting how often it was asked. */
+function deadPeer(name, errorKind = "timeout") {
+  const p = {
+    name, calls: 0,
+    capabilities: { canImplement: false, fileUpload: false, multiTurn: false },
+    async health() { return { ok: true }; },
+    async ask() { p.calls++; return { provider: name, model: "m", isError: true, errorKind, retryable: false, ms: 1 }; },
+  };
+  return p;
+}
+
+/** Run one full round (blind -> peers -> adjudicate -> revise). Returns dispatch payload. */
+async function runRound(srv, sid, n) {
+  await step(srv, { action: "record_blind", sessionId: sid, blindVerdict: "needs work" }, n);
+  const dp = await step(srv, { action: "dispatch_peers", sessionId: sid }, n + 1);
+  if (dp.status !== "await_adjudication") return dp;
+  await step(srv, { action: "submit_adjudication", sessionId: sid, verdict: "REQUEST_CHANGES", decisions: [] }, n + 2);
+  await step(srv, { action: "submit_revision", sessionId: sid, revisedPlan: `v${n}`, diffSummary: "tried" }, n + 3);
+  return dp;
+}
+
+test("CS-CB1: a peer failing two rounds is dropped from round 3 and reported once", async () => {
+  const dead = deadPeer("grok", "network");
+  const srv = buildServer({ providers: [reject("codex"), dead], getConfig: () => configCap(9) });
+  const sid = (await step(srv, { action: "init", prompt: "ship it" }, 300)).sessionId;
+
+  const r1 = await runRound(srv, sid, 310);
+  assert.equal(r1.opinions.length, 2);
+  assert.equal(r1.droppedProviders, undefined, "one failure is not yet a pattern");
+
+  const r2 = await runRound(srv, sid, 320);
+  assert.equal(r2.opinions.length, 2, "still dispatched on its second failing round");
+
+  const r3 = await runRound(srv, sid, 330);
+  assert.deepEqual(r3.droppedProviders, ["grok"]);
+  assert.deepEqual(r3.opinions.map((o) => o.source), ["codex"]);
+  // 2 rounds x 2 attempts: `network` is retried once per round. The point is that
+  // round 3 adds nothing - and that a NETWORK failure trips the breaker at all, which
+  // the old timeout-only condition never did.
+  assert.equal(dead.calls, 4, "the dead peer is never asked again");
+});
+
+test("CS-CB2: one success resets the streak (a flaky peer is not punished)", async () => {
+  let fail = true;
+  const flaky = {
+    name: "grok", calls: 0,
+    capabilities: { canImplement: false, fileUpload: false, multiTurn: false },
+    async health() { return { ok: true }; },
+    async ask() {
+      flaky.calls++;
+      // `timeout` rather than `network`: it is never retried, so one call == one round
+      // and the alternation under test is not muddied by the retry ladder.
+      if (fail) { fail = false; return { provider: "grok", model: "m", isError: true, errorKind: "timeout", retryable: false, ms: 1 }; }
+      fail = true;
+      return { provider: "grok", model: "m", isError: false, text: "**Verdict**: REQUEST_CHANGES\n- [ops] x", ms: 1 };
+    },
+  };
+  const srv = buildServer({ providers: [reject("codex"), flaky], getConfig: () => configCap(9) });
+  const sid = (await step(srv, { action: "init", prompt: "ship it" }, 400)).sessionId;
+  for (const n of [410, 420, 430, 440]) await runRound(srv, sid, n);
+  assert.equal(flaky.calls, 4, "alternating failures never reach two in a row");
+});
+
+test("CS-CB3: an all-dead panel terminates instead of looping on an empty fan-out", async () => {
+  const srv = buildServer({ providers: [deadPeer("grok"), deadPeer("codex")], getConfig: () => configCap(9) });
+  const sid = (await step(srv, { action: "init", prompt: "ship it" }, 500)).sessionId;
+  await runRound(srv, sid, 510);
+  await runRound(srv, sid, 520);
+  await step(srv, { action: "record_blind", sessionId: sid, blindVerdict: "x" }, 530);
+  const out = await step(srv, { action: "dispatch_peers", sessionId: sid }, 531);
+  assert.equal(out.status, "unresolved");
+  assert.equal(out.converged, false);
+  assert.equal(out.stopReason, "all-providers-circuit-broken");
+});
+
+test("CS-CB4: an exhausted maxWallMs stops before the next fan-out", async () => {
+  const peerA = reject("codex");
+  const cfg = { providers: {}, openrouter: { maxFanout: 3, models: [] }, consensus: { maxRounds: 9, maxWallMs: 1 } };
+  const srv = buildServer({ providers: [peerA], getConfig: () => cfg });
+  const sid = (await step(srv, { action: "init", prompt: "ship it" }, 600)).sessionId;
+  await new Promise((r) => setTimeout(r, 5));
+  await step(srv, { action: "record_blind", sessionId: sid, blindVerdict: "x" }, 601);
+  const out = await step(srv, { action: "dispatch_peers", sessionId: sid }, 602);
+  assert.equal(out.stopReason, "budget-exhausted");
+  assert.equal(out.status, "unresolved");
+});
+
+test("CS-CB5: the budget gates STARTING a round, never a round already under way", async () => {
+  // A generous budget must not interfere; the loop converges normally.
+  const cfg = { providers: {}, openrouter: { maxFanout: 3, models: [] }, consensus: { maxWallMs: 600000 } };
+  const srv = buildServer({ providers: [approve("codex")], getConfig: () => cfg });
+  const sid = (await step(srv, { action: "init", prompt: "ship it" }, 700)).sessionId;
+  await step(srv, { action: "record_blind", sessionId: sid, blindVerdict: "APPROVE" }, 701);
+  const dp = await step(srv, { action: "dispatch_peers", sessionId: sid }, 702);
+  assert.equal(dp.status, "await_adjudication");
+  const adj = await step(srv, { action: "submit_adjudication", sessionId: sid, verdict: "APPROVE", decisions: [] }, 703);
+  assert.equal(adj.converged, true);
+});
+
+test("CS-CB6: an empty panel from config is `no-providers`, not a circuit break", async () => {
+  const srv = buildServer({ providers: [], getConfig: () => config });
+  const sid = (await step(srv, { action: "init", prompt: "ship it" }, 800)).sessionId;
+  await step(srv, { action: "record_blind", sessionId: sid, blindVerdict: "x" }, 801);
+  const out = await step(srv, { action: "dispatch_peers", sessionId: sid }, 802);
+  assert.equal(out.stopReason, "no-providers");
+});
