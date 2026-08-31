@@ -1,3 +1,10 @@
+## [3.14.3](https://github.com/antonbabenko/deliberation/compare/v3.14.2...v3.14.3) (2026-08-31)
+
+
+### Bug Fixes
+
+* **providers:** stop a broken provider from costing a full consensus round ([#177](https://github.com/antonbabenko/deliberation/issues/177)) ([d851a4f](https://github.com/antonbabenko/deliberation/commit/d851a4ff145e9af5db38b8fda97f554ab0025390))
+
 ## [3.14.2](https://github.com/antonbabenko/deliberation/compare/v3.14.1...v3.14.2) (2026-08-28)
 
 
@@ -25,11 +32,4 @@
 ### Features
 
 * **providers:** configurable timeouts, graceful rate-limit retry, non-answer detection ([#167](https://github.com/antonbabenko/deliberation/issues/167)) ([eccd3d0](https://github.com/antonbabenko/deliberation/commit/eccd3d0ff25e96764cc04ebd0ffd92292cd0ae4e))
-
-## [3.12.1](https://github.com/antonbabenko/deliberation/compare/v3.12.0...v3.12.1) (2026-07-27)
-
-
-### Bug Fixes
-
-* **ci:** publish to npm on Node 24 and make a failed publish retryable ([#165](https://github.com/antonbabenko/deliberation/issues/165)) ([451eea7](https://github.com/antonbabenko/deliberation/commit/451eea788f9782439fc0c3318ed820f4d4f57f9b))
 
