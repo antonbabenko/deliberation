@@ -406,3 +406,76 @@ test("CS-CB6: an empty panel from config is `no-providers`, not a circuit break"
   const out = await step(srv, { action: "dispatch_peers", sessionId: sid }, 802);
   assert.equal(out.stopReason, "no-providers");
 });
+
+test("CS-CB7: a terminal stop keeps the last completed round's opinions", async () => {
+  // terminateLoop fires from dispatch_peers, where cur.results was reset to [] by the
+  // previous round's submitRevision - so the persisted record dropped every round that
+  // actually ran, and analyze's agreement lens saw a run with zero voices.
+  const dir = tmpDir();
+  let cfg = { providers: {}, openrouter: { maxFanout: 3, models: [] }, consensus: { maxRounds: 9, maxWallMs: 600000 }, sessions: { persist: true } };
+  const srv = buildServer({ providers: [reject("codex")], getConfig: () => cfg, sessionsDir: dir });
+  const sid = (await step(srv, { action: "init", prompt: "ship it" }, 900)).sessionId;
+  await runRound(srv, sid, 910);                       // round 1 really ran
+  cfg = { ...cfg, consensus: { ...cfg.consensus, maxWallMs: 1 } };  // now the budget is spent
+  await new Promise((r) => setTimeout(r, 5));          // ... and demonstrably elapsed
+  await step(srv, { action: "record_blind", sessionId: sid, blindVerdict: "x" }, 920);
+  const out = await step(srv, { action: "dispatch_peers", sessionId: sid }, 921);
+  assert.equal(out.stopReason, "budget-exhausted");
+  assert.equal(out.persisted, true);
+  const rec = sessions.readSession(out.sessionId, { dir });
+  assert.equal(rec.opinions.length, 1, "round 1's panel must survive the stop");
+  assert.equal(rec.opinions[0].provider, "codex");
+});
+
+test("CS-CB8: a stop before a fan-out reports the rounds that COMPLETED", async () => {
+  let cfg = { providers: {}, openrouter: { maxFanout: 3, models: [] }, consensus: { maxRounds: 9, maxWallMs: 600000 } };
+  const srv = buildServer({ providers: [reject("codex")], getConfig: () => cfg });
+  const sid = (await step(srv, { action: "init", prompt: "ship it" }, 930)).sessionId;
+  await runRound(srv, sid, 940);                       // exactly one completed round
+  cfg = { ...cfg, consensus: { ...cfg.consensus, maxWallMs: 1 } };
+  await new Promise((r) => setTimeout(r, 5));
+  await step(srv, { action: "record_blind", sessionId: sid, blindVerdict: "x" }, 950);
+  const out = await step(srv, { action: "dispatch_peers", sessionId: sid }, 951);
+  assert.match(out.finalReport, /UNRESOLVED after 1 round/);
+});
+
+test("CS-CB9: droppedProviders reports only the NEWLY dropped, not the whole set", async () => {
+  const dead = deadPeer("grok");
+  const srv = buildServer({ providers: [reject("codex"), dead], getConfig: () => configCap(9) });
+  const sid = (await step(srv, { action: "init", prompt: "ship it" }, 960)).sessionId;
+  await runRound(srv, sid, 970);
+  await runRound(srv, sid, 980);
+  const r3 = await runRound(srv, sid, 990);
+  assert.deepEqual(r3.droppedProviders, ["grok"], "announced on the round it is first dropped");
+  const r4 = await runRound(srv, sid, 1000);
+  assert.equal(r4.droppedProviders, undefined, "a dropped peer's streak never decays, so it must not be re-announced");
+});
+
+test("CS-CB10: a config-emptied panel is `no-providers`, even with a stale tripped peer", async () => {
+  // `dropped` was read off the whole streak map, so a peer that tripped earlier kept it
+  // non-empty and made every later empty panel look circuit-broken - the exact
+  // conflation the adjacent comment claims to prevent.
+  const dead = deadPeer("grok");
+  let cfg = configCap(9);
+  const srv = buildServer({ providers: [reject("codex"), dead], getConfig: () => cfg });
+  const sid = (await step(srv, { action: "init", prompt: "ship it" }, 1010)).sessionId;
+  await runRound(srv, sid, 1020);
+  await runRound(srv, sid, 1030);                       // grok is now tripped
+  cfg = { ...cfg, providers: { codex: { enabled: false }, grok: { enabled: false } } };
+  await step(srv, { action: "record_blind", sessionId: sid, blindVerdict: "x" }, 1040);
+  const out = await step(srv, { action: "dispatch_peers", sessionId: sid }, 1041);
+  assert.equal(out.stopReason, "no-providers");
+});
+
+test("CS-CB11: droppedProviders never names a peer that is not on the panel", async () => {
+  const dead = deadPeer("grok");
+  let cfg = configCap(9);
+  const srv = buildServer({ providers: [reject("codex"), dead], getConfig: () => cfg });
+  const sid = (await step(srv, { action: "init", prompt: "ship it" }, 1050)).sessionId;
+  await runRound(srv, sid, 1060);
+  await runRound(srv, sid, 1070);                       // grok is now tripped
+  cfg = { ...cfg, providers: { grok: { enabled: false } } };  // and now removed entirely
+  const r3 = await runRound(srv, sid, 1080);
+  assert.equal(r3.droppedProviders, undefined, "grok left via config, not via the breaker");
+  assert.deepEqual(r3.opinions.map((o) => o.source), ["codex"]);
+});

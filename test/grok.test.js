@@ -571,8 +571,12 @@ test("GF7: buildInitialTurns always seeds a system turn that tells the model it 
 // AbortController as the only ceiling.
 
 /** A fetch returning an SSE body built from the given frames, split at `chunkAt`. */
-function sseFetch(frames, { chunkAt = 0, status = 200 } = {}) {
-  const text = frames.map((f) => `data: ${JSON.stringify(f)}\n\n`).join("") + "data: [DONE]\n\n";
+function sseFetch(frames, { chunkAt = 0, status = 200, eol = "\n", nameOnFrame = false } = {}) {
+  const text = frames.map((f) => {
+    const body = nameOnFrame ? { ...f, type: undefined } : f;
+    const head = nameOnFrame && f.type ? `event: ${f.type}${eol}` : "";
+    return `${head}data: ${JSON.stringify(body)}${eol}${eol}`;
+  }).join("") + `data: [DONE]${eol}${eol}`;
   const bytes = new TextEncoder().encode(text);
   const pieces = chunkAt > 0
     ? [bytes.slice(0, chunkAt), bytes.slice(chunkAt)]
@@ -659,4 +663,90 @@ test("GS7: a JSON body on a 200 is still parsed, even though we asked to stream"
 test("GS8: an error status is read as a plain body, not as SSE", async () => {
   const errFetch = async () => ({ ok: false, status: 503, headers: { get: () => "text/event-stream" }, text: async () => "upstream down" });
   await assert.rejects(grok.runGrok({ turns: [], apiKey: "k", fetchImpl: errFetch }), (e) => e.status === 503 && /upstream down/.test(e.message));
+});
+
+test("GS9: a CRLF-delimited stream is framed correctly", async () => {
+  // The SSE spec allows CR, LF or CRLF, and any proxy may rewrite line endings.
+  // Splitting on "\n\n" alone never matched "\r\n\r\n", so the buffer grew to hold the
+  // whole response and the end-of-stream flush handed every concatenated payload to one
+  // JSON.parse - turning a perfectly good answer into an empty stream.
+  const out = await grok.runGrok({
+    turns: [], apiKey: "k",
+    fetchImpl: sseFetch([completed(REAL_ANSWER)], { eol: "\r\n" }),
+  });
+  assert.equal(out.text, REAL_ANSWER);
+});
+
+test("GS10: events named only on the SSE `event:` line are still recognized", async () => {
+  // Relying on the JSON `type` alone meant a server that names events the spec's way
+  // matched nothing at all, and every call failed as an empty stream.
+  const out = await grok.runGrok({
+    turns: [], apiKey: "k",
+    fetchImpl: sseFetch([completed(REAL_ANSWER)], { nameOnFrame: true }),
+  });
+  assert.equal(out.text, REAL_ANSWER);
+});
+
+test("GS11: `response.incomplete` keeps the partial answer instead of throwing", async () => {
+  // A truncated answer (max tokens, content filter) came back usable on the
+  // non-streaming path; treating it as a failure discarded output already paid for.
+  const partial = REAL_ANSWER.slice(0, 90);
+  const out = await grok.runGrok({
+    turns: [], apiKey: "k",
+    fetchImpl: sseFetch([{ type: "response.incomplete", response: { output_text: partial } }]),
+  });
+  assert.equal(out.text, partial);
+});
+
+test("GS12: an unparseable completion event falls back to the accumulated deltas", async () => {
+  // `final || deltas` picked a completion event whose output we could not read, and
+  // parseResponsesOutput then threw a NON-retryable `parse` while the whole answer sat
+  // unused in the deltas.
+  const out = await grok.runGrok({
+    turns: [], apiKey: "k",
+    fetchImpl: sseFetch([
+      { type: "response.output_text.delta", delta: REAL_ANSWER },
+      { type: "response.completed", response: { output: [] } },
+    ]),
+  });
+  assert.equal(out.text, REAL_ANSWER);
+});
+
+test("GS13: whitespace-only deltas are `empty` (retryable), not `parse`", async () => {
+  await assert.rejects(
+    grok.runGrok({ turns: [], apiKey: "k", fetchImpl: sseFetch([{ type: "response.output_text.delta", delta: "   \n" }]) }),
+    (e) => e.code === "empty"
+  );
+});
+
+test("GS14: a stream we do not understand retries once WITHOUT streaming", async () => {
+  // The one real hazard of streaming by default: if the event vocabulary drifts, every
+  // call fails and /consensus silently circuit-breaks Grok off the panel. Degrade to the
+  // old behavior instead.
+  const sent = [];
+  const fetchImpl = async (url, opts) => {
+    sent.push(JSON.parse(opts.body).stream);
+    if (sent.length === 1) {
+      const text = 'data: {"kind":"something-we-do-not-know"}\n\n';
+      return {
+        ok: true, status: 200,
+        headers: { get: () => "text/event-stream" },
+        body: (async function* () { yield new TextEncoder().encode(text); })(),
+      };
+    }
+    return { ok: true, status: 200, headers: { get: () => "application/json" }, text: async () => JSON.stringify({ output_text: REAL_ANSWER }) };
+  };
+  const out = await grok.runGrok({ turns: [], apiKey: "k", fetchImpl });
+  assert.equal(out.text, REAL_ANSWER);
+  assert.deepEqual(sent, [true, false], "first call asks to stream, the fallback does not");
+});
+
+test("GS15: the no-stream fallback cannot recurse", async () => {
+  let calls = 0;
+  const fetchImpl = async () => {
+    calls++;
+    return { ok: true, status: 200, headers: { get: () => "application/json" }, text: async () => JSON.stringify({ output: [] }) };
+  };
+  await assert.rejects(grok.runGrok({ turns: [], apiKey: "k", fetchImpl }));
+  assert.equal(calls, 1, "a non-streaming reply never re-enters the fallback");
 });

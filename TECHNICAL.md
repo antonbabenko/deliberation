@@ -984,6 +984,7 @@ for the kinds that actually self-heal:
 | `network` | yes | 1s - retrying in the same millisecond cannot help a transport fault, and just doubles the log rows for a deterministic one |
 | `rate-limit` | yes | the response's `Retry-After` (delta-seconds or HTTP-date), else 2s; clamped to 30s so a hostile hint cannot stall a fan-out |
 | `empty` | yes | none - a stub answer is cheap to redo |
+| `upstream` | yes | none - a 5xx, or a generation the provider itself aborted; the request was fine |
 | everything else | no | - |
 
 `timeout` is deliberately **not** retried: the call may already have burned tokens, and
@@ -1008,11 +1009,22 @@ Two things about it are easy to get wrong, so they are pinned here:
   one (`consensus-step`) both read it. Previously only the former had a breaker at all,
   which is exactly the path the `/consensus` command does **not** use.
 
-`consensus-step` reports removals as `droppedProviders[]` on the `dispatch_peers` reply
-(once, on the round they first appear). If every peer is dropped, the call returns a
-terminal `status: "unresolved"` with `stopReason: "all-providers-circuit-broken"` rather
-than looping on an empty fan-out. (A panel that is empty because the config has no
-eligible providers reports `no-providers` instead - a different problem.)
+`consensus-step` reports removals as `droppedProviders[]` on the `dispatch_peers` reply.
+Only the NEWLY dropped are listed: a dropped peer's streak never decays, so the full
+tripped set is identical on every later round, and the server (not the host model)
+tracks what it has already announced. The set is also intersected with the round's
+actual candidates, so a peer that tripped earlier and has since left the config is not
+reported and does not keep `dropped` artificially non-empty.
+
+If every peer is dropped, the call returns a terminal `status: "unresolved"` with
+`stopReason: "all-providers-circuit-broken"` rather than looping on an empty fan-out. A
+panel that is empty because the config has no eligible providers reports `no-providers`
+instead - both drivers make that distinction.
+
+A terminal stop from `dispatch_peers` happens BEFORE the round's fan-out, so the record
+it persists takes the last COMPLETED round's opinions from `history` (the live
+`results` were reset by the previous `submitRevision`) and reports the number of rounds
+that finished, not the one about to start.
 
 ### Wall-clock budget
 
@@ -1043,6 +1055,12 @@ past 300s (its API emits processing keepalives). Both ceilings arrive as a bare
 `transportCode` `UND_ERR_HEADERS_TIMEOUT` / `UND_ERR_BODY_TIMEOUT`; before that they
 read as `network`, so a provider that merely thought for over five minutes was retried
 into a second five-minute wait and still failed.
+
+An abort reaches the classifier in two shapes and both must count as `timeout`: the
+`AbortError` itself, and the WRAPPED form undici produces when the controller fires
+during the body read - `TypeError: terminated` whose `cause` is a DOMException named
+`AbortError`, where neither the name nor the message mentions aborting. Missing the
+wrapped shape puts the bridge's OWN ceiling back in the retryable `network` bucket.
 
 Levels 3 and 4 are read once at MCP startup (constructor args, like `model` and
 `reasoningEffort`), so a change needs an MCP restart; the `models` map still hot-reloads.
@@ -1083,19 +1101,37 @@ becomes the real ceiling.
 
 How the reply is consumed:
 
+Framing lives in `core/sse.js` (provider-agnostic: split frames, return
+`{event, data}`) and the xAI event semantics in `server/grok/stream.js`. The split is
+deliberate - OpenRouter is still non-streaming and subject to the same ceiling, so the
+transport half is written once rather than copied when it streams.
+
 - The bridge branches on the **response** `Content-Type`, not on the request. An
   upstream free to ignore `stream: true` still works, and an error status (which carries
   a plain JSON body even on a streaming request) takes the existing diagnostic path.
+- Frames split on a blank line with **any** of the spec's line endings (LF, CRLF, CR).
+  Splitting on `"\n\n"` alone never matched a CRLF stream at all: the buffer grew to
+  hold the whole response and the end-of-stream flush handed every concatenated payload
+  to one JSON parse, turning a good answer into an empty stream.
+- The event name is read from the JSON payload's `type` when present and from the SSE
+  `event:` line otherwise, so a server that names events the spec's way is understood.
 - `response.completed` carries the same object a non-streaming call returns, so the
   parser, `usage` normalization, and the `output` capture that `grok-reply` replays are
-  unchanged. Accumulated `response.output_text.delta` chunks are only the fallback for a
-  stream that ends without a completion event.
-- `response.failed` / `response.incomplete` / `error` become `upstream` (retryable) - an
-  aborted generation is the upstream's problem, not a malformed reply.
+  unchanged. It is PREFERRED, not trusted: if its output cannot be parsed, the answer
+  accumulated in the `response.output_text.delta` chunks is used instead of throwing.
+- `response.incomplete` is a TRUNCATED answer (max tokens, content filter), not a
+  failure - the non-streaming path returned its partial output, and discarding it would
+  throw away work already paid for. Only `response.failed` and `error` become `upstream`
+  (retryable): an aborted generation is the upstream's problem, not a malformed reply.
 - A clean stream carrying no output at all is `empty` (retryable), never `parse`: the
-  shape was fine, the content was missing. The [answer floor](#answer-floor-gemini-grok)
-  applies to the assembled text exactly as before.
-- Set `GROK_STREAM=0` to fall back to the non-streaming request. That reinstates the
+  shape was fine, the content was missing. Whitespace-only output counts as none. The
+  [answer floor](#answer-floor-gemini-grok) applies to the assembled text as before.
+- A stream carrying no event we RECOGNIZE is a different failure from one carrying no
+  answer, and it is the real hazard of streaming by default. The bridge retries that
+  case exactly once with `stream: false`, so a drift in the event vocabulary degrades to
+  the old behavior instead of taking Grok offline (and, inside `/consensus`, getting it
+  circuit-broken off the panel). The fallback cannot recurse.
+- Set `GROK_STREAM=0` to force the non-streaming request outright. That reinstates the
   300s ceiling, so use it only to isolate a suspected streaming problem.
 
 ### Answer floor (Gemini, Grok)

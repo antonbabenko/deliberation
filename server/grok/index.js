@@ -679,58 +679,15 @@ async function resolveFiles(files, opts) {
 
 
 // --- Streaming ------------------------------------------------------------
-// xAI sends NOTHING until a non-streaming answer is complete, and Node's fetch gives
-// up after undici's headersTimeout (300s) with no public API to raise it. So every
-// grok call that thought for more than five minutes died at exactly 300s as a bare
-// `TypeError: fetch failed` - a configured timeout above 300s could never be reached.
-// Streaming makes the first byte arrive in seconds and every subsequent chunk reset
-// the body timeout, so the bridge's own AbortController becomes the real ceiling.
-//
-// The terminal `response.completed` payload is the SAME object the non-streaming call
-// returns, so it feeds the existing parser/usage/output path unchanged; the deltas are
-// only a fallback for a stream that ends without one.
+// The bridge streams because undici's 300s headersTimeout is not raisable and xAI sends
+// nothing until a non-streaming answer is complete - see server/grok/stream.js for the
+// full reasoning. Framing lives in core/sse.js; xAI event semantics in ./stream.js.
 const STREAM_ENABLED = process.env.GROK_STREAM !== "0";
-
-// Split one SSE block into its parsed `data:` payload, or null when there is none.
-function parseSseBlock(block) {
-  let raw = "";
-  for (const line of block.split("\n")) {
-    if (line.startsWith("data:")) raw += line.slice(5).trim();
-  }
-  if (!raw || raw === "[DONE]") return null;
-  try { return JSON.parse(raw); } catch { return null; }
-}
-
-// Consume the SSE body. Never throws on a malformed event (a stray keepalive or an
-// unknown event type is skipped); a transport failure propagates to the caller's
-// classifier, exactly like a failed res.text().
-async function readResponsesStream(body) {
-  const decoder = new TextDecoder();
-  let buf = "", deltas = "", final = null, failure = null;
-  const consume = (block) => {
-    const ev = parseSseBlock(block);
-    if (!ev) return;
-    if (ev.type === "response.output_text.delta" && typeof ev.delta === "string") deltas += ev.delta;
-    else if (ev.type === "response.completed" && ev.response) final = ev.response;
-    else if (ev.type === "response.failed" || ev.type === "response.incomplete") failure = ev.response || ev;
-    else if (ev.type === "error") failure = ev;
-  };
-  for await (const chunk of body) {
-    buf += decoder.decode(chunk, { stream: true });
-    let i;
-    while ((i = buf.indexOf("\n\n")) !== -1) {
-      consume(buf.slice(0, i));
-      buf = buf.slice(i + 2);
-    }
-  }
-  buf += decoder.decode();
-  if (buf.trim()) consume(buf);
-  return { final, deltas, failure };
-}
+const { readResponsesStream } = require("./stream.js");
 
 // One /v1/responses call returning the assistant text. Errors carry `.code`
 // and/or `.status`. `fetchImpl` is injectable for tests.
-async function runGrok({ turns, model, timeoutMs, apiKey, apiBase, fetchImpl, reasoningEffort }) {
+async function runGrok({ turns, model, timeoutMs, apiKey, apiBase, fetchImpl, reasoningEffort, forceNoStream }) {
   if (!isNonEmptyString(apiKey)) {
     const e = new Error("XAI_API_KEY is not set. Export it (export XAI_API_KEY=xai-...) or rerun /deliberation:setup.");
     e.code = "missing-auth";
@@ -746,7 +703,9 @@ async function runGrok({ turns, model, timeoutMs, apiKey, apiBase, fetchImpl, re
   const base = (apiBase || DEFAULT_API_BASE).replace(/\/+$/, "");
   const url = `${base}/responses`;
   // Precedence: per-call model > providers.grok.model > GROK_DEFAULT_MODEL > built-in.
-  const wantStream = STREAM_ENABLED;
+  // `forceNoStream` is the ONE-SHOT fallback re-entry (see the stream branch below);
+  // it can never recurse, because the second call takes the non-streaming path.
+  const wantStream = STREAM_ENABLED && !forceNoStream;
   const payload = { model: model || configuredModel() || DEFAULT_MODEL, input: turnsToInput(turns), stream: wantStream };
   if (isNonEmptyString(reasoningEffort)) payload.reasoning_effort = reasoningEffort;
   const t = (typeof timeoutMs === "number" && timeoutMs > 0) ? timeoutMs : DEFAULT_TIMEOUT_MS;
@@ -800,7 +759,7 @@ async function runGrok({ turns, model, timeoutMs, apiKey, apiBase, fetchImpl, re
     throw e;
   }
 
-  let data;
+  let data, text;
   if (streamed) {
     if (streamed.failure) {
       const e = new Error(`xAI stream failed: ${truncate(JSON.stringify(streamed.failure), 300)}`);
@@ -809,16 +768,38 @@ async function runGrok({ turns, model, timeoutMs, apiKey, apiBase, fetchImpl, re
       e.code = "upstream";
       throw e;
     }
-    // A clean stream that carried no answer is `empty` (retryable), never `parse`:
-    // the shape was fine, the content was missing. Same rule as the answer floor.
-    if (!streamed.final && !streamed.deltas) {
+    const trimmedDeltas = streamed.deltas.trim();
+    // A stream we did not UNDERSTAND is a different failure from a stream that carried
+    // no answer, and it is the one real hazard of streaming by default: if the event
+    // vocabulary ever changes, every call would fail. Retry once without streaming so a
+    // contract drift degrades to the old behavior instead of taking Grok offline (and,
+    // inside /consensus, silently getting it dropped by the circuit breaker).
+    if (!streamed.sawEvent && !streamed.final && !trimmedDeltas) {
+      return await runGrok({ turns, model, timeoutMs, apiKey, apiBase, fetchImpl, reasoningEffort, forceNoStream: true });
+    }
+    // Whitespace-only deltas are `empty` (retryable), never `parse`: the shape was fine,
+    // the content was missing. Truthiness alone let "   " through to the parser, which
+    // rejected it as a non-retryable parse error.
+    if (!streamed.final && !trimmedDeltas) {
       const e = new Error("Grok returned an empty stream (no output and no completion event)");
       e.code = "empty";
       throw e;
     }
-    // The completion event carries the same object a non-streaming call returns, so
-    // parser/usage/output below are untouched. Deltas are the fallback.
-    data = streamed.final || { output_text: streamed.deltas };
+    // The terminal object carries the same shape a non-streaming call returns, so the
+    // parser/usage/output path below is untouched. But it is only PREFERRED, not
+    // trusted: a completion event whose output we cannot read must not discard the
+    // answer already accumulated in the deltas.
+    if (streamed.final) {
+      data = streamed.final;
+      try { text = parseResponsesOutput(data); } catch (e2) {
+        if (!trimmedDeltas) throw e2;
+        data = { output_text: streamed.deltas };
+        text = parseResponsesOutput(data);
+      }
+    } else {
+      data = { output_text: streamed.deltas };
+      text = parseResponsesOutput(data);
+    }
   } else {
     try { data = JSON.parse(bodyText); }
     catch (e2) {
@@ -826,8 +807,8 @@ async function runGrok({ turns, model, timeoutMs, apiKey, apiBase, fetchImpl, re
       e.code = "parse";
       throw e;
     }
+    text = parseResponsesOutput(data);
   }
-  const text = parseResponsesOutput(data);
   const stub = stubReason(text);
   if (stub) {
     const e = new Error(`Grok returned a stub, not an answer (${stub}): ${truncate(text.trim(), 200)}`);

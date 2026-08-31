@@ -246,3 +246,11 @@ test("RC-breaker-2: a NON-timeout failure trips the breaker too", async () => {
   // 2 rounds x 2 attempts (`network` is retried once), then dropped.
   assert.equal(dead.calls, 4);
 });
+
+test("RC-breaker-3: an empty panel from the start is `no-providers`, not a circuit break", async () => {
+  // The host-driven driver already distinguished these two. Reporting a breaker that
+  // never tripped made the drivers disagree on identical input.
+  const arb = stub("arb", () => "**Verdict**: APPROVE");
+  const out = await runToConvergence([], REQ, { arbiter: arb, maxRounds: 3 });
+  assert.equal(out.stopReason, "no-providers");
+});

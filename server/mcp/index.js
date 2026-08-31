@@ -873,7 +873,23 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
    * @returns {any}
    */
   function terminateLoop(sid, state, stopReason) {
-    const terminal = { ...state, status: "unresolved" };
+    // This fires from dispatch_peers, i.e. BEFORE the round's fan-out. Two consequences
+    // the naive `{...state, status}` got wrong:
+    //   - `state.results` was reset to [] by the previous round's submitRevision, so the
+    //     persisted record would drop every round that actually ran.
+    //   - `state.round` is the round about to START, so finalize would report one more
+    //     round than completed - disagreeing with the other terminal path on the same data.
+    const history = Array.isArray(state.history) ? state.history : [];
+    const last = history.length ? history[history.length - 1] : null;
+    const results = (Array.isArray(state.results) && state.results.length)
+      ? state.results
+      : (last && Array.isArray(last.results) ? last.results : []);
+    const terminal = {
+      ...state,
+      status: "unresolved",
+      results,
+      round: Math.max(1, history.length || state.round),
+    };
     const { finalReport, confidence } = loop.finalize(terminal);
     const taken = loopStore.take(sid);
     const { id, persisted, errorCode } = taken
@@ -951,9 +967,17 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         // every round - paying its full ceiling to contribute nothing. The streak is
         // folded in by loop.addOpinions, the same state the provider-arbiter driver
         // reads, so both paths break the circuit on the same rule.
-        const dropped = loop.trippedProviders(cur.errorStreak, loop.CIRCUIT_BREAK_AFTER);
-        const droppedSet = new Set(dropped);
-        const selected = candidates.filter((p) => !droppedSet.has(p.name));
+        // Intersect with THIS round's candidates: a peer that tripped earlier and has
+        // since left the config is not "dropped by the breaker", and letting a stale
+        // name keep `dropped` non-empty made every later empty panel look circuit-broken.
+        const trippedSet = new Set(loop.trippedProviders(cur.errorStreak, loop.CIRCUIT_BREAK_AFTER));
+        const dropped = candidates.filter((p) => trippedSet.has(p.name)).map((p) => p.name);
+        const selected = candidates.filter((p) => !trippedSet.has(p.name));
+        // A dropped peer's streak never decays (it is no longer dispatched), so `dropped`
+        // is identical on every later round. Announce only what is newly dropped - the
+        // server holds this state, so the docs' "report it once" must not be the model's job.
+        const announced = Array.isArray(cur.announcedDropped) ? cur.announcedDropped : [];
+        const newlyDropped = dropped.filter((name) => !announced.includes(name));
         // Budget gate. Like runToConvergence this gates STARTING a fan-out and never
         // interrupts one in flight, so a slow-but-good answer is always collected.
         const budgetMs = wallBudgetMs(getConfig());
@@ -977,7 +1001,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
             : { ...parseReview(typeof r.text === "string" ? r.text : ""), source: r.provider, isError: false, text: typeof r.text === "string" ? r.text : undefined, model: r.model, reasoningEffort: r.reasoningEffort ?? null, ms: r.ms }
         );
         const next = loop.addOpinions(cur, results);
-        loopStore.put(sid, next);
+        loopStore.put(sid, { ...next, announcedDropped: announced.concat(newlyDropped) });
         return {
           sessionId: sid,
           status: next.status,
@@ -987,7 +1011,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
           opinions: results.map((r) => ({ source: r.source, isError: r.isError, errorKind: r.errorKind, verdict: r.verdict, criticalIssues: r.criticalIssues, model: r.model, reasoningEffort: r.reasoningEffort, ms: r.ms })),
           // Peers the breaker has removed. Reported so the panel can say so ONCE
           // instead of relisting them as ERRORED every round.
-          ...(dropped.length ? { droppedProviders: dropped } : {}),
+          ...(newlyDropped.length ? { droppedProviders: newlyDropped } : {}),
           note: "adjudicate the opinions, then call submit_adjudication with your verdict + per-issue decisions",
         };
       }

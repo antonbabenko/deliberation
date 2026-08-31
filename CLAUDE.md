@@ -40,7 +40,9 @@ No build step, no dependencies. Codex exposes a native MCP server; Gemini, Grok,
   stateless `consensus-step` calls; independent of `sessions.persist`); `providers/*.js`
   adapters (`codex.js` spawns the Codex CLI; `antigravity.js` / `grok.js` /
   `openai-compatible.js` wrap their bridge via an injectable `opts.bridge`); `paths.js`
-  (config + cache path resolver, `DELIBERATION_CONFIG` override).
+  (config + cache path resolver, `DELIBERATION_CONFIG` override); `sse.js`
+  (provider-agnostic SSE framing - CRLF/CR/LF tolerant, returns `{event, data}` - shared
+  so a second streaming bridge needs no second parser).
 - **`server/mcp/`** - stdio JSON-RPC MCP server over `core`. Published as
   `@antonbabenko/deliberation-mcp`: an esbuild `prepack` step bundles `core` + the three bridges
   into a self-contained `dist/index.js` (build-time devDep only; `dist/` gitignored). `server.json`
@@ -236,7 +238,15 @@ When `orientation.enabled` is true, the server auto-attaches a small bundle of h
    - **`network` was a black box.** The message is dropped by `debug-log.js` `ALLOWED_KEYS`, the session store only writes on a terminal transition, and the panel prints the kind - so a DNS failure, a socket reset, a 300s undici ceiling and a local throw were one indistinguishable label in the only place provider health is diagnosed. `provider_result` now carries `errorCode` (the rejection's `cause.code`; the key was already whitelisted for `persist_failed`). A bare errno/undici symbol, never a message.
    - **The breaker was on the wrong path and counted the wrong thing.** `timeoutStreak` lived in `runToConvergence` (the provider-arbiter driver) and counted only `errorKind === "timeout"`. The live `/consensus` drives `consensus-step`, which had NO breaker: it re-ran `selectForConsensus` every round and re-dispatched peers that had failed every round since round 1. The streak now lives on `LoopState.errorStreak` in `core/consensus-loop.js` (`updateErrorStreak`/`trippedProviders`, folded in by `addOpinions`), counts ANY error, and is read by both drivers - the same SSOT rule as #7. `dispatch_peers` reports removals as `droppedProviders[]` and terminates with `stopReason: "all-providers-circuit-broken"` rather than looping on an empty fan-out.
    - **`consensus.maxWallMs` applied to one driver.** `consensus-step` is a series of stateless calls, so it now carries `startedAt` on its stored state and gates STARTING a round (never a fan-out in flight), returning `stopReason: "budget-exhausted"`.
-   Also: the `network` retry no longer fires in the same millisecond as the failure (1s pause). Details in [TECHNICAL.md § Circuit breaker](TECHNICAL.md#circuit-breaker) and [§ Grok streaming](TECHNICAL.md#grok-streaming).
+   Also: the `network` retry no longer fires in the same millisecond as the failure (1s pause), and `upstream` is now actually in `RETRY_ONCE_KINDS` rather than merely documented as retryable. Details in [TECHNICAL.md § Circuit breaker](TECHNICAL.md#circuit-breaker) and [§ Grok streaming](TECHNICAL.md#grok-streaming).
+
+   **Review follow-ups (same PR).** Code review found the first cut of the above wrong in ways worth recording, because each is a general trap:
+   - **An abort has two shapes.** `classifyFetchFailure` caught the `AbortError` but not the WRAPPED form undici produces when the controller fires mid-body: `TypeError: terminated` whose `cause` is a DOMException named `AbortError`. Neither its name nor its message mentions aborting, so the bridge's own ceiling fell back into the retryable `network` bucket - reintroducing the exact double-billing through the door built to close it.
+   - **A fixture that mirrors the parser can never disagree with it.** The SSE splitter matched only `"\n\n"`, so a CRLF stream never framed; the tests passed because the fixture also emitted `"\n\n"`. Protocol tests need spec-derived inputs. Framing now lives in `core/sse.js` (LF/CRLF/CR) with the xAI semantics in `server/grok/stream.js`, and the event name is read from the SSE `event:` line when the JSON carries no `type`.
+   - **Prefer, do not trust.** `final || deltas` discarded a complete answer whenever a completion event arrived unparseable; `response.incomplete` (a truncated but usable answer on the non-streaming path) was thrown away as a failure; whitespace-only deltas escaped a truthiness check into a non-retryable `parse`.
+   - **Streaming by default needs a way to be wrong.** A stream carrying no recognized event now retries once with `stream: false`, so a drift in the event vocabulary degrades instead of taking Grok offline - which, with the new breaker, would have silently dropped it from the panel.
+   - **A terminal transition is not the same state as a round.** `terminateLoop` fires BEFORE a fan-out, so it must persist the last COMPLETED round's opinions from `history` (`results` was already reset by `submitRevision`) and report the rounds that finished, not the one about to start.
+   - **Consolidating a rule means migrating every caller.** `no-providers` was added to `consensus-step` and not to `runToConvergence` on the same PR that argues for one rules layer; `droppedProviders` was recomputed from the whole streak map, so it re-announced every round and could name peers absent from the panel.
 
 ## Commit Conventions & Releases
 

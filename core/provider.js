@@ -76,7 +76,13 @@ function transportCodeOf(err) {
 function classifyFetchFailure(err) {
   const transportCode = transportCodeOf(err);
   const msg = String((err && err.message) || err);
-  const isAbort = (err && err.name === "AbortError") || /abort/i.test(msg);
+  // An abort reaches us in TWO shapes. Directly, as an AbortError; and WRAPPED, when the
+  // controller fires during the body/stream read - undici then rejects with
+  // `TypeError: terminated` whose `cause` is a DOMException named AbortError, where
+  // neither the name nor the message mentions aborting. Missing the wrapped shape put
+  // our own ceiling back in the retryable `network` bucket, so the call paid a second
+  // full ceiling: precisely the double-billing this classification prevents.
+  const isAbort = (err && err.name === "AbortError") || /abort/i.test(msg) || transportCode === "AbortError";
   if (isAbort || (transportCode && UNDICI_TIMEOUT_CODES.has(transportCode))) {
     return { code: "timeout", transportCode };
   }

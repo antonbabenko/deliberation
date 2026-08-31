@@ -16,7 +16,7 @@ const { NULL_LOGGER } = require("./debug-log.js");
 const { CIRCUIT_BREAK_AFTER } = loop;
 
 // errorKinds callProvider retries exactly once. See the comment at the retry site.
-const RETRY_ONCE_KINDS = new Set(["network", "rate-limit", "empty"]);
+const RETRY_ONCE_KINDS = new Set(["network", "rate-limit", "empty", "upstream"]);
 // Fallback pause before a rate-limit retry when the upstream sent no Retry-After,
 // and the ceiling on one it did send (a multi-minute hint would stall the fan-out).
 const RATE_LIMIT_DEFAULT_DELAY_MS = 2000;
@@ -125,6 +125,8 @@ async function callProvider(provider, req, logger, tool, cache, orientationFiles
     //   rate-limit - a 429; the upstream told us to come back, so honor Retry-After.
     //   empty      - the provider exited clean but returned a stub, not an answer
     //                (e.g. agy printing only a preamble); cheap to redo.
+    //   upstream   - a 5xx, or a generation the provider itself aborted mid-stream.
+    //                The request was fine; the other side failed.
     // NEVER retry timeout (may have burned tokens / risks the slow-but-good case) or
     // auth/config (won't self-heal). One extra attempt, no exponential backoff.
     if (r.isError && RETRY_ONCE_KINDS.has(r.errorKind)) {
@@ -381,7 +383,9 @@ async function runToConvergence(providers, req, opts = {}) {
       // Budget gates STARTING a round; it never interrupts the in-flight fan-out
       // below, so a legitimately slow peer answer is always collected in full.
       if (maxWallMs !== null && now() - startedAt >= maxWallMs) { stopReason = "budget-exhausted"; break; }
-      if (!activeProviders.length) { stopReason = "all-providers-circuit-broken"; break; }
+      // Distinguish "the breaker emptied the panel" from "there was never a panel" -
+      // the same distinction the host-driven driver makes, so the two agree.
+      if (!activeProviders.length) { stopReason = providers.length ? "all-providers-circuit-broken" : "no-providers"; break; }
       const { peerPrompt, blindPrompt } = loop.prepareRound(state);
       // Blind pass runs concurrently with the peer fan-out; isolate its failure.
       const roundNo = state.round;

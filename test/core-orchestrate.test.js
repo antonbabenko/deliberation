@@ -451,3 +451,13 @@ test("ORX-log-2: a successful result carries no errorCode", async () => {
   await askOneT(scriptedProvider("p", [OK()]), { prompt: "x" }, { logger, tool: "ask-one" });
   assert.equal(events.filter((e) => e.event === "provider_result")[0].errorCode, undefined);
 });
+
+test("ORX-retry-6: `upstream` is retried once, matching what the bridges advertise", async () => {
+  // classifyGrokError returns retryable:true for `upstream` and the docs said so in three
+  // places, but the retry set did not agree - so a transient 5xx or an aborted generation
+  // failed the round outright with no second attempt.
+  const p = scriptedProvider("p", [ERR("upstream"), OK()]);
+  const r = await askOneT(p, { prompt: "x" });
+  assert.equal(r.isError, false);
+  assert.equal(p.calls, 2);
+});
