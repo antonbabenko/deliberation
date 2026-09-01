@@ -136,6 +136,20 @@ The package also ships a `deliberation-setup` bin. Run it once with `npx -y --pa
 
 </details>
 
+### Run in Docker
+
+The repo ships a `Dockerfile` for running the standalone server in a container. It wraps the stdio server in `mcp-proxy`, the same shape MCP hosting providers expect:
+
+```bash
+docker build -t deliberation-mcp .
+docker run -i --rm \
+  -e XAI_API_KEY -e OPENROUTER_API_KEY \
+  -v ~/.config/deliberation:/home/node/.config/deliberation:ro \
+  deliberation-mcp
+```
+
+Grok and OpenRouter work from the keys alone. GPT and Gemini do not - they shell out to the `codex` and `agy` CLIs, which are not in the image, so those two providers report `not-found` / `missing-cli` inside the container.
+
 ### Native plugins per host (Cursor / Codex / Kiro / OpenCode)
 
 Beyond the raw MCP config above, deliberation ships **native plugin artifacts** for four hosts so the experience matches the Claude Code plugin (persona-bearing experts + when-to-delegate guidance, not just bare tools). All of these are **generated from the canonical sources** by `node scripts/sync-hosts.js` and committed, so they never drift (a CI drift test enforces it). Each host scans the repo for its own files:
