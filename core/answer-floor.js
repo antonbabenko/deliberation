@@ -27,9 +27,12 @@
 
 const DEFAULT_MIN_ANSWER_CHARS = 1;
 const INTENT_STUB_MAX_CHARS = 400;
+// An adverb between the phrase and the verb is allowed ("I will now check...") but is not
+// a verb itself: "I will now answer: 42" is an answer.
 const INTENT_STUB_RE = new RegExp(
   "^\\W*(?:I(?:'ll| will|'m going to| am going to)|Let me|First,? I(?:'ll| will)?)\\s+" +
-  "(?:begin|start|first|now|verify|check|read|look|find|open|examine|inspect|review|explore|" +
+  "(?:(?:now|first|quickly|just)\\s+)?" +
+  "(?:begin|start|verify|check|read|look|find|open|examine|inspect|review|explore|" +
   "search|scan|run|fetch|gather|walk|dig|investigate|analy[sz]e|take a look|go through)\\b",
   "i",
 );

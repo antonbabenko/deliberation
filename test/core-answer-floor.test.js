@@ -65,6 +65,9 @@ test("AF8: an intent phrase WITHOUT an exploration verb is a complete short answ
     "Let me be clear: no.",
     "First, I disagree with the premise - the cache key already includes the files.",
     "I'm going to say APPROVE - the plan names files and has executable checks.",
+    // An adverb is not a verb (loop-2 review): "now"/"first" must not count on their own.
+    "I will now answer: 42",
+    "I'll first say APPROVE, then the reasons.",
   ]) {
     assert.equal(stubReason(answer, DEFAULT_MIN_ANSWER_CHARS), null, answer);
   }
@@ -75,6 +78,7 @@ test("AF8: an intent phrase WITHOUT an exploration verb is a complete short answ
     "Let me check the files first.",
     "First, I will start by reading the bridge.",
     "I'm going to take a look at the repository structure.",
+    "I will now check the files.",
   ]) {
     assert.match(String(stubReason(stub, DEFAULT_MIN_ANSWER_CHARS)), /announce intent/, stub);
   }
