@@ -142,6 +142,26 @@ test("S-MCP3: ask-all with persist on writes a record and returns sessionId", as
   assert.ok(fs.existsSync(path.join(dir, `${payload.sessionId}.json`)));
 });
 
+test("S-MCP3b: an error result's forwarded `message` is never written to the session store", async (t) => {
+  // toErrorResult forwards the bridge's reason (issue #180), which can quote model output.
+  // It is for the host's eyes only: opinionsFrom must keep copying just provider/model/
+  // text/verdict fields, so a persisted record never carries it.
+  const dir = tmpSessionsDir();
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const failing = {
+    name: "grok",
+    capabilities: { canImplement: false, fileUpload: false, multiTurn: false },
+    async health() { return { ok: true }; },
+    async ask() { return { provider: "grok", model: "grok-4.6", isError: true, errorKind: "empty", retryable: true, message: "stub: SECRET OUTPUT", ms: 1 }; },
+  };
+  const srv = buildServer({ providers: [fakeProvider("codex"), /** @type {any} */ (failing)], getConfig: () => sessionsConfig(true), sessionsDir: dir });
+  const payload = await callTool(srv, 33, "ask-all", { prompt: "q" });
+  assert.ok(payload.results.some((r) => r.provider === "grok" && r.isError && r.message), "the envelope itself carries the message");
+  const record = fs.readFileSync(path.join(dir, `${payload.sessionId}.json`), "utf8");
+  assert.ok(!record.includes("SECRET OUTPUT"), "persisted record must not contain the forwarded message");
+  assert.ok(!/"message"/.test(record), "no message key at all in the record");
+});
+
 test("S-MCP4: persist off writes nothing and returns no sessionId", async (t) => {
   const dir = tmpSessionsDir();
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));

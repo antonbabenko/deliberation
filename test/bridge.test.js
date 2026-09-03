@@ -384,6 +384,82 @@ test("M1c: an agy without --model support gets no --model in argv (call still su
   assert.ok(argv.lastIndexOf("-p") >= 0, "prompt tail still intact");
 });
 
+test("M1d: an agy that prints --help to stderr is still detected as supporting --model (#180)", async () => {
+  // agy 1.1.x writes its usage to stderr only (stdout is empty). A probe that reads
+  // stdout alone never sees --model, warns "does not support --model" on every boot, and
+  // silently drops the operator's model pin - issue #180, finding 1.
+  const child = startBridge({ fakeBin: "fake-agy.sh", env: { FAKE_AGY_HELP_STREAM: "stderr" } });
+  const responsesP = collectResponses(child);
+  send(child, { jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+  send(child, {
+    jsonrpc: "2.0", id: 2, method: "tools/call",
+    params: { name: "gemini", arguments: { prompt: "hi", model: "gemini-3.1-pro-low" } },
+  });
+  setTimeout(() => child.stdin.end(), 1000);
+  const responses = await responsesP;
+  assert.ok(!responses.find((x) => x.id === 2).error, "call ok");
+  const argv = readArgv(child.argvLog)[0];
+  const i = argv.indexOf("--model");
+  assert.ok(i >= 0, "--model detected from stderr usage text");
+  assert.equal(argv[i + 1], "gemini-3.1-pro-low", "pin not dropped");
+});
+
+test("M1e: a --model pin agy rejects is retried without the pin, then omitted for the rest of the process", async () => {
+  // The probe fix in M1d means the pin is now actually sent. The built-in default
+  // (`auto-gemini-3`) is not in `agy models` on agy 1.1.x, and agy exits 1 with
+  // "invalid model selection" - which would turn a silently-ignored pin into every
+  // call failing. The bridge must self-heal: retry without the pin, warn, and stop
+  // sending that id for the rest of the process (agy takes ~3.5s to reject it).
+  const child = startBridge({ fakeBin: "fake-agy.sh", env: { FAKE_AGY_REJECT_MODEL: "1" } });
+  let stderr = "";
+  child.stderr.on("data", (d) => { stderr += d.toString(); });
+  const responsesP = collectResponses(child);
+  send(child, { jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+  send(child, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "gemini", arguments: { prompt: "hi", model: "auto-gemini-3" } } });
+  setTimeout(() => {
+    send(child, { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "gemini", arguments: { prompt: "again", model: "auto-gemini-3" } } });
+  }, 800);
+  setTimeout(() => child.stdin.end(), 1800);
+  const responses = await responsesP;
+  const r2 = responses.find((x) => x.id === 2);
+  const r3 = responses.find((x) => x.id === 3);
+  assert.ok(r2 && !r2.result.isError, "first call succeeds after the fallback: " + JSON.stringify(r2 && r2.result));
+  assert.equal(r2.result.content[0].text, "FAKE AGY OK");
+  assert.equal(r2.result.pinDropped, true, "the response says the run did not use the pinned model");
+  assert.ok(r3 && !r3.result.isError, "second call succeeds: " + JSON.stringify(r3 && r3.result));
+  assert.equal(r3.result.pinDropped, true, "omitted up front still reports the dropped pin");
+  // readArgv splits on "\n" and the advisory guard puts newlines inside the -p prompt
+  // element, so one agy run parses as several chunks; the flags live in the first chunk,
+  // which is the only one carrying --sandbox.
+  const invocations = readArgv(child.argvLog).filter((a) => a.includes("--sandbox"));
+  assert.equal(invocations.length, 3, "attempt with pin, retry without, then one direct call");
+  assert.ok(invocations[0].includes("--model"), "first attempt carried the pin");
+  assert.ok(!invocations[1].includes("--model"), "retry dropped the pin");
+  assert.ok(!invocations[2].includes("--model"), "rejected id is omitted up front next time");
+  assert.match(stderr, /rejected --model "auto-gemini-3"/);
+  assert.equal((stderr.match(/rejected --model/g) || []).length, 1, "warned once per model");
+});
+
+test("M1f: an explicit pin agy rejects fails loudly as model-not-allowed - no silent model swap", async () => {
+  // Review round 1 (#180): only the SHIPPED alias may fall back. An id the operator typed
+  // (config.json, GEMINI_DEFAULT_MODEL, or the call) that agy does not know is a config
+  // error; running some other model behind their back would be worse than failing.
+  const child = startBridge({ fakeBin: "fake-agy.sh", env: { FAKE_AGY_REJECT_MODEL: "1" } });
+  const responsesP = collectResponses(child);
+  send(child, { jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+  send(child, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "gemini", arguments: { prompt: "hi", model: "gemini-3.1-pro-lo" } } });
+  setTimeout(() => child.stdin.end(), 1500);
+  const r = (await responsesP).find((x) => x.id === 2);
+  assert.ok(r, "got tools/call response");
+  assert.equal(r.result.isError, true, "typo'd pin must not run on another model: " + JSON.stringify(r.result));
+  assert.equal(r.result.errorKind, "model-not-allowed");
+  assert.equal(r.result.retryable, false, "deterministic config error is never retried");
+  assert.match(r.result.content[0].text, /invalid model selection/, "agy's own message (with its catalog) is forwarded");
+  const runs = readArgv(child.argvLog).filter((a) => a.includes("--sandbox"));
+  assert.equal(runs.length, 1, "no retry without the pin");
+  assert.ok(runs[0].includes("--model"), "the operator's pin was sent as asked");
+});
+
 test("M1: model empty string -> -32602", async () => {
   const child = startBridge({ fakeBin: "fake-agy.sh" });
   const responsesP = collectResponses(child);
@@ -611,7 +687,7 @@ function makeGitRepo() {
 
 test("MA1: stdout below the answer floor is an `empty` error, not a success", async () => {
   // The fixture prints "FAKE AGY OK" (11 chars); the suite default disables the floor,
-  // so this test opts back in with the production default.
+  // so this test opts back in with an explicit 80-char floor (the pre-#180 default).
   const child = startBridge({ fakeBin: "fake-agy.sh", env: { GEMINI_MIN_ANSWER_CHARS: "80" } });
   const responsesP = collectResponses(child);
   send(child, { jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
@@ -682,6 +758,38 @@ test("MA5: a drain recovery ABOVE the floor still succeeds with recovered:true",
   const r = (await responsesP).find((x) => x.id === 2);
   assert.ok(!r.result.isError, "19 chars clears a 5-char floor: " + JSON.stringify(r.result));
   assert.equal(r.result.content[0].text, "RECOVERED ANSWER OK");
+});
+
+test("MA6: a terse real answer passes the DEFAULT floor (#180: `Sag nur: ok` -> `ok`)", async () => {
+  // Issue #180: the reporter's smoke prompt made agy print "ok" (2 chars, exit 0) and the
+  // 80-char length floor rejected it as `empty`. A length-only floor cannot tell a terse
+  // answer from a stub. `undefined` un-sets the suite's GEMINI_MIN_ANSWER_CHARS=0 default
+  // (spawn drops undefined env values) so this exercises the shipped default.
+  const child = startBridge({ fakeBin: "fake-agy.sh", env: { GEMINI_MIN_ANSWER_CHARS: undefined, FAKE_AGY_REPLY: "ok" } });
+  const responsesP = collectResponses(child);
+  send(child, { jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+  send(child, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "gemini", arguments: { prompt: "Sag nur: ok" } } });
+  setTimeout(() => child.stdin.end(), 1500);
+  const r = (await responsesP).find((x) => x.id === 2);
+  assert.ok(r, "got tools/call response");
+  assert.ok(!r.result.isError, "terse answer must pass the default floor: " + JSON.stringify(r.result));
+  assert.equal(r.result.content[0].text, "ok");
+});
+
+test("MA7: an announced-intent preamble still fails the DEFAULT floor as `empty`", async () => {
+  // The stub that motivated the floor is caught by CONTENT (opens with "I will ..."), not
+  // by length - so dropping the hard length default does not let it back in.
+  const preamble = "I will begin by finding the repository directory and reading the relevant files.";
+  const child = startBridge({ fakeBin: "fake-agy.sh", env: { GEMINI_MIN_ANSWER_CHARS: undefined, FAKE_AGY_REPLY: preamble } });
+  const responsesP = collectResponses(child);
+  send(child, { jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+  send(child, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "gemini", arguments: { prompt: "hi" } } });
+  setTimeout(() => child.stdin.end(), 1500);
+  const r = (await responsesP).find((x) => x.id === 2);
+  assert.ok(r, "got tools/call response");
+  assert.equal(r.result.isError, true, "preamble must not pass as an answer");
+  assert.equal(r.result.errorKind, "empty");
+  assert.match(r.result.content[0].text, /announce intent/);
 });
 
 test("S5c: agyShimError turns a shim-only resolution into a missing-cli rejection", () => {

@@ -239,6 +239,31 @@ test("RA4: toErrorResult forwards retryAfterMs and omits it when absent", () => 
   assert.ok(!("retryAfterMs" in without), "absent hint adds no key");
 });
 
+test("RA5: toErrorResult forwards the bridge's message, truncated, and omits it when absent", () => {
+  // Issue #180: the Gemini bridge said exactly why it failed ("2 chars, below the 80-char
+  // answer floor: ok"), but the unified envelope carried only errorKind, so the operator
+  // saw an opaque `empty` and spent hours instrumenting the sandbox. Forward the reason.
+  const classify = () => ({ errorKind: "empty", retryable: true });
+  const withMsg = toErrorResult("gemini", "m", Date.now(), new Error("agy returned a stub, not an answer (2 chars): ok"), classify);
+  assert.equal(withMsg.message, "agy returned a stub, not an answer (2 chars): ok");
+  const long = String(toErrorResult("gemini", "m", Date.now(), new Error("x".repeat(2000)), classify).message);
+  assert.ok(long.length <= 503, "bounded: " + long.length);
+  assert.ok(long.endsWith("..."), "truncation is visible");
+  const without = toErrorResult("gemini", "m", Date.now(), { status: 500 }, classify);
+  assert.ok(!("message" in without), "no message adds no key");
+  const blank = toErrorResult("gemini", "m", Date.now(), new Error(""), classify);
+  assert.ok(!("message" in blank), "empty message adds no key");
+});
+
+test("RA6: the forwarded message is plain text - ANSI sequences and control bytes are stripped", () => {
+  const classify = () => ({ errorKind: "unknown", retryable: false });
+  const raw = "\x1b[31mError:\x1b[0m invalid model \x1b]0;title\x07selection\x07\x00 (see list)\r\n  next";
+  const r = toErrorResult("gemini", "m", Date.now(), new Error(raw), classify);
+  assert.equal(r.message, "Error: invalid model selection (see list)\n  next");
+  const onlyControls = toErrorResult("gemini", "m", Date.now(), new Error("\x1b[2J\x07"), classify);
+  assert.ok(!("message" in onlyControls), "nothing left after stripping adds no key");
+});
+
 // --- fetch failure classification -----------------------------------------
 
 test("FF1: a wrapped abort (TypeError: terminated + cause AbortError) is a timeout", () => {

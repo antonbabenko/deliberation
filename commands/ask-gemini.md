@@ -7,7 +7,7 @@ timeout: 660000
 
 # Ask Gemini
 
-Single-shot delegation to Gemini (Gemini 3 via the Antigravity CLI, `agy`) via MCP for an independent second opinion. Fresh thread, no shared context with prior calls. Advisory mode by default (read-only sandbox). The bridge passes the model to agy's `--model`, so the call wins over `~/.gemini/settings.json`; omit it to take `providers.gemini.model` from `config.json`.
+Single-shot delegation to Gemini (Gemini 3 via the Antigravity CLI, `agy`) via MCP for an independent second opinion. Fresh thread, no shared context with prior calls. Advisory mode by default (read-only sandbox). The bridge passes the model to agy's `--model`, so the call wins over `~/.gemini/settings.json`; omit it to take `providers.gemini.model` from `config.json`. If agy rejects the shipped `auto-gemini-3` alias (`invalid model selection` - not in `agy models`), the bridge drops that pin with a stderr warning and the call runs on agy's own default (the result carries `pinDropped: true`); any other rejected id fails as `errorKind: "model-not-allowed"` with agy's catalog in the message.
 
 ## Input
 

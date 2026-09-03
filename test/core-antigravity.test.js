@@ -18,6 +18,17 @@ test("AG1: ask maps a clean run (response -> text) to a success result", async (
   assert.equal(r.threadId, "g-1");
 });
 
+test("AG1b: pinDropped reports the effective model source, not the rejected pin", async () => {
+  // The bridge re-ran on agy's settings.json default after agy rejected the shipped alias;
+  // reporting "auto-gemini-3" here would name a model that never ran (issue #180 review).
+  const dropped = { ...fakeBridge, runGemini: async () => ({ response: "ok", threadId: "g-3", pinDropped: true }) };
+  const r = await makeAntigravityProvider({ bridge: dropped, model: "auto-gemini-3" }).ask({ prompt: "x", cwd: "/tmp" });
+  assert.equal(r.isError, false);
+  assert.equal(r.model, "agy-settings-default");
+  const kept = await makeAntigravityProvider({ bridge: fakeBridge, model: "gemini-3.1-pro-low" }).ask({ prompt: "x", cwd: "/tmp" });
+  assert.equal(kept.model, "gemini-3.1-pro-low", "an honoured pin is reported as-is");
+});
+
 test("AG2: recovered:true is still a success (drain), not an error", async () => {
   const recov = { ...fakeBridge, runGemini: async () => ({ response: "late", threadId: "g-2", recovered: true }) };
   const r = await makeAntigravityProvider({ bridge: recov }).ask({ prompt: "x", cwd: "/tmp" });
