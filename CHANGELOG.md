@@ -1,3 +1,10 @@
+## [3.14.4](https://github.com/antonbabenko/deliberation/compare/v3.14.3...v3.14.4) (2026-09-03)
+
+
+### Bug Fixes
+
+* **gemini:** accept terse answers and read agy --help from stderr ([#180](https://github.com/antonbabenko/deliberation/issues/180)) ([#181](https://github.com/antonbabenko/deliberation/issues/181)) ([ad4a3af](https://github.com/antonbabenko/deliberation/commit/ad4a3af97c678a0a291e12a46f9c7d87357970f8))
+
 ## [3.14.3](https://github.com/antonbabenko/deliberation/compare/v3.14.2...v3.14.3) (2026-08-31)
 
 
@@ -25,11 +32,4 @@
 ### Features
 
 * **analyze:** report only configured models, add time window, compare links, and model verification ([#171](https://github.com/antonbabenko/deliberation/issues/171)) ([73c0a69](https://github.com/antonbabenko/deliberation/commit/73c0a69e01e8ccd67985922170af033af23ae703))
-
-## [3.13.0](https://github.com/antonbabenko/deliberation/compare/v3.12.1...v3.13.0) (2026-07-27)
-
-
-### Features
-
-* **providers:** configurable timeouts, graceful rate-limit retry, non-answer detection ([#167](https://github.com/antonbabenko/deliberation/issues/167)) ([eccd3d0](https://github.com/antonbabenko/deliberation/commit/eccd3d0ff25e96764cc04ebd0ffd92292cd0ae4e))
 
