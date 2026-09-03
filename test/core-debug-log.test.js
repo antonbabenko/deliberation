@@ -35,9 +35,12 @@ test("D2: sanitizeEvent drops any key outside the whitelist (no prompt/response 
   const out = sanitizeEvent(/** @type {any} */ ({
     event: "provider_result", at: 1, provider: "grok", ms: 10,
     prompt: "SECRET PROMPT", response: "SECRET RESPONSE", text: "SECRET", description: "issue text",
+    // toErrorResult forwards the bridge's message in the envelope (issue #180); it can quote
+    // up to 200 chars of model output, so it must never reach the log.
+    message: "agy returned a stub, not an answer (2 chars): SECRET OUTPUT",
   }));
   assert.deepEqual(Object.keys(out).sort(), ["at", "event", "ms", "provider"].sort());
-  for (const k of ["prompt", "response", "text", "description"]) {
+  for (const k of ["prompt", "response", "text", "description", "message"]) {
     assert.ok(!(k in out), `disallowed key ${k} must be stripped`);
   }
   // whitelist sanity: every allowed key is actually permitted through

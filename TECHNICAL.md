@@ -142,10 +142,23 @@ support --model" on every boot, and silently dropped the pin
 ([issue #180](https://github.com/antonbabenko/deliberation/issues/180)). That also means the
 pin had never reached a real agy before: the built-in `auto-gemini-3` alias is not in
 `agy models` on 1.1.x, and agy rejects an unknown id with `invalid model selection` (exit 1,
-about 3.5s, because it fetches its catalog first). A rejected pin does not fail the call:
-`runGemini` retries once without `--model` (agy then uses its `~/.gemini/settings.json`),
-warns once on stderr naming the id, and omits that id for the rest of the process. Set
-`providers.gemini.model` to an id `agy models` lists to stop the warning.
+about 3.5s, because it fetches its catalog first). Two outcomes, by whose pin it was:
+
+- **The shipped alias** (`auto-gemini-3`, seeded into every install's config): the call
+  does not fail. `runGemini` retries once without `--model` within the remaining time
+  budget (agy then uses its `~/.gemini/settings.json`), warns once per process on stderr,
+  and omits the alias for the rest of the process. The response carries `pinDropped: true`
+  and the unified envelope reports `model: "agy-settings-default"` rather than an id that
+  never ran. Set `providers.gemini.model` to an id `agy models` lists to stop the warning.
+- **Any other id** (config, `GEMINI_DEFAULT_MODEL`, or the call): a typo or a stale pin is
+  the operator's config error, and running some other model behind their back would be
+  worse than failing. The call fails as `errorKind: "model-not-allowed"` (not retried) with
+  agy's own message, which lists the catalog, forwarded as `message`.
+
+The pin is located by position (`--model <id>` sits immediately before the `-p <prompt>`
+tail that `buildAgyArgs` always emits), never by scanning argv values, so an `--add-dir`
+path or a prompt can never be mistaken for the flag. The `--help` probe itself is bounded
+(15s); a probe that times out is treated like a failed spawn (assume supported).
 
 The built-in stays the portable `auto-gemini-3` router alias because the concrete
 catalog differs per install - shipping a pinned id would hard-fail every call on a
@@ -982,7 +995,7 @@ token count. There is no hard spend cap - the warning is informational only.
 | `parse` | Response body could not be parsed |
 | `upstream` | Non-2xx from the endpoint (other than auth/rate-limit) |
 | `config` | Config file missing, invalid JSON, or schema violation |
-| `model-not-allowed` | Requested alias is not in the config, or a raw `model` was passed with `allowRawModel:false`, or no alias/model was given and no `defaultModel` is set |
+| `model-not-allowed` | OpenRouter: requested alias is not in the config, or a raw `model` was passed with `allowRawModel:false`, or no alias/model was given and no `defaultModel` is set. Gemini: agy rejected an operator-pinned `--model` id with `invalid model selection` (the shipped alias falls back instead - see the `--model` notes) |
 | `unknown-thread` | `-reply` called with a threadId that does not exist |
 | `unknown` | Catch-all for unclassified errors |
 
@@ -1156,9 +1169,15 @@ opinion - inside consensus a stub yields `verdict: null` and silently blocks con
 both bridges call it: a trimmed reply is a stub when it is shorter than
 `GEMINI_MIN_ANSWER_CHARS` / `GROK_MIN_ANSWER_CHARS` (default **1**, i.e. empty), OR when it is
 under 400 characters and opens with an intent phrase (`I'll` / `I will` / `I'm going to` /
-`Let me` / `First, I`). A long answer that merely opens with "I'll" is not a stub. `0`
-disables both checks. The failure carries the reason ("2 chars, below the 80-char answer
-floor" / "51 chars that only announce intent"), and since
+`Let me` / `First, I`) **followed by an exploration verb** (`begin`, `start`, `verify`,
+`check`, `read`, `look`, `find`, `open`, `examine`, `inspect`, `review`, `explore`, `search`,
+`scan`, `run`, `fetch`, `gather`, `walk`, `dig`, `investigate`, `analyse`, `take a look`,
+`go through`). The phrase alone is not enough - "I will.", "I'll go with option B because..."
+and "Let me be clear: no." are complete answers - and a long answer that merely opens with
+"I'll" is not a stub. The intent check is new for Gemini (it existed only in the Grok
+bridge before); it also catches preambles that were long enough to clear the old 80-char
+floor. `0` disables both checks. The failure carries the reason ("2 chars, below the 80-char
+answer floor" / "51 chars that only announce intent"), and since
 [issue #180](https://github.com/antonbabenko/deliberation/issues/180) the unified error
 envelope forwards it as `message` - before that, the operator saw only the coarse
 `errorKind: "empty"` and had no way to tell a floor rejection from a transport fault.

@@ -255,6 +255,15 @@ test("RA5: toErrorResult forwards the bridge's message, truncated, and omits it 
   assert.ok(!("message" in blank), "empty message adds no key");
 });
 
+test("RA6: the forwarded message is plain text - ANSI sequences and control bytes are stripped", () => {
+  const classify = () => ({ errorKind: "unknown", retryable: false });
+  const raw = "\x1b[31mError:\x1b[0m invalid model \x1b]0;title\x07selection\x07\x00 (see list)\r\n  next";
+  const r = toErrorResult("gemini", "m", Date.now(), new Error(raw), classify);
+  assert.equal(r.message, "Error: invalid model selection (see list)\n  next");
+  const onlyControls = toErrorResult("gemini", "m", Date.now(), new Error("\x1b[2J\x07"), classify);
+  assert.ok(!("message" in onlyControls), "nothing left after stripping adds no key");
+});
+
 // --- fetch failure classification -----------------------------------------
 
 test("FF1: a wrapped abort (TypeError: terminated + cause AbortError) is a timeout", () => {

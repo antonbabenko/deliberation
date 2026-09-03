@@ -64,7 +64,10 @@ function makeAntigravityProvider(opts = {}) {
         // so the DelegationSuccess.text contract (string, not string|undefined) holds.
         // Gemini (agy CLI) has no per-call reasoning-effort knob -> null.
         // workspaceMutated (advisory taint signal) is surfaced when the run changed the workspace.
-        return { provider: "gemini", model, text: out.response || "", threadId: out.threadId, isError: false, ms: Date.now() - started, reasoningEffort: null, ...(out.workspaceMutated ? { workspaceMutated: true } : {}) };
+        // pinDropped: agy rejected the shipped alias and the bridge re-ran on agy's own
+        // settings.json default, so the pinned id would be a lie - report the effective source.
+        const effectiveModel = out.pinDropped ? "agy-settings-default" : model;
+        return { provider: "gemini", model: effectiveModel, text: out.response || "", threadId: out.threadId, isError: false, ms: Date.now() - started, reasoningEffort: null, ...(out.workspaceMutated ? { workspaceMutated: true } : {}) };
       } catch (e) {
         // classifyGeminiError(errMsg, errCode): the missing-cli and upstream-abort
         // branches key off the message, so pass the real caught message - not "".

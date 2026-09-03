@@ -17,21 +17,33 @@
 // The shipped default floor is 1: non-empty output is an answer unless it announces
 // intent. Operators who want the old hard floor set GEMINI_/GROK_MIN_ANSWER_CHARS=80.
 //
+// "Announces intent" means an intent phrase FOLLOWED BY an exploration verb ("I will
+// begin by...", "I'll verify...", "Let me check..."). The phrase alone is not enough:
+// "I will.", "I'll go with option B because..." and "Let me be clear: no." are complete
+// short answers, and with a floor of 1 they would otherwise be the new false positives.
+//
 // ponytail: an opening-phrase regex is a proxy for "announced intent instead of answering";
 // upgrade to a structured-output check once parseOpinion is wired into the pipeline.
 
 const DEFAULT_MIN_ANSWER_CHARS = 1;
 const INTENT_STUB_MAX_CHARS = 400;
-const INTENT_STUB_RE = /^\W*(?:I(?:'ll| will|'m going to| am going to)|Let me|First,? I)\b/i;
+const INTENT_STUB_RE = new RegExp(
+  "^\\W*(?:I(?:'ll| will|'m going to| am going to)|Let me|First,? I(?:'ll| will)?)\\s+" +
+  "(?:begin|start|first|now|verify|check|read|look|find|open|examine|inspect|review|explore|" +
+  "search|scan|run|fetch|gather|walk|dig|investigate|analy[sz]e|take a look|go through)\\b",
+  "i",
+);
 
 /**
- * Parse a `*_MIN_ANSWER_CHARS` env value. Non-numeric or negative falls back to the default.
+ * Parse a `*_MIN_ANSWER_CHARS` env value. Blank, non-numeric or negative falls back to
+ * the default (a blank value must not silently disable the floor: Number(" ") is 0).
  * @param {string|undefined} envValue
  * @returns {number}
  */
 function readMinAnswerChars(envValue) {
-  if (envValue === undefined || envValue === "") return DEFAULT_MIN_ANSWER_CHARS;
-  const raw = Number(envValue);
+  const s = envValue === undefined ? "" : String(envValue).trim();
+  if (s === "") return DEFAULT_MIN_ANSWER_CHARS;
+  const raw = Number(s);
   return Number.isFinite(raw) && raw >= 0 ? raw : DEFAULT_MIN_ANSWER_CHARS;
 }
 

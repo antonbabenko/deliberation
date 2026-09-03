@@ -46,8 +46,36 @@ test("AF6: floor 0 disables both checks (escape hatch)", () => {
 test("AF7: readMinAnswerChars parses the env value and falls back to the default", () => {
   assert.equal(readMinAnswerChars(undefined), DEFAULT_MIN_ANSWER_CHARS);
   assert.equal(readMinAnswerChars(""), DEFAULT_MIN_ANSWER_CHARS);
+  // Number(" ") is 0, which would silently DISABLE the floor on a blank env value.
+  assert.equal(readMinAnswerChars(" "), DEFAULT_MIN_ANSWER_CHARS);
+  assert.equal(readMinAnswerChars(" 80 "), 80);
   assert.equal(readMinAnswerChars("abc"), DEFAULT_MIN_ANSWER_CHARS);
   assert.equal(readMinAnswerChars("-5"), DEFAULT_MIN_ANSWER_CHARS);
   assert.equal(readMinAnswerChars("0"), 0);
   assert.equal(readMinAnswerChars("80"), 80);
+});
+
+test("AF8: an intent phrase WITHOUT an exploration verb is a complete short answer, not a stub", () => {
+  // Review round 1 (#180): with the length floor gone, a bare "I'll"/"Let me" opener would
+  // have become the new false positive. Intent means "I will go and look", not any
+  // first-person sentence.
+  for (const answer of [
+    "I will.",
+    "I'll go with option B because it keeps the retry budget bounded.",
+    "Let me be clear: no.",
+    "First, I disagree with the premise - the cache key already includes the files.",
+    "I'm going to say APPROVE - the plan names files and has executable checks.",
+  ]) {
+    assert.equal(stubReason(answer, DEFAULT_MIN_ANSWER_CHARS), null, answer);
+  }
+  // ...while the observed stubs and their close variants still trip it.
+  for (const stub of [
+    GEMINI_PREAMBLE,
+    GROK_STUB,
+    "Let me check the files first.",
+    "First, I will start by reading the bridge.",
+    "I'm going to take a look at the repository structure.",
+  ]) {
+    assert.match(String(stubReason(stub, DEFAULT_MIN_ANSWER_CHARS)), /announce intent/, stub);
+  }
 });

@@ -425,7 +425,9 @@ test("M1e: a --model pin agy rejects is retried without the pin, then omitted fo
   const r3 = responses.find((x) => x.id === 3);
   assert.ok(r2 && !r2.result.isError, "first call succeeds after the fallback: " + JSON.stringify(r2 && r2.result));
   assert.equal(r2.result.content[0].text, "FAKE AGY OK");
+  assert.equal(r2.result.pinDropped, true, "the response says the run did not use the pinned model");
   assert.ok(r3 && !r3.result.isError, "second call succeeds: " + JSON.stringify(r3 && r3.result));
+  assert.equal(r3.result.pinDropped, true, "omitted up front still reports the dropped pin");
   // readArgv splits on "\n" and the advisory guard puts newlines inside the -p prompt
   // element, so one agy run parses as several chunks; the flags live in the first chunk,
   // which is the only one carrying --sandbox.
@@ -436,6 +438,26 @@ test("M1e: a --model pin agy rejects is retried without the pin, then omitted fo
   assert.ok(!invocations[2].includes("--model"), "rejected id is omitted up front next time");
   assert.match(stderr, /rejected --model "auto-gemini-3"/);
   assert.equal((stderr.match(/rejected --model/g) || []).length, 1, "warned once per model");
+});
+
+test("M1f: an explicit pin agy rejects fails loudly as model-not-allowed - no silent model swap", async () => {
+  // Review round 1 (#180): only the SHIPPED alias may fall back. An id the operator typed
+  // (config.json, GEMINI_DEFAULT_MODEL, or the call) that agy does not know is a config
+  // error; running some other model behind their back would be worse than failing.
+  const child = startBridge({ fakeBin: "fake-agy.sh", env: { FAKE_AGY_REJECT_MODEL: "1" } });
+  const responsesP = collectResponses(child);
+  send(child, { jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+  send(child, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "gemini", arguments: { prompt: "hi", model: "gemini-3.1-pro-lo" } } });
+  setTimeout(() => child.stdin.end(), 1500);
+  const r = (await responsesP).find((x) => x.id === 2);
+  assert.ok(r, "got tools/call response");
+  assert.equal(r.result.isError, true, "typo'd pin must not run on another model: " + JSON.stringify(r.result));
+  assert.equal(r.result.errorKind, "model-not-allowed");
+  assert.equal(r.result.retryable, false, "deterministic config error is never retried");
+  assert.match(r.result.content[0].text, /invalid model selection/, "agy's own message (with its catalog) is forwarded");
+  const runs = readArgv(child.argvLog).filter((a) => a.includes("--sandbox"));
+  assert.equal(runs.length, 1, "no retry without the pin");
+  assert.ok(runs[0].includes("--model"), "the operator's pin was sent as asked");
 });
 
 test("M1: model empty string -> -32602", async () => {

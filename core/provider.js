@@ -1,6 +1,14 @@
 "use strict";
 /** @typedef {import("./types.js").DelegationError} DelegationError */
 
+// ESC-introduced sequences (CSI, OSC, and single-char escapes) and C0/DEL control bytes
+// other than newline and tab (so CRLF collapses to LF and a progress-bar CR vanishes).
+// Used to keep a forwarded error message plain text.
+// eslint-disable-next-line no-control-regex
+const ANSI_ESCAPE_RE = /\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[@-Z\\-_])/g;
+// eslint-disable-next-line no-control-regex
+const CONTROL_CHAR_RE = /[\x00-\x08\x0b-\x1f\x7f]/g;
+
 /**
  * Normalize a thrown bridge error into a DelegationError using that bridge's
  * own classifier, so behavior matches the standalone bridge exactly.
@@ -28,8 +36,13 @@ function toErrorResult(name, model, started, err, classify, extra) {
   // errorKind, so an operator saw an opaque `empty` and instrumented the sandbox instead of
   // reading the reason (issue #180). Bounded. It never reaches the debug log (ALLOWED_KEYS
   // whitelist) or the session store (opinionsFrom copies only text/verdict fields).
+  // Plain text only: a CLI's stderr can carry ANSI colour/cursor sequences and other
+  // control bytes, which have no place in a JSON envelope a host renders.
   const MAX_MESSAGE_CHARS = 500;
-  const rawMessage = err && typeof err.message === "string" ? err.message : "";
+  const rawMessage = (err && typeof err.message === "string" ? err.message : "")
+    .replace(ANSI_ESCAPE_RE, "")
+    .replace(CONTROL_CHAR_RE, "")
+    .trim();
   const message = !rawMessage ? undefined
     : rawMessage.length > MAX_MESSAGE_CHARS ? rawMessage.slice(0, MAX_MESSAGE_CHARS) + "..." : rawMessage;
   // Spread `extra` FIRST so the canonical envelope fields always win - a caller's

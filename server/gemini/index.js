@@ -54,8 +54,12 @@ const AGY_PREFIX_ARGS = AGY_TARGET.prefixArgs;
 // model in the Gemini slot and quietly collapse cross-vendor independence in
 // ask-all / consensus. Precedence: per-call `model` > providers.gemini.model in
 // config.json > GEMINI_DEFAULT_MODEL > this constant.
-const DEFAULT_MODEL = process.env.GEMINI_DEFAULT_MODEL || "auto-gemini-3";
+// The shipped router alias - the ONE pin runGemini drops when agy rejects it, because it
+// ships in every install's config; an id the operator typed themselves fails loudly.
+const BUILTIN_MODEL_ALIAS = "auto-gemini-3";
+const DEFAULT_MODEL = process.env.GEMINI_DEFAULT_MODEL || BUILTIN_MODEL_ALIAS;
 const DEFAULT_TIMEOUT_MS = 300_000; // 5 minutes (Gemini 3 deep prompts run 200-260s)
+const HELP_PROBE_TIMEOUT_MS = 15_000; // `agy --help` capability probe ceiling
 const DEFAULT_RECOVERY_GRACE_MS = 120_000; // extra drain budget after the soft timeout
 const MAX_MS = 600_000;
 const VALID_SANDBOX_VALUES = new Set(["read-only", "workspace-write"]);
@@ -135,18 +139,20 @@ function applyReadOnlyGuard(prompt, readOnly) {
 // does not throw on a non-zero exit, so usage text printed with exit 2 is still probed.
 /** @type {(boolean|null)} */
 let modelFlagSupported = null;
-// Model ids this agy rejected with "invalid model selection" (per process). The probe
-// above was blind for every agy that prints --help to stderr, so the pin was never
-// actually sent in production and the built-in `auto-gemini-3` alias was never
-// validated against a real catalog (`agy models` on 1.1.x does not list it). A wrong
-// pin must degrade to agy's own default with a warning, not take Gemini offline.
-/** @type {Set<string>} */
-const rejectedModels = new Set();
+// Set once agy rejects the SHIPPED alias with "invalid model selection" (per process).
+// The probe above was blind for every agy that prints --help to stderr, so the pin was
+// never actually sent in production and `auto-gemini-3` was never validated against a
+// real catalog (`agy models` on 1.1.x does not list it). That one alias ships in every
+// install's config, so it must degrade to agy's own default with a warning rather than
+// take Gemini offline; an id the operator typed themselves fails loudly instead.
+let aliasRejected = false;
 const INVALID_MODEL_RE = /invalid model selection/i;
 /** @returns {boolean} */
 function agySupportsModelFlag() {
   if (modelFlagSupported !== null) return modelFlagSupported;
-  const probe = spawnSync(AGY_CMD, [...AGY_PREFIX_ARGS, "--help"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  // Bounded: a hung agy (or a wrapper script) must not block the bridge's first request
+  // forever. A timed-out probe sets `error` and lands in the assume-supported branch.
+  const probe = spawnSync(AGY_CMD, [...AGY_PREFIX_ARGS, "--help"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: HELP_PROBE_TIMEOUT_MS });
   modelFlagSupported = probe.error
     ? true
     : /(^|\s)--model(\s|$)/m.test(`${probe.stdout || ""}\n${probe.stderr || ""}`);
@@ -177,10 +183,9 @@ function buildAgyArgs(req) {
   // agySupportsModelFlag), which would break every call rather than one pin.
   if (agySupportsModelFlag()) {
     const model = isNonEmptyString(req.model) ? req.model : DEFAULT_MODEL;
-    // A pin this agy already rejected is omitted so agy falls back to its own
-    // ~/.gemini/settings.json - see runGemini, which learns that from agy's
-    // "invalid model selection" error and warns once per model.
-    if (!rejectedModels.has(model)) args.push("--model", model);
+    // Must stay IMMEDIATELY before the -p tail: runGemini finds the pin by position
+    // (never by scanning values) to drop the shipped alias once agy has rejected it.
+    args.push("--model", model);
   }
   // Fold expert instructions into the prompt (no system channel in print mode),
   // with the advisory guard outermost.
@@ -424,6 +429,7 @@ function classifyGeminiError(errMsg, errCode) {
   const lower = msg.toLowerCase();
   if (errCode === "timeout") return { errorKind: "timeout", retryable: true };
   if (errCode === "empty")   return { errorKind: "empty",   retryable: true };
+  if (errCode === "model-not-allowed") return { errorKind: "model-not-allowed", retryable: false };
   if (errCode === "parse")   return { errorKind: "parse",   retryable: false };
   if (errCode === "missing-cli") return { errorKind: "missing-cli", retryable: false };
   if (msg.includes("(agy) not found")) return { errorKind: "missing-cli", retryable: false };
@@ -670,6 +676,10 @@ async function runGeminiOnce(args, cwd, timeoutMs, recoveryGraceMs, opts = {}) {
       const err = new Error(message);
       if (tooShort) {
         err.code = "empty";
+      } else if (INVALID_MODEL_RE.test(message)) {
+        // agy validated --model against its catalog and refused; agy's text lists the
+        // catalog, so the message is the diagnosis. Deterministic - never retried.
+        err.code = "model-not-allowed";
       } else if (/timed out/i.test(message)) {
         err.code = "timeout";
       } else if (!trimmedErr && !out) {
@@ -684,11 +694,15 @@ async function runGeminiOnce(args, cwd, timeoutMs, recoveryGraceMs, opts = {}) {
 }
 
 /**
- * runGeminiOnce plus one self-heal: when agy rejects the `--model` pin ("invalid model
- * selection", ~3.5s because agy fetches its catalog first), drop the pin, remember the
- * rejected id for this process (buildAgyArgs then omits it up front), warn once, and run
- * again so agy uses its own ~/.gemini/settings.json default. Same signature as
- * runGeminiOnce; the unified server calls this through `bridge.runGemini`.
+ * runGeminiOnce plus one self-heal, for the SHIPPED alias only: when agy rejects
+ * `--model auto-gemini-3` ("invalid model selection", ~3.5s because agy fetches its
+ * catalog first), drop the pin, remember that for this process (buildAgyArgs then omits
+ * it up front), warn once, and run again within the REMAINING time budget so agy uses
+ * its own ~/.gemini/settings.json default. The result then carries `pinDropped: true`
+ * so callers can report the effective model honestly. Any other rejected id is the
+ * operator's own pin and is rethrown as-is (code "model-not-allowed", agy's catalog in
+ * the message) - silently swapping a model someone asked for is worse than failing.
+ * Same signature as runGeminiOnce; the unified server calls this through `bridge.runGemini`.
  * @param {string[]} args
  * @param {string} [cwd]
  * @param {number} [timeoutMs]
@@ -696,25 +710,35 @@ async function runGeminiOnce(args, cwd, timeoutMs, recoveryGraceMs, opts = {}) {
  * @param {{readOnly?:boolean, includeDirs?:string[]}} [opts]
  */
 async function runGemini(args, cwd, timeoutMs, recoveryGraceMs, opts = {}) {
+  const started = Date.now();
+  // buildAgyArgs lays argv out as [...flags, "--model", id, "-p", prompt]: the pin, when
+  // present, sits exactly two elements before the "-p" tail. Positional on purpose - an
+  // option VALUE (an --add-dir path, the prompt itself) can never be mistaken for the flag.
+  const p = args.length - 2;
+  const pinnedAlias = p >= 2 && args[p] === "-p" && args[p - 2] === "--model" && args[p - 1] === BUILTIN_MODEL_ALIAS;
+  const withoutPin = () => [...args.slice(0, p - 2), ...args.slice(p)];
+  if (pinnedAlias && aliasRejected) {
+    // Already learned this process: skip the doomed ~3.5s attempt, still say so.
+    const out = await runGeminiOnce(withoutPin(), cwd, timeoutMs, recoveryGraceMs, opts);
+    return { ...out, pinDropped: true };
+  }
   try {
     return await runGeminiOnce(args, cwd, timeoutMs, recoveryGraceMs, opts);
   } catch (err) {
-    // Only the flag section before the "-p <prompt>" tail is argv the bridge built;
-    // the prompt is a single element and is never scanned.
-    const tail = args.indexOf("-p");
-    const i = args.indexOf("--model");
-    const pinned = i >= 0 && (tail < 0 || i < tail);
-    if (!pinned || !INVALID_MODEL_RE.test(String((err && err.message) || ""))) throw err;
-    const model = args[i + 1];
-    if (!rejectedModels.has(model)) {
-      rejectedModels.add(model);
+    const code = err && /** @type {{code?:string}} */ (err).code;
+    if (!pinnedAlias || code !== "model-not-allowed") throw err;
+    const budget = ((typeof timeoutMs === "number" && timeoutMs > 0) ? timeoutMs : DEFAULT_TIMEOUT_MS) - (Date.now() - started);
+    if (budget <= 0) throw err;
+    if (!aliasRejected) {
+      aliasRejected = true;
       process.stderr.write(
-        `[deliberation-gemini] agy rejected --model "${model}" (not in \`agy models\`); ` +
-        "retrying without the pin so agy uses ~/.gemini/settings.json. Fix providers.gemini.model " +
+        `[deliberation-gemini] agy rejected --model "${BUILTIN_MODEL_ALIAS}" (not in \`agy models\`); ` +
+        "retrying without the pin so agy uses ~/.gemini/settings.json. Set providers.gemini.model " +
         "in config.json (or GEMINI_DEFAULT_MODEL) to a listed id to stop this warning.\n"
       );
     }
-    return runGeminiOnce([...args.slice(0, i), ...args.slice(i + 2)], cwd, timeoutMs, recoveryGraceMs, opts);
+    const out = await runGeminiOnce(withoutPin(), cwd, budget, recoveryGraceMs, opts);
+    return { ...out, pinDropped: true };
   }
 }
 
@@ -899,19 +923,21 @@ const handlers = {
         ? args["recovery-grace"]
         : DEFAULT_RECOVERY_GRACE_MS;
       const readOnly = args.sandbox !== "workspace-write";
-      const { response, threadId, recovered, workspaceMutated } = await runGemini(
+      const { response, threadId, recovered, workspaceMutated, pinDropped } = await runGemini(
         agyArgs, args.cwd, timeoutMs, recoveryGraceMs,
         { readOnly, includeDirs: args["include-directories"] || [] }
       );
 
       // Return metadata (threadId) at the top level for orchestration rules,
-      // and standard content array for the UI.
+      // and standard content array for the UI. pinDropped: the shipped model alias was
+      // rejected by agy and the run used agy's own settings.json default instead.
       if (shouldRespond) {
         sendResponse(id, {
           content: [{ type: "text", text: response }],
           threadId: threadId,
           ...(recovered ? { recovered: true } : {}),
-          ...(workspaceMutated ? { workspaceMutated: true } : {})
+          ...(workspaceMutated ? { workspaceMutated: true } : {}),
+          ...(pinDropped ? { pinDropped: true } : {})
         });
       }
     } catch (e) {
