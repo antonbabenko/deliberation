@@ -94,29 +94,15 @@ const NO_TOOLS_NOTE = [
   "references by whether they are precise enough to be found.",
 ].join(" ");
 
-// Answer floor, mirroring the Gemini bridge: a stub that slips past the note must fail as
-// `empty` (retried once by the orchestrator) instead of flowing downstream as an opinion.
-const DEFAULT_MIN_ANSWER_CHARS = 80;
+// Answer floor, shared with the Gemini bridge (core/answer-floor.js): a stub that slips past
+// the note must fail as `empty` (retried once by the orchestrator) instead of flowing
+// downstream as an opinion. Detection keys on CONTENT (an announced-intent opening), not
+// length - a terse answer like "ok" is an answer (issue #180).
+const answerFloor = require("../../core/answer-floor.js");
 /** Minimum trimmed answer length to count as an answer. 0 disables the floor AND the intent check. */
-function minAnswerChars() {
-  const raw = Number(process.env.GROK_MIN_ANSWER_CHARS);
-  return Number.isFinite(raw) && raw >= 0 ? raw : DEFAULT_MIN_ANSWER_CHARS;
-}
-// Observed stubs are 99-162 chars - above the length floor - so a short reply that only
-// announces intent is a stub too.
-// ponytail: length + opening-phrase regex are a proxy for "announced intent instead of
-// answering"; upgrade to a structured-output check once parseOpinion is in the pipeline.
-const INTENT_STUB_MAX_CHARS = 400;
-const INTENT_STUB_RE = /^\W*(?:I(?:'ll| will|'m going to| am going to)|Let me|First,? I)\b/i;
+function minAnswerChars() { return answerFloor.readMinAnswerChars(process.env.GROK_MIN_ANSWER_CHARS); }
 /** @returns {(string|null)} why `text` is a stub, or null when it counts as an answer. */
-function stubReason(text) {
-  const min = minAnswerChars();
-  if (min === 0) return null;
-  const t = String(text == null ? "" : text).trim();
-  if (t.length < min) return `${t.length} chars, below the ${min}-char answer floor`;
-  if (t.length < INTENT_STUB_MAX_CHARS && INTENT_STUB_RE.test(t)) return `${t.length} chars that only announce intent`;
-  return null;
-}
+function stubReason(text) { return answerFloor.stubReason(text, minAnswerChars()); }
 const MAX_MS = 600_000;
 const VALID_SANDBOX_VALUES = new Set(["read-only", "workspace-write"]);
 

@@ -7,7 +7,7 @@ timeout: 660000
 
 # Ask Grok
 
-Single-shot delegation to Grok (xAI) via MCP for an independent second opinion. Fresh thread, no shared context with prior calls. Advisory only - the Grok bridge talks to the xAI HTTP API and has no filesystem access, so it cannot implement changes (unlike `/ask-gpt` and `/ask-gemini`, which can). Model defaults to `GROK_DEFAULT_MODEL` (or `grok-4.6`). The bridge tells the model it has no tools and no further turns, and a reply that only announces intent ("I'll verify the cited files...") or is shorter than `GROK_MIN_ANSWER_CHARS` (default 80) comes back as `errorKind: "empty"` (retryable) instead of a stub answer.
+Single-shot delegation to Grok (xAI) via MCP for an independent second opinion. Fresh thread, no shared context with prior calls. Advisory only - the Grok bridge talks to the xAI HTTP API and has no filesystem access, so it cannot implement changes (unlike `/ask-gpt` and `/ask-gemini`, which can). Model defaults to `GROK_DEFAULT_MODEL` (or `grok-4.6`). The bridge tells the model it has no tools and no further turns, and a reply that only announces intent ("I'll verify the cited files...") or is shorter than `GROK_MIN_ANSWER_CHARS` (default 1, so only an empty body) comes back as `errorKind: "empty"` (retryable) instead of a stub answer.
 
 ## Input
 

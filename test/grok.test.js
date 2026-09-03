@@ -552,6 +552,21 @@ test("GF6: classifyGrokError maps code=empty to a retryable empty", () => {
   assert.deepEqual(grok.classifyGrokError(null, "empty"), { errorKind: "empty", retryable: true });
 });
 
+test("GF8: a terse real answer passes the DEFAULT floor (#180: `ok` is an answer)", async () => {
+  // The suite pins GROK_MIN_ANSWER_CHARS=0 at module load; delete it so this exercises the
+  // shipped default. A length-only floor rejected "ok" as a stub (issue #180, Gemini side);
+  // the shared helper now keys on content (announced intent), not length.
+  const saved = process.env.GROK_MIN_ANSWER_CHARS;
+  delete process.env.GROK_MIN_ANSWER_CHARS;
+  try {
+    assert.equal((await runWithText("ok")).text, "ok");
+    await assert.rejects(runWithText(STUB_TEXT), (e) => e.code === "empty", "intent stub still rejected");
+    await assert.rejects(runWithText(""), (e) => e.code === "empty", "empty body still rejected");
+  } finally {
+    process.env.GROK_MIN_ANSWER_CHARS = saved;
+  }
+});
+
 test("GF7: buildInitialTurns always seeds a system turn that tells the model it has no tools", () => {
   const withSys = grok.buildInitialTurns("sys", "hi", []);
   assert.equal(withSys[0].role, "system");

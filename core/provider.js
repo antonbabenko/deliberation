@@ -7,7 +7,7 @@
  * @param {string} name
  * @param {string} model
  * @param {number} started   // Date.now() at call start
- * @param {{status?:number, code?:string, retryAfterMs?:number, transportCode?:string}} err
+ * @param {{status?:number, code?:string, message?:string, retryAfterMs?:number, transportCode?:string}} err
  * @param {(status?:number, code?:string) => {errorKind:string, retryable:boolean}} classify
  * @param {Partial<DelegationError>} [extra]  merged onto the result (e.g. reasoningEffort)
  * @returns {DelegationError}
@@ -23,11 +23,21 @@ function toErrorResult(name, model, started, err, classify, extra) {
   // code onto the thrown error; forward it so the debug log can name it. Content-free
   // by construction (an errno/undici symbol), never a message.
   const transportCode = err && typeof err.transportCode === "string" && err.transportCode ? err.transportCode : undefined;
+  // The bridge's own reason, e.g. "agy returned a stub, not an answer (2 chars, below the
+  // 80-char answer floor): ok". Without it the unified envelope carried only the coarse
+  // errorKind, so an operator saw an opaque `empty` and instrumented the sandbox instead of
+  // reading the reason (issue #180). Bounded. It never reaches the debug log (ALLOWED_KEYS
+  // whitelist) or the session store (opinionsFrom copies only text/verdict fields).
+  const MAX_MESSAGE_CHARS = 500;
+  const rawMessage = err && typeof err.message === "string" ? err.message : "";
+  const message = !rawMessage ? undefined
+    : rawMessage.length > MAX_MESSAGE_CHARS ? rawMessage.slice(0, MAX_MESSAGE_CHARS) + "..." : rawMessage;
   // Spread `extra` FIRST so the canonical envelope fields always win - a caller's
   // stray `extra` key (or a non-object) can never clobber provider/isError/ms/etc.
   return {
     ...(extra && typeof extra === "object" ? extra : {}),
     provider: name, model, isError: true, errorKind, retryable, ms: Date.now() - started,
+    ...(message === undefined ? {} : { message }),
     ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
     ...(transportCode === undefined ? {} : { transportCode }),
   };

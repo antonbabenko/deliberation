@@ -13,12 +13,13 @@
  * the underlying CLI, flags, output parsing, and timeout recovery changed.
  */
 
-const { spawn, execFileSync } = require("node:child_process");
+const { spawn, spawnSync, execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
 const { resolveCommand, shimMessage } = require("../../core/resolve-bin.js");
+const { stubReason, readMinAnswerChars } = require("../../core/answer-floor.js");
 
 const AGY_BIN = process.env.AGY_BIN || "agy";
 // Windows installs a CLI as a `.cmd` shim that Node's spawn cannot execute (issue #170), so
@@ -124,20 +125,31 @@ function applyReadOnlyGuard(prompt, readOnly) {
 // (agy reads ~/.gemini/settings.json) with a single stderr warning.
 //
 // Probed from `agy --help`, the same call the startup health check already makes.
-// Cached for process lifetime: agy cannot change under a running bridge. A probe
-// that throws is treated as SUPPORTED - a missing binary fails loudly elsewhere,
-// and assuming unsupported would silently drop a pin the operator asked for.
+// Cached for process lifetime: agy cannot change under a running bridge. A probe whose
+// spawn fails is treated as SUPPORTED - a missing binary fails loudly elsewhere, and
+// assuming unsupported would silently drop a pin the operator asked for.
+//
+// agy 1.1.x prints its usage to STDERR only (stdout is empty), so the probe reads BOTH
+// streams - reading stdout alone never saw --model, warned "does not support --model" on
+// every boot, and silently dropped the operator's pin (issue #180, finding 1). spawnSync
+// does not throw on a non-zero exit, so usage text printed with exit 2 is still probed.
 /** @type {(boolean|null)} */
 let modelFlagSupported = null;
+// Model ids this agy rejected with "invalid model selection" (per process). The probe
+// above was blind for every agy that prints --help to stderr, so the pin was never
+// actually sent in production and the built-in `auto-gemini-3` alias was never
+// validated against a real catalog (`agy models` on 1.1.x does not list it). A wrong
+// pin must degrade to agy's own default with a warning, not take Gemini offline.
+/** @type {Set<string>} */
+const rejectedModels = new Set();
+const INVALID_MODEL_RE = /invalid model selection/i;
 /** @returns {boolean} */
 function agySupportsModelFlag() {
   if (modelFlagSupported !== null) return modelFlagSupported;
-  try {
-    const help = execFileSync(AGY_CMD, [...AGY_PREFIX_ARGS, "--help"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-    modelFlagSupported = /(^|\s)--model(\s|$)/m.test(help);
-  } catch {
-    modelFlagSupported = true;
-  }
+  const probe = spawnSync(AGY_CMD, [...AGY_PREFIX_ARGS, "--help"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  modelFlagSupported = probe.error
+    ? true
+    : /(^|\s)--model(\s|$)/m.test(`${probe.stdout || ""}\n${probe.stderr || ""}`);
   if (modelFlagSupported === false) {
     console.error(
       `[deliberation-gemini] ${AGY_BIN} does not support --model; the configured model pin will be ignored ` +
@@ -165,7 +177,10 @@ function buildAgyArgs(req) {
   // agySupportsModelFlag), which would break every call rather than one pin.
   if (agySupportsModelFlag()) {
     const model = isNonEmptyString(req.model) ? req.model : DEFAULT_MODEL;
-    args.push("--model", model);
+    // A pin this agy already rejected is omitted so agy falls back to its own
+    // ~/.gemini/settings.json - see runGemini, which learns that from agy's
+    // "invalid model selection" error and warns once per model.
+    if (!rejectedModels.has(model)) args.push("--model", model);
   }
   // Fold expert instructions into the prompt (no system channel in print mode),
   // with the advisory guard outermost.
@@ -371,13 +386,6 @@ function stdoutIsError(s) {
   return /^\s*Error:\s/m.test(s);
 }
 
-// agy sometimes exits 0 having printed only a preamble ("I will begin by finding the
-// repository directory...") instead of an answer. Any non-empty stdout used to count as
-// a full answer, so that stub flowed downstream as a real opinion - and in consensus it
-// silently blocked convergence with no diagnostic. A length floor is the only signal
-// available here.
-// ponytail: char count is a proxy for "announced intent instead of answering"; upgrade
-// to a structured-output check once parseOpinion is wired into the pipeline.
 // providers.gemini.timeout, already merged with providers.defaults.timeout by the config
 // layer. Without this the standalone bridge (what /ask-gemini calls) would stay pinned to
 // the 300s built-in no matter what the config says. Lazy + fail-soft, mirroring the Grok
@@ -398,12 +406,14 @@ function configuredTimeout() {
   }
 }
 
-const DEFAULT_MIN_ANSWER_CHARS = 80;
-/** Minimum stdout length for a clean exit to count as an answer. 0 disables the floor. */
-function minAnswerChars() {
-  const raw = Number(process.env.GEMINI_MIN_ANSWER_CHARS);
-  return Number.isFinite(raw) && raw >= 0 ? raw : DEFAULT_MIN_ANSWER_CHARS;
-}
+// Answer floor, shared with the Grok bridge (core/answer-floor.js). agy sometimes exits 0
+// having printed only a preamble ("I will begin by finding the repository directory...")
+// instead of an answer; that stub used to flow downstream as a real opinion and silently
+// block consensus. Detection keys on CONTENT (an announced-intent opening), not length: the
+// original 80-char length floor rejected a legitimate terse answer ("ok") as `empty`
+// (issue #180).
+/** Minimum trimmed stdout length for a clean exit to count as an answer. 0 disables the floor AND the intent check. */
+function minAnswerChars() { return readMinAnswerChars(process.env.GEMINI_MIN_ANSWER_CHARS); }
 
 // --- Error Classification ---
 
@@ -457,7 +467,7 @@ function resolveConversationId(cwd) {
  *   true the run gets the OS sandbox wrapper, env scrub, and git mutation
  *   detection. includeDirs widens detection to --add-dir roots.
  */
-async function runGemini(args, cwd, timeoutMs, recoveryGraceMs, opts = {}) {
+async function runGeminiOnce(args, cwd, timeoutMs, recoveryGraceMs, opts = {}) {
   return new Promise((resolve, reject) => {
     // AGY_BIN resolved only to a Windows shell shim Node cannot execute. Reject BEFORE
     // spawning, and do it here rather than only at the startup gate below: the unified MCP
@@ -607,12 +617,12 @@ async function runGemini(args, cwd, timeoutMs, recoveryGraceMs, opts = {}) {
       const out = stdout.trim();
       const trimmedErr = stderr.trim();
       const success = code === 0 && out && !stdoutIsError(out);
-      // Answer floor, applied on BOTH the clean-exit and the drain path. Exempting the
-      // drain would make validity timing-dependent: the same stub would fail when agy is
-      // fast and pass when it is slow. A stub recovered after a soft timeout is not an
-      // answer either - it falls through to the hard timeout, which is the honest result.
-      const minChars = minAnswerChars();
-      const tooShort = Boolean(success) && minChars > 0 && out.length < minChars;
+      // Answer floor (core/answer-floor.js), applied on BOTH the clean-exit and the drain
+      // path. Exempting the drain would make validity timing-dependent: the same stub
+      // would fail when agy is fast and pass when it is slow. A stub recovered after a
+      // soft timeout is not an answer either - it falls through to the hard timeout.
+      const stub = success ? stubReason(out, minAnswerChars()) : null;
+      const tooShort = stub !== null;
 
       if (draining) {
         // Soft timeout already fired. Only a clean exit meeting the success
@@ -651,7 +661,7 @@ async function runGemini(args, cwd, timeoutMs, recoveryGraceMs, opts = {}) {
       // Failure. Prefer stderr so it is not masked by an stdout banner; then an
       // stdout Error: sentinel; then a generic message.
       let message;
-      if (tooShort) message = `agy returned ${out.length} chars, below the ${minChars}-char answer floor (likely a preamble, not an answer): ${out.slice(0, 200)}`;
+      if (tooShort) message = `agy returned a stub, not an answer (${stub}): ${out.slice(0, 200)}`;
       else if (trimmedErr) message = trimmedErr;
       else if (stdoutIsError(out)) message = out;
       else if (!out) message = `No output from agy`;
@@ -671,6 +681,41 @@ async function runGemini(args, cwd, timeoutMs, recoveryGraceMs, opts = {}) {
       reject(err);
     });
   });
+}
+
+/**
+ * runGeminiOnce plus one self-heal: when agy rejects the `--model` pin ("invalid model
+ * selection", ~3.5s because agy fetches its catalog first), drop the pin, remember the
+ * rejected id for this process (buildAgyArgs then omits it up front), warn once, and run
+ * again so agy uses its own ~/.gemini/settings.json default. Same signature as
+ * runGeminiOnce; the unified server calls this through `bridge.runGemini`.
+ * @param {string[]} args
+ * @param {string} [cwd]
+ * @param {number} [timeoutMs]
+ * @param {number} [recoveryGraceMs]
+ * @param {{readOnly?:boolean, includeDirs?:string[]}} [opts]
+ */
+async function runGemini(args, cwd, timeoutMs, recoveryGraceMs, opts = {}) {
+  try {
+    return await runGeminiOnce(args, cwd, timeoutMs, recoveryGraceMs, opts);
+  } catch (err) {
+    // Only the flag section before the "-p <prompt>" tail is argv the bridge built;
+    // the prompt is a single element and is never scanned.
+    const tail = args.indexOf("-p");
+    const i = args.indexOf("--model");
+    const pinned = i >= 0 && (tail < 0 || i < tail);
+    if (!pinned || !INVALID_MODEL_RE.test(String((err && err.message) || ""))) throw err;
+    const model = args[i + 1];
+    if (!rejectedModels.has(model)) {
+      rejectedModels.add(model);
+      process.stderr.write(
+        `[deliberation-gemini] agy rejected --model "${model}" (not in \`agy models\`); ` +
+        "retrying without the pin so agy uses ~/.gemini/settings.json. Fix providers.gemini.model " +
+        "in config.json (or GEMINI_DEFAULT_MODEL) to a listed id to stop this warning.\n"
+      );
+    }
+    return runGeminiOnce([...args.slice(0, i), ...args.slice(i + 2)], cwd, timeoutMs, recoveryGraceMs, opts);
+  }
 }
 
 // --- Request Handlers ---

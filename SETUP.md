@@ -95,7 +95,10 @@ changing `providers.gemini.model`.
 For Gemini, run `agy models` to see the catalog on your machine - ids fuse family and
 reasoning effort (`gemini-3.6-flash-high`); a bare family is rejected with `requires
 --effort`. The shipped default is the portable `auto-gemini-3` router alias, because a
-concrete id that does not exist locally fails every call. **Pin a concrete id if you
+concrete id that does not exist locally fails every call. On agy 1.1.x that alias is
+not in the catalog either; agy rejects it with `invalid model selection`, and the bridge
+then retries the call without the pin (agy uses `~/.gemini/settings.json`) and prints
+one stderr warning per process naming the rejected id. **Pin a concrete id if you
 have one:** the alias routes server-side and agy's catalog also carries Claude and
 GPT-OSS entries, so a routed call can seat a non-Gemini model in the Gemini slot and
 quietly cost you the cross-model independence that `/ask-all` and `/consensus` rely on.

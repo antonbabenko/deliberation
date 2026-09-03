@@ -135,6 +135,18 @@ slug is canonical. Resolution order is per-call `model` > `providers.gemini.mode
 `config.json` > `GEMINI_DEFAULT_MODEL` > the built-in `auto-gemini-3`. Point at a
 different `agy` binary with `AGY_BIN`. `agy` print mode does not enforce folder trust.
 
+The bridge probes `agy --help` once per process to learn whether the flag exists (agy
+< 1.0.9 rejects unknown flags outright). agy 1.1.x prints its usage to **stderr** only, so
+the probe reads both streams - reading stdout alone never saw `--model`, warned "does not
+support --model" on every boot, and silently dropped the pin
+([issue #180](https://github.com/antonbabenko/deliberation/issues/180)). That also means the
+pin had never reached a real agy before: the built-in `auto-gemini-3` alias is not in
+`agy models` on 1.1.x, and agy rejects an unknown id with `invalid model selection` (exit 1,
+about 3.5s, because it fetches its catalog first). A rejected pin does not fail the call:
+`runGemini` retries once without `--model` (agy then uses its `~/.gemini/settings.json`),
+warns once on stderr naming the id, and omits that id for the rest of the process. Set
+`providers.gemini.model` to an id `agy models` lists to stop the warning.
+
 The built-in stays the portable `auto-gemini-3` router alias because the concrete
 catalog differs per install - shipping a pinned id would hard-fail every call on a
 machine that lacks it. **Pin a concrete id in `config.json` where you can**: the alias
@@ -241,7 +253,7 @@ This is the single source of truth for the bridge environment variables.
 |----------|----------|---------|---------|
 | `GEMINI_DEFAULT_MODEL` | Gemini | `auto-gemini-3` | Default model when neither the call nor `providers.gemini.model` sets one |
 | `GEMINI_DISABLE_TIMEOUT_RECOVERY` | Gemini | unset | `1` forces legacy timeout (no drain) |
-| `GEMINI_MIN_ANSWER_CHARS` | Gemini | `80` | Minimum stdout length for a clean exit to count as an answer; shorter output fails as `empty` (see [Answer floor](#answer-floor-gemini-grok)). `0` disables the floor |
+| `GEMINI_MIN_ANSWER_CHARS` | Gemini | `1` | Minimum trimmed stdout length for a clean exit to count as an answer; shorter output, or a reply under 400 chars that only announces intent ("I will begin by..."), fails as `empty` (see [Answer floor](#answer-floor-gemini-grok)). `0` disables both checks |
 | `AGY_BIN` | Gemini | `agy` | Override the path to the `agy` binary |
 | `AGY_LAST_CONVERSATIONS` | Gemini | `~/.gemini/antigravity-cli/cache/last_conversations.json` | Override the conversation-id map file (mainly for tests) |
 | `XAI_API_KEY` | Grok | unset (required) | xAI API key; missing key returns `missing-auth` |
@@ -251,7 +263,7 @@ This is the single source of truth for the bridge environment variables.
 | `GROK_FILE_TTL_SECONDS` | Grok | `604800` (7 days) | Upload lifetime, clamped 1h..30d |
 | `GROK_UPLOAD_TIMEOUT_MS` | Grok | `120000` | Ceiling for one Files API upload (separate from the answer timeout). `0` disables it |
 | `GROK_STREAM` | Grok | unset (streaming on) | `0` forces the legacy non-streaming request, which reinstates undici's 300s transport ceiling (see [Grok streaming](#grok-streaming)) |
-| `GROK_MIN_ANSWER_CHARS` | Grok | `80` | Minimum trimmed answer length; shorter text, or a reply under 400 chars that only announces intent ("I'll verify the cited files..."), fails as `empty` (see [Answer floor](#answer-floor-gemini-grok)). `0` disables both checks |
+| `GROK_MIN_ANSWER_CHARS` | Grok | `1` | Minimum trimmed answer length; shorter text, or a reply under 400 chars that only announces intent ("I'll verify the cited files..."), fails as `empty` (see [Answer floor](#answer-floor-gemini-grok)). `0` disables both checks |
 | `DELIBERATION_SESSIONS` | sessions | `<XDG cache>/deliberation/sessions` | Override the session store directory (see [Session persistence](#session-persistence)) |
 | `CODEX_BIN` | Codex | `codex` | Override the path to the `codex` binary (see [Windows CLI resolution](#windows-cli-resolution)) |
 | `DELIBERATION_DEBUG_LOG` | debug | `<XDG cache>/deliberation/debug.jsonl` | Override the debug log path (see [Observability](#observability--per-provider-progress)); only written when `debug.enabled` |
@@ -1140,25 +1152,37 @@ A provider stub is an error, not an answer. Both bridges enforce a floor so a st
 `errorKind: "empty"` (retried once by `callProvider`) instead of reaching the caller as an
 opinion - inside consensus a stub yields `verdict: null` and silently blocks convergence.
 
+**The rule lives in one place**, `core/answer-floor.js` (`stubReason(text, minChars)`), and
+both bridges call it: a trimmed reply is a stub when it is shorter than
+`GEMINI_MIN_ANSWER_CHARS` / `GROK_MIN_ANSWER_CHARS` (default **1**, i.e. empty), OR when it is
+under 400 characters and opens with an intent phrase (`I'll` / `I will` / `I'm going to` /
+`Let me` / `First, I`). A long answer that merely opens with "I'll" is not a stub. `0`
+disables both checks. The failure carries the reason ("2 chars, below the 80-char answer
+floor" / "51 chars that only announce intent"), and since
+[issue #180](https://github.com/antonbabenko/deliberation/issues/180) the unified error
+envelope forwards it as `message` - before that, the operator saw only the coarse
+`errorKind: "empty"` and had no way to tell a floor rejection from a transport fault.
+
+**Why not a length floor.** The first version rejected anything under 80 characters. That
+caught the 51-character Gemini preamble, but issue #180 showed the cost: the reporter's
+smoke prompt `Sag nur: ok` made `agy` answer `ok` (2 characters, exit 0) and every
+`ask-gemini` call failed as `empty` while `agy` itself worked by hand. A character count
+cannot tell a terse answer from a stub; the opening phrase can, and it catches the observed
+stubs of both providers. Operators who want the old hard floor set the variable to `80`.
+
 **Gemini.** `agy` sometimes exits 0 having printed only a preamble ("I will begin by finding the
 repository directory...") instead of an answer. Any non-empty stdout used to count as a
 full answer, so that stub reached the caller as a real opinion - and inside consensus it
-silently blocked convergence with no diagnostic (`parseReview` yields `verdict: null`).
-
-A clean exit whose trimmed stdout is shorter than `GEMINI_MIN_ANSWER_CHARS` (default 80)
-fails with `errorKind: "empty"`, which `callProvider` retries once. `0` disables the floor.
+silently blocked convergence with no diagnostic (`parseReview` yields `verdict: null`). A
+stub now fails with `errorKind: "empty"`, which `callProvider` retries once.
 
 The floor applies on **both** the clean-exit and the soft-timeout drain path. Exempting the
 drain would make validity timing-dependent - the same stub would fail when `agy` is fast and
-pass when it is slow. A sub-floor stub recovered after a soft timeout is not an answer
-either, so it falls through to the hard timeout.
+pass when it is slow. A stub recovered after a soft timeout is not an answer either, so it
+falls through to the hard timeout.
 
-The default is calibrated to the observed failure: the preamble that motivated this is 51
-characters, so a floor much below 80 would not catch it. Answers that are legitimately
-terse are the tradeoff - lower the value, or set `0`, if your usage skews short.
-
-A character count is a proxy for "announced intent instead of answering" - the upgrade
-path is a structured-output check once `parseOpinion` is wired into the pipeline.
+An opening-phrase check is still a proxy for "announced intent instead of answering" - the
+upgrade path is a structured-output check once `parseOpinion` is wired into the pipeline.
 
 **Grok.** `grok-4.6` is agentic-trained and is reached through ONE `/v1/responses` call with
 no tools declared. A prompt that mentions repositories or asks it to "verify the cited files"
@@ -1172,12 +1196,9 @@ standalone `grok` tool and the unified server share them:
   no filesystem or repository access, no web, no further turns; attached files are reference
   material; answer completely now. `grok-reply` continuations inherit it from the persisted
   turns.
-- `runGrok` rejects the answer with `.code = "empty"` when the trimmed text is shorter than
-  `GROK_MIN_ANSWER_CHARS` (default 80) OR is under 400 characters and opens with an intent
-  phrase (`I'll` / `I will` / `I'm going to` / `Let me` / `First, I`). The observed stubs are
-  above 80 characters, so the length floor alone would miss them; a long answer that merely
-  opens with "I'll" is not a stub. `0` disables both checks. An empty message body (`""`),
-  which used to return as a silent success, is caught by the length floor.
+- `runGrok` rejects the answer with `.code = "empty"` when `stubReason` says so (above). An
+  empty message body (`""`), which used to return as a silent success, is caught by the
+  default floor of 1.
 
 ## Orientation auto-attach
 
