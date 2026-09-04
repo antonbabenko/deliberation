@@ -1,3 +1,10 @@
+## [3.14.5](https://github.com/antonbabenko/deliberation/compare/v3.14.4...v3.14.5) (2026-09-04)
+
+
+### Bug Fixes
+
+* **mcp:** report the real version in serverInfo, not 0.1.0 ([#183](https://github.com/antonbabenko/deliberation/issues/183)) ([fa61d42](https://github.com/antonbabenko/deliberation/commit/fa61d429be4ce91069bce95538c98c00e6eb6ba6))
+
 ## [3.14.4](https://github.com/antonbabenko/deliberation/compare/v3.14.3...v3.14.4) (2026-09-03)
 
 
@@ -25,11 +32,4 @@
 ### Bug Fixes
 
 * resolve provider CLI shims so Codex and Gemini spawn on Windows ([#173](https://github.com/antonbabenko/deliberation/issues/173)) ([a3598f0](https://github.com/antonbabenko/deliberation/commit/a3598f0af00e16db9427d5555ebb51c858899475))
-
-## [3.14.0](https://github.com/antonbabenko/deliberation/compare/v3.13.0...v3.14.0) (2026-08-17)
-
-
-### Features
-
-* **analyze:** report only configured models, add time window, compare links, and model verification ([#171](https://github.com/antonbabenko/deliberation/issues/171)) ([73c0a69](https://github.com/antonbabenko/deliberation/commit/73c0a69e01e8ccd67985922170af033af23ae703))
 
