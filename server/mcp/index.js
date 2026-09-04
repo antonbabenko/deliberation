@@ -1336,7 +1336,13 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         const ci = msg.params && msg.params.clientInfo;
         if (ci && typeof ci.name === "string") clientName = ci.name;
         // `logging: {}` advertises that we emit `notifications/message` (Phase 4 spike).
-        return { jsonrpc: "2.0", id: msg.id, result: { protocolVersion: "2024-11-05", capabilities: { tools: {}, logging: {} }, serverInfo: { name: "deliberation-mcp", version: "0.1.0" } } };
+        // serverInfo.version is SYNCED FROM version.json by .github/release/pre-commit.js,
+        // and checked by the validate workflow plus test M9 in test/mcp-server.test.js. Both
+        // find it by matching the shape of the return statement below, so do not reformat
+        // that line (quotes, spacing, key order) - the sync would silently stop finding it.
+        // Deliberately not restated here: a comment carrying that shape would shadow the
+        // real line and the sync would rewrite the comment instead.
+        return { jsonrpc: "2.0", id: msg.id, result: { protocolVersion: "2024-11-05", capabilities: { tools: {}, logging: {} }, serverInfo: { name: "deliberation-mcp", version: "3.14.4" } } };
       }
       if (msg.method === "logging/setLevel") {
         const level = msg.params && msg.params.level;

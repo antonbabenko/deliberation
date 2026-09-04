@@ -64,6 +64,26 @@ jobs:
             }
           }
 
+          // Mirrors pre-commit.js: exactly one match, or fail. A second line carrying the
+          // same shape (comment, example, block-commented copy) would let the check read a
+          // decoy while the real value drifts.
+          function readMatch(p, re) {
+            try {
+              const src = fs.readFileSync(p, 'utf8')
+              const all = new RegExp(re.source, re.flags.includes('g') ? re.flags : re.flags + 'g')
+              const hits = src.match(all)
+              if (!hits) return null
+              if (hits.length !== 1) {
+                console.error(`ERROR ${p}: ${hits.length} lines match the version pattern; exactly one expected`)
+                process.exit(1)
+              }
+              return src.match(re)[1]
+            } catch (e) {
+              console.error(`ERROR ${p}: ${e.message}`)
+              process.exit(1)
+            }
+          }
+
           // version.json is the CI-owned source of truth.
           const source = readJSON('version.json').version
           if (!(typeof source === 'string' && SEMVER.test(source))) {
@@ -79,6 +99,9 @@ jobs:
             ['server/mcp/package.json', readJSON('server/mcp/package.json').version],
             ['server.json', readJSON('server.json').version],
             ['server.json packages[0]', (readJSON('server.json').packages || [])[0]?.version],
+            // Anchored on the `return` line, matching pre-commit.js: a comment quoting
+            // the same shape must not be able to satisfy this check.
+            ['server/mcp/index.js serverInfo', readMatch('server/mcp/index.js', /^\s*return \{ jsonrpc: "2\.0".*serverInfo: \{ name: "deliberation-mcp", version: "([^"]*)"/m)],
           ]
 
           let bad = false
