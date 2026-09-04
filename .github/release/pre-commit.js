@@ -44,11 +44,13 @@ const TARGETS = [
   { rel: 'server.json', re: /^( {2}"version":\s*)"[^"]*"/m },
   { rel: 'server.json', re: /^( {6}"version":\s*)"[^"]*"/m },
   // The stdio server's advertised serverInfo.version - what every MCP host (and
-  // the Glama inspector) displays. Not a JSON line, so this one is anchored on
-  // the serverInfo literal instead of an indent.
+  // the Glama inspector) displays. Not a JSON line, so this one anchors on the
+  // `return` statement rather than an indent. The leading `^\s*return {` matters:
+  // without it, any COMMENT that quoted the same shape would win the non-global
+  // replace and the real literal would go stale, silently.
   {
     rel: 'server/mcp/index.js',
-    re: /(serverInfo: \{ name: "deliberation-mcp", version: )"[^"]*"/,
+    re: /^(\s*return \{ jsonrpc: "2\.0".*serverInfo: \{ name: "deliberation-mcp", version: )"[^"]*"/m,
   },
 ]
 

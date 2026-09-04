@@ -223,3 +223,12 @@ test("S-MCP9: session-get on an unknown id returns a not-found message", async (
   const payload = await callTool(srv, 15, "session-get", { sessionId: "nope" });
   assert.match(payload.error, /session not found/);
 });
+
+test("M9: initialize advertises version.json's version, not a stale literal", async () => {
+  const srv = buildServer({ providers: [fakeProvider("codex")], getConfig: () => config });
+  const res = await srv.handle({ jsonrpc: "2.0", id: 99, method: "initialize", params: {} });
+  assert.equal(res.result.serverInfo.name, "deliberation-mcp");
+  // The literal is synced from version.json by .github/release/pre-commit.js. Asserting it
+  // here means a reformat or a missed sync fails `npm run check` locally, not only in CI.
+  assert.equal(res.result.serverInfo.version, require("../version.json").version);
+});

@@ -89,7 +89,9 @@ jobs:
             ['server/mcp/package.json', readJSON('server/mcp/package.json').version],
             ['server.json', readJSON('server.json').version],
             ['server.json packages[0]', (readJSON('server.json').packages || [])[0]?.version],
-            ['server/mcp/index.js serverInfo', readMatch('server/mcp/index.js', /serverInfo: \{ name: "deliberation-mcp", version: "([^"]*)"/)],
+            // Anchored on the `return` line, matching pre-commit.js: a comment quoting
+            // the same shape must not be able to satisfy this check.
+            ['server/mcp/index.js serverInfo', readMatch('server/mcp/index.js', /^\s*return \{ jsonrpc: "2\.0".*serverInfo: \{ name: "deliberation-mcp", version: "([^"]*)"/m)],
           ]
 
           let bad = false
