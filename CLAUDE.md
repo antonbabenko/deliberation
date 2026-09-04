@@ -279,8 +279,10 @@ changelog. (The release-PR job also self-skips its own `chore(release):` commit 
 
 `version.json` is the single source of truth. When a releasable commit lands on `master`,
 `automated-release.yml` bumps it, regenerates `CHANGELOG.md`, and runs `.github/release/pre-commit.js` to sync the
-version in `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, and
-`package.json`. After the release PR merges, `tag-release.yml` tags `vX.Y.Z`, publishes the
+version in `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`,
+`package.json`, `server.json`, `server/mcp/package.json`, the Codex host manifest, and the
+`serverInfo.version` literal in `server/mcp/index.js` (what every MCP host displays).
+After the release PR merges, `tag-release.yml` tags `vX.Y.Z`, publishes the
 GitHub Release, and nudges the `antonbabenko/agent-plugins` marketplace to re-pin. The
 `validate` check fails if any of those version fields drift from `version.json`. See
 CONTRIBUTING.md for the full flow.

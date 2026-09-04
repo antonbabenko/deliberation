@@ -1336,7 +1336,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         const ci = msg.params && msg.params.clientInfo;
         if (ci && typeof ci.name === "string") clientName = ci.name;
         // `logging: {}` advertises that we emit `notifications/message` (Phase 4 spike).
-        return { jsonrpc: "2.0", id: msg.id, result: { protocolVersion: "2024-11-05", capabilities: { tools: {}, logging: {} }, serverInfo: { name: "deliberation-mcp", version: "0.1.0" } } };
+        return { jsonrpc: "2.0", id: msg.id, result: { protocolVersion: "2024-11-05", capabilities: { tools: {}, logging: {} }, serverInfo: { name: "deliberation-mcp", version: "3.14.4" } } };
       }
       if (msg.method === "logging/setLevel") {
         const level = msg.params && msg.params.level;

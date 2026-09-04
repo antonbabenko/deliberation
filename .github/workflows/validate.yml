@@ -64,6 +64,16 @@ jobs:
             }
           }
 
+          function readMatch(p, re) {
+            try {
+              const m = fs.readFileSync(p, 'utf8').match(re)
+              return m && m[1]
+            } catch (e) {
+              console.error(`ERROR ${p}: ${e.message}`)
+              process.exit(1)
+            }
+          }
+
           // version.json is the CI-owned source of truth.
           const source = readJSON('version.json').version
           if (!(typeof source === 'string' && SEMVER.test(source))) {
@@ -79,6 +89,7 @@ jobs:
             ['server/mcp/package.json', readJSON('server/mcp/package.json').version],
             ['server.json', readJSON('server.json').version],
             ['server.json packages[0]', (readJSON('server.json').packages || [])[0]?.version],
+            ['server/mcp/index.js serverInfo', readMatch('server/mcp/index.js', /serverInfo: \{ name: "deliberation-mcp", version: "([^"]*)"/)],
           ]
 
           let bad = false

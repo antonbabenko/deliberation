@@ -43,6 +43,13 @@ const TARGETS = [
   // different indents; sync both. Same-file targets re-read the file each pass.
   { rel: 'server.json', re: /^( {2}"version":\s*)"[^"]*"/m },
   { rel: 'server.json', re: /^( {6}"version":\s*)"[^"]*"/m },
+  // The stdio server's advertised serverInfo.version - what every MCP host (and
+  // the Glama inspector) displays. Not a JSON line, so this one is anchored on
+  // the serverInfo literal instead of an indent.
+  {
+    rel: 'server/mcp/index.js',
+    re: /(serverInfo: \{ name: "deliberation-mcp", version: )"[^"]*"/,
+  },
 ]
 
 function repoRoot() {
