@@ -64,10 +64,20 @@ jobs:
             }
           }
 
+          // Mirrors pre-commit.js: exactly one match, or fail. A second line carrying the
+          // same shape (comment, example, block-commented copy) would let the check read a
+          // decoy while the real value drifts.
           function readMatch(p, re) {
             try {
-              const m = fs.readFileSync(p, 'utf8').match(re)
-              return m && m[1]
+              const src = fs.readFileSync(p, 'utf8')
+              const all = new RegExp(re.source, re.flags.includes('g') ? re.flags : re.flags + 'g')
+              const hits = src.match(all)
+              if (!hits) return null
+              if (hits.length !== 1) {
+                console.error(`ERROR ${p}: ${hits.length} lines match the version pattern; exactly one expected`)
+                process.exit(1)
+              }
+              return src.match(re)[1]
             } catch (e) {
               console.error(`ERROR ${p}: ${e.message}`)
               process.exit(1)

@@ -71,8 +71,20 @@ function syncVersion(root, target, version) {
     throw new Error(`pre-commit: ${target.rel} not found`)
   }
   const src = fs.readFileSync(file, 'utf8')
-  if (!target.re.test(src)) {
+  // Require EXACTLY ONE match. A second one means something else in the file carries
+  // the same shape - a comment, an example, a block-commented copy - and the replace
+  // below is non-global, so it would rewrite whichever came first and leave the real
+  // value stale, silently. Ambiguity fails loudly instead of being guessed at.
+  const all = new RegExp(target.re.source, target.re.flags.includes('g') ? target.re.flags : target.re.flags + 'g')
+  const hits = src.match(all)
+  if (!hits) {
     throw new Error(`pre-commit: version line not found in ${target.rel}`)
+  }
+  if (hits.length !== 1) {
+    throw new Error(
+      `pre-commit: ${hits.length} lines match the version pattern in ${target.rel}; ` +
+        `exactly one expected, refusing to guess`
+    )
   }
   fs.writeFileSync(file, src.replace(target.re, `$1"${version}"`))
   return target.rel
