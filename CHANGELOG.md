@@ -1,3 +1,10 @@
+## [3.14.8](https://github.com/antonbabenko/deliberation/compare/v3.14.7...v3.14.8) (2026-09-11)
+
+
+### Bug Fixes
+
+* **consensus:** raise default maxWallMs to 30 min ([#190](https://github.com/antonbabenko/deliberation/issues/190)) ([c477c04](https://github.com/antonbabenko/deliberation/commit/c477c0483cdfe42c17ef04364c591265b529c105))
+
 ## [3.14.7](https://github.com/antonbabenko/deliberation/compare/v3.14.6...v3.14.7) (2026-09-11)
 
 
@@ -25,11 +32,4 @@
 ### Bug Fixes
 
 * **gemini:** accept terse answers and read agy --help from stderr ([#180](https://github.com/antonbabenko/deliberation/issues/180)) ([#181](https://github.com/antonbabenko/deliberation/issues/181)) ([ad4a3af](https://github.com/antonbabenko/deliberation/commit/ad4a3af97c678a0a291e12a46f9c7d87357970f8))
-
-## [3.14.3](https://github.com/antonbabenko/deliberation/compare/v3.14.2...v3.14.3) (2026-08-31)
-
-
-### Bug Fixes
-
-* **providers:** stop a broken provider from costing a full consensus round ([#177](https://github.com/antonbabenko/deliberation/issues/177)) ([d851a4f](https://github.com/antonbabenko/deliberation/commit/d851a4ff145e9af5db38b8fda97f554ab0025390))
 
