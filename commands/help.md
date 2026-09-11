@@ -15,17 +15,7 @@ changes when you ask them to.
 ## Step 1: One quick look at your setup (ONE Bash call)
 
 ```bash
-set -u
-host="Claude Code"
-[ -n "${CURSOR_TRACE_ID:-}${CURSOR:-}" ] && host="Cursor"
-[ -n "${KIRO_VERSION:-}${KIRO:-}" ] && host="Kiro"
-[ -n "${CODEX_HOME:-}" ] && [ -z "${CLAUDECODE:-}" ] && host="Codex CLI"
-echo "Host: $host"
-CFG="${DELIBERATION_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/deliberation/config.json}"
-case "$CFG" in /*) ;; *) CFG="$HOME/.config/deliberation/config.json";; esac
-[ -f "$CFG" ] && echo "Config: found" || echo "Config: missing - run /deliberation:setup first"
-[ -n "${XAI_API_KEY:-}" ] && echo "Grok key: set" || echo "Grok key: unset (Grok will skip)"
-[ -n "${OPENROUTER_API_KEY:-}" ] && echo "OpenRouter key: set" || echo "OpenRouter key: unset (OpenRouter will skip)"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/commands/help.sh"
 ```
 
 If the host is not Claude Code, tell the user the commands work the same way but

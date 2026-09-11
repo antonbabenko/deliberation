@@ -43,6 +43,11 @@ jobs:
       - name: Run bridge tests
         run: node --test test/*.test.js
 
+      # The command scripts used to live inside Markdown code fences, where no linter
+      # could see them. They are files now, so they get checked like any other shell.
+      - name: Shellcheck the command scripts
+        run: shellcheck -x scripts/commands/*.sh
+
       - name: Build published bundle (esbuild prepack smoke)
         run: npm run prepack --workspace=server/mcp
 
