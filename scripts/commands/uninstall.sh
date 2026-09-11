@@ -15,6 +15,8 @@ set -u
 PLUGIN_ROOT="$(resolve_plugin_root || true)"
 
 # --- MCP registrations (namespaced + unified) ---
+# `deliberation-codex` is legacy: it was dropped from the manifest (codex-cli ships no MCP
+# server), but an older install may still have a user-scope copy. Keep removing it.
 for s in deliberation deliberation-codex deliberation-gemini deliberation-grok deliberation-openrouter; do
   claude mcp remove --scope user "$s" >/dev/null 2>&1 || true
 done

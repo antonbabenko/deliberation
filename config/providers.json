@@ -6,11 +6,8 @@
       "cli": "codex",
       "install": "npm install -g @openai/codex",
       "auth": "codex login",
-      "mcp": {
-        "type": "stdio",
-        "command": "codex",
-        "args": ["mcp-server"]
-      },
+      "mcp": null,
+      "note": "No dedicated MCP server - codex-cli ships no MCP server mode. GPT is served by the unified `deliberation` server, which spawns `codex exec` (core/providers/codex.js).",
       "experts": ["architect", "plan-reviewer", "scope-analyst", "code-reviewer", "security-analyst", "researcher", "debugger"],
       "strengths": ["architecture", "code-review", "security", "requirements-analysis", "plan-validation"],
       "avoid": ["simple-operations", "trivial-decisions", "research", "first-attempt-fixes"]

@@ -42,5 +42,5 @@ one persona to every delegate:
 Pass full context in `prompt` - the experts do not share your session. Skip
 delegation for simple edits, the first attempt at a fix, and trivial questions.
 
-Advisory vs implementation: GPT (Codex) and Gemini can advise OR implement;
-Grok and OpenRouter are advisory-only (they cannot edit files).
+Advisory vs implementation: only Gemini can advise OR implement;
+GPT, Grok, and OpenRouter are advisory-only (they cannot edit files).

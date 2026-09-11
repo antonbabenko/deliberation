@@ -111,6 +111,8 @@ command -v agy   >/dev/null 2>&1 && AGY_STATUS="installed" || AGY_STATUS="MISSIN
 # so they cannot shadow it.
 # Per-provider enable/disable is gated in config via the unified server's fan-out (/ask-all,
 # /consensus); the direct provider tools always load.
+# `deliberation-codex` is legacy: it was dropped from the manifest (codex-cli ships no MCP
+# server), but an older install may still have a user-scope copy. Keep removing it.
 for s in deliberation deliberation-codex deliberation-gemini deliberation-grok deliberation-openrouter; do
   remove_mcp "$s"
 done

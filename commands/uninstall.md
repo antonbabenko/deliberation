@@ -40,7 +40,6 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/commands/uninstall.sh"
 If your host does not set `CLAUDE_PLUGIN_ROOT` (see [docs/hosts/](../docs/hosts/)),
 pass the plugin directory instead: `bash <plugin-root>/scripts/commands/uninstall.sh`.
 
-
 After it runs, report the printed summary. The plugin itself is removed via `/plugin` (this command
 only cleans up the user-scope MCP registrations, rules, cache, and copied aliases).
 

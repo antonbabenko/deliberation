@@ -136,14 +136,16 @@ User explicitly requests delegation:
 
 ## Advisory vs Implementation Mode
 
-Any expert can operate in two modes, except OpenRouter which is always advisory:
+Any expert can operate in two modes, but only Gemini can actually write:
 
 | Mode | Sandbox | When to Use | Providers |
 |------|---------|-------------|-----------|
 | **Advisory** | `read-only` | Analysis, recommendations, review verdicts | All providers |
-| **Implementation** | `workspace-write` | Actually making changes, fixing issues | Codex, Gemini only |
+| **Implementation** | `workspace-write` | Actually making changes, fixing issues | Gemini only |
 
 Set the sandbox based on what the task requires, not the expert type.
-OpenRouter and Grok are always advisory - never route implementation tasks to them.
+GPT, Grok, and OpenRouter are always advisory - never route implementation tasks to them.
+(GPT lost its write path when codex-cli dropped its MCP server: every GPT delegation now runs
+`codex exec --sandbox read-only`.)
 
 **Examples:**

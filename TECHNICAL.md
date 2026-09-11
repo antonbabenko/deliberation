@@ -28,7 +28,11 @@ and the Gemini recovery paths.
 Claude acts as the orchestrator. It reads your request, picks an expert, and
 delegates to a provider over MCP. Each provider reaches Claude Code differently:
 
-- **Codex (GPT)** - the Codex CLI ships a native MCP server (`codex mcp-server`).
+- **Codex (GPT)** - no MCP server of its own. codex-cli ships none (the old
+  `codex mcp-server` subcommand is gone; `codex mcp` manages *external* servers), so the
+  unified `deliberation` server spawns `codex exec` directly from
+  `core/providers/codex.js`. Advisory-only and single-shot: no `threadId`, no
+  `workspace-write`.
 - **Gemini** - a bundled zero-dependency Node bridge (`server/gemini/index.js`)
   wraps the Antigravity CLI (`agy`).
 - **Grok (xAI)** - a bundled zero-dependency Node bridge (`server/grok/index.js`)
@@ -47,7 +51,7 @@ Claude: detects a security question, selects the Security Analyst
                 |
                 v
    +-------------------------------------+
-   |  mcp__deliberation-codex__codex /   |
+   |  mcp__deliberation__ask-gpt /       |
    |  mcp__deliberation-gemini__gemini / |
    |  mcp__deliberation-grok__grok       |
    |    -> Security Analyst prompt       |
@@ -214,6 +218,12 @@ which is what makes a configured timeout above 300s reachable at all - see
 
 ## Implementation mode (core capability)
 
+> **Not a shipped surface.** This section documents what `core` is capable of, not what the
+> running server exposes. No call site in the live composition root (`server/mcp/index.js`)
+> passes `allowImplement`, so the shipped MCP server is read-only end to end - see
+> CLAUDE.md Key Design Decision #3. Today the only user-facing write path is the standalone
+> gemini bridge's `sandbox: "workspace-write"` opt-in.
+
 The `core` codex + gemini providers can run `workspace-write` (edit files) instead
 of the default read-only. The capability is gated by **two AND-ed locks** - a write
 happens only when both are true:
@@ -281,13 +291,13 @@ This is the single source of truth for the bridge environment variables.
 | `CODEX_BIN` | Codex | `codex` | Override the path to the `codex` binary (see [Windows CLI resolution](#windows-cli-resolution)) |
 | `DELIBERATION_DEBUG_LOG` | debug | `<XDG cache>/deliberation/debug.jsonl` | Override the debug log path (see [Observability](#observability--per-provider-progress)); only written when `debug.enabled` |
 
-Codex has no bridge: it ships its own native MCP server and
-reads `~/.codex/config.toml` directly. `CODEX_BIN` above is the one exception - it is read by the
-`core` provider (`core/providers/codex.js`), which spawns `codex exec` itself. The **model** comes from the `model` key in
-that file by default (the Codex analog of `GEMINI_DEFAULT_MODEL` /
-`GROK_DEFAULT_MODEL`). Override it on the server with `-c model=<id>` on the
-`claude mcp add ... deliberation-codex` registration, or per call with the `model` parameter of
-`mcp__deliberation-codex__codex(...)`. See [SETUP.md](SETUP.md#openrouter-config).
+Codex has no bridge and no MCP server of its own: the `core` provider
+(`core/providers/codex.js`) spawns `codex exec` and lets the CLI read `~/.codex/config.toml`
+directly. `CODEX_BIN` above overrides which binary is spawned. The **model** comes from the
+`model` key in that file (the Codex analog of `GEMINI_DEFAULT_MODEL` / `GROK_DEFAULT_MODEL`)
+and from nowhere else - there is no per-call or per-server override, because the MCP tool
+surface (`mcp__deliberation__ask-gpt`) exposes no `model` parameter. See
+[SETUP.md](SETUP.md#openrouter-config).
 
 **Codex per-call timeout.** The `core` Codex provider caps each `codex exec` invocation to
 `CODEX_DEFAULT_TIMEOUT_MS` (600 000 ms, 10 min) by default, so a stalled Codex process cannot
@@ -484,34 +494,60 @@ raw on-disk shape is what made the `reasoningEffort` suggestion silently dead in
 ## Manual MCP setup
 
 If `/setup` does not work, register the MCP servers manually. Each command is
-idempotent (safe to rerun):
+idempotent (safe to rerun).
+
+**The server NAME matters.** Claude Code derives each tool id from it, and the bundled
+commands declare those ids in `allowed-tools` (`mcp__deliberation-gemini__gemini`,
+`mcp__deliberation-grok__grok`, `mcp__deliberation-openrouter__openrouter`,
+`mcp__deliberation__ask-gpt`). Register under any other name and the slash commands will
+not reach the servers. Use the names exactly as written below.
+
+`${CLAUDE_PLUGIN_ROOT}` is set by Claude Code only while a plugin is loaded, so it is
+EMPTY in an ordinary shell - every path below would collapse to `/server/...`. Point
+`DELIB_ROOT` at your copy first (the installed plugin, or a git checkout):
 
 ```bash
-# Codex (GPT) - inherits its model from ~/.codex/config.toml.
-# Pin a model on the server with `-c model=<id>` (e.g. `codex mcp-server -c model=gpt-5.5`).
-claude mcp remove codex >/dev/null 2>&1 || true
-claude mcp add --transport stdio --scope user codex -- codex mcp-server
+# Installed plugin (highest version in the marketplace cache):
+DELIB_ROOT="$(find "$HOME/.claude/plugins/cache" -maxdepth 6 -path '*/deliberation/*/server/mcp/index.js' -type f 2>/dev/null | sort -V | tail -1)"
+DELIB_ROOT="${DELIB_ROOT%/server/mcp/index.js}"
+# ...or a local checkout:  DELIB_ROOT="$HOME/src/deliberation"
+[ -f "$DELIB_ROOT/server/mcp/index.js" ] || echo "DELIB_ROOT is wrong: $DELIB_ROOT"
+```
+
+```bash
+# The unified `deliberation` server - serves ask-all / consensus / the seven experts AND
+# GPT (`ask-gpt`). Register this one first: without it there is no GPT at all, because
+# codex-cli ships no MCP server of its own and this server spawns `codex exec` itself.
+# GPT's model comes from the `model` key in ~/.codex/config.toml.
+claude mcp remove deliberation >/dev/null 2>&1 || true
+claude mcp add --transport stdio --scope user deliberation -- node "$DELIB_ROOT/server/mcp/index.js"
 
 # Gemini
-claude mcp remove gemini >/dev/null 2>&1 || true
-claude mcp add --transport stdio --scope user gemini -- node ${CLAUDE_PLUGIN_ROOT}/server/gemini/index.js
+claude mcp remove deliberation-gemini >/dev/null 2>&1 || true
+claude mcp add --transport stdio --scope user deliberation-gemini -- node "$DELIB_ROOT/server/gemini/index.js"
 
 # Grok (xAI) - API-based, advisory-only. Needs XAI_API_KEY.
 # Default registers WITHOUT --env, so the key is NOT written to ~/.claude.json;
 # export XAI_API_KEY in Claude Code's launch environment (e.g. your shell profile).
-claude mcp remove grok >/dev/null 2>&1 || true
-claude mcp add --transport stdio --scope user grok -- node ${CLAUDE_PLUGIN_ROOT}/server/grok/index.js
+claude mcp remove deliberation-grok >/dev/null 2>&1 || true
+claude mcp add --transport stdio --scope user deliberation-grok -- node "$DELIB_ROOT/server/grok/index.js"
 # Alternative (persists the key in ~/.claude.json in plaintext): append
 #   --env XAI_API_KEY="$XAI_API_KEY"
 # before the `-- node ...` part of the command above.
+
+# OpenRouter - API-based, advisory-only. Needs OPENROUTER_API_KEY (or the env var named
+# by the record's apiKeyEnv). Same env-vs-manifest tradeoff as Grok above.
+claude mcp remove deliberation-openrouter >/dev/null 2>&1 || true
+claude mcp add --transport stdio --scope user deliberation-openrouter -- node "$DELIB_ROOT/server/openrouter/index.js"
 ```
 
-Verify:
+Verify (same four servers the plugin manifest registers):
 
 ```bash
 claude mcp list
-printf '{"jsonrpc":"2.0","id":"health","method":"initialize","params":{}}\n' | node ${CLAUDE_PLUGIN_ROOT}/server/gemini/index.js
-printf '{"jsonrpc":"2.0","id":"health","method":"initialize","params":{}}\n' | node ${CLAUDE_PLUGIN_ROOT}/server/grok/index.js
+for srv in mcp gemini grok openrouter; do
+  printf '{"jsonrpc":"2.0","id":"health","method":"initialize","params":{}}\n' | node "$DELIB_ROOT/server/$srv/index.js"
+done
 ```
 
 ## Multi-turn and retry
@@ -887,7 +923,7 @@ of the arbiter feature.
 - **`openrouter-default`** is the reserved id for the bare `mcp__deliberation__openrouter`
   call and `/ask-openrouter` with no record specified. It resolves to `defaultModel`, is the
   single-shot fallback only, and is never included in fan-out or consensus.
-- Implementation tasks always route to Codex or Gemini, never to OpenRouter.
+- Implementation tasks always route to Gemini - GPT, Grok, and OpenRouter are advisory-only.
 
 ### Editor validation (VS Code, no extension)
 
@@ -1482,7 +1518,7 @@ to invoke or not invoke. Edit these to change expert behavior for your workflow.
   writes. On Linux there is no OS sandbox in v1 - read-only relies on the prompt
   guard + post-run git mutation detection (which sets `workspaceMutated: true`),
   and the network is never isolated on any platform. Route deliberate
-  implementation work to Codex (GPT) or the direct `gemini` tool with
+  implementation work to the direct `gemini` tool with
   `workspace-write`.
 - `agy` resolves a conversation id per cwd (in
   `~/.gemini/antigravity-cli/cache/last_conversations.json`). Heavy parallel calls

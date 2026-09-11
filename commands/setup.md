@@ -38,21 +38,20 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/commands/setup.sh"
 If your host does not set `CLAUDE_PLUGIN_ROOT` (see [docs/hosts/](../docs/hosts/)),
 pass the plugin directory instead: `bash <plugin-root>/scripts/commands/setup.sh`.
 
-
 After it runs, report the printed status to the user.
 
 ### Optional provider tuning (no extra setup calls needed)
 
-- **Codex model:** by default Codex reads its model from `~/.codex/config.toml` (`model` key). To
-  pin it without touching config, pass `model:` per call to `mcp__deliberation-codex__codex(...)`.
-  To pin it on the server itself, add the args to the `deliberation-codex` entry in
-  `.claude-plugin/mcp.json` (e.g. `"args": ["mcp-server", "-c", "model=gpt-5.5"]`); other Codex
-  flags go before `mcp-server` (e.g. `-p nosandbox`).
+- **Codex model:** Codex reads its model from `~/.codex/config.toml` (`model` key), and that is the
+  only place to change it. GPT has no dedicated MCP server (codex-cli ships none) - the unified
+  `deliberation` server spawns `codex exec` itself, and deliberately leaves model resolution to
+  that file, so there is no per-call or per-server override.
 - **Grok key (env vs manifest):** the `deliberation-grok` manifest entry sets no `env`, so the
   bridge inherits `XAI_API_KEY` from Claude Code's launch environment (export it in your shell
   profile - no secret in any committed file). To pin it on the server instead, add an `"env":
-  { "XAI_API_KEY": "..." }` block to that entry in `.claude-plugin/mcp.json` (note this writes the
-  key in plaintext into the manifest - prefer the shell-env path).
+  { "XAI_API_KEY": "..." }` block to that entry in the inline `mcpServers` map in
+  `.claude-plugin/plugin.json` (note this writes the key in plaintext into the manifest - prefer
+  the shell-env path).
 - **Grok file TTL / reasoning:** uploads default to a 7-day `expires_after`; override with
   `GROK_FILE_TTL_SECONDS=<3600..2592000>`. Reasoning effort defaults to `high`; override with
   `GROK_REASONING_EFFORT=<low|medium|high|none>` (env, `--env` on the registration, or per call).

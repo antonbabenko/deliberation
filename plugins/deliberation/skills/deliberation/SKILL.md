@@ -18,8 +18,9 @@ A single MCP server that exposes GPT (via the Codex CLI), Gemini 3 (via the
 Antigravity CLI), Grok (via the xAI API), and OpenRouter models (400+, advisory)
 as expert subagents. You stay the primary agent. When a task benefits from a
 second opinion or cross-model review, call one of the tools below, read the
-result, and apply your own judgment. GPT and Gemini can also implement changes;
-Grok and OpenRouter only advise.
+result, and apply your own judgment. Every tool here is ADVISORY: this server
+reads and reasons, it never edits your files. (Implementation exists only in the
+Claude Code plugin's standalone Gemini bridge, which this server does not expose.)
 
 ## Tools
 
