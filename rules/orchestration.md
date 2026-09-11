@@ -6,8 +6,7 @@ You have access to GPT experts via MCP tools. Use them strategically based on th
 
 | Tool | Provider | Use For |
 |------|----------|---------|
-| `mcp__deliberation-codex__codex` | GPT | Start a new expert session |
-| `mcp__deliberation-codex__codex-reply` | GPT | Continue an existing session (multi-turn) |
+| `mcp__deliberation__ask-gpt` | GPT | One advisory delegation (single-shot; advisory-only, no multi-turn) |
 | `mcp__deliberation-gemini__gemini` | Gemini | Start a new expert session |
 | `mcp__deliberation-gemini__gemini-reply` | Gemini | Continue an existing session (multi-turn) |
 | `mcp__deliberation-grok__grok` | Grok (xAI) | Start a new expert session (advisory-only; reads attached files) |
@@ -16,9 +15,11 @@ You have access to GPT experts via MCP tools. Use them strategically based on th
 | `mcp__deliberation-openrouter__openrouter-reply` | OpenRouter | Continue a session (multi-turn via threadId) |
 | `mcp__deliberation-openrouter__openrouter-list` | OpenRouter | List configured aliases and their eligibility flags |
 
+> **GPT notes:** codex-cli ships no MCP server, so GPT has no dedicated bridge. It is reached through the unified `deliberation` server, which spawns `codex exec` itself. That path is advisory-only and single-shot: no `threadId`, no `-reply` tool, no `workspace-write`. The model comes from `~/.codex/config.toml` (`model` key) and cannot be overridden per call.
+
 > **Grok notes:** the Grok bridge talks to the xAI HTTP API, so it is advisory-only (it cannot edit files). It reads attached files via `files:[{path|file_id|file_url}]` - attach referenced local files by default and set `cwd` to the repo root so paths resolve (a path outside `cwd` is refused). It needs `XAI_API_KEY`; a missing key surfaces `errorKind: "missing-auth"`.
 
-> **OpenRouter notes:** the OpenRouter bridge is advisory-only (it cannot edit files). Models are declared as named records in the `models` map of `~/.config/deliberation/config.json` (Windows: `%APPDATA%\deliberation\config.json`; override with `DELIBERATION_CONFIG`), each keyed by an id and naming `provider: "openrouter"` + a model slug; they hot-reload without restarting. File attachment is text-inline only (`{path}`/`{dir}`; 256 KB per file, 1 MB aggregate). `/ask-all` fan-out is capped by `routing.maxFanout` (default 3); `/consensus` is uncapped (warn if >3 models). Implementation tasks must route to Codex or Gemini.
+> **OpenRouter notes:** the OpenRouter bridge is advisory-only (it cannot edit files). Models are declared as named records in the `models` map of `~/.config/deliberation/config.json` (Windows: `%APPDATA%\deliberation\config.json`; override with `DELIBERATION_CONFIG`), each keyed by an id and naming `provider: "openrouter"` + a model slug; they hot-reload without restarting. File attachment is text-inline only (`{path}`/`{dir}`; 256 KB per file, 1 MB aggregate). `/ask-all` fan-out is capped by `routing.maxFanout` (default 3); `/consensus` is uncapped (warn if >3 models). Implementation tasks must route to Gemini.
 
 ## Available Experts
 
@@ -36,31 +37,36 @@ You have access to GPT experts via MCP tools. Use them strategically based on th
 
 ## Session Management
 
-Codex and Gemini support two delegation patterns:
+There are two delegation patterns. GPT supports only the first.
 
 ### Single-Shot (Default)
 
-Use `mcp__deliberation-codex__codex` or `mcp__deliberation-gemini__gemini` for independent tasks. Each call starts a fresh session with no memory of previous calls. Include ALL relevant context in the delegation prompt.
+Use `mcp__deliberation__ask-gpt` or `mcp__deliberation-gemini__gemini` for independent tasks. Each call starts a fresh session with no memory of previous calls. Include ALL relevant context in the delegation prompt.
 
 **Best for:** Advisory reviews, one-off analysis, independent implementation tasks.
 
 ### Multi-Turn
 
-Both providers support multi-turn interactions. The initial call returns a `threadId` in its response. Pass this to the corresponding `-reply` tool for follow-up turns with full context preservation.
+Gemini, Grok, and OpenRouter support multi-turn interactions. The initial call returns a `threadId` in its response. Pass this to the corresponding `-reply` tool for follow-up turns with full context preservation. GPT does NOT: it has no `threadId` and no `-reply` tool, so a GPT follow-up is a fresh call carrying the full history in its prompt.
+
+**A `threadId` does not carry permissions.** The Gemini bridge evaluates `sandbox` on EVERY call (`readOnly = args.sandbox !== "workspace-write"`), so a `gemini-reply` that omits it runs read-only no matter what the first turn was - the follow-up silently advises instead of editing. Resend `sandbox: "workspace-write"` and `cwd` on every reply that continues implementation work.
 
 ```typescript
-// Turn 1: Start session (Codex example)
-const result = mcp__deliberation-codex__codex({
+// Turn 1: Start session (Gemini example)
+const result = mcp__deliberation-gemini__gemini({
   prompt: "Implement input validation for the user endpoint",
   "developer-instructions": "[expert prompt]",
+  sandbox: "workspace-write",
   cwd: "/path/to/project"
 })
 // result includes threadId: "019c58e5-..."
 
 // Turn 2: Follow up with context preserved
-mcp__deliberation-codex__codex-reply({
+mcp__deliberation-gemini__gemini-reply({
   threadId: "019c58e5-...",
-  prompt: "Now add tests for the validation you just implemented"
+  prompt: "Now add tests for the validation you just implemented",
+  sandbox: "workspace-write", // NOT inherited from turn 1 - resend it or this turn is read-only
+  cwd: "/path/to/project"
 })
 ```
 
@@ -68,8 +74,8 @@ mcp__deliberation-codex__codex-reply({
 
 | Pattern | Tool | Context | Use When |
 |---------|------|---------|----------|
-| Single-shot | `codex` / `gemini` | Fresh each call | Advisory, one-off tasks |
-| Multi-turn | `*-reply` | Preserved via threadId | Chained steps, retries |
+| Single-shot | `ask-gpt` / `gemini` / `grok` / `openrouter` | Fresh each call | Advisory, one-off tasks |
+| Multi-turn | `*-reply` (not GPT) | Preserved via threadId | Chained steps, retries |
 
 ---
 
@@ -167,11 +173,10 @@ run concurrently with reads. Everything else is concurrent.
 
 ### Step 6: Call the Expert
 ```typescript
-// Using Codex (GPT)
-mcp__deliberation-codex__codex({
+// Using GPT (advisory-only, single-shot - no sandbox parameter)
+mcp__deliberation__ask-gpt({
   prompt: "[your 7-section delegation prompt with FULL context]",
-  "developer-instructions": "[contents of the expert's prompt file]",
-  sandbox: "[read-only or workspace-write based on mode]",
+  developerInstructions: "[contents of the expert's prompt file]",
   cwd: "[current working directory]"
 })
 
@@ -192,7 +197,7 @@ mcp__deliberation-openrouter__openrouter({
 })
 ```
 
-> OpenRouter is advisory-only. Never set sandbox to `workspace-write` for OpenRouter calls. For implementation tasks, always use Codex or Gemini.
+> GPT, Grok, and OpenRouter are advisory-only. Never set sandbox to `workspace-write` for them (`ask-gpt` and `openrouter` take no sandbox parameter at all). For implementation tasks, use Gemini.
 
 ### Step 7: Handle Response
 1. **Synthesize** - Never show raw output directly
@@ -219,21 +224,23 @@ Escalate to user
 ### Retry with Multi-Turn
 
 ```typescript
-// Attempt 1 (Codex or Gemini)
-const result = mcp__deliberation-codex__codex({ ... }) // or mcp__deliberation-gemini__gemini
+// Attempt 1 (Gemini - GPT has no multi-turn; use the single-shot fallback below for it)
+const result = mcp__deliberation-gemini__gemini({ ... })
 
 // Attempt 2 (context preserved - expert remembers attempt 1)
-mcp__deliberation-codex__codex-reply({ // or mcp__deliberation-gemini__gemini-reply
+mcp__deliberation-gemini__gemini-reply({
   threadId: result.threadId,
   prompt: `The previous implementation failed verification.
 Error: [exact error message]
-Fix the issue and verify the change works.`
+Fix the issue and verify the change works.`,
+  sandbox: "workspace-write", // resend: the reply does not inherit turn 1's sandbox
+  cwd: "/path/to/project"
 })
 ```
 
 ### Retry with Single-Shot (Fallback)
 
-If multi-turn is unavailable, use a new delegation call with full context:
+If multi-turn is unavailable - always the case for GPT - use a new delegation call with full context:
 
 ```markdown
 TASK: [Original task]
@@ -280,13 +287,12 @@ User: "What are the tradeoffs of Redis vs in-memory caching?"
 
 **Step 5-6**:
 ```typescript
-mcp__deliberation-codex__codex({
+mcp__deliberation__ask-gpt({
   prompt: `TASK: Analyze tradeoffs between Redis and in-memory caching for [context].
 EXPECTED OUTCOME: Clear recommendation with rationale.
 CONTEXT: [user's situation, full details]
 ...`,
-  "developer-instructions": "[contents of architect.md]",
-  sandbox: "read-only"
+  developerInstructions: "[contents of architect.md]"
 })
 ```
 
@@ -300,7 +306,7 @@ First attempt failed with "TypeError: Cannot read property 'x' of undefined"
 
 **Attempt 1 (initial call):**
 ```typescript
-const result = mcp__deliberation-codex__codex({
+const result = mcp__deliberation-gemini__gemini({
   prompt: `TASK: Add input validation to the user registration endpoint.
 
 CONTEXT:
@@ -320,12 +326,14 @@ REQUIREMENTS:
 
 **Attempt 2 (retry via multi-turn):**
 ```typescript
-mcp__deliberation-codex__codex-reply({
+mcp__deliberation-gemini__gemini-reply({
   threadId: result.threadId,
   prompt: `The previous implementation failed verification.
 Error: TypeError: Cannot read property 'x' of undefined at line 45
 The middleware was added but req.body was undefined.
-Fix the issue - ensure validation runs after body parser.`
+Fix the issue - ensure validation runs after body parser.`,
+  sandbox: "workspace-write", // resend: the reply does not inherit turn 1's sandbox
+  cwd: "/path/to/project"
 })
 ```
 
@@ -333,26 +341,27 @@ Fix the issue - ensure validation runs after body parser.`
 
 ## Codex Configuration Defaults
 
-Set global defaults in `~/.codex/config.toml` so you don't need to pass `sandbox_mode` and `approval_policy` on every call:
+`~/.codex/config.toml` is where GPT's **model** comes from - deliberation reads it from nowhere else and exposes no per-call override:
 
 ```toml
 # ~/.codex/config.toml
-sandbox_mode = "workspace-write"
-approval_policy = "on-failure"
+model = "gpt-5.5"
 ```
 
-Per-call parameters override these defaults. For example, pass `sandbox: "read-only"` to override the global default for advisory-only tasks.
+The **sandbox is not yours to set here.** Every delegation runs `codex exec --sandbox read-only`, passed as argv on each call, so a `sandbox_mode = "workspace-write"` in this file cannot widen a deliberation run. That is deliberate: a writable global default must never turn an advisory second opinion into a write.
 
 ### Project Trust Levels
 
-Codex also supports per-project trust configuration:
+Codex also supports per-project trust configuration, which still applies to the `codex exec`
+runs deliberation spawns:
 
 ```toml
 [projects."/path/to/your/project"]
 trust_level = "trusted"
 ```
 
-Trusted projects allow the expert full access within the sandbox policy.
+Trusted projects skip Codex's own trust prompt. They do NOT widen the sandbox: the
+`--sandbox read-only` argv above still bounds every deliberation run.
 
 ---
 

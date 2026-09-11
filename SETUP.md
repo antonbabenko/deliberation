@@ -174,7 +174,7 @@ anchoring - concrete-arbiter / non-host mode only. `consensus.maxRounds` (intege
 ms, default `1200000` = 20 min) sets a global wall-time budget for the server-side
 provider-arbiter loop (`consensus` tool only); when spent, the loop stops before the next
 round and returns UNRESOLVED with `stopReason: "budget-exhausted"` - it never aborts an
-in-flight call. Implementation tasks always route to Codex or Gemini - never OpenRouter.
+in-flight call. Implementation tasks always route to Gemini - GPT, Grok, and OpenRouter are advisory-only.
 
 For the full schema, the `$schema` / VS Code validation story, apiBase override matrix
 (Ollama, vLLM, LM Studio, HuggingFace), file-attachment caps, session model persistence,

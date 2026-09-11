@@ -136,23 +136,25 @@ User explicitly requests delegation:
 
 ## Advisory vs Implementation Mode
 
-Any expert can operate in two modes, except OpenRouter which is always advisory:
+Any expert can operate in two modes, but only Gemini can actually write:
 
 | Mode | Sandbox | When to Use | Providers |
 |------|---------|-------------|-----------|
 | **Advisory** | `read-only` | Analysis, recommendations, review verdicts | All providers |
-| **Implementation** | `workspace-write` | Actually making changes, fixing issues | Codex, Gemini only |
+| **Implementation** | `workspace-write` | Actually making changes, fixing issues | Gemini only |
 
 Set the sandbox based on what the task requires, not the expert type.
-OpenRouter and Grok are always advisory - never route implementation tasks to them.
+GPT, Grok, and OpenRouter are always advisory - never route implementation tasks to them.
+(GPT lost its write path when codex-cli dropped its MCP server: every GPT delegation now runs
+`codex exec --sandbox read-only`.)
 
 **Examples:**
 
 ```typescript
-// Architect analyzing (advisory via Codex)
-mcp__deliberation-codex__codex({
+// Architect analyzing (advisory via GPT - no sandbox parameter, always read-only)
+mcp__deliberation__ask-gpt({
   prompt: "Analyze tradeoffs of Redis vs in-memory caching",
-  sandbox: "read-only"
+  expert: "architect"
 })
 
 // Architect implementing (implementation via Gemini)
@@ -169,8 +171,8 @@ mcp__deliberation-openrouter__openrouter({
   // no sandbox parameter - OpenRouter is always advisory
 })
 
-// Security Analyst hardening (implementation via Codex - not OpenRouter)
-mcp__deliberation-codex__codex({
+// Security Analyst hardening (implementation via Gemini - the only writer)
+mcp__deliberation-gemini__gemini({
   prompt: "Fix the SQL injection vulnerability in user.ts",
   sandbox: "workspace-write"
 })

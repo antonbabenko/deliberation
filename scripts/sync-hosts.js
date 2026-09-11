@@ -64,7 +64,7 @@ const CLAUDE_ONLY_TOKENS = [
   /\$\{CLAUDE_PLUGIN_ROOT\}/, // Claude plugin env var
   /\.claude\//, // Claude config/cache paths
   /\/deliberation:/, // Claude slash-command namespace (/deliberation:ask-gpt, ...)
-  /mcp__deliberation/, // Claude MCP tool ids (mcp__deliberation__ask-all, mcp__deliberation-codex__codex, ...)
+  /mcp__deliberation/, // Claude MCP tool ids (mcp__deliberation__ask-all, mcp__deliberation-gemini__gemini, ...)
   /reload-plugins/, // Claude /reload-plugins guidance
   /plugins\/cache\//, // Claude plugin cache globs
 ];
