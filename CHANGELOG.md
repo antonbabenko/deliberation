@@ -1,3 +1,10 @@
+## [3.14.7](https://github.com/antonbabenko/deliberation/compare/v3.14.6...v3.14.7) (2026-09-11)
+
+
+### Bug Fixes
+
+* **commands:** run the command scripts from files, not from the prompt ([#186](https://github.com/antonbabenko/deliberation/issues/186)) ([7af4248](https://github.com/antonbabenko/deliberation/commit/7af4248cec32fd89bf232df6d3aa1fe17c25b548))
+
 ## [3.14.6](https://github.com/antonbabenko/deliberation/compare/v3.14.5...v3.14.6) (2026-09-11)
 
 
@@ -25,11 +32,4 @@
 ### Bug Fixes
 
 * **providers:** stop a broken provider from costing a full consensus round ([#177](https://github.com/antonbabenko/deliberation/issues/177)) ([d851a4f](https://github.com/antonbabenko/deliberation/commit/d851a4ff145e9af5db38b8fda97f554ab0025390))
-
-## [3.14.2](https://github.com/antonbabenko/deliberation/compare/v3.14.1...v3.14.2) (2026-08-28)
-
-
-### Bug Fixes
-
-* **grok:** reject agentic intent stubs and tell the model it has no tools ([#175](https://github.com/antonbabenko/deliberation/issues/175)) ([f983fd2](https://github.com/antonbabenko/deliberation/commit/f983fd29310856d1afd783ff4859222e089a3a10))
 
