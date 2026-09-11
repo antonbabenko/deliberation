@@ -273,7 +273,7 @@ The `/ask-*` commands carry a lighter version of the same rule. The external mod
 
 The loop converges when at least one responding external approves, none reject, zero critical issues remain accepted, and Claude adjudicates APPROVE - so Claude cannot self-approve. It otherwise stops at `consensus.maxRounds` (default 5, configurable) as `unresolved`. The confidence label reflects how fast it settled (round 1 = high, 2-3 = medium, 4-5 = low).
 
-A round only pays for voices that can still answer: a peer that fails 2 rounds running is dropped from the panel (reported once as `droppedProviders`, then never dispatched again), and the whole loop stops at `consensus.maxWallMs` (default 20 min) rather than starting another round. Both apply on every driver. See [TECHNICAL.md](TECHNICAL.md#circuit-breaker).
+A round only pays for voices that can still answer: a peer that fails 2 rounds running is dropped from the panel (reported once as `droppedProviders`, then never dispatched again), and the whole loop stops at `consensus.maxWallMs` (default 30 min) rather than starting another round. Both apply on every driver. See [TECHNICAL.md](TECHNICAL.md#circuit-breaker).
 
 The same engine backs the entry points other hosts use: the `consensus` tool (runs the whole loop server-side in one call with a provider arbiter, or a single synthesis pass with `synthesizeAlways:true`) and `consensus-step` (drive it yourself, one action per call). See [TECHNICAL.md](TECHNICAL.md#consensus-flow-details) for the taxonomy and the engine contract.
 
@@ -288,7 +288,7 @@ Full setup and configuration reference lives in **[SETUP.md](SETUP.md)**. It cov
 - **Expert modes** - advisory (`read-only`) vs implementation (`workspace-write`), chosen automatically from your request
 - **Config file** - location (`~/.config/deliberation/config.json`), the `DELIBERATION_CONFIG` override, and hot-reload
 - **The six config sections** - `providers`, `models`, `routing`, `consensus`, `sessions`, `debug` - with a minimal example
-- **OpenRouter models** - declaring records, `askAll` / `consensus` eligibility, fan-out, `reasoningEffort`, and arbiter selection; `consensus` also configures the round cap (`maxRounds`) and wall-time budget (`maxWallMs`, default 20 min)
+- **OpenRouter models** - declaring records, `askAll` / `consensus` eligibility, fan-out, `reasoningEffort`, and arbiter selection; `consensus` also configures the round cap (`maxRounds`) and wall-time budget (`maxWallMs`, default 30 min)
 - **Timeouts** - `providers.defaults.timeout` raises the per-call ceiling for every provider at once; `providers.<name>.timeout` overrides one, and a pinned model's `models.<id>.timeout` still wins. A rate-limited (HTTP 429) call is retried once, honoring the upstream's `Retry-After`
 - **Debug log** - opt-in latency / token / voting trace
 - **Session persistence** - opt-in on-disk run history (incl. the host-driven `/consensus` loop) and the `session-*` tools; `sessions.captureText` (default off) additionally stores provider response bodies (scrubbed)

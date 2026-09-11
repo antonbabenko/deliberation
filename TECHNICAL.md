@@ -886,13 +886,13 @@ The loop ends `unresolved` once it hits the cap without converging.
 
 ### consensus.maxWallMs
 
-`consensus.maxWallMs` is an optional positive integer (default `1200000`, 20 min) that sets
+`consensus.maxWallMs` is an optional positive integer (default `1800000`, 30 min) that sets
 the global wall-time budget (ms) for the server-side provider-arbiter convergence loop (the
 `consensus` tool). When the budget is spent the loop stops BEFORE starting the next round and
 returns UNRESOLVED with `stopReason: "budget-exhausted"`; it never aborts an in-flight
 provider call. Does not apply to the host-driven `/consensus` (`consensus-step`) path.
 
-- **Default.** `1200000` (20 min). A non-integer or non-positive value is ignored (no budget
+- **Default.** `1800000` (30 min). A non-integer or non-positive value is ignored (no budget
   is applied) without failing the config.
 - **Scope.** Provider-arbiter `consensus` tool only. The host-driven `consensus-step` path
   has no server-side wall clock; the host controls timing there.
@@ -1089,7 +1089,7 @@ that finished, not the one about to start.
 
 ### Wall-clock budget
 
-`consensus.maxWallMs` (default 1 200 000 ms, 20 min) bounds a whole loop. It gates
+`consensus.maxWallMs` (default 1 800 000 ms, 30 min) bounds a whole loop. It gates
 **starting** a round and never interrupts a fan-out already in flight, so a legitimately
 slow answer is always collected in full. On exhaustion the loop stops with
 `stopReason: "budget-exhausted"`. It applies to both drivers; `consensus-step` carries

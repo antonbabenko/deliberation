@@ -50,7 +50,7 @@
     "arbiter": "auto",
     "blindVote": false,
     "maxRounds": 5,
-    "maxWallMs": 1200000
+    "maxWallMs": 1800000
   },
   "sessions": {
     "persist": false,

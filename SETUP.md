@@ -64,7 +64,7 @@ Minimal example:
     }
   },
   "routing": { "maxFanout": 3 },
-  "consensus": { "arbiter": { "model": "claude-arb" }, "blindVote": true, "maxRounds": 5, "maxWallMs": 1200000 },
+  "consensus": { "arbiter": { "model": "claude-arb" }, "blindVote": true, "maxRounds": 5, "maxWallMs": 1800000 },
   "sessions": { "persist": false, "maxRecords": 200, "maxAgeDays": 30 },
   "debug": { "enabled": false }
 }
@@ -171,7 +171,7 @@ a shorthand string (`"auto"` / `"host"` / `"codex"` / `"gemini"` / `"grok"`) or
 anchoring - concrete-arbiter / non-host mode only. `consensus.maxRounds` (integer, default
 `5`, clamped to `50`) caps the multi-round convergence loop used by the `consensus` /
 `consensus-step` tools (a per-call `maxRounds` overrides it). `consensus.maxWallMs` (integer
-ms, default `1200000` = 20 min) sets a global wall-time budget for the server-side
+ms, default `1800000` = 30 min) sets a global wall-time budget for the server-side
 provider-arbiter loop (`consensus` tool only); when spent, the loop stops before the next
 round and returns UNRESOLVED with `stopReason: "budget-exhausted"` - it never aborts an
 in-flight call. Implementation tasks always route to Gemini - GPT, Grok, and OpenRouter are advisory-only.
