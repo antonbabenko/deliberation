@@ -20,10 +20,10 @@ const DEFAULT_ARBITER = "auto";
 // An over-cap config value is clamped to this (with a warning), not dropped.
 const MAX_ROUNDS_CAP = 50;
 // Default wall-clock budget (ms) for the consensus loop. Absent or invalid config
-// values fall back to this constant so the 20-min cap is enforced even for configs
+// values fall back to this constant so the 30-min cap is enforced even for configs
 // that pre-date the feature. A present-but-invalid value degrades to the default
 // WITH a warning (unlike maxRounds which omits when invalid, here we always emit).
-const DEFAULT_CONSENSUS_MAX_WALL_MS = 1200000;
+const DEFAULT_CONSENSUS_MAX_WALL_MS = 1800000;
 // sessions block defaults (opt-in store; default OFF).
 const DEFAULT_SESSIONS_MAX_RECORDS = 200;
 const DEFAULT_SESSIONS_MAX_AGE_DAYS = 30;
@@ -427,7 +427,7 @@ function resolveConsensus(rawConsensus, models) {
   // maxWallMs: optional positive-integer wall-clock budget (ms) for the loop. A
   // present-but-invalid value falls back to DEFAULT_CONSENSUS_MAX_WALL_MS with a
   // warning (unlike maxRounds which is omitted on invalid; here the default always
-  // applies so the documented 20-min cap holds even for pre-feature configs).
+  // applies so the documented 30-min cap holds even for pre-feature configs).
   let maxWallMs = DEFAULT_CONSENSUS_MAX_WALL_MS;
   if (block.maxWallMs !== undefined) {
     if (Number.isInteger(block.maxWallMs) && block.maxWallMs > 0) {
