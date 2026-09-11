@@ -1,3 +1,10 @@
+## [3.14.6](https://github.com/antonbabenko/deliberation/compare/v3.14.5...v3.14.6) (2026-09-11)
+
+
+### Bug Fixes
+
+* **mcp:** drop deliberation-codex - codex-cli ships no MCP server ([#187](https://github.com/antonbabenko/deliberation/issues/187)) ([ec7d32e](https://github.com/antonbabenko/deliberation/commit/ec7d32e3275fd850c716a2947acdbc38ff82d7ec))
+
 ## [3.14.5](https://github.com/antonbabenko/deliberation/compare/v3.14.4...v3.14.5) (2026-09-04)
 
 
@@ -25,11 +32,4 @@
 ### Bug Fixes
 
 * **grok:** reject agentic intent stubs and tell the model it has no tools ([#175](https://github.com/antonbabenko/deliberation/issues/175)) ([f983fd2](https://github.com/antonbabenko/deliberation/commit/f983fd29310856d1afd783ff4859222e089a3a10))
-
-## [3.14.1](https://github.com/antonbabenko/deliberation/compare/v3.14.0...v3.14.1) (2026-08-18)
-
-
-### Bug Fixes
-
-* resolve provider CLI shims so Codex and Gemini spawn on Windows ([#173](https://github.com/antonbabenko/deliberation/issues/173)) ([a3598f0](https://github.com/antonbabenko/deliberation/commit/a3598f0af00e16db9427d5555ebb51c858899475))
 
