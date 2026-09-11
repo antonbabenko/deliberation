@@ -67,7 +67,7 @@ with `DELIBERATION_CONFIG`) and hot-reload without restarting Claude Code.
 /deliberation:setup
 ```
 
-Claude now routes complex tasks to your GPT, Gemini, Grok, and OpenRouter experts (Grok and OpenRouter advise; GPT and Gemini can also implement).
+Claude now routes complex tasks to your GPT, Gemini, Grok, and OpenRouter experts (GPT, Grok, and OpenRouter advise; only Gemini can also implement).
 
 > **Setup is a one-time step.** The MCP servers are registered by the plugin manifest, so they load
 > automatically and stay current across updates.

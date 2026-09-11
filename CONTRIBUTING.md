@@ -108,7 +108,11 @@ check fails if they drift.
 
 ## Adding a New Provider
 
-1. **Check native MCP support** - If the CLI has `mcp-server` like Codex, no wrapper needed
+1. **Check native MCP support** - If the CLI serves MCP on stdio, no wrapper is needed. Verify
+   the subcommand actually exists and errors loudly when it does not: codex-cli forwards an
+   unknown subcommand to its interactive CLI (exit 0, `Error: stdin is not a terminal`), which
+   is why `codex mcp-server` looked alive long after it was removed (issue #185). A CLI that
+   only runs one-shot, like `codex exec`, belongs in a `core` provider instead.
 
 2. **Create MCP wrapper** (if needed):
    ```
@@ -166,7 +170,7 @@ After changes, verify with actual MCP calls:
 
 1. Install the plugin in Claude Code
 2. Run `/deliberation:setup`
-3. Verify MCP tools are available (`mcp__deliberation-codex__codex`)
+3. Verify MCP tools are available (`mcp__deliberation__ask-gpt`, `mcp__deliberation-gemini__gemini`)
 4. Test MCP tool calls via oracle delegation
 5. Verify responses are properly synthesized
 6. Test error cases (timeout, missing CLI)

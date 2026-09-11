@@ -1,6 +1,6 @@
 {
   "name": "deliberation",
-  "description": "Use when you want a delegated second opinion or implementation from GPT (Codex), Gemini, Grok (xAI), or OpenRouter (config-driven, 400+ models) - seven expert subagents (Architect, Plan Reviewer, Scope Analyst, Code Reviewer, Security Analyst, Researcher, Debugger) and bundled ask-gpt/ask-gemini/ask-grok/ask-openrouter/ask-all/consensus commands, advisory (read-only) or implementation (write; Grok and OpenRouter are advisory-only).",
+  "description": "Use when you want a delegated second opinion or implementation from GPT (Codex), Gemini, Grok (xAI), or OpenRouter (config-driven, 400+ models) - seven expert subagents (Architect, Plan Reviewer, Scope Analyst, Code Reviewer, Security Analyst, Researcher, Debugger) and bundled ask-gpt/ask-gemini/ask-grok/ask-openrouter/ask-all/consensus commands, advisory (read-only) or implementation (write; only Gemini can implement - GPT, Grok, and OpenRouter are advisory-only).",
   "version": "3.14.5",
   "author": {
     "name": "Anton Babenko",
@@ -11,11 +11,6 @@
   "license": "MIT",
   "keywords": ["delegation", "mcp", "codex", "gpt", "openai", "gemini", "antigravity", "agy", "google", "grok", "xai", "files", "experts", "subagents", "orchestration"],
   "mcpServers": {
-    "deliberation-codex": {
-      "command": "codex",
-      "args": ["mcp-server"],
-      "type": "stdio"
-    },
     "deliberation-gemini": {
       "command": "node",
       "args": ["${CLAUDE_PLUGIN_ROOT}/server/gemini/index.js"],

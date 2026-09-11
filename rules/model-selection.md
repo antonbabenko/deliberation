@@ -1,19 +1,19 @@
 # Model Selection Guidelines
 
-GPT (Codex), Gemini, Grok (xAI), and OpenRouter experts serve as specialized consultants for complex problems. Grok and OpenRouter are advisory-only.
+GPT (Codex), Gemini, Grok (xAI), and OpenRouter experts serve as specialized consultants for complex problems. GPT, Grok, and OpenRouter are advisory-only; Gemini is the only provider that can implement.
 
 ## Provider Selection
 
 Before delegating, check which MCP tools are available in the current environment:
 
 1. **If multiple are available**:
-   - Use **Gemini** (Gemini 3 via the Antigravity CLI, `agy`) for tasks requiring large context or multimodal analysis. For advisory (`read-only`) dispatches the bridge enforces read-only itself - on macOS the `agy` process runs under a `sandbox-exec` profile that denies workspace writes, plus a prompt guard and post-run git mutation detection (which sets `workspaceMutated: true` if the workspace changed) on every platform. `agy`'s own `--sandbox` restricts only terminal commands, so the bridge does not rely on it. The network is not isolated, and Linux has no OS sandbox in v1 (guard + detection only). Prefer Gemini for analysis/review; route deliberate file-editing to Codex or the direct `gemini` tool with `workspace-write`.
-   - Use **GPT (Codex)** when the user explicitly asks for "GPT" or "Codex".
+   - Use **Gemini** (Gemini 3 via the Antigravity CLI, `agy`) for tasks requiring large context or multimodal analysis. For advisory (`read-only`) dispatches the bridge enforces read-only itself - on macOS the `agy` process runs under a `sandbox-exec` profile that denies workspace writes, plus a prompt guard and post-run git mutation detection (which sets `workspaceMutated: true` if the workspace changed) on every platform. `agy`'s own `--sandbox` restricts only terminal commands, so the bridge does not rely on it. The network is not isolated, and Linux has no OS sandbox in v1 (guard + detection only). Prefer Gemini for analysis/review; route deliberate file-editing to the direct `gemini` tool with `workspace-write` - it is the only implementation path left (GPT lost its one when codex-cli dropped its MCP server).
+   - Use **GPT (Codex)** when the user explicitly asks for "GPT" or "Codex". GPT is reached through `mcp__deliberation__ask-gpt` on the unified server, which spawns `codex exec` - codex-cli ships no MCP server of its own. That makes GPT advisory-only and single-shot here: no `threadId`, no `-reply`, no `workspace-write`, and the model comes from `~/.codex/config.toml`.
    - Use **Grok (xAI)** when the user explicitly asks for "Grok". Grok is advisory-only (it cannot edit files), so never route file-editing / implementation tasks to it. It reads attached files (PDF/code/docs) via `files:[{path|file_id|file_url|dir}]` on the `mcp__deliberation-grok__grok` call. Entries resolve under the top-level `roots: string[]` (first-root-wins for relative paths; absolute paths must lie under one of the roots) or `cwd` when `roots` is omitted. `{dir}` entries expand recursively via a bundled glob walker (`include`/`exclude`/`maxFiles`/`maxBytes`). Uploads are SHA-256 dedup-cached locally so repeated calls with the same content skip the upload step. Full reference: [TECHNICAL.md § Grok files and cleanup](../TECHNICAL.md#grok-files-and-cleanup). **Context parity vs GPT/Gemini:** GPT (Codex) and Gemini (agy) walk the filesystem at `cwd` under `sandbox: "read-only"` - they can glob and read any file in the repo. Grok sees ONLY what is in the `files` array. For any open-ended, repo-wide question routed to Grok (or to a parallel pattern like `/ask-all` / `/consensus`), attach an orientation bundle (2-6 files: project `CLAUDE.md` / `AGENTS.md`, top-level entrypoints, modules the question targets, total <= 48 MB) - or pass a `{dir}` entry with a tight `include` pattern - so Grok answers from real source instead of the textual description alone. Skipping this is the dominant reason Grok loses argument rounds against GPT/Gemini in repo-audit prompts.
    - Use **OpenRouter** when the user explicitly asks for an OpenRouter model record, or when `/ask-all` / `/consensus` fan-out is configured. OpenRouter is **advisory-only** - never route implementation or file-editing tasks to it. Record selection, expert eligibility, and fan-out participation are all declared as named records in the `models` map of `~/.config/deliberation/config.json` (Windows: `%APPDATA%\deliberation\config.json`; override with `DELIBERATION_CONFIG`; hot-reload; see [TECHNICAL.md - OpenRouter bridge](../TECHNICAL.md#openrouter-bridge)). For `/ask-all`, records with `askAll !== false` are included up to `routing.maxFanout` (default 3). For `/consensus`, records with `consensus === true` are included without a fanout cap (warn if >3). `openrouter-default` is the single-shot fallback for bare `/ask-openrouter` calls and is never included in fan-out. Parameter precedence: per-record overrides > `providers.openrouter.defaults` > bridge built-ins.
    - Default to **Gemini** for general reasoning.
    - For **Researcher** (external library/docs research): prefer GPT or Gemini (tool-capable); route to Grok or OpenRouter only when the user names them, since both answer from knowledge and mark claims `[unverified]`.
-2. **If only one is available**: Use the available provider regardless of the task type (but Grok and OpenRouter cannot implement file changes - only advise).
+2. **If only one is available**: Use the available provider regardless of the task type (but GPT, Grok, and OpenRouter cannot implement file changes - only advise).
 3. **If none are available**: Do not delegate; inform the user that they need to run `/deliberation:setup`.
 
 ## Expert Directory
@@ -32,12 +32,12 @@ Before delegating, check which MCP tools are available in the current environmen
 
 Every expert can operate in two modes:
 
-| Mode | Sandbox | Approval | Use When |
-|------|---------|----------|----------|
-| **Advisory** | `read-only` | `on-request` | Analysis, recommendations, reviews |
-| **Implementation** | `workspace-write` | `on-failure` | Making changes, fixing issues |
+| Mode | Sandbox | Approval | Use When | Providers |
+|------|---------|----------|----------|-----------|
+| **Advisory** | `read-only` | `on-request` | Analysis, recommendations, reviews | All |
+| **Implementation** | `workspace-write` | `on-failure` | Making changes, fixing issues | Gemini only |
 
-**Key principle**: The mode is determined by the task, not the expert. An Architect can implement architectural changes. A Security Analyst can fix vulnerabilities.
+**Key principle**: The mode is determined by the task, not the expert. An Architect can implement architectural changes. A Security Analyst can fix vulnerabilities. But only Gemini can carry out either as a write - GPT, Grok, and OpenRouter advise regardless of the expert.
 
 ## Expert Details
 
@@ -152,33 +152,29 @@ Every expert can operate in two modes:
 - Advisory: ranked hypotheses with minimal fix + regression note, or a no-bug-found result with questions
 - Implementation: the minimal fix applied + verification
 
-## Codex Parameters Reference
+## GPT Parameters Reference
 
-### `mcp__deliberation-codex__codex` (Start Session)
+GPT has no dedicated MCP server: codex-cli ships none, so the unified `deliberation`
+server spawns `codex exec` itself. One tool, one shot, advisory only.
+
+### `mcp__deliberation__ask-gpt` (Single-Shot)
 
 | Parameter | Values | Notes |
 |-----------|--------|-------|
 | `prompt` | string | **Required.** The delegation prompt (use 7-section format) |
-| `developer-instructions` | string | Expert prompt injection (from `prompts/*.md`) |
-| `sandbox` | `read-only`, `workspace-write`, `danger-full-access` | Controls file access. Default from `~/.codex/config.toml` |
-| `approval-policy` | `untrusted`, `on-failure`, `on-request`, `never` | Controls shell command approval. Default from config |
-| `model` | e.g. `gpt-5.5` | Override the model for this call only |
-| `config` | key-value object | Override `config.toml` settings per-call |
-| `cwd` | path | Working directory for the task |
-| `base-instructions` | string | Override default system instructions |
-| `compact-prompt` | string | Prompt used when compacting conversation |
-| `profile` | string | Configuration profile from config.toml |
+| `expert` | expert key | Server-side persona injection (`architect`, `code-reviewer`, ...). Alternative to sending the prompt text yourself |
+| `developerInstructions` | string | Expert prompt injection (from `prompts/*.md`). Note the camelCase - this is not the Codex bridge's `developer-instructions` |
+| `cwd` | path | Working directory for the task. GPT walks the filesystem from here under a read-only sandbox |
+| `reasoningEffort` | `low`, `medium`, `high`, `none` | Accepted by the tool; the Codex CLI exposes no per-call knob, so results report `reasoningEffort: null` |
+| `files` | array | Attachments. Codex reads the repo itself, so this is rarely needed |
 
-**Default model:** Codex is registered without a model flag, so the default comes
-from the `model` key in `~/.codex/config.toml` (or a `-c model=<id>` override on
-the MCP registration). The `model` parameter above overrides it for a single call.
+**No `sandbox`, no `model`, no `threadId`.** Every run is `codex exec --sandbox read-only`,
+and the model comes from the `model` key in `~/.codex/config.toml`. There is no `-reply`
+tool: a follow-up is a new call that carries the earlier turns in its prompt.
 
-### `mcp__deliberation-codex__codex-reply` (Continue Session)
-
-| Parameter | Values | Notes |
-|-----------|--------|-------|
-| `threadId` | string | **Required.** Thread ID from previous `codex` call |
-| `prompt` | string | **Required.** Follow-up instruction |
+The seven expert tools (`mcp__deliberation__architect`, `...__code-reviewer`, ...) take the
+same shape but FAN OUT to every provider eligible for that expert, not just GPT. When the
+answer must come from GPT alone, call `ask-gpt` and pass `expert:`.
 
 ## Gemini Parameters Reference
 
@@ -283,4 +279,4 @@ Returns configured model aliases with their `askAll`, `consensus`, and `experts`
 - Trivial decisions
 - Research tasks (use other tools)
 - When user just wants quick info
-- Implementation or file-editing tasks (route to Codex or Gemini, not OpenRouter/Grok)
+- Implementation or file-editing tasks (route to Gemini - GPT, Grok, and OpenRouter are advisory-only)

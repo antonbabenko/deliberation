@@ -1,13 +1,13 @@
 ---
 name: ask-gpt
 description: Get GPT (Codex) second opinion on a question or current work. Single-shot, advisory, no contamination.
-allowed-tools: mcp__deliberation-codex__codex, Read, Bash
+allowed-tools: mcp__deliberation__ask-gpt, Read, Bash
 timeout: 660000
 ---
 
 # Ask GPT
 
-Single-shot delegation to GPT via Codex MCP for an independent second opinion. Fresh thread, no shared context with prior calls. Advisory mode by default (read-only sandbox).
+Single-shot delegation to GPT for an independent second opinion, through the unified `deliberation` MCP server (it spawns `codex exec` itself - codex-cli ships no MCP server of its own). Fresh call, no shared context with prior calls. Advisory: the run is pinned to Codex's read-only sandbox.
 
 ## Input
 
@@ -33,12 +33,11 @@ User question or topic: $ARGUMENTS
    - Relevant code snippets / file paths from current conversation context
    - Any specific constraints user has mentioned this session
 
-4. **Call Codex** - single-shot, advisory:
+4. **Call GPT** - single-shot, advisory:
    ```
-   mcp__deliberation-codex__codex({
+   mcp__deliberation__ask-gpt({
      prompt: "[7-section delegation prompt]",
-     "developer-instructions": "[contents of expert prompt file]",
-     sandbox: "read-only",
+     developerInstructions: "[contents of expert prompt file]",
      cwd: "[current working directory]"
    })
    ```
@@ -51,8 +50,8 @@ User question or topic: $ARGUMENTS
 
 ## Rules
 
-- **Single-shot only** - never reuse a `threadId` from a prior `/ask-gpt` call. Each invocation is independent.
-- **Advisory by default** - use `sandbox: "read-only"` unless user explicitly asks for implementation.
+- **Single-shot only** - the tool carries no `threadId` and GPT has no multi-turn path here. Each invocation is independent; a retry re-sends the full history in the prompt.
+- **Advisory always** - the provider pins `codex exec --sandbox read-only`. GPT cannot edit files through this command; for an implementation delegation use `/ask-gemini` with `sandbox: "workspace-write"`.
 - **No contamination** - do not include prior Gemini opinions in the GPT prompt. Each expert reasons independently.
 - **Print status line** immediately before the MCP dispatch: `Codex working (typical 30-60s)...`
 - **Concurrent prep, single dispatch** - prep here is a single expert-prompt `Glob` followed by one dispatch (a fixed status line, no per-delegate config reads). Keep it that way; do not pad the preamble with extra sequential round-trips. See `rules/deliberation/orchestration.md` Step 5.5.
