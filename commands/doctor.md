@@ -30,70 +30,12 @@ one-line summary. If everything passes, say so in one line - do not pad it.
 ## Step 1: Local checks (ONE Bash call, sandbox DISABLED)
 
 ```bash
-set -u
-
-ok(){ printf '[OK]   %s\n' "$1"; }
-warn(){ printf '[WARN] %s\n' "$1"; }
-fail(){ printf '[FAIL] %s\n' "$1"; }
-
-# --- plugin root + version: env -> marketplace cache (highest semver) -> checkout ---
-resolve_plugin_root() {
-  if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/server/mcp/index.js" ]; then printf '%s' "$CLAUDE_PLUGIN_ROOT"; return 0; fi
-  local c; c=$(find "$HOME/.claude/plugins/cache" -maxdepth 6 -path '*/deliberation/*/server/mcp/index.js' -type f 2>/dev/null | sort -V | tail -1)
-  if [ -n "$c" ]; then printf '%s' "${c%/server/mcp/index.js}"; return 0; fi
-  if [ -f "$PWD/server/mcp/index.js" ] && grep -q '"name": "deliberation"' "$PWD/.claude-plugin/plugin.json" 2>/dev/null; then printf '%s' "$PWD"; return 0; fi
-  return 1
-}
-echo "== deliberation doctor =="
-PR="$(resolve_plugin_root || true)"
-if [ -n "$PR" ]; then
-  VER="$(node -e "process.stdout.write(require('$PR/package.json').version||'?')" 2>/dev/null || echo '?')"
-  ok "plugin found ($PR, v$VER)"
-else
-  fail "plugin root not found"; echo "       fix: reinstall with /plugin, then /deliberation:setup"
-fi
-
-# --- config: env override > canonical XDG ---
-CFG="${DELIBERATION_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/deliberation/config.json}"
-case "$CFG" in /*) ;; *) CFG="$HOME/.config/deliberation/config.json";; esac
-if [ -f "$CFG" ]; then
-  if node -e "JSON.parse(require('fs').readFileSync('$CFG','utf8'))" 2>/dev/null; then
-    ok "config valid ($CFG)"
-    node -e '
-      const c=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
-      const s=c.sessions||{}, d=c.debug||{};
-      console.log((s.persist?"[OK]   ":"[WARN] ")+"sessions.persist: "+(!!s.persist)+(s.persist?"":"  fix: set sessions.persist:true for /analyze Lens B"));
-      console.log((d.enabled?"[OK]   ":"[WARN] ")+"debug.enabled: "+(!!d.enabled)+(d.enabled?"":"  fix: set debug.enabled:true for /analyze Lens A"));
-    ' "$CFG"
-  else
-    fail "config is not valid JSON ($CFG)"; echo "       fix: correct the JSON, or move it aside and run /deliberation:setup"
-  fi
-else
-  warn "no config at $CFG"; echo "       fix: run /deliberation:setup"
-fi
-
-# --- provider CLIs (presence + version only; auth is confirmed by a real /ask-* call) ---
-if command -v codex >/dev/null 2>&1; then ok "codex CLI on PATH ($(codex --version 2>/dev/null | head -1))"; else warn "codex (GPT) not on PATH"; echo "       fix: install the Codex CLI, or ignore if you don't use GPT"; fi
-if command -v agy >/dev/null 2>&1; then ok "agy CLI on PATH (Gemini)"; else warn "agy (Gemini) not on PATH"; echo "       fix: install the Antigravity CLI, or ignore if you don't use Gemini"; fi
-[ -n "${XAI_API_KEY:-}" ] && ok "XAI_API_KEY set (Grok)" || warn "XAI_API_KEY unset - Grok calls return missing-auth"
-[ -n "${OPENROUTER_API_KEY:-}" ] && ok "OPENROUTER_API_KEY set" || warn "OPENROUTER_API_KEY unset - OpenRouter models will error"
-
-# --- sessions dir the SHELL resolves (compared to the server's in step 2) ---
-SD="${DELIBERATION_SESSIONS:-${XDG_CACHE_HOME:-$HOME/.cache}/deliberation/sessions}"
-case "$SD" in /*) ;; *) SD="$HOME/.cache/deliberation/sessions";; esac
-echo "SHELL_SESSIONS_DIR=$SD"
-if [ -d "$SD" ]; then
-  N=$(ls -1 "$SD"/*.json 2>/dev/null | wc -l | tr -d ' ')
-  ok "sessions dir exists ($SD, $N record(s))"
-else
-  warn "sessions dir not found ($SD) - nothing persisted there yet"
-fi
-
-# --- stale user-scope MCP registrations (the inline plugin manifest is the SSOT) ---
-LEFT="$(node -e 'try{const fs=require("fs"),h=require("os").homedir();const j=JSON.parse(fs.readFileSync(h+"/.claude.json","utf8"));const m=j.mcpServers||{};process.stdout.write(Object.keys(m).filter(k=>k==="deliberation"||k.indexOf("deliberation-")===0).join(" "))}catch(e){}')"
-[ -n "$LEFT" ] && { warn "user-scope MCP entries shadow the plugin manifest: $LEFT"; echo "       fix: /deliberation:uninstall (then they load from the plugin)"; } || ok "no shadowing user-scope MCP registrations"
-echo "== end local checks =="
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/commands/doctor.sh"
 ```
+
+If your host does not set `CLAUDE_PLUGIN_ROOT` (see [docs/hosts/](../docs/hosts/)),
+pass the plugin directory instead: `bash <plugin-root>/scripts/commands/doctor.sh`.
+
 
 ## Step 2: Runtime path drift (ONE `analyze` call)
 
