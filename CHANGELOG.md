@@ -1,3 +1,10 @@
+## [3.14.9](https://github.com/antonbabenko/deliberation/compare/v3.14.8...v3.14.9) (2026-09-14)
+
+
+### Bug Fixes
+
+* make the plugin work under a host tool-call cap (Claude Code on the web) ([#192](https://github.com/antonbabenko/deliberation/issues/192)) ([bea2af5](https://github.com/antonbabenko/deliberation/commit/bea2af5c675756344993562fa3983e75aaee109d))
+
 ## [3.14.8](https://github.com/antonbabenko/deliberation/compare/v3.14.7...v3.14.8) (2026-09-11)
 
 
@@ -25,11 +32,4 @@
 ### Bug Fixes
 
 * **mcp:** report the real version in serverInfo, not 0.1.0 ([#183](https://github.com/antonbabenko/deliberation/issues/183)) ([fa61d42](https://github.com/antonbabenko/deliberation/commit/fa61d429be4ce91069bce95538c98c00e6eb6ba6))
-
-## [3.14.4](https://github.com/antonbabenko/deliberation/compare/v3.14.3...v3.14.4) (2026-09-03)
-
-
-### Bug Fixes
-
-* **gemini:** accept terse answers and read agy --help from stderr ([#180](https://github.com/antonbabenko/deliberation/issues/180)) ([#181](https://github.com/antonbabenko/deliberation/issues/181)) ([ad4a3af](https://github.com/antonbabenko/deliberation/commit/ad4a3af97c678a0a291e12a46f9c7d87357970f8))
 
