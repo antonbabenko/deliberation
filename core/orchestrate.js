@@ -7,6 +7,7 @@
 const { parseReview } = require("./provider.js");
 const loop = require("./consensus-loop.js");
 const { NULL_LOGGER } = require("./debug-log.js");
+const { fitToHostBudget, remainingHostBudgetMs, HOST_BUDGET_MIN_MS } = require("./host-budget.js");
 
 /** @typedef {import("./debug-log.js").Logger} Logger */
 
@@ -99,9 +100,10 @@ function withOrientation(provider, req, orientationFiles) {
  * @param {string} tool
  * @param {(import("./result-cache.js").ResultCache|undefined)} cache
  * @param {(import("./types.js").FileRef[]|undefined)} [orientationFiles]  bundle auto-attached to file-blind providers
+ * @param {number} [startedAt]  the tool call's entry time - the clock the host's cap (MCP_TOOL_TIMEOUT) runs on across sequential legs; defaults to this call's own
  * @returns {Promise<DelegationResult>}
  */
-async function callProvider(provider, req, logger, tool, cache, orientationFiles) {
+async function callProvider(provider, req, logger, tool, cache, orientationFiles, startedAt) {
   // Auto-attach orientation to file-blind providers BEFORE the cache key is computed,
   // so the now-file-bearing request correctly bypasses the cwd-agnostic dedup cache
   // (keyFor excludes cwd; caching an oriented result would risk a cross-repo false hit).
@@ -114,10 +116,15 @@ async function callProvider(provider, req, logger, tool, cache, orientationFiles
     if (hit) { logProviderResult(logger, tool, hit); return hit; }
   }
   const started = Date.now();
+  // The clock the host's cap runs on: the TOOL call's entry when the caller passes it
+  // (a multi-round consensus loop), else this call's own.
+  const capStartedAt = typeof startedAt === "number" ? startedAt : started;
   /** @type {DelegationResult} */
   let r;
-  // One ask attempt, cloning files so a provider cannot mutate the caller's refs.
-  const askOnce = () => provider.ask({ ...req, files: req.files ? req.files.map((f) => ({ ...f })) : undefined });
+  // One ask attempt, cloning files so a provider cannot mutate the caller's refs. Each
+  // attempt is stamped with what is LEFT of the host's cap (MCP_TOOL_TIMEOUT): a retry
+  // after a 20s failure must not be handed the whole cap again.
+  const askOnce = () => provider.ask(fitToHostBudget({ ...req, files: req.files ? req.files.map((f) => ({ ...f })) : undefined }, capStartedAt));
   try {
     r = await askOnce();
     // Consume `retryable` for the cases that actually self-heal, each exactly ONCE:
@@ -135,9 +142,15 @@ async function callProvider(provider, req, logger, tool, cache, orientationFiles
       // rate-limit / stub - and the debug log is exactly how provider health is
       // diagnosed. A retried call therefore emits two provider_result rows.
       logProviderResult(logger, tool, r);
-      if (r.errorKind === "rate-limit") await sleep(retryDelayMs(r));
-      else if (r.errorKind === "network") await sleep(NETWORK_RETRY_DELAY_MS);
-      r = await askOnce();
+      const delay = r.errorKind === "rate-limit" ? retryDelayMs(r) : r.errorKind === "network" ? NETWORK_RETRY_DELAY_MS : 0;
+      // Under a host cap, a retry with no budget left AFTER its backoff is a guaranteed
+      // second failure the host would kill first - and a 30s Retry-After at 40s into a
+      // 60s cap must not even sleep. Keep the honest first result instead.
+      const remaining = remainingHostBudgetMs(capStartedAt);
+      if (remaining === null || remaining - delay > HOST_BUDGET_MIN_MS) {
+        if (delay) await sleep(delay);
+        r = await askOnce();
+      }
     }
   } catch (e) {
     // A provider that REJECTS (rather than returning an error envelope) must not
@@ -161,14 +174,14 @@ async function callProvider(provider, req, logger, tool, cache, orientationFiles
  * MCP-notification sink - reports per-provider progress during the one call.
  * @param {Provider[]} providers
  * @param {DelegationRequest} req
- * @param {{logger?:Logger, tool?:string, cache?:import("./result-cache.js").ResultCache, orientationFiles?:import("./types.js").FileRef[]}} [opts]
+ * @param {{logger?:Logger, tool?:string, cache?:import("./result-cache.js").ResultCache, orientationFiles?:import("./types.js").FileRef[], startedAt?:number}} [opts]
  * @returns {Promise<DelegationResult[]>}
  */
 async function askAll(providers, req, opts = {}) {
   const logger = opts.logger || NULL_LOGGER;
   const tool = opts.tool || "ask-all";
   const settled = await Promise.allSettled(
-    providers.map((/** @type {Provider} */ p) => callProvider(p, req, logger, tool, opts.cache, opts.orientationFiles))
+    providers.map((/** @type {Provider} */ p) => callProvider(p, req, logger, tool, opts.cache, opts.orientationFiles, opts.startedAt))
   );
   return settled.map((s, i) =>
     s.status === "fulfilled"
@@ -189,11 +202,11 @@ async function askAll(providers, req, opts = {}) {
  * Single-provider call (advisory one-shot). Shared entrypoint for ask-* tools.
  * @param {Provider} provider
  * @param {DelegationRequest} req
- * @param {{logger?:Logger, tool?:string, cache?:import("./result-cache.js").ResultCache, orientationFiles?:import("./types.js").FileRef[]}} [opts]
+ * @param {{logger?:Logger, tool?:string, cache?:import("./result-cache.js").ResultCache, orientationFiles?:import("./types.js").FileRef[], startedAt?:number}} [opts]
  * @returns {Promise<DelegationResult>}
  */
 async function askOne(provider, req, opts = {}) {
-  return callProvider(provider, req, opts.logger || NULL_LOGGER, opts.tool || "ask-one", opts.cache, opts.orientationFiles);
+  return callProvider(provider, req, opts.logger || NULL_LOGGER, opts.tool || "ask-one", opts.cache, opts.orientationFiles, opts.startedAt);
 }
 
 // Per-opinion cap for the arbiter prompt. The arbiter inlines every peer opinion
@@ -249,11 +262,13 @@ function buildArbiterPrompt(question, opinions) {
  * the run. `blindVerdict` is `null` when `blindVote` is off or no arbiter exists.
  * @param {Provider[]} providers
  * @param {DelegationRequest} req
- * @param {{arbiter?:Provider, arbiterInstructions?:string, blindVote?:boolean, logger?:Logger, orientationFiles?:import("./types.js").FileRef[]}} [opts]
+ * @param {{arbiter?:Provider, arbiterInstructions?:string, blindVote?:boolean, logger?:Logger, orientationFiles?:import("./types.js").FileRef[], startedAt?:number}} [opts]
  * @returns {Promise<{opinions:DelegationResult[], blindVerdict:(DelegationResult|null), verdict:(DelegationResult|null), error?:string}>}
  */
 async function consensus(providers, req, opts = {}) {
   const arbiter = opts.arbiter || providers[0];
+  // The host-cap clock: the tool call's entry when the server passes it, else now.
+  const startedAt = typeof opts.startedAt === "number" ? opts.startedAt : Date.now();
   // Blind pre-vote runs concurrently with the peer fan-out. It uses the ORIGINAL
   // prompt (no opinions) + the arbiter persona. `.then(v, () => null)` isolates a
   // blind-pass failure so it can never reject the batch.
@@ -271,7 +286,7 @@ async function consensus(providers, req, opts = {}) {
         .then((v) => v, () => null)
     : Promise.resolve(/** @type {DelegationResult|null} */ (null));
 
-  const [opinions, blindVerdict] = await Promise.all([askAll(providers, req, { logger: opts.logger, tool: "consensus", orientationFiles: opts.orientationFiles }), blindPromise]);
+  const [opinions, blindVerdict] = await Promise.all([askAll(providers, req, { logger: opts.logger, tool: "consensus", orientationFiles: opts.orientationFiles, startedAt }), blindPromise]);
   // The union guarantees `text` on the success branch, so `!o.isError` alone
   // narrows each survivor to DelegationSuccess - no `&& o.text` guard needed.
   const ok = /** @type {DelegationSuccess[]} */ (opinions.filter((o) => !o.isError));
@@ -282,12 +297,13 @@ async function consensus(providers, req, opts = {}) {
     // point every peer opinion is inlined into buildArbiterPrompt, so a file-blind
     // arbiter is reasoning over peer text, not the cold repo - orientation files
     // would be redundant context. Keep this asymmetry intentional.
-    const verdict = await arbiter.ask({
+    // A second sequential leg: fitted into what the fan-out left of the host's cap.
+    const verdict = await arbiter.ask(fitToHostBudget({
       ...req,
       files: req.files ? req.files.map((f) => ({ ...f })) : undefined,
       prompt: buildArbiterPrompt(req.prompt, ok),
       developerInstructions: opts.arbiterInstructions || req.developerInstructions,
-    });
+    }, startedAt));
     return { opinions, blindVerdict, verdict };
   } catch {
     return { opinions, blindVerdict, verdict: null, error: "arbiter-failed" };
@@ -352,7 +368,7 @@ function okText(/** @type {any} */ res) {
  * revision keeps the current plan.
  * @param {Provider[]} providers  peer panel
  * @param {DelegationRequest} req  `prompt` is the initial plan
- * @param {{arbiter?:Provider, maxRounds?:number, maxWallMs?:number, now?:()=>number, logger?:Logger, orientationFiles?:import("./types.js").FileRef[]}} [opts]
+ * @param {{arbiter?:Provider, maxRounds?:number, maxWallMs?:number, now?:()=>number, logger?:Logger, orientationFiles?:import("./types.js").FileRef[], startedAt?:number}} [opts]
  * @returns {Promise<{converged:boolean, verdict:(string|null), confidence:string, finalReport?:string, rounds:any[], opinions:any[], error?:string, stopReason?:string}>}
  */
 async function runToConvergence(providers, req, opts = {}) {
@@ -361,6 +377,9 @@ async function runToConvergence(providers, req, opts = {}) {
   const now = typeof opts.now === "function" ? opts.now : Date.now;
   const maxWallMs = typeof opts.maxWallMs === "number" && opts.maxWallMs > 0 ? opts.maxWallMs : null;
   const startedAt = now();
+  // The host-cap clock is always the real one (opts.now is a test seam for maxWallMs):
+  // the tool call's entry when the server passes it, else now.
+  const capStartedAt = typeof opts.startedAt === "number" ? opts.startedAt : Date.now();
   /** @type {(string|null)} */
   let stopReason = null;
   let activeProviders = providers;
@@ -383,6 +402,10 @@ async function runToConvergence(providers, req, opts = {}) {
       // Budget gates STARTING a round; it never interrupts the in-flight fan-out
       // below, so a legitimately slow peer answer is always collected in full.
       if (maxWallMs !== null && now() - startedAt >= maxWallMs) { stopReason = "budget-exhausted"; break; }
+      // Same gate for the HOST's cap: once it is spent, every further leg would only get
+      // the 1s floor - a guaranteed failure that still costs the margin. Stop instead.
+      const hostLeft = remainingHostBudgetMs(capStartedAt);
+      if (hostLeft !== null && hostLeft <= HOST_BUDGET_MIN_MS) { stopReason = "budget-exhausted"; break; }
       // Distinguish "the breaker emptied the panel" from "there was never a panel" -
       // the same distinction the host-driven driver makes, so the two agree.
       if (!activeProviders.length) { stopReason = providers.length ? "all-providers-circuit-broken" : "no-providers"; break; }
@@ -390,8 +413,10 @@ async function runToConvergence(providers, req, opts = {}) {
       // Blind pass runs concurrently with the peer fan-out; isolate its failure.
       const roundNo = state.round;
       const [blindRes, peerResults] = await Promise.all([
-        Promise.resolve().then(() => arbiter.ask(withOrientation(arbiter, { ...req, prompt: blindPrompt }, opts.orientationFiles))).then((r) => r, () => null),
-        askAll(activeProviders, { ...req, prompt: peerPrompt }, { logger, tool: "consensus", orientationFiles: opts.orientationFiles }),
+        Promise.resolve().then(() => arbiter.ask(fitToHostBudget(withOrientation(arbiter, { ...req, prompt: blindPrompt }, opts.orientationFiles), capStartedAt))).then((r) => r, () => null),
+        // Later rounds run on the SAME cap clock as round one - a fresh clock per fan-out
+        // would hand round two the whole cap again.
+        askAll(activeProviders, { ...req, prompt: peerPrompt }, { logger, tool: "consensus", orientationFiles: opts.orientationFiles, startedAt: capStartedAt }),
       ]);
       state = loop.recordBlindVerdict(state, okText(blindRes) || "(blind pass unavailable)");
 
@@ -426,8 +451,9 @@ async function runToConvergence(providers, req, opts = {}) {
       // try/catch scope of the serial version and the blind-pass wrapper above. The
       // adjudication/revision passes are intentionally NOT oriented (unlike the blind
       // pass): the arbiter reasons over inlined peer text, not the cold repo.
+      // Every arbiter leg after the fan-out is fitted into what is left of the host's cap.
       const askIsolated = (/** @type {string} */ prompt) =>
-        Promise.resolve().then(() => arbiter.ask({ ...req, prompt })).then((r) => r, () => null);
+        Promise.resolve().then(() => arbiter.ask(fitToHostBudget({ ...req, prompt }, capStartedAt))).then((r) => r, () => null);
       /** @param {(DelegationResult|null)} res @returns {"APPROVE"|"REQUEST_CHANGES"|"REJECT"} */
       const verdictFrom = (res) => {
         const t = okText(res);

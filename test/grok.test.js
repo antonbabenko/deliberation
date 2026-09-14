@@ -765,3 +765,23 @@ test("GS15: the no-stream fallback cannot recurse", async () => {
   await assert.rejects(grok.runGrok({ turns: [], apiKey: "k", fetchImpl }));
   assert.equal(calls, 1, "a non-streaming reply never re-enters the fallback");
 });
+
+// --- Host budget: the bridge must time out BEFORE a capped host kills the call ----------
+test("GB-host-1: under MCP_TOOL_TIMEOUT the ceiling is clamped and the timeout error names the cap", async () => {
+  const saved = process.env.MCP_TOOL_TIMEOUT;
+  process.env.MCP_TOOL_TIMEOUT = "6000"; // clamps to the 1000 ms floor - keeps the test fast
+  try {
+    // A fetch that never answers until the bridge's own controller aborts it.
+    const hanging = (_url, opts) => new Promise((_resolve, reject) => {
+      opts.signal.addEventListener("abort", () => { const e = new Error("aborted"); e.name = "AbortError"; reject(e); });
+    });
+    const started = Date.now();
+    await assert.rejects(
+      grok.runGrok({ turns: [{ role: "user", text: "x", fileRefs: [] }], apiKey: "k", timeoutMs: 180000, fetchImpl: hanging }),
+      (e) => e.code === "timeout" && /MCP_TOOL_TIMEOUT=6000/.test(e.message) && /Claude Code on the web/.test(e.message),
+    );
+    assert.ok(Date.now() - started < 5000, "fired at the clamped ceiling, not the 180s request");
+  } finally {
+    if (saved === undefined) delete process.env.MCP_TOOL_TIMEOUT; else process.env.MCP_TOOL_TIMEOUT = saved;
+  }
+});

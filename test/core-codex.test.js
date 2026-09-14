@@ -75,7 +75,8 @@ const { makeCodexProvider: mkCx, CODEX_DEFAULT_TIMEOUT_MS } = require("../core/p
 test("CX-timeout-1: ask passes the default timeout to run when the request carries none", async () => {
   let seen;
   const run = async (/** @type {any} */ a) => { seen = a.timeoutMs; return { code: 0, stdout: "ok", stderr: "" }; };
-  await mkCx({ run }).ask({ prompt: "x" });
+  // env:{} - the host budget (MCP_TOOL_TIMEOUT) is a separate concern, tested in core-host-budget.
+  await mkCx({ run, env: {} }).ask({ prompt: "x" });
   assert.equal(seen, CODEX_DEFAULT_TIMEOUT_MS);
   assert.equal(CODEX_DEFAULT_TIMEOUT_MS, 600000);
 });
@@ -90,7 +91,7 @@ test("CX-timeout-2: an explicit req.timeoutMs overrides the default", async () =
 test("CX-timeout-3: a construction-time opts.timeoutMs is used when the request carries none, and req still wins", async () => {
   let seen;
   const run = async (/** @type {any} */ a) => { seen = a.timeoutMs; return { code: 0, stdout: "ok", stderr: "" }; };
-  const p = mkCx({ run, timeoutMs: 77000 });
+  const p = mkCx({ run, timeoutMs: 77000, env: {} });
   await p.ask({ prompt: "x" });
   assert.equal(seen, 77000);
   await p.ask({ prompt: "x", timeoutMs: 5000 });
@@ -206,4 +207,62 @@ test("CX-notfound-3: the timeout flag still wins over a spawn failure flag", asy
   const r = /** @type {any} */ (await mkCx({ run }).ask({ prompt: "x" }));
   assert.equal(r.errorKind, "timeout");
   assert.equal(r.retryable, true);
+});
+
+// --- Host budget (MCP_TOOL_TIMEOUT), credential passthrough, health -------------------------
+const { codexEnv, codexHasAuth, codexHealth } = require("../core/providers/codex.js");
+
+test("CX-host-1: the default ceiling is clamped under MCP_TOOL_TIMEOUT, and a timeout names the cap", async () => {
+  let seen;
+  const run = async (/** @type {any} */ a) => { seen = a.timeoutMs; return { code: 137, stdout: "", stderr: "", timedOut: true }; };
+  const r = await mkCx({ run, env: { MCP_TOOL_TIMEOUT: "60000" } }).ask({ prompt: "x" });
+  assert.equal(seen, 55000, "600000 default clamped to budget minus margin");
+  assert.equal(r.isError, true);
+  assert.equal(r.errorKind, "timeout");
+  assert.match(String(/** @type {any} */ (r).message), /MCP_TOOL_TIMEOUT=60000/);
+  assert.match(String(/** @type {any} */ (r).message), /Claude Code on the web/);
+});
+
+test("CX-host-1b: a remaining budget from an earlier leg lowers the ceiling; a shorter configured default still wins", async () => {
+  let seen;
+  const run = async (/** @type {any} */ a) => { seen = a.timeoutMs; return { code: 0, stdout: "ok", stderr: "" }; };
+  await mkCx({ run, env: { MCP_TOOL_TIMEOUT: "60000" } }).ask({ prompt: "x", hostBudgetRemainingMs: 20000 });
+  assert.equal(seen, 20000, "600000 default -> what is left of the cap");
+  await mkCx({ run, timeoutMs: 2000, env: { MCP_TOOL_TIMEOUT: "60000" } }).ask({ prompt: "x", hostBudgetRemainingMs: 20000 });
+  assert.equal(seen, 2000, "a construction-time 2s ceiling is not raised to the remaining 20s");
+});
+
+test("CX-host-2: a ceiling already under the cap is not clamped and a timeout carries no hint", async () => {
+  let seen;
+  const run = async (/** @type {any} */ a) => { seen = a.timeoutMs; return { code: 137, stdout: "", stderr: "", timedOut: true }; };
+  const r = await mkCx({ run, env: { MCP_TOOL_TIMEOUT: "60000" } }).ask({ prompt: "x", timeoutMs: 20000 });
+  assert.equal(seen, 20000);
+  assert.doesNotMatch(String(/** @type {any} */ (r).message), /MCP_TOOL_TIMEOUT/);
+});
+
+test("CX-env-1: OPENAI_API_KEY is forwarded as CODEX_API_KEY (the name codex reads), never overriding an explicit one", () => {
+  assert.equal(codexEnv({ OPENAI_API_KEY: "sk-a" }).CODEX_API_KEY, "sk-a");
+  assert.equal(codexEnv({ OPENAI_API_KEY: "sk-a", CODEX_API_KEY: "ck-b" }).CODEX_API_KEY, "ck-b");
+  const untouched = { PATH: "/x" };
+  assert.equal(codexEnv(untouched), untouched, "no key -> the same env object, nothing invented");
+});
+
+test("CX-auth-1: codexHasAuth accepts either env key or a login auth.json under CODEX_HOME / ~/.codex", () => {
+  assert.equal(codexHasAuth({ env: { OPENAI_API_KEY: "k" }, exists: () => false }), true);
+  assert.equal(codexHasAuth({ env: { CODEX_API_KEY: "k" }, exists: () => false }), true);
+  assert.equal(codexHasAuth({ env: {}, home: "/h", exists: (p) => p.endsWith("/h/.codex/auth.json") }), true);
+  assert.equal(codexHasAuth({ env: { CODEX_HOME: "/ch" }, exists: (p) => p === "/ch/auth.json" }), true);
+  assert.equal(codexHasAuth({ env: {}, home: "/h", exists: () => false }), false);
+});
+
+test("CX-health-1: health is stat-only and names the missing piece (CLI, then credential)", async () => {
+  const onPath = (/** @type {string} */ p) => p === "/bin/codex";
+  assert.deepEqual(codexHealth({ platform: "linux", env: { PATH: "/bin", OPENAI_API_KEY: "k" }, exists: onPath }), { ok: true });
+  const noCli = codexHealth({ platform: "linux", env: { PATH: "/nowhere", OPENAI_API_KEY: "k" }, exists: () => false });
+  assert.equal(noCli.ok, false); assert.match(String(noCli.reason), /codex CLI not found/);
+  const noAuth = codexHealth({ platform: "linux", env: { PATH: "/bin" }, home: "/h", exists: onPath });
+  assert.equal(noAuth.ok, false); assert.match(String(noAuth.reason), /no credential/);
+  // The provider's health() reads the injected env, so a panel probe never spawns anything.
+  const h = await mkCx({ run: async () => ({ code: 0, stdout: "", stderr: "" }), env: { PATH: "/nowhere" } }).health();
+  assert.equal(h.ok, false);
 });

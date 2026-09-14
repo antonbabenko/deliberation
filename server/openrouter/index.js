@@ -15,6 +15,7 @@ const DEFAULT_TIMEOUT_MS = 180_000;
 const MAX_MS = 600_000;
 
 const { parseRetryAfterMs, fetchFailureError } = require("../../core/provider.js");
+const { clampToHostBudget, annotateTimeout } = require("../../core/host-budget.js");
 
 function isNonEmptyString(v) { return typeof v === "string" && v.trim().length > 0; }
 function truncate(s, n) { s = String(s == null ? "" : s); return s.length > n ? s.slice(0, n) + "..." : s; }
@@ -62,7 +63,7 @@ function parseCompletion(data) {
 }
 
 // One chat/completions call. Returns { text }. Errors carry .status and/or .code.
-async function callOpenRouter({ apiBase, apiKey, model, messages, reasoningEffort, temperature, timeoutMs, fetchImpl }) {
+async function callOpenRouter({ apiBase, apiKey, model, messages, reasoningEffort, temperature, timeoutMs, fetchImpl, hostBudgetRemainingMs }) {
   const f = fetchImpl || globalThis.fetch;
   if (typeof f !== "function") { const e = new Error("global fetch unavailable; Node 18+ required"); e.code = "network"; throw e; }
   const base = (apiBase || "https://openrouter.ai/api/v1").replace(/\/+$/, "");
@@ -78,7 +79,9 @@ async function callOpenRouter({ apiBase, apiKey, model, messages, reasoningEffor
   };
   if (isNonEmptyString(apiKey)) headers["Authorization"] = `Bearer ${apiKey}`;
 
-  const t = (typeof timeoutMs === "number" && timeoutMs > 0) ? timeoutMs : DEFAULT_TIMEOUT_MS;
+  // Clamped under the host's per-call cap (MCP_TOOL_TIMEOUT): time out here first, naming the cap.
+  const hostClamp = clampToHostBudget((typeof timeoutMs === "number" && timeoutMs > 0) ? timeoutMs : DEFAULT_TIMEOUT_MS, process.env, hostBudgetRemainingMs);
+  const t = /** @type {number} */ (hostClamp.timeoutMs);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), t);
   // The timer stays armed until the BODY is read, not just the headers. Clearing it at
@@ -99,7 +102,7 @@ async function callOpenRouter({ apiBase, apiKey, model, messages, reasoningEffor
       bodyText = "";
     }
   } catch (err) {
-    throw fetchFailureError("OpenRouter", err, t);
+    throw annotateTimeout(fetchFailureError("OpenRouter", err, t), hostClamp);
   } finally { clearTimeout(timer); }
 
   if (!res.ok) {

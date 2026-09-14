@@ -74,7 +74,9 @@ User question or topic: $ARGUMENTS
    ```
    mcp__deliberation__panel({ expert: "[chosen expert]", cwd: "[cwd]" })
    ```
-   It returns `{ providers: ["codex","gemini","grok","openrouter:<alias>", ...], omitted: [...] }`.
+   It returns `{ providers: ["codex","gemini","grok","openrouter:<alias>", ...], omitted: [...], unavailable: [{name, reason}] }`.
+   `unavailable` lists built-ins that cannot answer right now (CLI not on PATH, no credential) -
+   mention each once with its reason and do not call `ask-one` for it.
    `omitted` lists aliases dropped for the fanout cap - report it as the cap note in the
    synthesis, never silent truncation. Dispatch EXACTLY `providers` (no more, no fewer): the
    server owns selection, so a disabled/over-cap alias can never appear here.

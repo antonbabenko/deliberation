@@ -232,3 +232,17 @@ test("M9: initialize advertises version.json's version, not a stale literal", as
   // here means a reformat or a missed sync fails `npm run check` locally, not only in CI.
   assert.equal(res.result.serverInfo.version, require("../version.json").version);
 });
+
+test("M-unavail-1: a named expert tool reports the built-ins it skipped, so an empty results[] is never unexplained", async () => {
+  const dead = { ...fakeProvider("gemini"), async health() { return { ok: false, reason: "agy not on PATH" }; } };
+  const srv = buildServer({ providers: [fakeProvider("codex"), dead], getConfig: () => config });
+  const res = await srv.handle({ jsonrpc: "2.0", id: 40, method: "tools/call", params: { name: "code-reviewer", arguments: { prompt: "x" } } });
+  const body = JSON.parse(res.result.content[0].text);
+  assert.deepEqual(body.results.map((r) => r.provider), ["codex"]);
+  assert.deepEqual(body.unavailable, [{ name: "gemini", reason: "agy not on PATH" }]);
+  const panel = JSON.parse((await srv.handle({ jsonrpc: "2.0", id: 41, method: "tools/call", params: { name: "panel", arguments: {} } })).result.content[0].text);
+  assert.deepEqual(panel.providers, ["codex"]);
+  assert.deepEqual(panel.unavailable, [{ name: "gemini", reason: "agy not on PATH" }]);
+  const one = JSON.parse((await srv.handle({ jsonrpc: "2.0", id: 42, method: "tools/call", params: { name: "ask-one", arguments: { provider: "gemini", prompt: "x" } } })).result.content[0].text);
+  assert.match(one.error, /unavailable: agy not on PATH/);
+});

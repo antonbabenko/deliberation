@@ -19,6 +19,7 @@
  * @property {("low"|"medium"|"high"|"none")} [reasoningEffort]
  * @property {number}  [temperature]
  * @property {number}  [timeoutMs]
+ * @property {number}  [hostBudgetRemainingMs]  what is left of the host's per-tool-call cap (MCP_TOOL_TIMEOUT) for this leg; stamped by core/host-budget.js fitToHostBudget, read by the adapters' clamp
  * @property {string}  [threadId]
  * @property {string}  [expert]
  * @property {string}  [model]

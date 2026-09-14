@@ -1,7 +1,11 @@
 "use strict";
 /** @typedef {import("../types.js").Provider} Provider */
 const { spawn } = require("node:child_process");
-const { resolveCommand, shimMessage } = require("../resolve-bin.js");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const { resolveCommand, commandOnPath, shimMessage } = require("../resolve-bin.js");
+const { clampToHostBudget, annotateTimeout } = require("../host-budget.js");
 
 // npm ships @openai/codex with `bin: {"codex": "bin/codex.js"}` and zero dependencies, so on
 // Windows - where npm installs a `codex.cmd` shim Node cannot spawn (issue #170) - the real JS
@@ -83,6 +87,63 @@ function buildSpawnPlan(o = {}) {
 }
 
 /**
+ * The environment a `codex exec` child gets.
+ *
+ * codex-cli reads its API key from `CODEX_API_KEY` (or `~/.codex/auth.json` after
+ * `codex login`), NOT from `OPENAI_API_KEY` - a session that exports only the latter gets
+ * `401 Unauthorized: Missing bearer` (Claude Code on the web does exactly that). Forward it
+ * under the name codex reads, and only when codex has not been given one already; an
+ * explicit `CODEX_API_KEY` or a ChatGPT login are left alone. Pure and injectable.
+ *
+ * @param {Record<string, (string|undefined)>} [env]
+ * @returns {Record<string, (string|undefined)>}
+ */
+function codexEnv(env = process.env) {
+  if (!env.CODEX_API_KEY && env.OPENAI_API_KEY) return { ...env, CODEX_API_KEY: env.OPENAI_API_KEY };
+  return env;
+}
+
+/**
+ * Does codex have SOME credential to send? Stat-only: the env vars, or an `auth.json` under
+ * `$CODEX_HOME` / `~/.codex` (what `codex login` writes). Never throws.
+ * @param {Object} [o]
+ * @param {Record<string, (string|undefined)>} [o.env]
+ * @param {(p: string) => boolean} [o.exists]
+ * @param {string} [o.home]
+ * @returns {boolean}
+ */
+function codexHasAuth(o = {}) {
+  const env = o.env || process.env;
+  if (env.CODEX_API_KEY || env.OPENAI_API_KEY) return true;
+  const exists = o.exists || fs.existsSync;
+  const home = env.CODEX_HOME || path.join(o.home || os.homedir(), ".codex");
+  try { return exists(path.join(home, "auth.json")); } catch { return false; }
+}
+
+/**
+ * Stat-only health probe: the CLI must be spawnable and a credential must exist. Both are
+ * cheap enough to run on every `panel` call, and neither spawns or touches the network.
+ * @param {Object} [o]
+ * @param {Record<string, (string|undefined)>} [o.env]
+ * @param {(p: string) => boolean} [o.exists]
+ * @param {string} [o.platform]
+ * @param {string} [o.home]
+ * @returns {{ok:boolean, reason?:string}}
+ */
+function codexHealth(o = {}) {
+  const env = o.env || process.env;
+  const plan = buildSpawnPlan({ platform: o.platform, env, exists: o.exists });
+  if (plan.shim) return { ok: false, reason: shimMessage(plan.name, plan.cmd, "CODEX_BIN") };
+  if (!commandOnPath(plan.cmd, { platform: o.platform, env, exists: o.exists })) {
+    return { ok: false, reason: `codex CLI not found (tried "${plan.cmd}"); install it or set CODEX_BIN` };
+  }
+  if (!codexHasAuth({ env, exists: o.exists, home: o.home })) {
+    return { ok: false, reason: "codex has no credential: set OPENAI_API_KEY (or CODEX_API_KEY), or run `codex login`" };
+  }
+  return { ok: true };
+}
+
+/**
  * Default spawner: `codex exec` reading the prompt on stdin, capturing stdout.
  *
  * `spawnFailed` marks "the process never started", which `ask` maps to `not-found`. It is a
@@ -94,12 +155,12 @@ function buildSpawnPlan(o = {}) {
  * which costs a few `existsSync` probes on Windows and nothing at all anywhere else. The Gemini
  * bridge resolves once at module scope instead because it also gates startup on the result.
  *
- * @param {{prompt:string, cwd?:string, timeoutMs?:number, mode?:("advisory"|"implement")}} args
+ * @param {{prompt:string, cwd?:string, timeoutMs?:number, mode?:("advisory"|"implement"), env?:Record<string,(string|undefined)>}} args
  * @returns {Promise<{code:number, stdout:string, stderr:string, timedOut:boolean, spawnFailed?:boolean}>}
  */
-function defaultRun({ prompt, cwd, timeoutMs, mode }) {
+function defaultRun({ prompt, cwd, timeoutMs, mode, env }) {
   return new Promise((resolve) => {
-    const plan = buildSpawnPlan({ mode });
+    const plan = buildSpawnPlan({ mode, env });
     // Only a shell shim was found. Spawning it fails with a bare EINVAL that explains nothing,
     // and `shell: true` is not the answer - the shell would become the child, so the SIGKILL
     // below would kill the shell and leave codex running past its timeout.
@@ -110,7 +171,7 @@ function defaultRun({ prompt, cwd, timeoutMs, mode }) {
       });
       return;
     }
-    const child = spawn(plan.cmd, plan.argv, { cwd: cwd || process.cwd() });
+    const child = spawn(plan.cmd, plan.argv, { cwd: cwd || process.cwd(), env: codexEnv(env) });
     let stdout = "", stderr = "", settled = false, timedOut = false;
     // A SIGKILL'd codex usually writes nothing, so classifyCodex(stderr) would map the
     // kill to `unknown` (or worse, to `auth` - "author" contains "auth"). Report the
@@ -140,16 +201,20 @@ function defaultRun({ prompt, cwd, timeoutMs, mode }) {
 
 /**
  * @param {Object} [opts]
- * @param {(args:{prompt:string,cwd?:string,timeoutMs?:number,mode?:("advisory"|"implement")})=>Promise<{code:number,stdout:string,stderr:string,timedOut?:boolean,spawnFailed?:boolean}>} [opts.run]
+ * @param {(args:{prompt:string,cwd?:string,timeoutMs?:number,mode?:("advisory"|"implement"),env?:Record<string,(string|undefined)>})=>Promise<{code:number,stdout:string,stderr:string,timedOut?:boolean,spawnFailed?:boolean}>} [opts.run]
  * @param {string} [opts.model]
  * @param {boolean} [opts.allowImplement]  construction-time lock (first of two AND-ed locks).
  *   When false/absent, this provider is read-only no matter what `req.mode` says. Set ONLY in a
  *   composition root that has a local workspace + a human-gated write surface (section 3).
  * @param {number} [opts.timeoutMs]  construction-time default per-call ceiling (ms). Falls back to CODEX_DEFAULT_TIMEOUT_MS.
+ * @param {Record<string, (string|undefined)>} [opts.env]  environment read for the host budget
+ *   (MCP_TOOL_TIMEOUT), the health probe, and the child's credential. Defaults to process.env;
+ *   tests inject it so a capped host (Claude Code on the web) does not change what they assert.
  * @returns {Provider}
  */
 function makeCodexProvider(opts = {}) {
   const run = opts.run || defaultRun;
+  const env = opts.env || process.env;
   const model = opts.model || "default"; // codex resolves its own model from config.toml
   const allowImplement = opts.allowImplement === true;
   const defaultTimeoutMs = typeof opts.timeoutMs === "number" && opts.timeoutMs > 0
@@ -160,7 +225,7 @@ function makeCodexProvider(opts = {}) {
     // canImplement reflects the construction lock so discovery (panel) is honest about THIS
     // process. Option A: no threadId continuity (multiTurn:false).
     capabilities: { canImplement: allowImplement, fileUpload: false, multiTurn: false, walksFilesystem: true },
-    async health() { return { ok: true }; },
+    async health() { return codexHealth({ env }); },
     async ask(req) {
       const started = Date.now();
       // Two-lock gate: write only when constructed write-capable AND this call explicitly asks.
@@ -169,8 +234,11 @@ function makeCodexProvider(opts = {}) {
       // Effective ceiling: explicit per-call wins, else the construction default,
       // else the module default. Always a positive number, so defaultRun's kill
       // timer is ALWAYS armed - no Codex call can run unbounded.
-      const timeoutMs = typeof req.timeoutMs === "number" && req.timeoutMs > 0 ? req.timeoutMs : defaultTimeoutMs;
-      const { code, stdout, stderr, timedOut, spawnFailed } = await run({ prompt: full, cwd: req.cwd, timeoutMs, mode });
+      // Then clamped under the host's own per-call cap (MCP_TOOL_TIMEOUT), so a run the
+      // host would kill mid-flight fails HERE first, as a timeout that names the cap.
+      const clamp = clampToHostBudget(typeof req.timeoutMs === "number" && req.timeoutMs > 0 ? req.timeoutMs : defaultTimeoutMs, env, req.hostBudgetRemainingMs);
+      const timeoutMs = /** @type {number} */ (clamp.timeoutMs);
+      const { code, stdout, stderr, timedOut, spawnFailed } = await run({ prompt: full, cwd: req.cwd, timeoutMs, mode, env });
       if (code === 0) {
         // Codex CLI has no per-call reasoning-effort knob in this integration -> null.
         return { provider: "codex", model, text: stdout.trim(), isError: false, ms: Date.now() - started, reasoningEffort: null };
@@ -193,7 +261,9 @@ function makeCodexProvider(opts = {}) {
         errorKind,
         retryable,
         // Error results carry no text; surface stdout/stderr diagnostics in message.
-        message: (stdout && stdout.trim()) || stderr || undefined,
+        message: timedOut
+          ? annotateTimeout({ code: "timeout", message: `codex timed out after ${Math.round(timeoutMs / 1000)}s` }, clamp).message
+          : (stdout && stdout.trim()) || stderr || undefined,
         ms: Date.now() - started,
         reasoningEffort: null,
       };
@@ -201,4 +271,4 @@ function makeCodexProvider(opts = {}) {
   };
 }
 
-module.exports = { makeCodexProvider, classifyCodex, codexExecArgs, buildSpawnPlan, CODEX_DEFAULT_TIMEOUT_MS };
+module.exports = { makeCodexProvider, classifyCodex, codexExecArgs, buildSpawnPlan, codexEnv, codexHasAuth, codexHealth, CODEX_DEFAULT_TIMEOUT_MS };

@@ -317,6 +317,27 @@ async function isHealthy(p) {
 }
 
 /**
+ * name -> reason for every provider whose health() says it cannot answer right now
+ * (no CLI on PATH, no credential). Every probe is stat/env-only, so this runs on every
+ * selection; the registry moves these to `unavailable` instead of dispatching to them.
+ * A probe that throws counts as unhealthy - same posture as isHealthy.
+ * @param {Provider[]} providers
+ * @returns {Promise<Map<string,string>>}
+ */
+async function unhealthyMap(providers) {
+  /** @type {Map<string,string>} */ const m = new Map();
+  await Promise.all(providers.map(async (p) => {
+    try {
+      const h = await p.health();
+      if (!(h && h.ok)) m.set(p.name, (h && h.reason) || "health check failed");
+    } catch (e) {
+      m.set(p.name, String((e && /** @type {any} */ (e).message) || e));
+    }
+  }));
+  return m;
+}
+
+/**
  * @param {Object} deps
  * @param {Provider[]} deps.providers
  * @param {() => any} deps.getConfig
@@ -628,15 +649,15 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
    * @param {string|undefined} expert
    * @returns {Promise<{payload:any, parts:any}>}
    */
-  async function runAskAll(req, expert, opts = /** @type {{noCache?:boolean}} */ ({})) {
-    const { providers: selected, omitted } = registry.selectForAskAll({ config: getConfig(), expert: expert || "" });
+  async function runAskAll(req, expert, opts = /** @type {{noCache?:boolean, startedAt?:number}} */ ({})) {
+    const { providers: selected, omitted, unavailable } = registry.selectForAskAll({ config: getConfig(), expert: expert || "", unhealthy: await unhealthyMap(providers) });
     const lg = currentLogger();
     try { lg.logEvent({ event: "dispatch_start", at: Date.now(), tool: "ask-all", voices: selected.length }); } catch { /* never break */ }
     // session-revisit passes noCache: a revisit is a deliberate RE-RUN of the stored
     // question, so it must never replay a cached opinion from the live tool path.
-    const results = await askAll(selected, withPersona(req, expert), { logger: lg, tool: "ask-all", cache: opts.noCache ? undefined : resultCache, orientationFiles: orient(req) });
+    const results = await askAll(selected, withPersona(req, expert), { logger: lg, tool: "ask-all", cache: opts.noCache ? undefined : resultCache, orientationFiles: orient(req), startedAt: opts.startedAt });
     return {
-      payload: { results, omitted },
+      payload: { results, omitted, unavailable },
       parts: { opinions: results, blindVerdict: null, verdict: null, arbiter: null, warnings: [] },
     };
   }
@@ -649,28 +670,29 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
    * @param {string|undefined} expert
    * @returns {Promise<{payload:any, parts:any}>}
    */
-  async function runConsensus(req, expert) {
+  async function runConsensus(req, expert, startedAt = Date.now()) {
     const cfg = getConfig() || {};
-    const { providers: selected } = registry.selectForConsensus({ config: cfg, expert: expert || "" });
+    const { providers: selected, unavailable } = registry.selectForConsensus({ config: cfg, expert: expert || "", unhealthy: await unhealthyMap(providers) });
     const cc = cfg.consensus || {};
     const arbiterSpec = cc.arbiterDefaulted ? (isClaudeHost() ? "host" : "auto") : (cc.arbiter || "auto");
     const blindVote = !!cc.blindVote;
     const warnings = Array.isArray(cfg.consensusWarnings) ? cfg.consensusWarnings.slice() : [];
     const cfgErr = typeof getConfigError === "function" ? getConfigError() : null;
     if (cfgErr) warnings.push(`config not loaded: ${cfgErr}`);
+    for (const u of unavailable) warnings.push(`provider ${u.name} unavailable: ${u.reason}`);
 
     const resolved = await resolveArbiter(arbiterSpec, selected, registry, getConfig);
     if (resolved.warning) warnings.push(resolved.warning);
 
     if (resolved.mode === "host") {
-      const opinions = await askAll(selected, withPersona(req, expert), { logger: currentLogger(), tool: "consensus", orientationFiles: orient(req) });
+      const opinions = await askAll(selected, withPersona(req, expert), { logger: currentLogger(), tool: "consensus", orientationFiles: orient(req), startedAt });
       const arbiter = { mode: "host" };
       const body = { opinions, blindVerdict: null, verdict: null, arbiter, warnings };
       return { payload: body, parts: body };
     }
 
     if (!resolved.provider) {
-      const out = await consensus(selected, withPersona(req, expert), { arbiterInstructions: PROMPTS.arbiter, logger: currentLogger(), orientationFiles: orient(req) });
+      const out = await consensus(selected, withPersona(req, expert), { arbiterInstructions: PROMPTS.arbiter, logger: currentLogger(), orientationFiles: orient(req), startedAt });
       const arbiter = { mode: "server", provider: null };
       return {
         payload: { opinions: out.opinions, blindVerdict: out.blindVerdict, verdict: out.verdict, error: out.error, arbiter, warnings },
@@ -684,7 +706,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       peers = selected;
       warnings.push(`panel too small to exclude arbiter '${arbiterP.name}'; kept it in the peer panel (floor of 2)`);
     }
-    const out = await consensus(peers, withPersona(req, expert), { arbiter: arbiterP, arbiterInstructions: PROMPTS.arbiter, blindVote, logger: currentLogger(), orientationFiles: orient(req) });
+    const out = await consensus(peers, withPersona(req, expert), { arbiter: arbiterP, arbiterInstructions: PROMPTS.arbiter, blindVote, logger: currentLogger(), orientationFiles: orient(req), startedAt });
     const arbiter = { mode: "server", provider: arbiterP.name };
     return {
       payload: { opinions: out.opinions, blindVerdict: out.blindVerdict, verdict: out.verdict, error: out.error, arbiter, warnings },
@@ -703,16 +725,17 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
    * @param {number} [maxRoundsOverride]  per-call cap; falls back to consensus.maxRounds, then the engine default
    * @returns {Promise<{payload:any, parts:(any|null)}>}  payload is the tool result; parts is non-null only on a real run (drives persistence); never throws
    */
-  async function runConsensusAuto(req, expert, maxRoundsOverride) {
+  async function runConsensusAuto(req, expert, maxRoundsOverride, startedAt = Date.now()) {
     try {
       const cfg = getConfig() || {};
-      const { providers: selected } = registry.selectForConsensus({ config: cfg, expert: expert || "" });
+      const { providers: selected, unavailable } = registry.selectForConsensus({ config: cfg, expert: expert || "", unhealthy: await unhealthyMap(providers) });
       const cc = cfg.consensus || {};
       const arbiterSpec = cc.arbiterDefaulted ? (isClaudeHost() ? "host" : "auto") : (cc.arbiter || "auto");
       /** @type {string[]} */
       const warnings = Array.isArray(cfg.consensusWarnings) ? cfg.consensusWarnings.slice() : [];
       const cfgErr = typeof getConfigError === "function" ? getConfigError() : null;
       if (cfgErr) warnings.push(`config not loaded: ${cfgErr}`);
+      for (const u of unavailable) warnings.push(`provider ${u.name} unavailable: ${u.reason}`);
       const resolved = await resolveArbiter(arbiterSpec, selected, registry, getConfig);
       if (resolved.warning) warnings.push(resolved.warning);
 
@@ -739,7 +762,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         ? maxRoundsOverride
         : (Number.isInteger(cc.maxRounds) && cc.maxRounds > 0 ? cc.maxRounds : undefined);
       const maxWallMs = Number.isInteger(cc.maxWallMs) && cc.maxWallMs > 0 ? cc.maxWallMs : undefined;
-      const out = await runToConvergence(peers, withPersona(req, expert), { arbiter: arbiterP, maxRounds, maxWallMs, logger: currentLogger(), orientationFiles: orient(req) });
+      const out = await runToConvergence(peers, withPersona(req, expert), { arbiter: arbiterP, maxRounds, maxWallMs, logger: currentLogger(), orientationFiles: orient(req), startedAt });
       const allWarnings = out.error ? warnings.concat([`loop: ${out.error}`]) : warnings;
       const rounds = Array.isArray(out.rounds) ? out.rounds.length : 0;
       const arbiter = { mode: "server", provider: arbiterP.name };
@@ -785,13 +808,13 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
    * a loop error path (no persistence); synthesize runs always persist.
    * @param {DelegationRequest} req
    * @param {string|undefined} expert
-   * @param {{synthesizeAlways?:boolean, maxRounds?:number}} [opts]
+   * @param {{synthesizeAlways?:boolean, maxRounds?:number, startedAt?:number}} [opts]  startedAt = the tool call's entry (host-cap clock)
    * @returns {Promise<{payload:any, parts:(any|null)}>}
    */
   async function runConsensusTool(req, expert, opts = {}) {
     try {
       if (opts.synthesizeAlways === true) {
-        const { payload: p } = await runConsensus(req, expert);
+        const { payload: p } = await runConsensus(req, expert, opts.startedAt);
         // One-shot `verdict` is the arbiter's result OBJECT (free-text synthesis), or
         // null in host mode where the host synthesizes. Extract its text into
         // `synthesis`; the enum `verdict` field stays null in synthesize mode.
@@ -815,7 +838,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         };
         return { payload: envelope, parts };
       }
-      const { payload: p, parts } = await runConsensusAuto(req, expert, opts.maxRounds);
+      const { payload: p, parts } = await runConsensusAuto(req, expert, opts.maxRounds, opts.startedAt);
       const envelope = {
         opinions: p.opinions, verdict: p.verdict, synthesis: null, blindVerdict: null,
         arbiter: p.arbiter, warnings: p.warnings,
@@ -915,7 +938,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
    * @param {string|undefined} expert
    * @returns {Promise<any>}
    */
-  async function runConsensusStep(args, expert) {
+  async function runConsensusStep(args, expert, toolStartedAt = Date.now()) {
     const action = String(args.action || "");
     try {
       if (action === "init") {
@@ -961,7 +984,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         const peerPrompt = cur.peerPrompt || cur.currentPlan || "";
         // One resolved expert for selection, persona, and the request - consistent.
         const ex = cur.expert || expert || undefined;
-        const { providers: candidates } = registry.selectForConsensus({ config: getConfig() || {}, expert: ex || "" });
+        const { providers: candidates, unavailable } = registry.selectForConsensus({ config: getConfig() || {}, expert: ex || "", unhealthy: await unhealthyMap(providers) });
         // Circuit breaker. selectForConsensus re-reads config every round and has no
         // memory, so without this a peer that has failed every round is re-dispatched
         // every round - paying its full ceiling to contribute nothing. The streak is
@@ -991,7 +1014,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         const peerReq = { prompt: peerPrompt, expert: ex, cwd: typeof args.cwd === "string" ? args.cwd : undefined };
         const lg = currentLogger();
         try { lg.logEvent({ event: "dispatch_start", at: Date.now(), tool: "consensus", round: cur.round, voices: selected.length }); } catch { /* never break */ }
-        const peerResults = await askAll(selected, withPersona(peerReq, ex), { logger: lg, tool: "consensus", orientationFiles: orient(peerReq) });
+        const peerResults = await askAll(selected, withPersona(peerReq, ex), { logger: lg, tool: "consensus", orientationFiles: orient(peerReq), startedAt: toolStartedAt });
         const results = peerResults.map((r) =>
           r.isError
             ? { source: r.provider, isError: true, errorKind: r.errorKind, verdict: null, criticalIssues: [], model: r.model, reasoningEffort: r.reasoningEffort ?? null, ms: r.ms }
@@ -1012,6 +1035,8 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
           // Peers the breaker has removed. Reported so the panel can say so ONCE
           // instead of relisting them as ERRORED every round.
           ...(newlyDropped.length ? { droppedProviders: newlyDropped } : {}),
+          // Peers skipped BEFORE dispatch because they cannot answer (no CLI / no credential).
+          ...(unavailable.length ? { unavailableProviders: unavailable } : {}),
           note: "adjudicate the opinions, then call submit_adjudication with your verdict + per-issue decisions",
         };
       }
@@ -1188,6 +1213,10 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
    * @param {any} args  // untrusted JSON-RPC tool arguments
    */
   async function call(name, args) {
+    // The clock the host's per-tool-call cap (MCP_TOOL_TIMEOUT) runs on. Taken at entry,
+    // BEFORE the health probes and selection, so sequential legs are fitted against the
+    // host's own view of elapsed time, not an optimistic later one.
+    const toolStartedAt = Date.now();
     // The named expert tools (architect, etc.) carry the expert in the TOOL
     // NAME, not in args.expert. For a named expert tool the tool name MUST win
     // (otherwise args.expert could pick a contradictory persona vs. the selected
@@ -1209,22 +1238,29 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       // Echo the EXACT set ask-all would dispatch (same selection function, same
       // fanout cap), WITHOUT calling any provider. The command issues one ask-one
       // per name in parallel for visible per-provider progress.
-      const { providers: selected, omitted } = registry.selectForAskAll({ config: getConfig(), expert: expert || "" });
+      const { providers: selected, omitted, unavailable } = registry.selectForAskAll({ config: getConfig(), expert: expert || "", unhealthy: await unhealthyMap(providers) });
       return jsonResult({
         providers: selected.map((p) => p.name),
         omitted: (Array.isArray(omitted) ? omitted : []).map((o) => (o && o.alias) || String(o)),
+        // Built-ins that cannot answer right now (no CLI, no credential), with the reason.
+        unavailable,
       });
     }
     if (name === "ask-one") {
       // Resolve ONE provider by name from the SAME selection set (so a pinned
       // openrouter:<alias> resolves and a disabled/over-cap one is rejected).
       const want = typeof args.provider === "string" ? args.provider : "";
-      const { providers: selected } = registry.selectForAskAll({ config: getConfig(), expert: expert || "" });
+      const { providers: selected, unavailable } = registry.selectForAskAll({ config: getConfig(), expert: expert || "", unhealthy: await unhealthyMap(providers) });
       const p = selected.find((x) => x.name === want);
       if (!p) {
-        return jsonResult({ error: `provider "${want}" is not in the active panel`, panel: selected.map((x) => x.name) });
+        const dead = (unavailable || []).find((u) => u.name === want);
+        return jsonResult({
+          error: dead ? `provider "${want}" is unavailable: ${dead.reason}` : `provider "${want}" is not in the active panel`,
+          panel: selected.map((x) => x.name),
+          unavailable,
+        });
       }
-      const result = await askOne(p, withPersona(req, expert), { logger: currentLogger(), tool: "ask-one", cache: resultCache, orientationFiles: orient(req) });
+      const result = await askOne(p, withPersona(req, expert), { logger: currentLogger(), tool: "ask-one", cache: resultCache, orientationFiles: orient(req), startedAt: toolStartedAt });
       return jsonResult({ result });
     }
     if (name === "analyze") {
@@ -1232,7 +1268,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
     }
     if (name === "ask-all") {
       // selectForAskAll returns a FLAT provider list: enabled built-ins + per-alias OR wrappers.
-      const { payload, parts } = await runAskAll(req, expert);
+      const { payload, parts } = await runAskAll(req, expert, { startedAt: toolStartedAt });
       const { id: sid } = persistRun("ask-all", req, expert, parts);
       if (sid) payload.sessionId = sid;
       return jsonResult(payload);
@@ -1244,6 +1280,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       // with the mode flag so session-revisit replays the same mode. parts is null on a
       // loop error path (no-arbiter/insufficient-peers) - skip the write.
       const { payload, parts } = await runConsensusTool(req, expert, {
+        startedAt: toolStartedAt,
         synthesizeAlways: args.synthesizeAlways === true,
         // Clamp the per-call override to the same hard cap the config path uses (50),
         // so a caller cannot drive an unbounded paid loop.
@@ -1258,7 +1295,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
     if (name === "consensus-step") {
       // Client-driven, host-arbitrated loop. State lives in the ephemeral loop
       // store by sessionId; the host model drives one action per call.
-      return jsonResult(await runConsensusStep(args, expert));
+      return jsonResult(await runConsensusStep(args, expert, toolStartedAt));
     }
     if (name === "session-get") {
       if (!persistEnabled()) return disabledMsg();
@@ -1317,13 +1354,15 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
     if (Object.prototype.hasOwnProperty.call(ASK_PROVIDER, name)) {
       const p = registry.get(ASK_PROVIDER[name]);
       if (!p) return { content: [{ type: "text", text: JSON.stringify({ error: `provider ${ASK_PROVIDER[name]} not registered` }) }] };
-      const result = await askOne(p, withPersona(req, expert), { logger: currentLogger(), tool: "ask-one", cache: resultCache, orientationFiles: orient(req) });
+      const result = await askOne(p, withPersona(req, expert), { logger: currentLogger(), tool: "ask-one", cache: resultCache, orientationFiles: orient(req), startedAt: toolStartedAt });
       return { content: [{ type: "text", text: JSON.stringify({ result }) }] };
     }
     if (EXPERTS.includes(name)) {
-      const { providers: selected } = registry.selectForAskAll({ config: getConfig(), expert: name });
-      const results = await askAll(selected, withPersona({ ...req, expert: name }, expert), { logger: currentLogger(), tool: name, cache: resultCache, orientationFiles: orient(req) });
-      return { content: [{ type: "text", text: JSON.stringify({ results }) }] };
+      const { providers: selected, unavailable } = registry.selectForAskAll({ config: getConfig(), expert: name, unhealthy: await unhealthyMap(providers) });
+      const results = await askAll(selected, withPersona({ ...req, expert: name }, expert), { logger: currentLogger(), tool: name, cache: resultCache, orientationFiles: orient(req), startedAt: toolStartedAt });
+      // An empty `results` with no reason is indistinguishable from "nobody had anything to
+      // say"; the skipped peers and why ride along.
+      return { content: [{ type: "text", text: JSON.stringify({ results, unavailable }) }] };
     }
     throw new Error(`unknown tool: ${name}`);
   }

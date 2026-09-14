@@ -76,6 +76,7 @@ function configuredTimeout() {
   return typeof t === "number" && t > 0 ? t : undefined;
 }
 const { parseRetryAfterMs, fetchFailureError } = require("../../core/provider.js");
+const { clampToHostBudget, annotateTimeout, seedHostBudget, spendHostBudget } = require("../../core/host-budget.js");
 
 const DEFAULT_API_BASE = process.env.XAI_API_BASE || "https://api.x.ai/v1";
 const DEFAULT_TIMEOUT_MS = 180_000; // 3 minutes
@@ -390,7 +391,7 @@ function shouldInline(buf, mode) {
 // Set XAI_DISABLE_FILE_CACHE=1 to bypass the cache layer entirely.
 // `mode` controls inline-vs-upload (see shouldInline). Inline refs skip the
 // Files API entirely and are emitted as input_text by turnsToInput.
-async function uploadFile({ filePath, filename, apiKey, apiBase, ttl, roots, cwd, fetchImpl, cacheFile, mode }) {
+async function uploadFile({ filePath, filename, apiKey, apiBase, ttl, roots, cwd, fetchImpl, cacheFile, mode, hostBudgetRemainingMs }) {
   if (!isNonEmptyString(apiKey)) {
     const e = new Error("XAI_API_KEY is not set; cannot upload files.");
     e.code = "missing-auth";
@@ -466,7 +467,10 @@ async function uploadFile({ filePath, filename, apiKey, apiBase, ttl, roots, cwd
     // The Files API call had NO abort signal, so a hung upload blocked the whole ask
     // forever. Bounded by a fixed ceiling rather than the per-call answer timeout: an
     // upload is a fixed-size transfer, not a model run. 0 disables the bound.
-    const upTimeout = uploadTimeoutMs();
+    // ...but under a host cap the upload spends the same budget as the answer, so it is
+    // bounded by what is left of it too (and "disabled" still means "the host's cap").
+    const upClamp = clampToHostBudget(uploadTimeoutMs() > 0 ? uploadTimeoutMs() : undefined, process.env, hostBudgetRemainingMs);
+    const upTimeout = upClamp.timeoutMs || 0;
     const upController = new AbortController();
     const upTimer = upTimeout > 0 ? setTimeout(() => upController.abort(), upTimeout) : null;
     if (upTimer) upTimer.unref();
@@ -490,7 +494,7 @@ async function uploadFile({ filePath, filename, apiKey, apiBase, ttl, roots, cwd
       if ((err && err.name === "AbortError") || /abort/i.test(msg)) {
         const e = new Error(`Grok file upload timed out after ${Math.round(upTimeout / 1000)}s`);
         e.code = "timeout";
-        throw e;
+        throw annotateTimeout(e, upClamp);
       }
       const e = new Error(`File upload network error: ${msg}`);
       e.code = "file-upload";
@@ -542,6 +546,11 @@ async function uploadFile({ filePath, filename, apiKey, apiBase, ttl, roots, cwd
 async function resolveFiles(files, opts) {
   const refs = [];
   const ownedIds = [];
+  // Uploads run in sequence and all spend the same host budget: each one gets what the
+  // previous ones left, never the starting value again.
+  const uploadsStartedMs = Date.now();
+  const seededBudget = seedHostBudget(opts.hostBudgetRemainingMs);
+  const budgetNow = () => spendHostBudget(seededBudget, Date.now() - uploadsStartedMs);
   // Dedup keyed by cacheKey for uploaded files, or absolute sourcePath for
   // inline files (which have no cacheKey). Same file appearing in both an
   // explicit {path} and a {dir} expansion is only attached once.
@@ -554,6 +563,7 @@ async function resolveFiles(files, opts) {
       filename: entry.filename,
       mode: entry.mode,
       ...opts,
+      hostBudgetRemainingMs: budgetNow(),
     });
     if (uploaded && uploaded._inline) {
       const k = dedupKey(uploaded);
@@ -614,6 +624,7 @@ async function resolveFiles(files, opts) {
           apiKey: opts.apiKey,
           apiBase: opts.apiBase,
           ttl: opts.ttl,
+          hostBudgetRemainingMs: budgetNow(),
           roots: [resolved.root],
           fetchImpl: opts.fetchImpl,
           cacheFile: opts.cacheFile,
@@ -673,7 +684,11 @@ const { readResponsesStream } = require("./stream.js");
 
 // One /v1/responses call returning the assistant text. Errors carry `.code`
 // and/or `.status`. `fetchImpl` is injectable for tests.
-async function runGrok({ turns, model, timeoutMs, apiKey, apiBase, fetchImpl, reasoningEffort, forceNoStream }) {
+async function runGrok({ turns, model, timeoutMs, apiKey, apiBase, fetchImpl, reasoningEffort, forceNoStream, hostBudgetRemainingMs }) {
+  const legStartedMs = Date.now();
+  // A call that arrived unstamped (the standalone /ask-grok handler) still spends ONE
+  // budget across its legs: seed it here so the fallback below cannot start the cap over.
+  hostBudgetRemainingMs = seedHostBudget(hostBudgetRemainingMs);
   if (!isNonEmptyString(apiKey)) {
     const e = new Error("XAI_API_KEY is not set. Export it (export XAI_API_KEY=xai-...) or rerun /deliberation:setup.");
     e.code = "missing-auth";
@@ -694,7 +709,10 @@ async function runGrok({ turns, model, timeoutMs, apiKey, apiBase, fetchImpl, re
   const wantStream = STREAM_ENABLED && !forceNoStream;
   const payload = { model: model || configuredModel() || DEFAULT_MODEL, input: turnsToInput(turns), stream: wantStream };
   if (isNonEmptyString(reasoningEffort)) payload.reasoning_effort = reasoningEffort;
-  const t = (typeof timeoutMs === "number" && timeoutMs > 0) ? timeoutMs : DEFAULT_TIMEOUT_MS;
+  // Clamped under the host's per-call cap (MCP_TOOL_TIMEOUT): the bridge must time out
+  // FIRST, as a `timeout` that names the cap, not be killed silently by the host.
+  const hostClamp = clampToHostBudget((typeof timeoutMs === "number" && timeoutMs > 0) ? timeoutMs : DEFAULT_TIMEOUT_MS, process.env, hostBudgetRemainingMs);
+  const t = /** @type {number} */ (hostClamp.timeoutMs);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), t);
 
@@ -718,7 +736,11 @@ async function runGrok({ turns, model, timeoutMs, apiKey, apiBase, fetchImpl, re
     // `stream:true` must still work - so branch on Content-Type, not on the request.
     const isSse = /text\/event-stream/i.test((res.headers && res.headers.get("content-type")) || "");
     if (wantStream && res.ok && isSse && res.body) {
-      streamed = await readResponsesStream(res.body);
+      // The ceiling is enforced by the reader, not delegated to the body: once SSE chunks
+      // are flowing, aborting the fetch's signal does not reliably error the body on Node 22
+      // (chunks kept arriving 20s+ past the abort), so the SSE reader races every read
+      // against the same signal and cancels the reader it owns. See core/sse.js.
+      streamed = await readResponsesStream(res.body, controller.signal);
     } else {
       try { bodyText = await res.text(); } catch (bodyErr) {
         // An abort DURING the body read is still a timeout, not a network fault.
@@ -733,7 +755,7 @@ async function runGrok({ turns, model, timeoutMs, apiKey, apiBase, fetchImpl, re
       }
     }
   } catch (err) {
-    throw fetchFailureError("Grok", err, t);
+    throw annotateTimeout(fetchFailureError("Grok", err, t), hostClamp);
   } finally {
     clearTimeout(timer);
   }
@@ -761,7 +783,8 @@ async function runGrok({ turns, model, timeoutMs, apiKey, apiBase, fetchImpl, re
     // contract drift degrades to the old behavior instead of taking Grok offline (and,
     // inside /consensus, silently getting it dropped by the circuit breaker).
     if (!streamed.sawEvent && !streamed.final && !trimmedDeltas) {
-      return await runGrok({ turns, model, timeoutMs, apiKey, apiBase, fetchImpl, reasoningEffort, forceNoStream: true });
+      // The fallback is a SECOND leg of the same call: hand it what is left, not the whole budget.
+      return await runGrok({ turns, model, timeoutMs, apiKey, apiBase, fetchImpl, reasoningEffort, forceNoStream: true, hostBudgetRemainingMs: spendHostBudget(hostBudgetRemainingMs, Date.now() - legStartedMs) });
     }
     // Whitespace-only deltas are `empty` (retryable), never `parse`: the shape was fine,
     // the content was missing. Truthiness alone let "   " through to the parser, which
@@ -841,6 +864,10 @@ function isStaleFileError(err) {
 // appended to priorTurns so accumulated conversation context is preserved on
 // the actual /v1/responses payload.
 async function runWithFiles(args) {
+  // File resolution (uploads) and a stale-file re-upload + retry all spend the same host
+  // budget as the answer itself; every runGrok leg below gets what is LEFT.
+  const startedMs = Date.now();
+  args = { ...args, hostBudgetRemainingMs: seedHostBudget(args.hostBudgetRemainingMs) };
   const { refs, ownedIds } = await resolveFiles(args.files, args);
 
   const developerInstructions = args["developer-instructions"];
@@ -863,6 +890,7 @@ async function runWithFiles(args) {
       timeoutMs: args.timeout,
       model: args.model,
       reasoningEffort: args.reasoningEffort,
+      hostBudgetRemainingMs: spendHostBudget(args.hostBudgetRemainingMs, Date.now() - startedMs),
     });
   }
 
@@ -890,6 +918,7 @@ async function runWithFiles(args) {
         apiKey: args.apiKey,
         apiBase: args.apiBase,
         ttl: args.ttl || FILE_TTL_SECONDS,
+        hostBudgetRemainingMs: spendHostBudget(args.hostBudgetRemainingMs, Date.now() - startedMs),
         roots: [r.sourceRoot],
         cacheFile: args.cacheFile,
         fetchImpl: args.fetchImpl,

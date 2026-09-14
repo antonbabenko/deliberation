@@ -131,6 +131,24 @@ Point them at an **executable**, not at a `.cmd` shim or a `.js` file: a full pa
 through and spawned as given, with no resolution and no shell. When only a shim can be found, the
 call fails naming that shim and the variable to set, instead of reporting the CLI as missing.
 
+### Claude Code on the web (and other capped hosts)
+
+Three things differ in a web container, and the plugin now handles each:
+
+- **The host caps every tool call.** Claude Code on the web exports `MCP_TOOL_TIMEOUT=60000`,
+  which kills any MCP call after 60s - far below the provider ceilings below. deliberation
+  reads it and keeps every ceiling 5s under it, so a long answer fails as a `timeout` whose
+  message names the cap instead of the host killing the call silently. To actually get long
+  answers (a `/consensus` review needs minutes), raise `MCP_TOOL_TIMEOUT` (for example
+  `1800000`) in the environment's variables and start a new session. `/deliberation:doctor`
+  warns while it is too low.
+- **Codex reads `CODEX_API_KEY`, not `OPENAI_API_KEY`.** Exporting `OPENAI_API_KEY` is
+  enough: the provider forwards it to `codex exec` under the name codex reads. No
+  `codex login` needed (`printenv OPENAI_API_KEY | codex login --with-api-key` still works).
+- **No `agy`.** The standalone Gemini bridge refuses to start (`CONNECTION_CLOSED` in the
+  host's server list); the unified server lists gemini under `panel.unavailable` and the
+  panel runs without it.
+
 ### Timeouts
 
 Every provider ships a different built-in ceiling (codex 600s, gemini 300s, grok 180s,
@@ -151,7 +169,9 @@ This covers both paths: the tools on the unified server, and the standalone brid
 `/ask-grok`, `/ask-gemini`, and `/ask-openrouter`.
 
 If a fan-out drops a model at almost exactly 180000 ms, it hit the built-in ceiling -
-that is the knob to turn.
+that is the knob to turn. If it drops at `MCP_TOOL_TIMEOUT - 5000` ms and the message says
+`Host MCP_TOOL_TIMEOUT=... caps every MCP tool call`, the host's cap is the knob - raise it
+where the host is launched (see above); no config key reaches above it.
 
 A rate-limited call (HTTP 429) is retried once, waiting for the upstream's `Retry-After`
 when it sends one. A timeout is deliberately not retried: the call may already have

@@ -37,10 +37,11 @@ const { readSseStream } = require("../../core/sse.js");
  * `event:` line otherwise. Relying on `type` alone meant that a server naming events
  * only on the frame - which the SSE spec is built around - matched nothing at all, and
  * every call failed as an empty stream.
- * @param {AsyncIterable<Uint8Array>} body
+ * @param {AsyncIterable<Uint8Array> & {getReader?: () => any}} body
+ * @param {AbortSignal} [signal]  the call's ceiling; enforced per read by the SSE reader
  * @returns {Promise<StreamOutcome>}
  */
-async function readResponsesStream(body) {
+async function readResponsesStream(body, signal) {
   let deltas = "";
   /** @type {(any|null)} */
   let final = null;
@@ -77,7 +78,7 @@ async function readResponsesStream(body) {
     // Any other recognized lifecycle event (created, in_progress, ...) still proves we
     // are reading a stream we understand.
     if (typeof type === "string" && type.startsWith("response.")) sawEvent = true;
-  });
+  }, signal);
 
   return { final, deltas, failure, sawEvent };
 }

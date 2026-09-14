@@ -117,9 +117,25 @@ function makeRegistry(providers) {
     const p = config && config.providers && config.providers[name];
     return !p || p.enabled !== false; // missing = enabled
   };
-  /** @param {RegistryConfig} config @returns {Provider[]} */
-  const builtinsFor = (config) =>
-    BUILTINS.filter((n) => byName.has(n) && enabled(config, n)).map((n) => /** @type {Provider} */ (byName.get(n)));
+  /**
+   * Enabled built-ins, split by health. `unhealthy` (name -> reason) comes from the server's
+   * stat-only probes; a provider that cannot answer (no CLI, no credential) is reported in
+   * `unavailable` instead of being dispatched to fail - so a dead peer costs a fan-out nothing.
+   * @param {RegistryConfig} config
+   * @param {(Map<string,string>|undefined)} unhealthy
+   * @returns {{providers: Provider[], unavailable: {name:string, reason:string}[]}}
+   */
+  const builtinsFor = (config, unhealthy) => {
+    /** @type {Provider[]} */ const providers = [];
+    /** @type {{name:string, reason:string}[]} */ const unavailable = [];
+    for (const n of BUILTINS) {
+      if (!byName.has(n) || !enabled(config, n)) continue;
+      const reason = unhealthy && unhealthy.get(n);
+      if (reason) unavailable.push({ name: n, reason });
+      else providers.push(/** @type {Provider} */ (byName.get(n)));
+    }
+    return { providers, unavailable };
+  };
   /** @param {OrModel[]} delegates @returns {Provider[]} */
   const pinDelegates = (delegates) => {
     const orProvider = byName.get("openrouter");
@@ -130,19 +146,22 @@ function makeRegistry(providers) {
     /** @param {string} n */
     get: (n) => byName.get(n),
 
-    // Flat provider list ready for askAll(): built-ins + per-alias OR wrappers.
-    /** @param {{config: RegistryConfig, expert: string}} args */
-    selectForAskAll({ config, expert }) {
+    // Flat provider list ready for askAll(): healthy built-ins + per-alias OR wrappers.
+    // `omitted` = OR aliases over the fanout cap; `unavailable` = built-ins that cannot answer.
+    /** @param {{config: RegistryConfig, expert: string, unhealthy?: Map<string,string>}} args */
+    selectForAskAll({ config, expert, unhealthy }) {
       const or = (config && config.openrouter) || {};
       const { selected, omitted } = askAllDelegates(or, expert);
-      return { providers: [...builtinsFor(config), ...pinDelegates(selected)], omitted };
+      const b = builtinsFor(config, unhealthy);
+      return { providers: [...b.providers, ...pinDelegates(selected)], omitted, unavailable: b.unavailable };
     },
 
-    // Uncapped: built-ins + per-alias OR consensus delegates.
-    /** @param {{config: RegistryConfig, expert: string}} args */
-    selectForConsensus({ config, expert }) {
+    // Uncapped: healthy built-ins + per-alias OR consensus delegates.
+    /** @param {{config: RegistryConfig, expert: string, unhealthy?: Map<string,string>}} args */
+    selectForConsensus({ config, expert, unhealthy }) {
       const or = (config && config.openrouter) || {};
-      return { providers: [...builtinsFor(config), ...pinDelegates(consensusDelegates(or, expert))] };
+      const b = builtinsFor(config, unhealthy);
+      return { providers: [...b.providers, ...pinDelegates(consensusDelegates(or, expert))], unavailable: b.unavailable };
     },
   };
 }

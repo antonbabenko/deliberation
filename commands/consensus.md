@@ -47,7 +47,7 @@ the next action:
 |--------|-----------|----------------|------|
 | `init` | `prompt` (the plan), `expert`, `cwd` | `sessionId`, `status: await_blind`, `round`, `blindPrompt` | write blind, `record_blind` |
 | `record_blind` | `sessionId`, `blindVerdict` (your verdict text) | `status: await_peers` | `dispatch_peers` |
-| `dispatch_peers` | `sessionId` | `status: await_adjudication`, `opinions[]` (per-voice `{source, isError, verdict, criticalIssues}`), optional `droppedProviders[]`; or a terminal `status: unresolved` + `stopReason` | adjudicate, `submit_adjudication` |
+| `dispatch_peers` | `sessionId` | `status: await_adjudication`, `opinions[]` (per-voice `{source, isError, verdict, criticalIssues}`), optional `droppedProviders[]`, optional `unavailableProviders[]` (`{name, reason}`: skipped before dispatch - no CLI / no credential); or a terminal `status: unresolved` + `stopReason` | adjudicate, `submit_adjudication` |
 | `submit_adjudication` | `sessionId`, `verdict`, `decisions[]` | `converged: true` + `finalReport` + `confidence`, OR `status: await_revision` | done, OR revise |
 | `submit_revision` | `sessionId`, `revisedPlan`, `diffSummary` | `status: await_blind` (next round), OR `status: unresolved` + `finalReport` (hit the cap) | next round, OR done |
 

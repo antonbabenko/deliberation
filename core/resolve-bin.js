@@ -147,6 +147,38 @@ function findOnPath(file, dirs, exists) {
 }
 
 /**
+ * Is `name` spawnable from PATH (or, when it carries a path separator, does that file exist)?
+ * Stat-only - nothing is executed - so a health probe can call it on every panel request.
+ * On win32 the PATHEXT ladder is applied (a bare `codex` resolves to `codex.cmd`); everywhere
+ * else the bare name is joined onto each PATH entry. Never throws.
+ *
+ * @param {string} name
+ * @param {ResolveOpts} [opts]
+ * @returns {boolean}
+ */
+function commandOnPath(name, opts) {
+  const o = opts || {};
+  const platform = o.platform || process.platform;
+  const env = o.env || process.env;
+  const exists = o.exists || fs.existsSync;
+  try {
+    if (!name) return false;
+    if (/[\\/]/.test(name)) return exists(name);
+    if (platform === "win32") {
+      const dirs = String(env.PATH || env.Path || "").split(";").filter(Boolean);
+      const exts = String(env.PATHEXT || DEFAULT_PATHEXT).split(";").filter(Boolean);
+      const hasExt = exts.some((x) => name.toLowerCase().endsWith(x.toLowerCase()));
+      const names = hasExt ? [name] : [name, ...exts.map((x) => name + x.toLowerCase())];
+      return names.some((n) => findOnPath(n, dirs, exists) !== null);
+    }
+    const dirs = String(env.PATH || "").split(path.delimiter).filter(Boolean);
+    return dirs.some((d) => exists(path.join(d, name)));
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Turn an npm shim into a directly spawnable `node <entry>` target, or null when there is no
  * entry point behind it. The shim itself is never executed.
  *
@@ -187,4 +219,4 @@ function shimMessage(name, shimPath, envVar) {
   );
 }
 
-module.exports = { resolveCommand, shimMessage, DIRECT_EXTS, SHIM_EXTS, DEFAULT_PATHEXT };
+module.exports = { resolveCommand, commandOnPath, shimMessage, DIRECT_EXTS, SHIM_EXTS, DEFAULT_PATHEXT };

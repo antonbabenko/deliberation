@@ -18,7 +18,8 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-const { resolveCommand, shimMessage } = require("../../core/resolve-bin.js");
+const { resolveCommand, commandOnPath, shimMessage } = require("../../core/resolve-bin.js");
+const { clampToHostBudget, annotateTimeout, graceWithinHostBudget, seedHostBudget } = require("../../core/host-budget.js");
 const { stubReason, readMinAnswerChars } = require("../../core/answer-floor.js");
 
 const AGY_BIN = process.env.AGY_BIN || "agy";
@@ -37,6 +38,14 @@ const AGY_BIN = process.env.AGY_BIN || "agy";
 // phantom missing-cli through an upgrade. (When resolution finds nothing it passes the bare name
 // through, so THAT case does re-search PATH on every spawn.)
 const AGY_TARGET = resolveCommand(AGY_BIN, {});
+/**
+ * Stat-only: is the resolved agy target spawnable? Read per call (not cached) so a
+ * long-lived server notices an install; nothing is executed.
+ * @returns {boolean}
+ */
+function cliAvailable() {
+  return !AGY_TARGET.shim && commandOnPath(AGY_CMD);
+}
 const AGY_CMD = AGY_TARGET.cmd;
 /** Args that must lead agy's own argv (empty unless an interpreter was interposed). */
 const AGY_PREFIX_ARGS = AGY_TARGET.prefixArgs;
@@ -484,7 +493,10 @@ async function runGeminiOnce(args, cwd, timeoutMs, recoveryGraceMs, opts = {}) {
       reject(shimErr);
       return;
     }
-    const t = (typeof timeoutMs === "number" && timeoutMs > 0) ? timeoutMs : DEFAULT_TIMEOUT_MS;
+    // Clamped under the host's per-call cap (MCP_TOOL_TIMEOUT) so the host never kills a
+    // run before this timeout - which names the cap - gets to fire.
+    const hostClamp = clampToHostBudget((typeof timeoutMs === "number" && timeoutMs > 0) ? timeoutMs : DEFAULT_TIMEOUT_MS, process.env, opts.hostBudgetRemainingMs);
+    const t = /** @type {number} */ (hostClamp.timeoutMs);
     const effCwd = cwd || process.cwd();
     const spawnStartMs = Date.now();
     const readOnly = opts.readOnly === true;
@@ -492,11 +504,13 @@ async function runGeminiOnce(args, cwd, timeoutMs, recoveryGraceMs, opts = {}) {
     // the OS sandbox did not (and writes on Linux, which has no OS wrapper yet).
     const preRoots = readOnly ? captureRoots([effCwd, ...(opts.includeDirs || [])]) : [];
     const disableRecovery = process.env.GEMINI_DISABLE_TIMEOUT_RECOVERY === "1";
-    const grace = disableRecovery
+    // No drain under a host cap: the soft timeout is already the hard one there (a clamped
+    // 55s soft timeout + the default 120s drain is a 175s call the host kills at 60s).
+    const grace = graceWithinHostBudget(disableRecovery
       ? 0
       : (typeof recoveryGraceMs === "number" && recoveryGraceMs >= 0
           ? recoveryGraceMs
-          : DEFAULT_RECOVERY_GRACE_MS);
+          : DEFAULT_RECOVERY_GRACE_MS));
 
     let killed = false;   // legacy hard-kill path (grace === 0)
     let draining = false; // soft timeout fired, buffering streamed stdout
@@ -551,7 +565,7 @@ async function runGeminiOnce(args, cwd, timeoutMs, recoveryGraceMs, opts = {}) {
       const tail = stderr && stderr.trim() ? "; last agy stderr: " + stderr.trim().slice(-500) : "";
       const err = new Error("Gemini (agy) timed out after " + Math.round(t / 1000) + "s" + tail);
       err.code = "timeout";
-      return err;
+      return annotateTimeout(err, hostClamp);
     }
     function finishTimeout() {
       if (settled) return;
@@ -711,6 +725,9 @@ async function runGeminiOnce(args, cwd, timeoutMs, recoveryGraceMs, opts = {}) {
  */
 async function runGemini(args, cwd, timeoutMs, recoveryGraceMs, opts = {}) {
   const started = Date.now();
+  // An unstamped call (the standalone /ask-gemini handler) still spends ONE budget across
+  // the first run and the alias-drop retry below.
+  opts = { ...opts, hostBudgetRemainingMs: seedHostBudget(opts.hostBudgetRemainingMs) };
   // buildAgyArgs lays argv out as [...flags, "--model", id, "-p", prompt]: the pin, when
   // present, sits exactly two elements before the "-p" tail. Positional on purpose - an
   // option VALUE (an --add-dir path, the prompt itself) can never be mistaken for the flag.
@@ -737,7 +754,12 @@ async function runGemini(args, cwd, timeoutMs, recoveryGraceMs, opts = {}) {
         "in config.json (or GEMINI_DEFAULT_MODEL) to a listed id to stop this warning.\n"
       );
     }
-    const out = await runGeminiOnce(withoutPin(), cwd, budget, recoveryGraceMs, opts);
+    // The retry is a second leg of the same call: it gets what is left of the host budget too.
+    const spent = Date.now() - started;
+    const retryOpts = typeof opts.hostBudgetRemainingMs === "number"
+      ? { ...opts, hostBudgetRemainingMs: Math.max(1, opts.hostBudgetRemainingMs - spent) }
+      : opts;
+    const out = await runGeminiOnce(withoutPin(), cwd, budget, recoveryGraceMs, retryOpts);
     return { ...out, pinDropped: true };
   }
 }
@@ -1033,6 +1055,7 @@ if (typeof module !== "undefined" && module.exports) {
   // Production exports (used by core adapters as well as tests)
   module.exports.runGemini = runGemini;
   module.exports.buildAgyArgs = buildAgyArgs;
+  module.exports.cliAvailable = cliAvailable;
 
   // Advisory read-only enforcement (pure helpers; unit-tested)
   module.exports.READ_ONLY_GUARD = READ_ONLY_GUARD;

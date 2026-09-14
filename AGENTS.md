@@ -46,8 +46,10 @@ Fan-out and single-provider:
 - `ask-gpt` / `ask-gemini` / `ask-grok` / `ask-openrouter` - one question to one
   provider for a single-shot second opinion.
 - `panel` - return the exact provider names `ask-all` would dispatch for the current
-  config + expert (enabled built-ins + eligible OpenRouter aliases, fanout cap applied),
-  WITHOUT calling them. Read-only.
+  config + expert (enabled, healthy built-ins + eligible OpenRouter aliases, fanout cap
+  applied), WITHOUT calling them. `unavailable[]` names enabled built-ins that cannot answer
+  right now (CLI not on PATH, no credential) with the reason - they are skipped by every
+  fan-out, so report them once rather than treating them as errors. Read-only.
 - `ask-one { provider, prompt }` - one question to ONE provider named by `panel`
   (e.g. `codex`, `grok`, `openrouter:<alias>`). The progress pattern: call `panel`, then
   issue one `ask-one` per name **in a single turn** so they run concurrently and each
@@ -115,7 +117,10 @@ These apply to every MCP host, not just Claude Code:
   override one with `providers.<name>.timeout` (`providers.openrouter.defaults.timeout` for
   OpenRouter), and a pinned model's `models.<id>.timeout` beats both. Read at server start,
   so a change needs a restart. A result that errors with `errorKind: "timeout"` at almost
-  exactly the ceiling hit the limit rather than the model stalling.
+  exactly the ceiling hit the limit rather than the model stalling. If the host itself caps
+  tool calls (`MCP_TOOL_TIMEOUT`; Claude Code on the web sets 60000), every ceiling is clamped
+  5s under it and the timeout message names the cap - the fix is to raise it where the host
+  is launched, not in `config.json`.
 - **Retries** - a failed call is retried once, and only for `network`, `rate-limit` (waiting
   for the upstream's `Retry-After`), and `empty` (a provider that exited clean but returned a
   stub instead of an answer). `timeout` and auth/config errors are not retried.
