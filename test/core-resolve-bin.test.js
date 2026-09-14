@@ -250,3 +250,27 @@ test("RB8h: a hand-written .cmd wrapper with no package beside it is skipped, no
   });
   assert.deepEqual(r, { cmd: NODE, prefixArgs: [entry], shim: false });
 });
+
+// --- commandOnPath (stat-only presence probe for health checks) ---------------
+const { commandOnPath } = require("../core/resolve-bin.js");
+
+test("RB-path-1: POSIX - joins the bare name onto each PATH entry; a path-bearing name is probed as-is", () => {
+  const exists = (/** @type {string} */ p) => p === "/usr/local/bin/agy";
+  assert.equal(commandOnPath("agy", { platform: "linux", env: { PATH: "/usr/bin:/usr/local/bin" }, exists }), true);
+  assert.equal(commandOnPath("agy", { platform: "linux", env: { PATH: "/usr/bin" }, exists }), false);
+  assert.equal(commandOnPath("/usr/local/bin/agy", { platform: "linux", env: { PATH: "" }, exists }), true);
+  assert.equal(commandOnPath("", { platform: "linux", env: { PATH: "/usr/bin" }, exists }), false);
+});
+
+test("RB-path-2: win32 - applies the PATHEXT ladder (lowercased, as the file sits on disk) and honours an explicit extension", () => {
+  const env = { PATH: "C:\\npm", PATHEXT: ".COM;.EXE;.CMD" };
+  const only = (/** @type {string} */ want) => (/** @type {string} */ p) => p === want;
+  assert.equal(commandOnPath("codex", { platform: "win32", env, exists: only("C:\\npm\\codex.cmd") }), true);
+  assert.equal(commandOnPath("codex", { platform: "win32", env, exists: only("C:\\npm\\codex.exe") }), true);
+  assert.equal(commandOnPath("codex.cmd", { platform: "win32", env, exists: only("C:\\npm\\codex.cmd") }), true);
+  assert.equal(commandOnPath("codex", { platform: "win32", env, exists: () => false }), false);
+});
+
+test("RB-path-3: a throwing probe reads as absent, never as a crash", () => {
+  assert.equal(commandOnPath("x", { platform: "linux", env: { PATH: "/a" }, exists: () => { throw new Error("EACCES"); } }), false);
+});

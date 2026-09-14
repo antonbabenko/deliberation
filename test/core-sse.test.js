@@ -67,3 +67,72 @@ test("SSE7: a multi-byte character split across chunks is decoded once, not twic
 test("SSE8: an empty body produces no events and does not throw", async () => {
   assert.deepEqual(await collect(""), []);
 });
+
+// --- abort enforcement (the fetch signal does not reliably error a flowing body) ---------
+test("SSE-abort-1: with a signal, the reader is cancelled on abort even when the body keeps flowing", async () => {
+  const { readSseStream } = require("../core/sse.js");
+  let cancelled = false; let reads = 0;
+  // A body that never ends and never honours the fetch signal - the observed Node 22 behaviour.
+  const body = /** @type {any} */ ({
+    getReader() {
+      return {
+        read: () => new Promise((resolve) => { reads++; setTimeout(() => resolve({ value: new TextEncoder().encode("data: {\"type\":\"response.in_progress\"}\n\n"), done: false }), 30); }),
+        cancel: async () => { cancelled = true; },
+        releaseLock() {},
+      };
+    },
+  });
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), 100);
+  /** @type {any[]} */ const seen = [];
+  const started = Date.now();
+  await assert.rejects(readSseStream(body, (ev) => seen.push(ev), controller.signal), (/** @type {any} */ e) => e.name === "AbortError");
+  assert.ok(Date.now() - started < 1000, "rejected at the abort, not when the body decided to end");
+  assert.equal(cancelled, true, "the reader we own is cancelled so the socket is released");
+  assert.ok(seen.length >= 1 && reads >= seen.length, "frames delivered before the abort were parsed");
+});
+
+test("SSE-abort-2: without a signal, or with a body that has no getReader, iteration is unchanged", async () => {
+  const { readSseStream } = require("../core/sse.js");
+  const frames = ["data: {\"a\":1}\n\n", "data: {\"b\":2}\n\n"].map((f) => new TextEncoder().encode(f));
+  const iterable = { async *[Symbol.asyncIterator]() { for (const f of frames) yield f; } };
+  /** @type {string[]} */ const a = []; await readSseStream(iterable, (ev) => a.push(ev.data));
+  assert.deepEqual(a, ['{"a":1}', '{"b":2}']);
+  /** @type {string[]} */ const b = []; await readSseStream(iterable, (ev) => b.push(ev.data), new AbortController().signal);
+  assert.deepEqual(b, ['{"a":1}', '{"b":2}'], "a signal on a plain iterable falls back to for-await");
+});
+
+test("SSE-abort-3: a reader whose cancel() never settles cannot hold the timeout hostage", async () => {
+  const { readSseStream } = require("../core/sse.js");
+  const body = /** @type {any} */ ({
+    getReader() {
+      return {
+        read: () => new Promise(() => {}), // never yields
+        cancel: () => new Promise(() => {}), // never settles either
+        releaseLock() {},
+      };
+    },
+  });
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), 50);
+  const started = Date.now();
+  await assert.rejects(readSseStream(body, () => {}, controller.signal), (/** @type {any} */ e) => e.name === "AbortError");
+  assert.ok(Date.now() - started < 1000, "rejected at the abort despite a pending cancel()");
+});
+
+test("SSE-abort-4: a normal completion leaves no abort listener behind, however many chunks flowed", async () => {
+  const { readSseStream } = require("../core/sse.js");
+  const frames = Array.from({ length: 500 }, (_, i) => new TextEncoder().encode(`data: {"i":${i}}\n\n`));
+  let idx = 0;
+  const body = /** @type {any} */ ({ getReader() { return { read: async () => idx < frames.length ? { value: frames[idx++], done: false } : { done: true }, cancel: async () => {}, releaseLock() {} }; } });
+  const controller = new AbortController();
+  const added = []; const removed = [];
+  const origAdd = controller.signal.addEventListener.bind(controller.signal);
+  const origRemove = controller.signal.removeEventListener.bind(controller.signal);
+  controller.signal.addEventListener = (/** @type {any} */ t, /** @type {any} */ l, /** @type {any} */ o) => { added.push(l); return origAdd(t, l, o); };
+  controller.signal.removeEventListener = (/** @type {any} */ t, /** @type {any} */ l, /** @type {any} */ o) => { removed.push(l); return origRemove(t, l, o); };
+  let n = 0;
+  await readSseStream(body, () => { n++; }, controller.signal);
+  assert.equal(n, 500);
+  assert.equal(added.length, removed.length, "every per-read subscription is removed when its read settles");
+});

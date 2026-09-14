@@ -169,7 +169,7 @@ Provider credentials work the same as the standalone server (GPT via the Codex C
 
 You need at least one provider:
 
-- **Codex CLI** (GPT): `npm install -g @openai/codex`, then `codex login`.
+- **Codex CLI** (GPT): `npm install -g @openai/codex`, then `codex login` - or just export `OPENAI_API_KEY` (forwarded to codex as `CODEX_API_KEY`, the name it reads).
 - **Antigravity CLI**: [Getting Started with Antigravity CLI](https://antigravity.google/docs/cli-getting-started) and [Migrating from Gemini CLI](https://antigravity.google/docs/gcli-migration), then run `agy` and login.
 - **Grok (xAI)**: no CLI to install; the bridge ships with the plugin (needs Node 18+). Set `XAI_API_KEY` (get a key at https://console.x.ai).
 - **OpenRouter**: no CLI; the bridge ships with the plugin (needs Node 18+). Set `OPENROUTER_API_KEY` (get a key at https://openrouter.ai/keys), then declare models in `~/.config/deliberation/config.json` (Windows: `%APPDATA%\deliberation\config.json`; override with `DELIBERATION_CONFIG`). Works with any OpenAI-compatible endpoint (Ollama, vLLM, LM Studio, HuggingFace Inference) - auth is skipped automatically when the key env var is empty.
@@ -180,6 +180,13 @@ spawn error. deliberation now resolves the CLI itself (PATHEXT, falling back to 
 entry point) and keeps it out of a shell. If resolution ever misses on your machine, point
 `CODEX_BIN` (GPT) or `AGY_BIN` (Gemini) at the real executable. Grok and OpenRouter are unaffected -
 they are HTTP bridges and spawn nothing.
+
+**Claude Code on the web note.** The web host caps every MCP tool call at 60s
+(`MCP_TOOL_TIMEOUT=60000`). deliberation reads that cap, keeps its provider ceilings under it,
+and says so in the timeout message - but a real `/consensus` review needs minutes, so raise
+`MCP_TOOL_TIMEOUT` in the environment's variables. `/deliberation:doctor` reports the cap,
+the codex credential, and a missing `agy`; the panel skips providers that cannot answer
+(`panel.unavailable`) instead of waiting on them. See [SETUP.md](SETUP.md#claude-code-on-the-web-and-other-capped-hosts).
 
 ## Commands
 
@@ -289,7 +296,7 @@ Full setup and configuration reference lives in **[SETUP.md](SETUP.md)**. It cov
 - **Config file** - location (`~/.config/deliberation/config.json`), the `DELIBERATION_CONFIG` override, and hot-reload
 - **The six config sections** - `providers`, `models`, `routing`, `consensus`, `sessions`, `debug` - with a minimal example
 - **OpenRouter models** - declaring records, `askAll` / `consensus` eligibility, fan-out, `reasoningEffort`, and arbiter selection; `consensus` also configures the round cap (`maxRounds`) and wall-time budget (`maxWallMs`, default 30 min)
-- **Timeouts** - `providers.defaults.timeout` raises the per-call ceiling for every provider at once; `providers.<name>.timeout` overrides one, and a pinned model's `models.<id>.timeout` still wins. A rate-limited (HTTP 429) call is retried once, honoring the upstream's `Retry-After`
+- **Timeouts** - `providers.defaults.timeout` raises the per-call ceiling for every provider at once; `providers.<name>.timeout` overrides one, and a pinned model's `models.<id>.timeout` still wins. A host cap (`MCP_TOOL_TIMEOUT`, set by Claude Code on the web) clamps all of them and is named in the timeout message. A rate-limited (HTTP 429) call is retried once, honoring the upstream's `Retry-After`
 - **Debug log** - opt-in latency / token / voting trace
 - **Session persistence** - opt-in on-disk run history (incl. the host-driven `/consensus` loop) and the `session-*` tools; `sessions.captureText` (default off) additionally stores provider response bodies (scrubbed)
 

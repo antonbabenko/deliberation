@@ -59,18 +59,25 @@ function parseSseFrame(frame) {
  * Malformed frames are skipped rather than thrown: a stray keepalive must not kill a
  * stream that is otherwise fine. A TRANSPORT failure (socket reset, abort) propagates
  * to the caller, which classifies it exactly like a failed `res.text()`.
- * @param {AsyncIterable<Uint8Array>} body
+ *
+ * `signal` makes the ceiling enforceable from here. Observed on Node 22: once SSE chunks
+ * are flowing, aborting the fetch's signal does NOT reliably error the body - chunks kept
+ * arriving 20s+ past the abort - and a `for await` loop holds the stream's lock, so nobody
+ * else can cancel it either. With a signal, each read is raced against the abort and the
+ * reader (which we own) is cancelled, so the socket is actually released.
+ * @param {AsyncIterable<Uint8Array> & {getReader?: () => any}} body
  * @param {(ev: SseEvent) => void} onEvent
+ * @param {AbortSignal} [signal]
  * @returns {Promise<void>}
  */
-async function readSseStream(body, onEvent) {
+async function readSseStream(body, onEvent, signal) {
   const decoder = new TextDecoder();
   let buf = "";
   const flush = (/** @type {string} */ frame) => {
     const ev = parseSseFrame(frame);
     if (ev) onEvent(ev);
   };
-  for await (const chunk of body) {
+  const feed = (/** @type {Uint8Array} */ chunk) => {
     buf += decoder.decode(chunk, { stream: true });
     for (;;) {
       const m = FRAME_DELIMITER.exec(buf);
@@ -78,6 +85,40 @@ async function readSseStream(body, onEvent) {
       flush(buf.slice(0, m.index));
       buf = buf.slice(m.index + m[0].length);
     }
+  };
+  if (signal && typeof body.getReader === "function") {
+    const reader = body.getReader();
+    const abortError = () => { const e = new Error("This operation was aborted"); e.name = "AbortError"; return e; };
+    // One abort subscription PER read, removed when that read settles: racing every read
+    // against a single long-lived promise would pile up a reaction per chunk for the life
+    // of the stream and leave the listener behind on a normal completion.
+    /** @returns {Promise<{value?: Uint8Array, done: boolean}>} */
+    const readOrAbort = () => new Promise((resolve, reject) => {
+      if (signal.aborted) { reject(abortError()); return; }
+      const onAbort = () => reject(abortError());
+      signal.addEventListener("abort", onAbort, { once: true });
+      reader.read().then(
+        (/** @type {{value?: Uint8Array, done: boolean}} */ r) => { signal.removeEventListener("abort", onAbort); resolve(r); },
+        (/** @type {unknown} */ e) => { signal.removeEventListener("abort", onAbort); reject(e); },
+      );
+    });
+    try {
+      for (;;) {
+        const { value, done } = await readOrAbort();
+        if (done) break;
+        if (value) feed(value);
+      }
+    } catch (e) {
+      // Fire-and-forget: cancel() is async and need not settle promptly (a pending
+      // underlying cancel would otherwise hold the timeout hostage). Never awaited,
+      // never unhandled.
+      try { Promise.resolve(reader.cancel()).catch(() => {}); } catch { /* the socket may already be gone */ }
+      throw e;
+    } finally {
+      try { reader.releaseLock(); } catch { /* released by cancel */ }
+    }
+  } else {
+    for await (const chunk of body) feed(chunk);
   }
   buf += decoder.decode();
   // A well-behaved stream ends with a delimiter, but a truncated one may not - the

@@ -289,6 +289,8 @@ This is the single source of truth for the bridge environment variables.
 | `GROK_MIN_ANSWER_CHARS` | Grok | `1` | Minimum trimmed answer length; shorter text, or a reply under 400 chars that only announces intent ("I'll verify the cited files..."), fails as `empty` (see [Answer floor](#answer-floor-gemini-grok)). `0` disables both checks |
 | `DELIBERATION_SESSIONS` | sessions | `<XDG cache>/deliberation/sessions` | Override the session store directory (see [Session persistence](#session-persistence)) |
 | `CODEX_BIN` | Codex | `codex` | Override the path to the `codex` binary (see [Windows CLI resolution](#windows-cli-resolution)) |
+| `CODEX_API_KEY` | Codex | unset | The credential codex-cli itself reads. When unset and `OPENAI_API_KEY` is set, the provider forwards that value to the `codex exec` child as `CODEX_API_KEY` (codex does not read `OPENAI_API_KEY`); with neither, codex uses its own `auth.json` from `codex login` |
+| `MCP_TOOL_TIMEOUT` | host (all) | unset | Set by some MCP hosts (Claude Code on the web: `60000`) - the host kills any tool call longer than this. deliberation reads it and clamps every provider ceiling to `MCP_TOOL_TIMEOUT - 5000` ms so the call fails as a `timeout` naming the cap; see [Timeouts](#timeouts). Not a deliberation setting: raise it where the host is launched |
 | `DELIBERATION_DEBUG_LOG` | debug | `<XDG cache>/deliberation/debug.jsonl` | Override the debug log path (see [Observability](#observability--per-provider-progress)); only written when `debug.enabled` |
 
 Codex has no bridge and no MCP server of its own: the `core` provider
@@ -303,6 +305,14 @@ surface (`mcp__deliberation__ask-gpt`) exposes no `model` parameter. See
 `CODEX_DEFAULT_TIMEOUT_MS` (600 000 ms, 10 min) by default, so a stalled Codex process cannot
 block a consensus round indefinitely. Raise or lower it with `providers.codex.timeout` (or
 `providers.defaults.timeout`); a per-call `timeout` is not exposed through the MCP tool surface.
+
+**Codex credential.** codex-cli reads `CODEX_API_KEY` or its `auth.json`, never `OPENAI_API_KEY` -
+a session that exports only the latter got `401 Unauthorized: Missing bearer` on every call.
+`codexEnv()` forwards `OPENAI_API_KEY` as `CODEX_API_KEY` to the child when codex has not been
+given one; an explicit `CODEX_API_KEY` or a ChatGPT login is left untouched. The provider's
+`health()` (`codexHealth()`) is stat-only: the CLI must be on PATH and one of the two env vars or
+`$CODEX_HOME/auth.json` / `~/.codex/auth.json` must exist, else the panel lists codex as
+`unavailable` with that reason instead of dispatching to it.
 
 **Timeouts and retries.** See [Timeouts](#timeouts) for the full precedence ladder
 (`providers.defaults.timeout` is the one knob that covers every provider) and
@@ -387,10 +397,14 @@ have no per-call knob); HTTP providers (Grok, OpenRouter) also include token `us
 `ask-all` is one tool call that fans out to N providers server-side - opaque until all
 finish. The alternative, for hosts where that opacity hurts:
 
-- **`panel { expert?, cwd? }`** returns `{ providers: string[], omitted: string[] }` - the
-  EXACT set `selectForAskAll` would dispatch (enabled built-ins + eligible OpenRouter
+- **`panel { expert?, cwd? }`** returns `{ providers: string[], omitted: string[], unavailable: {name, reason}[] }` - the
+  EXACT set `selectForAskAll` would dispatch (enabled, HEALTHY built-ins + eligible OpenRouter
   aliases, fanout cap applied), WITHOUT calling any provider. `omitted` is the fanout-cap
-  drop list. Read-only.
+  drop list; `unavailable` names enabled built-ins whose stat-only `health()` failed (codex
+  CLI missing or no credential, `agy` not on PATH) with the reason, so a dead peer is never
+  dispatched to fail. The same map feeds `ask-all`, `consensus`, and `consensus-step`
+  (`unavailableProviders[]` on `dispatch_peers`; a `provider X unavailable: ...` warning on the
+  `consensus` tool). Read-only.
 - **`ask-one { provider, prompt, expert?, cwd?, reasoningEffort?, files? }`** runs ONE
   provider named by `panel` (resolved from the same selection set, so a pinned
   `openrouter:<alias>` works and a disabled/over-cap name returns `{ error, panel }`).
@@ -1106,6 +1120,37 @@ Every provider call is bounded. The ceiling resolves highest-first:
 4. `providers.defaults.timeout` - one knob for every provider
 5. the adapter's built-in default: codex 600000, gemini 300000, grok 180000, openrouter 180000
 
+**The host has its own cap, and it wins.** Some MCP hosts kill any tool call from the
+outside: Claude Code on the web exports `MCP_TOOL_TIMEOUT=60000`, so every ceiling above is
+unreachable there - the host reported `tool "ask-grok" timed out after 60s` and the provider's
+own error path never ran (no `errorKind`, no message, nothing that named the cap; `/consensus`
+could never survive a real review prompt). `core/host-budget.js` reads `MCP_TOOL_TIMEOUT` and
+clamps the resolved ceiling to `MCP_TOOL_TIMEOUT - 5000` ms (floor 1000) at every point a
+ceiling is applied - the Codex provider's `ask`, and `runGrok` / `runGeminiOnce` /
+`callOpenRouter` in the bridges, so the standalone `/ask-*` commands are covered too. A
+timeout that fired because of the clamp carries the cap in its `message`
+(`Host MCP_TOOL_TIMEOUT=60000 caps every MCP tool call ... Raise MCP_TOOL_TIMEOUT ...`);
+a ceiling already under the cap is passed through untouched and carries no hint. One tool call
+can also run several provider legs in SEQUENCE - a retry after a failure, the arbiter passes of a
+`consensus` round, Gemini's post-timeout drain - and a per-leg clamp alone would hand each fresh
+leg the whole cap again (the host still kills the call, just later). So the server takes the
+clock at tool entry (before health probes and selection), and every leg is stamped with what is
+LEFT of the cap (`fitToHostBudget` -> `req.hostBudgetRemainingMs`, a separate field so a shorter
+configured ceiling still wins); the adapters' clamp reads it (`clampToHostBudget(wanted, env,
+remaining)`), `callProvider` skips a retry whose backoff plus leg would not fit (a 30s
+`Retry-After` at 40s into a 60s cap is not even slept on), the Grok bridge passes the spent-down
+value into its Files API uploads (`GROK_UPLOAD_TIMEOUT_MS` is bounded by it too, even when set to
+`0`), its non-streaming fallback and its stale-file re-upload retry, the Gemini bridge into its
+alias-drop retry, `runToConvergence` runs
+every round on the same clock and stops with `stopReason: "budget-exhausted"` once the cap is
+spent rather than starting 1s legs, and the Gemini bridge disables its post-timeout drain under
+any host cap (`graceWithinHostBudget`) - the ceiling is hard there, so a drain only runs into the
+kill. A server-side `consensus` run (peers, then arbiter, per round) therefore ends as
+`budget-exhausted` or a timeout naming the cap under a 60s host rather than being killed - it
+cannot fit; use the host-driven `consensus-step` (one fan-out per call) or raise the cap. It is not a config key - the cap is the host's, so the fix is where the host is launched (Claude Code on
+the web: the environment's variables), and `/deliberation:doctor` warns when it is set below
+the provider ceilings. Garbage or zero reads as "no cap".
+
 **The transport has its own ceiling.** Node's `fetch` (undici) gives up after 300s
 waiting for response headers (`headersTimeout`) and after 300s between body chunks
 (`bodyTimeout`), and there is no public API to raise either. A configured timeout above
@@ -1140,6 +1185,14 @@ Two things the ceiling covers that are easy to get wrong:
   terminated`) surfaces as `network` and is retried; swallowing it left an empty body that
   then failed `JSON.parse` as the non-retryable `parse`. On an error status the body is
   only diagnostic, so the status is kept and the body reported empty.
+- **A flowing SSE body.** Observed on Node 22: once Grok's SSE chunks are flowing, aborting
+  the fetch's signal does NOT reliably error the body - chunks kept arriving 20s+ past the
+  abort - and a `for await` loop holds the stream's lock, so `res.body.cancel()` from
+  outside is refused. The ceiling was therefore unenforceable exactly when it mattered (a
+  long reasoning answer), and the call ran until the host's own cap. `core/sse.js
+  readSseStream(body, onEvent, signal)` now takes the call's signal, races every
+  `reader.read()` against it, and cancels the reader it owns, so the socket is actually
+  released. A body without `getReader` (test doubles) falls back to `for await`.
 - **A killed Codex child.** The kill timer is authoritative, so a SIGKILL'd `codex exec`
   reports `timeout` even when it wrote nothing to stderr (stderr-substring classification
   would otherwise call it `unknown` - and an `unknown` can never trip the circuit breaker).
@@ -1503,7 +1556,10 @@ to invoke or not invoke. Edit these to change expert behavior for your workflow.
 | Issue | Solution |
 |-------|----------|
 | MCP server not found | Restart Claude Code after setup |
-| Provider not authenticated | Codex: `codex login`. Gemini: run `agy` once (or set `GOOGLE_API_KEY`). Grok: export `XAI_API_KEY` (else calls return `errorKind: missing-auth`) |
+| Provider not authenticated | Codex: export `OPENAI_API_KEY` (forwarded to codex as `CODEX_API_KEY`; codex does not read `OPENAI_API_KEY` itself) or `codex login`. Gemini: run `agy` once (or set `GOOGLE_API_KEY`). Grok: export `XAI_API_KEY` (else calls return `errorKind: missing-auth`) |
+| `tool "ask-grok" timed out after 60s` from the host (Claude Code on the web) | The host exports `MCP_TOOL_TIMEOUT=60000` and kills every longer call. deliberation clamps its ceilings under it and the timeout result names the cap; the fix is to raise `MCP_TOOL_TIMEOUT` (e.g. `1800000`) in the environment's variables and start a new session. `/deliberation:doctor` reports it. See [Timeouts](#timeouts) |
+| `deliberation-gemini` shows `CONNECTION_CLOSED` (Claude Code on the web) | No `agy` in the container: the standalone Gemini bridge refuses to start rather than advertise tools it cannot serve. The unified server keeps working and lists gemini under `panel.unavailable`; `/consensus` and `/ask-all` run on the remaining providers |
+| `panel` lists a provider under `unavailable` | Its stat-only health check failed; the `reason` names the missing piece (CLI on PATH, credential). Fix that and call again - nothing is cached |
 | Tool not appearing | Run `claude mcp list` and verify registration |
 | Expert not triggered | Ask explicitly: "Ask GPT to review...", "Ask Gemini to review...", or "Ask Grok to review..." |
 | An advisory Gemini run returned `workspaceMutated: true` | The delegate wrote to the consulted repo despite read-only mode (the OS sandbox is macOS-only; Linux relies on detection). Nothing was auto-reverted - review `git status` / `git log` and discard unwanted changes. Treat that result as tainted. |

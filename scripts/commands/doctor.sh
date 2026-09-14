@@ -40,9 +40,41 @@ else
   warn "no config at $CFG"; echo "       fix: run /deliberation:setup"
 fi
 
-# --- provider CLIs (presence + version only; auth is confirmed by a real /ask-* call) ---
-if command -v codex >/dev/null 2>&1; then ok "codex CLI on PATH ($(codex --version 2>/dev/null | head -1))"; else warn "codex (GPT) not on PATH"; echo "       fix: install the Codex CLI, or ignore if you don't use GPT"; fi
-if command -v agy >/dev/null 2>&1; then ok "agy CLI on PATH (Gemini)"; else warn "agy (Gemini) not on PATH"; echo "       fix: install the Antigravity CLI, or ignore if you don't use Gemini"; fi
+# --- host tool-call cap: some hosts (Claude Code on the web) kill every MCP call at MCP_TOOL_TIMEOUT ms ---
+if [ -n "${MCP_TOOL_TIMEOUT:-}" ]; then
+  case "$MCP_TOOL_TIMEOUT" in
+    ''|*[!0-9]*) warn "MCP_TOOL_TIMEOUT=$MCP_TOOL_TIMEOUT is not a number; deliberation ignores it (no host cap assumed)";;
+    *)
+      if [ "$MCP_TOOL_TIMEOUT" -lt 600000 ]; then
+        warn "MCP_TOOL_TIMEOUT=$MCP_TOOL_TIMEOUT ms caps every tool call below the provider ceilings (codex 600000, gemini 300000, grok/openrouter 180000)"
+        echo "       deliberation clamps each ceiling to $((MCP_TOOL_TIMEOUT - 5000)) ms so a long call fails as 'timeout' naming the cap instead of being killed silently"
+        echo "       fix: raise MCP_TOOL_TIMEOUT (e.g. 1800000) where the host is launched - Claude Code on the web: the environment's variables - then start a new session"
+      else
+        ok "MCP_TOOL_TIMEOUT=$MCP_TOOL_TIMEOUT ms (host cap at or above every provider ceiling)"
+      fi;;
+  esac
+else
+  ok "no host tool-call cap (MCP_TOOL_TIMEOUT unset)"
+fi
+
+# --- provider CLIs (presence + version; codex credential is stat/env-only, never a login) ---
+if command -v codex >/dev/null 2>&1; then
+  ok "codex CLI on PATH ($(codex --version 2>/dev/null | head -1))"
+  CODEX_AUTH_JSON="${CODEX_HOME:-$HOME/.codex}/auth.json"
+  if [ -n "${CODEX_API_KEY:-}" ]; then
+    ok "codex credential: CODEX_API_KEY set"
+  elif [ -n "${OPENAI_API_KEY:-}" ]; then
+    ok "codex credential: OPENAI_API_KEY set (forwarded to codex as CODEX_API_KEY - codex does not read OPENAI_API_KEY itself)"
+  elif [ -f "$CODEX_AUTH_JSON" ]; then
+    ok "codex credential: $CODEX_AUTH_JSON (codex login)"
+  else
+    fail "codex has no credential - GPT is omitted from the panel and ask-gpt returns auth errors"
+    echo "       fix: export OPENAI_API_KEY (or CODEX_API_KEY), or run: printenv OPENAI_API_KEY | codex login --with-api-key"
+  fi
+else
+  warn "codex (GPT) not on PATH - GPT is omitted from the panel"; echo "       fix: install the Codex CLI, or ignore if you don't use GPT"
+fi
+if command -v agy >/dev/null 2>&1; then ok "agy CLI on PATH (Gemini)"; else warn "agy (Gemini) not on PATH - Gemini is omitted from the panel and the deliberation-gemini server does not start"; echo "       fix: install the Antigravity CLI, or ignore if you don't use Gemini (Claude Code on the web has no agy)"; fi
 if [ -n "${XAI_API_KEY:-}" ]; then
   ok "XAI_API_KEY set (Grok)"
 else

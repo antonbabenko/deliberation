@@ -100,3 +100,25 @@ test("G5: selectForConsensus = built-ins + per-alias OR consensus delegates, unc
   // consensus===true: all-on, off. (arch is consensus:false.) gemini disabled. Uncapped.
   assert.deepEqual(providers.map((p) => p.name), ["codex", "grok", "openrouter:all-on", "openrouter:off"]);
 });
+
+test("G6: an unhealthy built-in is moved to `unavailable` with its reason, not dispatched - ask-all and consensus alike", () => {
+  const reg = makeRegistry([prov("codex"), prov("gemini"), prov("grok"), prov("openrouter")]);
+  const cfg = { providers: {}, openrouter: { models: [] } };
+  const unhealthy = new Map([["gemini", "agy not on PATH"], ["codex", "no credential"]]);
+  const a = reg.selectForAskAll({ config: cfg, expert: "", unhealthy });
+  assert.deepEqual(a.providers.map((p) => p.name), ["grok"]);
+  assert.deepEqual(a.unavailable, [{ name: "codex", reason: "no credential" }, { name: "gemini", reason: "agy not on PATH" }]);
+  assert.deepEqual(a.omitted, [], "unavailable built-ins are not confused with over-cap OR aliases");
+  const c = reg.selectForConsensus({ config: cfg, expert: "", unhealthy });
+  assert.deepEqual(c.providers.map((p) => p.name), ["grok"]);
+  assert.deepEqual(c.unavailable.map((u) => u.name), ["codex", "gemini"]);
+});
+
+test("G7: a disabled built-in is neither dispatched nor reported unavailable; no map = everything healthy", () => {
+  const reg = makeRegistry([prov("codex"), prov("gemini"), prov("grok")]);
+  const cfg = { providers: { gemini: { enabled: false } }, openrouter: { models: [] } };
+  const a = reg.selectForAskAll({ config: cfg, expert: "", unhealthy: new Map([["gemini", "agy not on PATH"]]) });
+  assert.deepEqual(a.providers.map((p) => p.name), ["codex", "grok"]);
+  assert.deepEqual(a.unavailable, []);
+  assert.deepEqual(reg.selectForAskAll({ config: cfg, expert: "" }).unavailable, []);
+});

@@ -1,5 +1,9 @@
 "use strict";
 const { test } = require("node:test");
+// The drain tests assert the bridge's post-timeout recovery, which is deliberately OFF under a
+// host tool-call cap (core/host-budget.js graceWithinHostBudget). A capped host running this
+// suite (Claude Code on the web exports MCP_TOOL_TIMEOUT=60000) must not change what it asserts.
+delete process.env.MCP_TOOL_TIMEOUT;
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");

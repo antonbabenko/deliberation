@@ -36,7 +36,13 @@ function makeAntigravityProvider(opts = {}) {
     // canImplement reflects the construction lock so discovery (panel) is honest about THIS process.
     capabilities: { canImplement: allowImplement, fileUpload: false, multiTurn: true, walksFilesystem: true },
     async health() {
-      return typeof bridge.runGemini === "function" ? { ok: true } : { ok: false, reason: "agy bridge unavailable" };
+      if (typeof bridge.runGemini !== "function") return { ok: false, reason: "agy bridge unavailable" };
+      // Stat-only CLI presence (the bridge owns AGY_BIN resolution). A missing `agy` used to be
+      // discovered only by dispatching to it - every ask-all / consensus round paid for that.
+      if (typeof bridge.cliAvailable === "function" && !bridge.cliAvailable()) {
+        return { ok: false, reason: "agy (Antigravity CLI) not on PATH; install it or set AGY_BIN" };
+      }
+      return { ok: true };
     },
     async ask(req) {
       const started = Date.now();
@@ -59,7 +65,7 @@ function makeAntigravityProvider(opts = {}) {
       try {
         // runGemini(args, cwd, timeoutMs, recoveryGraceMs, opts). recovered:true => normal success.
         const timeoutMs = typeof req.timeoutMs === "number" && req.timeoutMs > 0 ? req.timeoutMs : defaultTimeoutMs;
-        const out = await bridge.runGemini(args, req.cwd, timeoutMs, undefined, { readOnly: !implement, includeDirs });
+        const out = await bridge.runGemini(args, req.cwd, timeoutMs, undefined, { readOnly: !implement, includeDirs, hostBudgetRemainingMs: req.hostBudgetRemainingMs });
         // out.response can be undefined on a degenerate clean run; coerce to ""
         // so the DelegationSuccess.text contract (string, not string|undefined) holds.
         // Gemini (agy CLI) has no per-call reasoning-effort knob -> null.

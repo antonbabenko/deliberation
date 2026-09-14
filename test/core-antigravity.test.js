@@ -121,3 +121,14 @@ test("AG-timeout-2: no configured timeout injects undefined so the bridge defaul
   await makeAntigravityProvider({ bridge: capturing }).ask({ prompt: "hi", cwd: "/tmp" });
   assert.equal(seen, undefined, "undefined, not 0 - a falsy value would read as no timeout");
 });
+
+test("AG-health-1: health asks the bridge whether agy is spawnable (stat-only) and names the fix", async () => {
+  const present = { ...fakeBridge, cliAvailable: () => true };
+  assert.deepEqual(await makeAntigravityProvider({ bridge: present }).health(), { ok: true });
+  const missing = { ...fakeBridge, cliAvailable: () => false };
+  const h = await makeAntigravityProvider({ bridge: missing }).health();
+  assert.equal(h.ok, false);
+  assert.match(String(h.reason), /agy .*not on PATH.*AGY_BIN/);
+  // A bridge without the probe (older / test doubles) is trusted, as before.
+  assert.deepEqual(await makeAntigravityProvider({ bridge: fakeBridge }).health(), { ok: true });
+});

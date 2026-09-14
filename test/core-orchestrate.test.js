@@ -461,3 +461,99 @@ test("ORX-retry-6: `upstream` is retried once, matching what the bridges adverti
   assert.equal(r.isError, false);
   assert.equal(p.calls, 2);
 });
+
+// --- Host budget across sequential legs (retry, arbiter passes) ----------------------------
+/** @param {string} v @param {() => Promise<void>} fn */
+async function withHostCap(v, fn) {
+  const saved = process.env.MCP_TOOL_TIMEOUT;
+  process.env.MCP_TOOL_TIMEOUT = v;
+  try { await fn(); } finally { if (saved === undefined) delete process.env.MCP_TOOL_TIMEOUT; else process.env.MCP_TOOL_TIMEOUT = saved; }
+}
+
+test("HBX1: under a host cap the retry is fitted into what is LEFT, not handed the whole cap again", async () => {
+  await withHostCap("8000", async () => {
+    /** @type {number[]} */ const seen = [];
+    let calls = 0;
+    const p = /** @type {any} */ ({
+      name: "grok", capabilities: {}, async health() { return { ok: true }; },
+      async ask(/** @type {any} */ req) { seen.push(req.hostBudgetRemainingMs); calls++; return calls === 1 ? { provider: "grok", model: "m", isError: true, errorKind: "network", retryable: true, ms: 1 } : { provider: "grok", model: "m", text: "ok", isError: false, ms: 1 }; },
+    });
+    const r = await askOne(p, { prompt: "x", timeoutMs: 180000 });
+    assert.equal(r.isError, false);
+    assert.equal(seen.length, 2);
+    assert.ok(seen[0] <= 3000, `first leg stamped with what is left of the cap (got ${seen[0]})`);
+    assert.ok(seen[1] < seen[0], `retry got less than the first leg (${seen[1]} vs ${seen[0]})`);
+  });
+});
+
+test("HBX2: with the host budget spent, the retry is skipped and the honest first result is returned", async () => {
+  await withHostCap("6000", async () => { // 6000 - 5000 margin = the 1000 floor: nothing left for a second leg
+    let calls = 0;
+    const p = /** @type {any} */ ({
+      name: "grok", capabilities: {}, async health() { return { ok: true }; },
+      async ask() { calls++; return { provider: "grok", model: "m", isError: true, errorKind: "network", retryable: true, ms: 1 }; },
+    });
+    const r = await askOne(p, { prompt: "x" });
+    assert.equal(r.isError, true);
+    assert.equal(r.errorKind, "network");
+    assert.equal(calls, 1, "no retry without budget");
+  });
+});
+
+test("HBX3: the consensus arbiter verdict pass is fitted into what the fan-out left", async () => {
+  await withHostCap("60000", async () => {
+    /** @type {any[]} */ const arbiterReqs = [];
+    const peer = /** @type {any} */ ({ name: "grok", capabilities: {}, async health() { return { ok: true }; }, async ask() { return { provider: "grok", model: "m", text: "VERDICT: APPROVE", isError: false, ms: 1 }; } });
+    const arbiter = /** @type {any} */ ({ name: "codex", capabilities: {}, async health() { return { ok: true }; }, async ask(/** @type {any} */ req) { arbiterReqs.push(req); return { provider: "codex", model: "m", text: "VERDICT: APPROVE", isError: false, ms: 1 }; } });
+    await consensus([peer], { prompt: "q", timeoutMs: 600000 }, { arbiter });
+    assert.equal(arbiterReqs.length, 1);
+    assert.ok(arbiterReqs[0].hostBudgetRemainingMs <= 55000, `arbiter leg stamped with what is left (got ${arbiterReqs[0].hostBudgetRemainingMs})`);
+    assert.equal(arbiterReqs[0].timeoutMs, 600000, "the caller's own ceiling is untouched; the adapter clamps");
+  });
+});
+
+test("HBX5: a Retry-After that would outlive the host cap is not even slept on", async () => {
+  await withHostCap("8000", async () => { // 3000 usable; a 30s Retry-After cannot fit
+    let calls = 0;
+    const p = /** @type {any} */ ({
+      name: "grok", capabilities: {}, async health() { return { ok: true }; },
+      async ask() { calls++; return { provider: "grok", model: "m", isError: true, errorKind: "rate-limit", retryable: true, retryAfterMs: 30000, ms: 1 }; },
+    });
+    const started = Date.now();
+    const r = await askOne(p, { prompt: "x" });
+    assert.ok(Date.now() - started < 2000, "returned without sleeping through the backoff");
+    assert.equal(/** @type {any} */ (r).errorKind, "rate-limit");
+    assert.equal(calls, 1);
+  });
+});
+
+test("HBX6: a later consensus round runs on the SAME cap clock as round one - the fan-out is not handed the whole cap again", async () => {
+  await withHostCap("60000", async () => {
+    /** @type {number[]} */ const peerBudgets = [];
+    let peerCalls = 0;
+    const peer = /** @type {any} */ ({ name: "p", capabilities: {}, async health() { return { ok: true }; },
+      async ask(/** @type {any} */ req) {
+        peerBudgets.push(req.hostBudgetRemainingMs); peerCalls++;
+        await new Promise((r) => setTimeout(r, 40)); // real time passes between rounds
+        // Dissent in round 1 forces a second round; approve in round 2.
+        return { provider: "p", model: "m", text: peerCalls === 1 ? "VERDICT: REQUEST_CHANGES\nCRITICAL: x" : "VERDICT: APPROVE", isError: false, ms: 1 };
+      } });
+    const arbiter = /** @type {any} */ ({ name: "arb", capabilities: {}, async health() { return { ok: true }; },
+      async ask(/** @type {any} */ req) { return { provider: "arb", model: "m", text: req.prompt.includes("## Peer reviews") ? "**Verdict**: REQUEST_CHANGES" : "revised", isError: false, ms: 1 }; } });
+    const out = await runToConvergence([peer], { prompt: "plan" }, { arbiter, maxRounds: 3 });
+    assert.ok(out.rounds.length >= 2, `needs a second round to prove the point (got ${out.rounds.length})`);
+    assert.ok(peerBudgets[1] < peerBudgets[0], `round 2 fan-out got less than round 1 (${peerBudgets[1]} vs ${peerBudgets[0]})`);
+  });
+});
+
+test("HBX7: with the host budget already spent, runToConvergence stops with budget-exhausted before any leg starts", async () => {
+  await withHostCap("6000", async () => { // 6000 - 5000 = the floor: nothing usable from the first round on
+    let calls = 0;
+    const peer = /** @type {any} */ ({ name: "p", capabilities: {}, async health() { return { ok: true }; }, async ask() { calls++; return { provider: "p", model: "m", text: "VERDICT: APPROVE", isError: false, ms: 1 }; } });
+    const arbiter = /** @type {any} */ ({ name: "arb", capabilities: {}, async health() { return { ok: true }; }, async ask() { calls++; return { provider: "arb", model: "m", text: "ok", isError: false, ms: 1 }; } });
+    const out = await runToConvergence([peer], { prompt: "plan" }, { arbiter, maxRounds: 3 });
+    assert.equal(out.converged, false);
+    assert.equal(out.stopReason, "budget-exhausted");
+    assert.equal(calls, 0, "no provider leg is started on a spent budget");
+  });
+});

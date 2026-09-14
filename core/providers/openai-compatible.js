@@ -64,6 +64,7 @@ function makeOpenAICompatibleProvider(opts) {
           messages: bridge.buildMessages(turns),
           reasoningEffort: req.reasoningEffort, temperature: req.temperature,
           timeoutMs: typeof req.timeoutMs === "number" && req.timeoutMs > 0 ? req.timeoutMs : defaultTimeoutMs,
+          hostBudgetRemainingMs: req.hostBudgetRemainingMs,
         });
         const threadId = req.threadId || crypto.randomUUID();
         sessions.set(threadId, [...turns, { role: "assistant", text }]);
