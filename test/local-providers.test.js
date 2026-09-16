@@ -66,7 +66,24 @@ test("LP2: makeRegistry formats delegate names with provider prefix and model sl
   assert.ok(reg.get("google:gpt-oss-120b-medium"));
 });
 
-test("LP3: validateConfig accepts google provider in models and makeRegistry binds pinGoogleAlias", () => {
+test("LP3: validateConfig accepts models with colons, dots, and slashes in model slugs", () => {
+  const raw = {
+    version: 1,
+    models: {
+      "nemotron-ultra": { provider: "ollama", model: "nemotron-3-ultra:cloud" },
+      "glm-cloud": { provider: "ollama", model: "glm-5.3:cloud" },
+      "custom-v1": { provider: "lmstudio", model: "custom/model:v1.0" },
+    },
+  };
+  const { ok, resolved, error } = validateConfig(raw);
+  assert.equal(ok, true, error);
+  assert.equal(resolved.openrouter.models.length, 3);
+  assert.equal(resolved.openrouter.models[0].model, "nemotron-3-ultra:cloud");
+  assert.equal(resolved.openrouter.models[1].model, "glm-5.3:cloud");
+  assert.equal(resolved.openrouter.models[2].model, "custom/model:v1.0");
+});
+
+test("LP4: validateConfig accepts google provider in models and makeRegistry binds pinGoogleAlias", () => {
   const raw = {
     version: 1,
     providers: {
@@ -96,5 +113,3 @@ test("LP3: validateConfig accepts google provider in models and makeRegistry bin
   const { providers } = reg.selectForAskAll({ config: cfg, expert: "architect" });
   assert.deepEqual(providers.map((p) => p.name), ["google:gemini-3.8-flash-high"]);
 });
-
-
