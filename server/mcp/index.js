@@ -254,7 +254,7 @@ async function resolveArbiter(spec, selected, registry, getConfig) {
     );
     const healthy = checked.filter((c) => c.ok).map((c) => c.p);
     const pool = healthy.length ? healthy : selected;
-    const preferred = pool.find((p) => p.name.startsWith("openrouter:")) || pool[0] || null;
+    const preferred = pool.find((p) => p.name.startsWith("openrouter:") || p.name.startsWith("ollama:") || p.name.startsWith("lmstudio:")) || pool[0] || null;
     const base = `auto-selected arbiter '${preferred ? preferred.name : "none"}'; set consensus.arbiter to choose`;
     return { mode: "server", provider: preferred, warning: warning ? `${warning}; ${base}` : base };
   }
@@ -269,9 +269,9 @@ async function resolveArbiter(spec, selected, registry, getConfig) {
     const orProvider = registry.get("openrouter");
     const models = (cfg.openrouter && cfg.openrouter.models) || [];
     const model = models.find((/** @type {any} */ m) => m && m.alias === id);
-    // OpenRouter must be enabled both as a provider and as the openrouter block.
-    const orEnabled = providerEnabled(cfg, "openrouter") && !(cfg.openrouter && cfg.openrouter.enabled === false);
-    if (orProvider && model && orEnabled) return { mode: "server", provider: pinAlias(orProvider, model) };
+    const prov = (model && model.provider) || "openrouter";
+    const isProvEnabled = providerEnabled(cfg, prov) && !(prov === "openrouter" && cfg.openrouter && cfg.openrouter.enabled === false);
+    if (orProvider && model && isProvEnabled) return { mode: "server", provider: pinAlias(orProvider, model, cfg) };
     return auto(`configured arbiter model '${id}' is not available`);
   }
 
@@ -1251,9 +1251,14 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       // openrouter:<alias> resolves and a disabled/over-cap one is rejected).
       const want = typeof args.provider === "string" ? args.provider : "";
       const { providers: selected, unavailable } = registry.selectForAskAll({ config: getConfig(), expert: expert || "", unhealthy: await unhealthyMap(providers) });
-      const p = selected.find((x) => x.name === want);
+      const p = selected.find((x) =>
+        x.name === want ||
+        (want === "gemini" && (x.name.startsWith("google:") || x.name === "gemini")) ||
+        (want === "google" && (x.name.startsWith("google:") || x.name === "gemini")) ||
+        (x.alias && (want === x.alias || want === `${x.provider}:${x.alias}` || want === `${x.provider}:${x.model}`))
+      );
       if (!p) {
-        const dead = (unavailable || []).find((u) => u.name === want);
+        const dead = (unavailable || []).find((u) => u.name === want || (want === "gemini" && (u.name.startsWith("google:") || u.name === "gemini")));
         return jsonResult({
           error: dead ? `provider "${want}" is unavailable: ${dead.reason}` : `provider "${want}" is not in the active panel`,
           panel: selected.map((x) => x.name),
@@ -1441,6 +1446,7 @@ function startStdio() {
     // Codex is excluded from the MODEL wiring on purpose: it resolves its model from
     // ~/.codex/config.toml.
     makeAntigravityProvider({
+      name: geminiCfg.model ? `google:${geminiCfg.model}` : "gemini",
       bridge: require("../gemini/index.js"),
       model: geminiCfg.model,
       timeoutMs: providerTimeout("gemini"),

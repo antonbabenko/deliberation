@@ -420,7 +420,16 @@ function leverFor(provider) {
   if (provider.startsWith(OR_PREFIX) && provider.length > OR_PREFIX.length) {
     return { kind: "openrouter", alias: provider.slice(OR_PREFIX.length) };
   }
-  if (provider === "codex" || provider === "gemini") return { kind: "external" };
+  if (provider.startsWith("ollama:") && provider.length > "ollama:".length) {
+    return { kind: "openrouter", alias: provider.slice("ollama:".length) };
+  }
+  if (provider.startsWith("lmstudio:") && provider.length > "lmstudio:".length) {
+    return { kind: "openrouter", alias: provider.slice("lmstudio:".length) };
+  }
+  if (provider.startsWith("llmstudio:") && provider.length > "llmstudio:".length) {
+    return { kind: "openrouter", alias: provider.slice("llmstudio:".length) };
+  }
+  if (provider === "codex" || provider === "gemini" || provider.startsWith("google:") || provider.startsWith("gemini:")) return { kind: "external" };
   if (provider === "grok") return { kind: "grok" };
   return { kind: "unknown" };
 }
@@ -439,6 +448,7 @@ function configLevers(config) {
   const byAlias = new Map();
   for (const m of Array.isArray(or.models) ? or.models : []) {
     if (m && typeof m.alias === "string" && m.alias) byAlias.set(m.alias, m);
+    if (m && typeof m.model === "string" && m.model) byAlias.set(m.model, m);
   }
   /** @type {Set<string>} */
   const invalidAliases = new Set();

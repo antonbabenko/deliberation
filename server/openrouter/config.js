@@ -8,7 +8,7 @@ const EXPERT_KEYS = new Set([
   "security-analyst", "researcher", "debugger",
 ]);
 const RESERVED_ALIAS = "openrouter-default";
-const ALIAS_RE = /^[a-z0-9-]+$/;
+const ALIAS_RE = /^[a-z0-9_.:-]+$/;
 const SUPPORTED_MAJOR = 1;
 
 const DEFAULT_API_BASE = "https://openrouter.ai/api/v1";
@@ -93,12 +93,13 @@ function validateConfig(raw) {
   // alias === id. Per-entry soft-fail: a bad entry lands in invalidModels and does
   // NOT reject the whole config. Order follows Object.keys insertion order.
   const parsed = resolveModels(raw.models);
-  // Disabled-openrouter gating: when the provider is disabled, force the EFFECTIVE
-  // models to [] (and invalidModels to []) so the registry never fans out / votes a
-  // disabled provider's models, matching the old disabledOpenRouter() shape. This
-  // runs BEFORE resolveConsensus, so a {model:id} arbiter pointing at a now-absent
-  // model degrades to "auto" + warning instead of pinning a disabled delegate.
-  const models = enabled ? parsed.models : [];
+  const isModelEnabled = (m) => {
+    const prov = m.provider || "openrouter";
+    if (prov === "openrouter") return enabled;
+    const pBlock = providersRaw[prov];
+    return !pBlock || pBlock.enabled !== false;
+  };
+  const models = parsed.models.filter(isModelEnabled);
   const invalidModels = enabled ? parsed.invalidModels : [];
 
   const { consensus, warnings } = resolveConsensus(raw.consensus, models);
@@ -231,8 +232,8 @@ function resolveDefaults(raw) {
 // models.<id>.timeout still wins over all of it - registry.js merges that into the
 // request itself. `defaults` is a shared block, NOT a provider: it never becomes an
 // entry in the resolved map.
-const PINNABLE_KEYS = ["model", "reasoningEffort"];
-const KNOWN_PROVIDERS = ["codex", "gemini", "grok", "openrouter"];
+const PINNABLE_KEYS = ["model", "reasoningEffort", "apiBase", "apiKeyEnv"];
+const KNOWN_PROVIDERS = ["codex", "gemini", "grok", "openrouter", "ollama", "lmstudio", "llmstudio"];
 const positiveInt = (/** @type {any} */ v) => (Number.isInteger(v) && v > 0 ? v : undefined);
 function resolveProviders(providersRaw) {
   const out = {};
@@ -316,14 +317,12 @@ function resolveModels(modelsRaw) {
     }
     if (id === RESERVED_ALIAS) { addInvalid(i, id, `id "${RESERVED_ALIAS}" is reserved`); continue; }
     if (!isObject(m)) { addInvalid(i, id, `models["${id}"] must be an object`); continue; }
-    // provider is required and MUST be "openrouter" in v1. codex/gemini/grok model
-    // entries are rejected with a clear reason - they are CLI-managed / singleton
-    // built-ins and out of scope. The field stays required so the shape is explicit.
+    const ALLOWED_MODEL_PROVIDERS = new Set(["openrouter", "ollama", "lmstudio", "llmstudio"]);
     if (typeof m.provider !== "string" || !m.provider.trim()) {
-      addInvalid(i, id, `models["${id}"] needs a provider (must be "${MODEL_PROVIDER}")`); continue;
+      addInvalid(i, id, `models["${id}"] needs a provider (must be one of: ${[...ALLOWED_MODEL_PROVIDERS].join(", ")})`); continue;
     }
-    if (m.provider !== MODEL_PROVIDER) {
-      addInvalid(i, id, `models["${id}"] provider "${m.provider}" is not supported; only "${MODEL_PROVIDER}" model entries are allowed (codex/gemini/grok are CLI-managed / singleton built-ins, out of scope)`);
+    if (!ALLOWED_MODEL_PROVIDERS.has(m.provider)) {
+      addInvalid(i, id, `models["${id}"] provider "${m.provider}" is not supported; codex/gemini/grok are CLI-managed / singleton built-ins, out of scope (supported: ${[...ALLOWED_MODEL_PROVIDERS].join(", ")})`);
       continue;
     }
     if (typeof m.model !== "string" || !m.model.trim()) {
@@ -359,6 +358,7 @@ function resolveModels(modelsRaw) {
     }
     models.push({
       alias: id,
+      provider: m.provider,
       model: m.model.trim(),
       experts,
       askAll: m.askAll !== false,
@@ -370,6 +370,7 @@ function resolveModels(modelsRaw) {
       timeout: m.timeout,
       temperature: m.temperature,
       apiBase: m.apiBase,
+      apiKeyEnv: m.apiKeyEnv,
     });
   }
   return { models, invalidModels };
