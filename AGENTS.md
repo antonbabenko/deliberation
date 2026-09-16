@@ -119,7 +119,10 @@ These apply to every MCP host, not just Claude Code:
   so a change needs a restart. A result that errors with `errorKind: "timeout"` at almost
   exactly the ceiling hit the limit rather than the model stalling. If the host itself caps
   tool calls (`MCP_TOOL_TIMEOUT`; Claude Code on the web sets 60000), every ceiling is clamped
-  5s under it and the timeout message names the cap - the fix is to raise it where the host
+  5s under it and the timeout message names the cap. Hosts that take a per-server `timeout`
+  in the MCP server entry (Claude Code does, ahead of `MCP_TOOL_TIMEOUT`) get it from the
+  server config - the Claude Code plugin manifest declares 1800000 and mirrors it into the
+  server env so the clamp follows the real cap; on other hosts raise the cap where the host
   is launched, not in `config.json`.
 - **Retries** - a failed call is retried once, and only for `network`, `rate-limit` (waiting
   for the upstream's `Retry-After`), and `empty` (a provider that exited clean but returned a

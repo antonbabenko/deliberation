@@ -14,22 +14,30 @@
     "deliberation-gemini": {
       "command": "node",
       "args": ["${CLAUDE_PLUGIN_ROOT}/server/gemini/index.js"],
-      "type": "stdio"
+      "type": "stdio",
+      "timeout": 1800000,
+      "env": { "MCP_TOOL_TIMEOUT": "1800000" }
     },
     "deliberation-grok": {
       "command": "node",
       "args": ["${CLAUDE_PLUGIN_ROOT}/server/grok/index.js"],
-      "type": "stdio"
+      "type": "stdio",
+      "timeout": 1800000,
+      "env": { "MCP_TOOL_TIMEOUT": "1800000" }
     },
     "deliberation-openrouter": {
       "command": "node",
       "args": ["${CLAUDE_PLUGIN_ROOT}/server/openrouter/index.js"],
-      "type": "stdio"
+      "type": "stdio",
+      "timeout": 1800000,
+      "env": { "MCP_TOOL_TIMEOUT": "1800000" }
     },
     "deliberation": {
       "command": "node",
       "args": ["${CLAUDE_PLUGIN_ROOT}/server/mcp/index.js"],
-      "type": "stdio"
+      "type": "stdio",
+      "timeout": 1800000,
+      "env": { "MCP_TOOL_TIMEOUT": "1800000" }
     }
   }
 }

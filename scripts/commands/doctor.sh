@@ -46,9 +46,9 @@ if [ -n "${MCP_TOOL_TIMEOUT:-}" ]; then
     ''|*[!0-9]*) warn "MCP_TOOL_TIMEOUT=$MCP_TOOL_TIMEOUT is not a number; deliberation ignores it (no host cap assumed)";;
     *)
       if [ "$MCP_TOOL_TIMEOUT" -lt 600000 ]; then
-        warn "MCP_TOOL_TIMEOUT=$MCP_TOOL_TIMEOUT ms caps every tool call below the provider ceilings (codex 600000, gemini 300000, grok/openrouter 180000)"
-        echo "       deliberation clamps each ceiling to $((MCP_TOOL_TIMEOUT - 5000)) ms so a long call fails as 'timeout' naming the cap instead of being killed silently"
-        echo "       fix: raise MCP_TOOL_TIMEOUT (e.g. 1800000) where the host is launched - Claude Code on the web: the environment's variables - then start a new session"
+        warn "MCP_TOOL_TIMEOUT=$MCP_TOOL_TIMEOUT ms in this shell is below the provider ceilings (codex 600000, gemini 300000, grok/openrouter 180000)"
+        echo "       the plugin's own servers do not see this value: .claude-plugin/plugin.json declares \"timeout\": 1800000 per server (overrides MCP_TOOL_TIMEOUT) and mirrors it into the server env"
+        echo "       a 'timeout' result whose message still names MCP_TOOL_TIMEOUT=$MCP_TOOL_TIMEOUT means an older plugin install: run 'claude plugin update deliberation@antonbabenko' and start a new session"
       else
         ok "MCP_TOOL_TIMEOUT=$MCP_TOOL_TIMEOUT ms (host cap at or above every provider ceiling)"
       fi;;

@@ -10,6 +10,12 @@
  * The rule: read the host cap from the environment, keep every provider ceiling a
  * margin UNDER it so the provider fails first (a real `timeout` result that names the
  * cap), and say what to raise. No config key - the cap is the host's, not ours.
+ *
+ * The host resolves the cap per server as `config.timeout ?? MCP_TOOL_TIMEOUT ?? default`,
+ * so `.claude-plugin/plugin.json` declares `timeout: 1800000` on every server AND mirrors it
+ * into the server's env as MCP_TOOL_TIMEOUT: the process inherits the host's 60000
+ * otherwise, and this clamp would cancel the override. A clamped timeout on a current
+ * manifest therefore means an old plugin install or a host with no per-server timeout.
  */
 
 const HOST_BUDGET_ENV = "MCP_TOOL_TIMEOUT";
@@ -69,9 +75,11 @@ function clampToHostBudget(timeoutMs, env = process.env, remainingMs) {
 function hostBudgetHint(budgetMs, ceilingMs) {
   const ceiling = typeof ceilingMs === "number" && ceilingMs > 0 ? ceilingMs : Math.max(HOST_BUDGET_MIN_MS, budgetMs - HOST_BUDGET_MARGIN_MS);
   return `Host ${HOST_BUDGET_ENV}=${budgetMs} caps every MCP tool call, so deliberation clamped this ` +
-    `provider's ceiling to ${ceiling} ms. Raise ${HOST_BUDGET_ENV} to at least the provider ceiling ` +
-    `(built-ins: codex 600000, gemini 300000, grok/openrouter 180000, or your providers.*.timeout) ` +
-    `and restart the session. Claude Code on the web: set it in the environment's variables.`;
+    `provider's ceiling to ${ceiling} ms. The plugin manifest sets a per-server "timeout": 1800000 ` +
+    `(and the same ${HOST_BUDGET_ENV} in the server env), which overrides the host cap - so this is ` +
+    `an older plugin install or a host without per-server timeouts. Claude Code on the web: update the ` +
+    `plugin (claude plugin update deliberation@antonbabenko) and start a new session; a manual .mcp.json ` +
+    `install: add "timeout": 1800000 and "env": {"${HOST_BUDGET_ENV}": "1800000"} to the server entry.`;
 }
 
 /**

@@ -136,12 +136,16 @@ call fails naming that shim and the variable to set, instead of reporting the CL
 Three things differ in a web container, and the plugin now handles each:
 
 - **The host caps every tool call.** Claude Code on the web exports `MCP_TOOL_TIMEOUT=60000`,
-  which kills any MCP call after 60s - far below the provider ceilings below. deliberation
-  reads it and keeps every ceiling 5s under it, so a long answer fails as a `timeout` whose
-  message names the cap instead of the host killing the call silently. To actually get long
-  answers (a `/consensus` review needs minutes), raise `MCP_TOOL_TIMEOUT` (for example
-  `1800000`) in the environment's variables and start a new session. `/deliberation:doctor`
-  warns while it is too low.
+  which kills any MCP call after 60s - far below the provider ceilings below. Claude Code
+  applies a per-server `timeout` ahead of that variable, so the plugin manifest declares
+  `"timeout": 1800000` (30 min) on every deliberation server and mirrors it into the server's
+  env as `MCP_TOOL_TIMEOUT` (the process inherits the host's 60000 otherwise, and
+  deliberation's own clamp would cancel the override). Nothing to configure. If a `timeout`
+  result still names `MCP_TOOL_TIMEOUT=60000`, the install is older than this manifest:
+  `claude plugin update deliberation@antonbabenko` and start a new session. Installing by hand
+  through `.mcp.json` on a capped host: add the same `"timeout": 1800000` and
+  `"env": {"MCP_TOOL_TIMEOUT": "1800000"}` to the server entry. `/deliberation:doctor`
+  explains the shell's residual value.
 - **Codex reads `CODEX_API_KEY`, not `OPENAI_API_KEY`.** Exporting `OPENAI_API_KEY` is
   enough: the provider forwards it to `codex exec` under the name codex reads. No
   `codex login` needed (`printenv OPENAI_API_KEY | codex login --with-api-key` still works).
