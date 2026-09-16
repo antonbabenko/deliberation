@@ -182,9 +182,12 @@ entry point) and keeps it out of a shell. If resolution ever misses on your mach
 they are HTTP bridges and spawn nothing.
 
 **Claude Code on the web note.** The web host caps every MCP tool call at 60s
-(`MCP_TOOL_TIMEOUT=60000`). deliberation reads that cap, keeps its provider ceilings under it,
-and says so in the timeout message - but a real `/consensus` review needs minutes, so raise
-`MCP_TOOL_TIMEOUT` in the environment's variables. `/deliberation:doctor` reports the cap,
+(`MCP_TOOL_TIMEOUT=60000`). The plugin manifest overrides that per server: each deliberation
+server declares `"timeout": 1800000` (30 min, which Claude Code applies ahead of
+`MCP_TOOL_TIMEOUT`) and mirrors it into the server's env so the plugin's own clamp tracks
+the real cap. Nothing to set in the environment. A `timeout` result whose message still names
+`MCP_TOOL_TIMEOUT=60000` means an older plugin install: `claude plugin update
+deliberation@antonbabenko` and start a new session. `/deliberation:doctor` reports the cap,
 the codex credential, and a missing `agy`; the panel skips providers that cannot answer
 (`panel.unavailable`) instead of waiting on them. See [SETUP.md](SETUP.md#claude-code-on-the-web-and-other-capped-hosts).
 

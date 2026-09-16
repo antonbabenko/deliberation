@@ -290,7 +290,7 @@ This is the single source of truth for the bridge environment variables.
 | `DELIBERATION_SESSIONS` | sessions | `<XDG cache>/deliberation/sessions` | Override the session store directory (see [Session persistence](#session-persistence)) |
 | `CODEX_BIN` | Codex | `codex` | Override the path to the `codex` binary (see [Windows CLI resolution](#windows-cli-resolution)) |
 | `CODEX_API_KEY` | Codex | unset | The credential codex-cli itself reads. When unset and `OPENAI_API_KEY` is set, the provider forwards that value to the `codex exec` child as `CODEX_API_KEY` (codex does not read `OPENAI_API_KEY`); with neither, codex uses its own `auth.json` from `codex login` |
-| `MCP_TOOL_TIMEOUT` | host (all) | unset | Set by some MCP hosts (Claude Code on the web: `60000`) - the host kills any tool call longer than this. deliberation reads it and clamps every provider ceiling to `MCP_TOOL_TIMEOUT - 5000` ms so the call fails as a `timeout` naming the cap; see [Timeouts](#timeouts). Not a deliberation setting: raise it where the host is launched |
+| `MCP_TOOL_TIMEOUT` | host (all) | unset | Set by some MCP hosts (Claude Code on the web: `60000`) - the host kills any tool call longer than this. deliberation reads it and clamps every provider ceiling to `MCP_TOOL_TIMEOUT - 5000` ms so the call fails as a `timeout` naming the cap; see [Timeouts](#timeouts). Claude Code applies a per-server `timeout` ahead of this variable, so `.claude-plugin/plugin.json` sets `1800000` on every server and mirrors it into the server env under this name (the mirror is what the clamp reads) |
 | `DELIBERATION_DEBUG_LOG` | debug | `<XDG cache>/deliberation/debug.jsonl` | Override the debug log path (see [Observability](#observability--per-provider-progress)); only written when `debug.enabled` |
 
 Codex has no bridge and no MCP server of its own: the `core` provider
@@ -1147,9 +1147,16 @@ spent rather than starting 1s legs, and the Gemini bridge disables its post-time
 any host cap (`graceWithinHostBudget`) - the ceiling is hard there, so a drain only runs into the
 kill. A server-side `consensus` run (peers, then arbiter, per round) therefore ends as
 `budget-exhausted` or a timeout naming the cap under a 60s host rather than being killed - it
-cannot fit; use the host-driven `consensus-step` (one fan-out per call) or raise the cap. It is not a config key - the cap is the host's, so the fix is where the host is launched (Claude Code on
-the web: the environment's variables), and `/deliberation:doctor` warns when it is set below
-the provider ceilings. Garbage or zero reads as "no cap".
+cannot fit; use the host-driven `consensus-step` (one fan-out per call) or raise the cap. It is not a config key - the cap is the host's. Claude Code resolves it per server as
+`config.timeout ?? MCP_TOOL_TIMEOUT ?? default` (progress notifications never extend it), so
+`.claude-plugin/plugin.json` declares `"timeout": 1800000` on all four servers - the same 30 min
+as `consensus.maxWallMs` and Claude Code's stdio idle window - and mirrors it into each server's
+env as `MCP_TOOL_TIMEOUT`. The mirror is not optional: the server process inherits the host's
+`60000`, and the clamp above would cut every ceiling to 55s under a 30-min host allowance.
+`test/plugin-manifest.test.js` keeps the two numbers equal. A clamped `timeout` on a web host
+now means an install older than that manifest (the CTF container seed pinned v3.14.8 two minutes
+before v3.14.9 shipped, which is how "still 60s" was reported after the clamp landed) or a host
+with no per-server timeout; `/deliberation:doctor` says so. Garbage or zero reads as "no cap".
 
 **The transport has its own ceiling.** Node's `fetch` (undici) gives up after 300s
 waiting for response headers (`headersTimeout`) and after 300s between body chunks
@@ -1557,7 +1564,7 @@ to invoke or not invoke. Edit these to change expert behavior for your workflow.
 |-------|----------|
 | MCP server not found | Restart Claude Code after setup |
 | Provider not authenticated | Codex: export `OPENAI_API_KEY` (forwarded to codex as `CODEX_API_KEY`; codex does not read `OPENAI_API_KEY` itself) or `codex login`. Gemini: run `agy` once (or set `GOOGLE_API_KEY`). Grok: export `XAI_API_KEY` (else calls return `errorKind: missing-auth`) |
-| `tool "ask-grok" timed out after 60s` from the host (Claude Code on the web) | The host exports `MCP_TOOL_TIMEOUT=60000` and kills every longer call. deliberation clamps its ceilings under it and the timeout result names the cap; the fix is to raise `MCP_TOOL_TIMEOUT` (e.g. `1800000`) in the environment's variables and start a new session. `/deliberation:doctor` reports it. See [Timeouts](#timeouts) |
+| `tool "ask-grok" timed out after 60s` from the host, or a `timeout` result naming `MCP_TOOL_TIMEOUT=60000` (Claude Code on the web) | The host exports `MCP_TOOL_TIMEOUT=60000`. The current manifest overrides it per server (`"timeout": 1800000` + env mirror), so either message means the plugin install predates that manifest: `claude plugin update deliberation@antonbabenko`, start a new session. Hand-written `.mcp.json`: add `"timeout": 1800000` and `"env": {"MCP_TOOL_TIMEOUT": "1800000"}` to the entry. `/deliberation:doctor` reports it. See [Timeouts](#timeouts) |
 | `deliberation-gemini` shows `CONNECTION_CLOSED` (Claude Code on the web) | No `agy` in the container: the standalone Gemini bridge refuses to start rather than advertise tools it cannot serve. The unified server keeps working and lists gemini under `panel.unavailable`; `/consensus` and `/ask-all` run on the remaining providers |
 | `panel` lists a provider under `unavailable` | Its stat-only health check failed; the `reason` names the missing piece (CLI on PATH, credential). Fix that and call again - nothing is cached |
 | Tool not appearing | Run `claude mcp list` and verify registration |
