@@ -31,7 +31,10 @@
         "codex": { "$ref": "#/$defs/simpleProvider" },
         "gemini": { "$ref": "#/$defs/geminiProvider" },
         "grok": { "$ref": "#/$defs/grokProvider" },
-        "openrouter": { "$ref": "#/$defs/openrouterProvider" }
+        "openrouter": { "$ref": "#/$defs/openrouterProvider" },
+        "ollama": { "$ref": "#/$defs/ollamaProvider" },
+        "lmstudio": { "$ref": "#/$defs/lmstudioProvider" },
+        "llmstudio": { "$ref": "#/$defs/lmstudioProvider" }
       }
     },
     "models": {
@@ -39,11 +42,11 @@
       "description": "Named model records, keyed by id (^[a-z0-9-]+$, excluding the reserved \"openrouter-default\"). Each record names its provider and model slug. In v1 every record must target provider \"openrouter\".",
       "additionalProperties": false,
       "propertyNames": {
-        "pattern": "^(?!openrouter-default$)[a-z0-9-]+$",
-        "description": "Record id: lowercase letters/digits/hyphens, and not the reserved \"openrouter-default\"."
+        "pattern": "^(?!openrouter-default$)[a-z0-9_.:-]+$",
+        "description": "Record id: lowercase letters/digits/hyphens/dots/colons, and not the reserved \"openrouter-default\"."
       },
       "patternProperties": {
-        "^(?!openrouter-default$)[a-z0-9-]+$": { "$ref": "#/$defs/modelRecord" }
+        "^(?!openrouter-default$)[a-z0-9_.:-]+$": { "$ref": "#/$defs/modelRecord" }
       }
     },
     "routing": {
@@ -236,6 +239,28 @@
         }
       }
     },
+    "ollamaProvider": {
+      "type": "object",
+      "description": "Ollama connection config (local or cloud).",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "apiKeyEnv": { "type": "string", "default": "OLLAMA_API_KEY", "description": "Env var holding the Ollama API key if required." },
+        "apiBase": { "type": "string", "default": "http://localhost:11434/v1", "description": "Ollama OpenAI-compatible base URL." },
+        "timeout": { "type": "integer", "minimum": 1, "description": "Per-call wall-time ceiling in ms." }
+      }
+    },
+    "lmstudioProvider": {
+      "type": "object",
+      "description": "LM Studio connection config.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "apiKeyEnv": { "type": "string", "description": "Env var holding LM Studio API key if required." },
+        "apiBase": { "type": "string", "default": "http://localhost:1234/v1", "description": "LM Studio OpenAI-compatible base URL." },
+        "timeout": { "type": "integer", "minimum": 1, "description": "Per-call wall-time ceiling in ms." }
+      }
+    },
     "modelRecord": {
       "type": "object",
       "description": "A named model record. provider + model are required.",
@@ -244,8 +269,8 @@
       "properties": {
         "provider": {
           "type": "string",
-          "enum": ["openrouter"],
-          "description": "Transport for this record. Only \"openrouter\" is supported in v1 (codex/gemini/grok are CLI-managed / singleton built-ins)."
+          "enum": ["openrouter", "ollama", "lmstudio", "llmstudio"],
+          "description": "Transport for this record (supported: openrouter, ollama, lmstudio, llmstudio)."
         },
         "model": { "type": "string", "minLength": 1, "description": "Model slug.", "examples": ["anthropic/claude-3.7-sonnet"] },
         "askAll": { "type": "boolean", "default": true, "description": "Participate in /ask-all fan-out." },
@@ -261,7 +286,8 @@
         "reasoningEffort": { "type": "string", "examples": ["high"] },
         "temperature": { "type": "number", "examples": [0.2] },
         "timeout": { "type": "integer", "minimum": 1, "examples": [60000] },
-        "apiBase": { "type": "string", "description": "Override the provider apiBase for this record only." }
+        "apiBase": { "type": "string", "description": "Override the provider apiBase for this record only." },
+        "apiKeyEnv": { "type": "string", "description": "Override the provider apiKeyEnv for this record only." }
       }
     }
   },

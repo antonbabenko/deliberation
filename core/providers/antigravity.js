@@ -30,9 +30,10 @@ function makeAntigravityProvider(opts = {}) {
   // Construction-time ceiling. Undefined (not 0) when unset, so the bridge applies its
   // own default rather than being handed a falsy value it would treat as "no timeout".
   const defaultTimeoutMs = typeof opts.timeoutMs === "number" && opts.timeoutMs > 0 ? opts.timeoutMs : undefined;
+  const providerName = opts.name || "gemini";
 
   return {
-    name: "gemini",
+    name: providerName,
     // canImplement reflects the construction lock so discovery (panel) is honest about THIS process.
     capabilities: { canImplement: allowImplement, fileUpload: false, multiTurn: true, walksFilesystem: true },
     async health() {
@@ -73,12 +74,12 @@ function makeAntigravityProvider(opts = {}) {
         // pinDropped: agy rejected the shipped alias and the bridge re-ran on agy's own
         // settings.json default, so the pinned id would be a lie - report the effective source.
         const effectiveModel = out.pinDropped ? "agy-settings-default" : model;
-        return { provider: "gemini", model: effectiveModel, text: out.response || "", threadId: out.threadId, isError: false, ms: Date.now() - started, reasoningEffort: null, ...(out.workspaceMutated ? { workspaceMutated: true } : {}) };
+        return { provider: providerName, model: effectiveModel, text: out.response || "", threadId: out.threadId, isError: false, ms: Date.now() - started, reasoningEffort: null, ...(out.workspaceMutated ? { workspaceMutated: true } : {}) };
       } catch (e) {
         // classifyGeminiError(errMsg, errCode): the missing-cli and upstream-abort
         // branches key off the message, so pass the real caught message - not "".
         const err = /** @type {any} */ (e);
-        return toErrorResult("gemini", model, started, err, (_status, code) =>
+        return toErrorResult(providerName, model, started, err, (_status, code) =>
           bridge.classifyGeminiError((err && err.message) || "", code), { reasoningEffort: null }
         );
       }

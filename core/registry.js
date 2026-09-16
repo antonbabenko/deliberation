@@ -75,46 +75,99 @@ const BUILTINS = ["codex", "gemini", "grok"];
 // alias model and re-labels the result. This is the issue-001 fix: selection
 // AND dispatch happen inside one server call, so the orchestrator never names
 // an alias and a disabled one cannot leak from a stale cache.
+function formatDelegateName(delegate) {
+  const prov = delegate.provider || "openrouter";
+  if (prov === "ollama") {
+    return `ollama:${delegate.model || delegate.alias}`;
+  }
+  if (prov === "lmstudio" || prov === "llmstudio") {
+    return `lmstudio:${delegate.model || delegate.alias}`;
+  }
+  if (prov === "google" || prov === "gemini") {
+    return `google:${delegate.model || delegate.alias}`;
+  }
+  return `${prov}:${delegate.alias}`;
+}
+
 /**
  * @param {Provider} orProvider
  * @param {OrModel} delegate
+ * @param {RegistryConfig} [config]
  * @returns {Provider}
  */
-function pinAlias(orProvider, delegate) {
+function pinAlias(orProvider, delegate, config) {
+  const prov = delegate.provider || "openrouter";
+  const name = formatDelegateName(delegate);
+
+  let apiBase = delegate.apiBase;
+  if (!apiBase && config && config.providers) {
+    if (prov === "ollama") {
+      apiBase = (config.providers.ollama && config.providers.ollama.apiBase) || "http://localhost:11434/v1";
+    } else if (prov === "lmstudio" || prov === "llmstudio") {
+      apiBase = (config.providers.lmstudio && config.providers.lmstudio.apiBase) || (config.providers.llmstudio && config.providers.llmstudio.apiBase) || "http://localhost:1234/v1";
+    }
+  }
+
+  let apiKey = delegate.apiKey;
+  let apiKeyEnv = delegate.apiKeyEnv;
+  if (!apiKey && !apiKeyEnv && (prov === "ollama" || prov === "lmstudio" || prov === "llmstudio")) {
+    const pCfg = config && config.providers && (config.providers[prov] || config.providers.lmstudio || config.providers.llmstudio);
+    apiKeyEnv = (pCfg && pCfg.apiKeyEnv) || "NONE";
+  }
+
   return {
-    name: `openrouter:${delegate.alias}`,
+    name,
+    alias: delegate.alias,
+    provider: prov,
+    model: delegate.model,
+    apiBase,
+    apiKeyEnv,
     capabilities: orProvider.capabilities,
-    health: orProvider.health.bind(orProvider),
+    health: async () => {
+      if (prov === "ollama" || prov === "lmstudio" || prov === "llmstudio") {
+        return { ok: true };
+      }
+      return orProvider.health();
+    },
     async ask(req) {
       // Forward the delegate's configured params with ARG-WINS precedence (an
       // explicit caller value beats the model default), mapping config/wire field
-      // names to the DelegationRequest fields openai-compatible.js reads. NOTE: only
-      // reasoningEffort/temperature/timeout flow here; per-model apiBase and the
-      // openrouter.defaults block apply on the standalone /ask-openrouter bridge path.
+      // names to the DelegationRequest fields openai-compatible.js reads.
       const r = await orProvider.ask({
         ...req,
         model: delegate.model,
+        apiBase: apiBase || req.apiBase,
+        apiKey: apiKey || req.apiKey,
+        apiKeyEnv: apiKeyEnv || req.apiKeyEnv,
         // delegate.reasoning_effort is validated as a string upstream; cast to the
         // DelegationRequest union (the bridge tolerates any effort string).
         reasoningEffort: req.reasoningEffort ?? /** @type {("low"|"medium"|"high"|"none"|undefined)} */ (delegate.reasoning_effort),
         temperature: req.temperature ?? delegate.temperature,
         timeoutMs: req.timeoutMs ?? delegate.timeout,
       });
-      return { ...r, provider: `openrouter:${delegate.alias}` };
+      return { ...r, provider: name };
     },
   };
 }
 
 /** @param {Provider[]} providers */
 function makeRegistry(providers) {
-  const byName = new Map(providers.map((/** @type {Provider} */ p) => [p.name, p]));
+  const byName = new Map();
+  for (const p of providers) {
+    byName.set(p.name, p);
+    if (p.name.startsWith("google:") || p.name.startsWith("gemini:")) {
+      byName.set("gemini", p);
+      byName.set("google", p);
+    }
+  }
+
   /**
    * @param {RegistryConfig} config
    * @param {string} name
    * @returns {boolean}
    */
   const enabled = (config, name) => {
-    const p = config && config.providers && config.providers[name];
+    const p = config && config.providers && (config.providers[name] || (name === "google" && config.providers.gemini));
     return !p || p.enabled !== false; // missing = enabled
   };
   /**
@@ -130,21 +183,30 @@ function makeRegistry(providers) {
     /** @type {{name:string, reason:string}[]} */ const unavailable = [];
     for (const n of BUILTINS) {
       if (!byName.has(n) || !enabled(config, n)) continue;
-      const reason = unhealthy && unhealthy.get(n);
-      if (reason) unavailable.push({ name: n, reason });
-      else providers.push(/** @type {Provider} */ (byName.get(n)));
+      const p = /** @type {Provider} */ (byName.get(n));
+      const reason = unhealthy && (unhealthy.get(n) || unhealthy.get(p.name));
+      if (reason) unavailable.push({ name: p.name, reason });
+      else providers.push(p);
     }
     return { providers, unavailable };
   };
-  /** @param {OrModel[]} delegates @returns {Provider[]} */
-  const pinDelegates = (delegates) => {
+  /** @param {OrModel[]} delegates @param {RegistryConfig} [config] @returns {Provider[]} */
+  const pinDelegates = (delegates, config) => {
     const orProvider = byName.get("openrouter");
-    return orProvider ? delegates.map((/** @type {OrModel} */ d) => pinAlias(orProvider, d)) : [];
+    return orProvider ? delegates.map((/** @type {OrModel} */ d) => pinAlias(orProvider, d, config)) : [];
   };
 
   return {
     /** @param {string} n */
-    get: (n) => byName.get(n),
+    get: (n) => {
+      if (byName.has(n)) return byName.get(n);
+      if (n === "gemini" || n === "google") {
+        for (const [k, p] of byName.entries()) {
+          if (k.startsWith("google:") || k.startsWith("gemini:")) return p;
+        }
+      }
+      return undefined;
+    },
 
     // Flat provider list ready for askAll(): healthy built-ins + per-alias OR wrappers.
     // `omitted` = OR aliases over the fanout cap; `unavailable` = built-ins that cannot answer.
@@ -153,7 +215,7 @@ function makeRegistry(providers) {
       const or = (config && config.openrouter) || {};
       const { selected, omitted } = askAllDelegates(or, expert);
       const b = builtinsFor(config, unhealthy);
-      return { providers: [...b.providers, ...pinDelegates(selected)], omitted, unavailable: b.unavailable };
+      return { providers: [...b.providers, ...pinDelegates(selected, config)], omitted, unavailable: b.unavailable };
     },
 
     // Uncapped: healthy built-ins + per-alias OR consensus delegates.
@@ -161,7 +223,7 @@ function makeRegistry(providers) {
     selectForConsensus({ config, expert, unhealthy }) {
       const or = (config && config.openrouter) || {};
       const b = builtinsFor(config, unhealthy);
-      return { providers: [...b.providers, ...pinDelegates(consensusDelegates(or, expert))], unavailable: b.unavailable };
+      return { providers: [...b.providers, ...pinDelegates(consensusDelegates(or, expert), config)], unavailable: b.unavailable };
     },
   };
 }
