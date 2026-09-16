@@ -66,19 +66,35 @@ test("LP2: makeRegistry formats delegate names with provider prefix and model sl
   assert.ok(reg.get("google:gpt-oss-120b-medium"));
 });
 
-test("LP3: validateConfig accepts dots, colons, and underscores in model keys", () => {
+test("LP3: validateConfig accepts google provider in models and makeRegistry binds pinGoogleAlias", () => {
   const raw = {
     version: 1,
+    providers: {
+      gemini: { enabled: true, model: "gemini-3.8-flash-high" },
+    },
     models: {
-      "nemotron-3-ultra:cloud": { provider: "ollama", model: "nemotron-3-ultra:cloud" },
-      "glm-5.3:cloud": { provider: "ollama", model: "glm-5.3:cloud" },
-      "custom_model.v1": { provider: "lmstudio", model: "custom-v1" },
+      "gpt-oss-120b": { provider: "google", model: "gpt-oss-120b-medium", askAll: false, consensus: false },
     },
   };
   const { ok, resolved, error } = validateConfig(raw);
   assert.equal(ok, true, error);
-  assert.equal(resolved.openrouter.models.length, 3);
-  assert.equal(resolved.openrouter.models[0].alias, "nemotron-3-ultra:cloud");
-  assert.equal(resolved.openrouter.models[1].alias, "glm-5.3:cloud");
+  assert.equal(resolved.openrouter.models.length, 1);
+  assert.equal(resolved.openrouter.models[0].provider, "google");
+
+  const fakeGoogleProvider = {
+    name: "google:gemini-3.8-flash-high",
+    capabilities: {},
+    async health() { return { ok: true }; },
+    async ask(req) { return { provider: "google:gemini-3.8-flash-high", model: req.model, text: "ok", isError: false, ms: 10 }; },
+  };
+  const reg = makeRegistry([fakeGoogleProvider]);
+  const cfg = {
+    providers: { gemini: { enabled: true, model: "gemini-3.8-flash-high" } },
+    openrouter: { models: resolved.openrouter.models },
+  };
+  // askAll does not include askAll:false models
+  const { providers } = reg.selectForAskAll({ config: cfg, expert: "architect" });
+  assert.deepEqual(providers.map((p) => p.name), ["google:gemini-3.8-flash-high"]);
 });
+
 

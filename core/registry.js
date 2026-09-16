@@ -75,18 +75,15 @@ const BUILTINS = ["codex", "gemini", "grok"];
 // alias model and re-labels the result. This is the issue-001 fix: selection
 // AND dispatch happen inside one server call, so the orchestrator never names
 // an alias and a disabled one cannot leak from a stale cache.
-function formatDelegateName(delegate) {
-  const prov = delegate.provider || "openrouter";
-  if (prov === "ollama") {
-    return `ollama:${delegate.model || delegate.alias}`;
-  }
-  if (prov === "lmstudio" || prov === "llmstudio") {
-    return `lmstudio:${delegate.model || delegate.alias}`;
+function formatDelegateName(m) {
+  const prov = m.provider || "openrouter";
+  if (prov === "openrouter") {
+    return `openrouter:${m.alias}`;
   }
   if (prov === "google" || prov === "gemini") {
-    return `google:${delegate.model || delegate.alias}`;
+    return `google:${m.model || m.alias}`;
   }
-  return `${prov}:${delegate.alias}`;
+  return `${prov}:${m.model || m.alias}`;
 }
 
 /**
@@ -150,6 +147,32 @@ function pinAlias(orProvider, delegate, config) {
   };
 }
 
+/**
+ * @param {Provider} geminiProvider
+ * @param {OrModel} delegate
+ * @param {RegistryConfig} [config]
+ * @returns {Provider}
+ */
+function pinGoogleAlias(geminiProvider, delegate, config) {
+  const name = formatDelegateName(delegate);
+  return {
+    name,
+    alias: delegate.alias,
+    provider: "google",
+    model: delegate.model,
+    capabilities: geminiProvider.capabilities,
+    health: () => geminiProvider.health(),
+    async ask(req) {
+      const r = await geminiProvider.ask({
+        ...req,
+        model: delegate.model,
+        timeoutMs: req.timeoutMs ?? delegate.timeout,
+      });
+      return { ...r, provider: name };
+    },
+  };
+}
+
 /** @param {Provider[]} providers */
 function makeRegistry(providers) {
   const byName = new Map();
@@ -193,7 +216,16 @@ function makeRegistry(providers) {
   /** @param {OrModel[]} delegates @param {RegistryConfig} [config] @returns {Provider[]} */
   const pinDelegates = (delegates, config) => {
     const orProvider = byName.get("openrouter");
-    return orProvider ? delegates.map((/** @type {OrModel} */ d) => pinAlias(orProvider, d, config)) : [];
+    const geminiProvider = byName.get("gemini") || byName.get("google");
+    return delegates
+      .map((/** @type {OrModel} */ d) => {
+        const prov = d.provider || "openrouter";
+        if ((prov === "google" || prov === "gemini") && geminiProvider) {
+          return pinGoogleAlias(geminiProvider, d, config);
+        }
+        return orProvider ? pinAlias(orProvider, d, config) : null;
+      })
+      .filter(Boolean);
   };
 
   return {
@@ -228,4 +260,4 @@ function makeRegistry(providers) {
   };
 }
 
-module.exports = { makeRegistry, eligibleForExpert, askAllDelegates, consensusDelegates, pinAlias };
+module.exports = { makeRegistry, eligibleForExpert, askAllDelegates, consensusDelegates, pinAlias, pinGoogleAlias, formatDelegateName };
