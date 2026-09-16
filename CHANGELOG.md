@@ -1,3 +1,10 @@
+## [3.14.10](https://github.com/antonbabenko/deliberation/compare/v3.14.9...v3.14.10) (2026-09-16)
+
+
+### Bug Fixes
+
+* **plugin:** declare a 30-min per-server tool-call timeout so capped hosts stop killing calls at 60s ([#194](https://github.com/antonbabenko/deliberation/issues/194)) ([9cf2d8a](https://github.com/antonbabenko/deliberation/commit/9cf2d8a0387913e60600447f7d96788519eb6272))
+
 ## [3.14.9](https://github.com/antonbabenko/deliberation/compare/v3.14.8...v3.14.9) (2026-09-14)
 
 
@@ -25,11 +32,4 @@
 ### Bug Fixes
 
 * **mcp:** drop deliberation-codex - codex-cli ships no MCP server ([#187](https://github.com/antonbabenko/deliberation/issues/187)) ([ec7d32e](https://github.com/antonbabenko/deliberation/commit/ec7d32e3275fd850c716a2947acdbc38ff82d7ec))
-
-## [3.14.5](https://github.com/antonbabenko/deliberation/compare/v3.14.4...v3.14.5) (2026-09-04)
-
-
-### Bug Fixes
-
-* **mcp:** report the real version in serverInfo, not 0.1.0 ([#183](https://github.com/antonbabenko/deliberation/issues/183)) ([fa61d42](https://github.com/antonbabenko/deliberation/commit/fa61d429be4ce91069bce95538c98c00e6eb6ba6))
 
