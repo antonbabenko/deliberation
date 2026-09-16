@@ -8,7 +8,7 @@ const EXPERT_KEYS = new Set([
   "security-analyst", "researcher", "debugger",
 ]);
 const RESERVED_ALIAS = "openrouter-default";
-const ALIAS_RE = /^[a-z0-9_.:-]+$/;
+const ALIAS_RE = /^[a-z0-9-]+$/;
 const SUPPORTED_MAJOR = 1;
 
 const DEFAULT_API_BASE = "https://openrouter.ai/api/v1";
@@ -316,8 +316,7 @@ function resolveModels(modelsRaw) {
       continue;
     }
     if (id === RESERVED_ALIAS) { addInvalid(i, id, `id "${RESERVED_ALIAS}" is reserved`); continue; }
-    if (!isObject(m)) { addInvalid(i, id, `models["${id}"] must be an object`); continue; }
-    const ALLOWED_MODEL_PROVIDERS = new Set(["openrouter", "ollama", "lmstudio", "llmstudio"]);
+    const ALLOWED_MODEL_PROVIDERS = new Set(["openrouter", "ollama", "lmstudio", "llmstudio", "google"]);
     if (typeof m.provider !== "string" || !m.provider.trim()) {
       addInvalid(i, id, `models["${id}"] needs a provider (must be one of: ${[...ALLOWED_MODEL_PROVIDERS].join(", ")})`); continue;
     }
