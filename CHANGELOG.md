@@ -1,3 +1,10 @@
+## [3.14.11](https://github.com/antonbabenko/deliberation/compare/v3.14.10...v3.14.11) (2026-09-18)
+
+
+### Bug Fixes
+
+* **codex:** prefer the ChatGPT login and never use OPENAI_API_KEY ([#196](https://github.com/antonbabenko/deliberation/issues/196)) ([0b57922](https://github.com/antonbabenko/deliberation/commit/0b5792248c09fed0d022f112cf9ce6f44e70a3db))
+
 ## [3.14.10](https://github.com/antonbabenko/deliberation/compare/v3.14.9...v3.14.10) (2026-09-16)
 
 
@@ -25,11 +32,4 @@
 ### Bug Fixes
 
 * **commands:** run the command scripts from files, not from the prompt ([#186](https://github.com/antonbabenko/deliberation/issues/186)) ([7af4248](https://github.com/antonbabenko/deliberation/commit/7af4248cec32fd89bf232df6d3aa1fe17c25b548))
-
-## [3.14.6](https://github.com/antonbabenko/deliberation/compare/v3.14.5...v3.14.6) (2026-09-11)
-
-
-### Bug Fixes
-
-* **mcp:** drop deliberation-codex - codex-cli ships no MCP server ([#187](https://github.com/antonbabenko/deliberation/issues/187)) ([ec7d32e](https://github.com/antonbabenko/deliberation/commit/ec7d32e3275fd850c716a2947acdbc38ff82d7ec))
 
