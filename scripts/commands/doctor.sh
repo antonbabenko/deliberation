@@ -61,15 +61,14 @@ fi
 if command -v codex >/dev/null 2>&1; then
   ok "codex CLI on PATH ($(codex --version 2>/dev/null | head -1))"
   CODEX_AUTH_JSON="${CODEX_HOME:-$HOME/.codex}/auth.json"
-  if [ -n "${CODEX_API_KEY:-}" ]; then
-    ok "codex credential: CODEX_API_KEY set"
-  elif [ -n "${OPENAI_API_KEY:-}" ]; then
-    ok "codex credential: OPENAI_API_KEY set (forwarded to codex as CODEX_API_KEY - codex does not read OPENAI_API_KEY itself)"
-  elif [ -f "$CODEX_AUTH_JSON" ]; then
+  if [ -f "$CODEX_AUTH_JSON" ]; then
     ok "codex credential: $CODEX_AUTH_JSON (codex login)"
+    [ -n "${CODEX_API_KEY:-}" ] && echo "       note: CODEX_API_KEY is set but not passed to codex - the login wins"
+  elif [ -n "${CODEX_API_KEY:-}" ]; then
+    ok "codex credential: CODEX_API_KEY set (no codex login found)"
   else
     fail "codex has no credential - GPT is omitted from the panel and ask-gpt returns auth errors"
-    echo "       fix: export OPENAI_API_KEY (or CODEX_API_KEY), or run: printenv OPENAI_API_KEY | codex login --with-api-key"
+    echo "       fix: run 'codex login' (ChatGPT subscription), or export CODEX_API_KEY - OPENAI_API_KEY is never used for codex"
   fi
 else
   warn "codex (GPT) not on PATH - GPT is omitted from the panel"; echo "       fix: install the Codex CLI, or ignore if you don't use GPT"

@@ -289,7 +289,7 @@ This is the single source of truth for the bridge environment variables.
 | `GROK_MIN_ANSWER_CHARS` | Grok | `1` | Minimum trimmed answer length; shorter text, or a reply under 400 chars that only announces intent ("I'll verify the cited files..."), fails as `empty` (see [Answer floor](#answer-floor-gemini-grok)). `0` disables both checks |
 | `DELIBERATION_SESSIONS` | sessions | `<XDG cache>/deliberation/sessions` | Override the session store directory (see [Session persistence](#session-persistence)) |
 | `CODEX_BIN` | Codex | `codex` | Override the path to the `codex` binary (see [Windows CLI resolution](#windows-cli-resolution)) |
-| `CODEX_API_KEY` | Codex | unset | The credential codex-cli itself reads. When unset and `OPENAI_API_KEY` is set, the provider forwards that value to the `codex exec` child as `CODEX_API_KEY` (codex does not read `OPENAI_API_KEY`); with neither, codex uses its own `auth.json` from `codex login` |
+| `CODEX_API_KEY` | Codex | unset | Codex API key, used ONLY when there is no `codex login` (`$CODEX_HOME/auth.json` / `~/.codex/auth.json`). With a login, the provider drops it from the `codex exec` child's env so the login (usually a ChatGPT subscription) wins. `OPENAI_API_KEY` is never used for codex and is always dropped from the child's env |
 | `MCP_TOOL_TIMEOUT` | host (all) | unset | Set by some MCP hosts (Claude Code on the web: `60000`) - the host kills any tool call longer than this. deliberation reads it and clamps every provider ceiling to `MCP_TOOL_TIMEOUT - 5000` ms so the call fails as a `timeout` naming the cap; see [Timeouts](#timeouts). Claude Code applies a per-server `timeout` ahead of this variable, so `.claude-plugin/plugin.json` sets `1800000` on every server and mirrors it into the server env under this name (the mirror is what the clamp reads) |
 | `DELIBERATION_DEBUG_LOG` | debug | `<XDG cache>/deliberation/debug.jsonl` | Override the debug log path (see [Observability](#observability--per-provider-progress)); only written when `debug.enabled` |
 
@@ -306,13 +306,22 @@ surface (`mcp__deliberation__ask-gpt`) exposes no `model` parameter. See
 block a consensus round indefinitely. Raise or lower it with `providers.codex.timeout` (or
 `providers.defaults.timeout`); a per-call `timeout` is not exposed through the MCP tool surface.
 
-**Codex credential.** codex-cli reads `CODEX_API_KEY` or its `auth.json`, never `OPENAI_API_KEY` -
-a session that exports only the latter got `401 Unauthorized: Missing bearer` on every call.
-`codexEnv()` forwards `OPENAI_API_KEY` as `CODEX_API_KEY` to the child when codex has not been
-given one; an explicit `CODEX_API_KEY` or a ChatGPT login is left untouched. The provider's
-`health()` (`codexHealth()`) is stat-only: the CLI must be on PATH and one of the two env vars or
-`$CODEX_HOME/auth.json` / `~/.codex/auth.json` must exist, else the panel lists codex as
-`unavailable` with that reason instead of dispatching to it.
+**Codex credential.** The codex login always wins. `codexEnv()` builds the child's env with
+this rule:
+
+1. `$CODEX_HOME/auth.json` / `~/.codex/auth.json` exists (`codex login`, usually a ChatGPT
+   subscription): codex uses it, and `CODEX_API_KEY` is dropped from the child's env. codex-cli
+   ranks that env var above `auth.json`, so leaving it in would silently override the login.
+2. No login: `CODEX_API_KEY` is passed through as-is.
+3. `OPENAI_API_KEY` is never used and never reaches the child.
+
+Rule 3 replaces an earlier forward of `OPENAI_API_KEY` as `CODEX_API_KEY`. On a machine that
+exports `OPENAI_API_KEY` for other tools, that forward beat the ChatGPT login, so every GPT call
+was billed to the API key and failed with `You have no credits remaining` once its credit ran
+out. A host that exports only `OPENAI_API_KEY` must now run `codex login` or set `CODEX_API_KEY`.
+The provider's `health()` (`codexHealth()`) is stat-only: the CLI must be on PATH and a login
+`auth.json` or `CODEX_API_KEY` must exist. Otherwise the panel lists codex as `unavailable` with
+that reason and does not dispatch to it.
 
 **Timeouts and retries.** See [Timeouts](#timeouts) for the full precedence ladder
 (`providers.defaults.timeout` is the one knob that covers every provider) and
@@ -1563,7 +1572,7 @@ to invoke or not invoke. Edit these to change expert behavior for your workflow.
 | Issue | Solution |
 |-------|----------|
 | MCP server not found | Restart Claude Code after setup |
-| Provider not authenticated | Codex: export `OPENAI_API_KEY` (forwarded to codex as `CODEX_API_KEY`; codex does not read `OPENAI_API_KEY` itself) or `codex login`. Gemini: run `agy` once (or set `GOOGLE_API_KEY`). Grok: export `XAI_API_KEY` (else calls return `errorKind: missing-auth`) |
+| Provider not authenticated | Codex: `codex login` (ChatGPT subscription), or export `CODEX_API_KEY` when there is no login; `OPENAI_API_KEY` is never used. Gemini: run `agy` once (or set `GOOGLE_API_KEY`). Grok: export `XAI_API_KEY` (else calls return `errorKind: missing-auth`) |
 | `tool "ask-grok" timed out after 60s` from the host, or a `timeout` result naming `MCP_TOOL_TIMEOUT=60000` (Claude Code on the web) | The host exports `MCP_TOOL_TIMEOUT=60000`. The current manifest overrides it per server (`"timeout": 1800000` + env mirror), so either message means the plugin install predates that manifest: `claude plugin update deliberation@antonbabenko`, start a new session. Hand-written `.mcp.json`: add `"timeout": 1800000` and `"env": {"MCP_TOOL_TIMEOUT": "1800000"}` to the entry. `/deliberation:doctor` reports it. See [Timeouts](#timeouts) |
 | `deliberation-gemini` shows `CONNECTION_CLOSED` (Claude Code on the web) | No `agy` in the container: the standalone Gemini bridge refuses to start rather than advertise tools it cannot serve. The unified server keeps working and lists gemini under `panel.unavailable`; `/consensus` and `/ask-all` run on the remaining providers |
 | `panel` lists a provider under `unavailable` | Its stat-only health check failed; the `reason` names the missing piece (CLI on PATH, credential). Fix that and call again - nothing is cached |

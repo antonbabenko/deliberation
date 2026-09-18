@@ -146,9 +146,11 @@ Three things differ in a web container, and the plugin now handles each:
   through `.mcp.json` on a capped host: add the same `"timeout": 1800000` and
   `"env": {"MCP_TOOL_TIMEOUT": "1800000"}` to the server entry. `/deliberation:doctor`
   explains the shell's residual value.
-- **Codex reads `CODEX_API_KEY`, not `OPENAI_API_KEY`.** Exporting `OPENAI_API_KEY` is
-  enough: the provider forwards it to `codex exec` under the name codex reads. No
-  `codex login` needed (`printenv OPENAI_API_KEY | codex login --with-api-key` still works).
+- **Codex needs `codex login` or `CODEX_API_KEY`.** `OPENAI_API_KEY` is never used for
+  codex and never reaches the `codex exec` child. With a login (`auth.json`, usually a
+  ChatGPT subscription) codex always uses it, and a `CODEX_API_KEY` in the env is dropped so
+  it cannot override the login. Without a login, export `CODEX_API_KEY`, or run
+  `printenv CODEX_API_KEY | codex login --with-api-key` once.
 - **No `agy`.** The standalone Gemini bridge refuses to start (`CONNECTION_CLOSED` in the
   host's server list); the unified server lists gemini under `panel.unavailable` and the
   panel runs without it.

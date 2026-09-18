@@ -169,7 +169,7 @@ Provider credentials work the same as the standalone server (GPT via the Codex C
 
 You need at least one provider:
 
-- **Codex CLI** (GPT): `npm install -g @openai/codex`, then `codex login` - or just export `OPENAI_API_KEY` (forwarded to codex as `CODEX_API_KEY`, the name it reads).
+- **Codex CLI** (GPT): `npm install -g @openai/codex`, then `codex login` (ChatGPT subscription). With no login, codex uses `CODEX_API_KEY`; `OPENAI_API_KEY` is never used.
 - **Antigravity CLI**: [Getting Started with Antigravity CLI](https://antigravity.google/docs/cli-getting-started) and [Migrating from Gemini CLI](https://antigravity.google/docs/gcli-migration), then run `agy` and login.
 - **Grok (xAI)**: no CLI to install; the bridge ships with the plugin (needs Node 18+). Set `XAI_API_KEY` (get a key at https://console.x.ai).
 - **OpenRouter**: no CLI; the bridge ships with the plugin (needs Node 18+). Set `OPENROUTER_API_KEY` (get a key at https://openrouter.ai/keys), then declare models in `~/.config/deliberation/config.json` (Windows: `%APPDATA%\deliberation\config.json`; override with `DELIBERATION_CONFIG`). Works with any OpenAI-compatible endpoint (Ollama, vLLM, LM Studio, HuggingFace Inference) - auth is skipped automatically when the key env var is empty.
