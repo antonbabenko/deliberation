@@ -87,25 +87,44 @@ function buildSpawnPlan(o = {}) {
 }
 
 /**
- * The environment a `codex exec` child gets.
- *
- * codex-cli reads its API key from `CODEX_API_KEY` (or `~/.codex/auth.json` after
- * `codex login`), NOT from `OPENAI_API_KEY` - a session that exports only the latter gets
- * `401 Unauthorized: Missing bearer` (Claude Code on the web does exactly that). Forward it
- * under the name codex reads, and only when codex has not been given one already; an
- * explicit `CODEX_API_KEY` or a ChatGPT login are left alone. Pure and injectable.
- *
- * @param {Record<string, (string|undefined)>} [env]
- * @returns {Record<string, (string|undefined)>}
+ * Has the user run `codex login`? Stat-only: a regular `auth.json` file under `$CODEX_HOME` /
+ * `~/.codex` (a directory by that name is not a login). Never reads it; never throws.
+ * @param {Object} [o]
+ * @param {Record<string, (string|undefined)>} [o.env]
+ * @param {(p: string) => boolean} [o.exists]
+ * @param {string} [o.home]
+ * @returns {boolean}
  */
-function codexEnv(env = process.env) {
-  if (!env.CODEX_API_KEY && env.OPENAI_API_KEY) return { ...env, CODEX_API_KEY: env.OPENAI_API_KEY };
-  return env;
+function codexHasLogin(o = {}) {
+  const env = o.env || process.env;
+  const exists = o.exists || ((/** @type {string} */ p) => fs.statSync(p).isFile());
+  const home = env.CODEX_HOME || path.join(o.home || os.homedir(), ".codex");
+  try { return exists(path.join(home, "auth.json")); } catch { return false; }
 }
 
 /**
- * Does codex have SOME credential to send? Stat-only: the env vars, or an `auth.json` under
- * `$CODEX_HOME` / `~/.codex` (what `codex login` writes). Never throws.
+ * The environment a `codex exec` child gets.
+ *
+ * The codex login (`auth.json`, usually a ChatGPT subscription) always wins. codex-cli ranks a
+ * `CODEX_API_KEY` env var above `auth.json`, so when a login exists the key is dropped from the
+ * child's env; without a login, `CODEX_API_KEY` is used as-is. `OPENAI_API_KEY` is never used
+ * and never reaches the child: a machine that exports it for other tools had every GPT call
+ * billed to that API key instead of the subscription ("You have no credits remaining").
+ * Returns a copy; pure and injectable.
+ *
+ * @param {Record<string, (string|undefined)>} [env]
+ * @param {{exists?: (p: string) => boolean, home?: string}} [o]
+ * @returns {Record<string, (string|undefined)>}
+ */
+function codexEnv(env = process.env, o = {}) {
+  const { OPENAI_API_KEY, ...child } = env;
+  if ("CODEX_API_KEY" in child && codexHasLogin({ env, ...o })) delete child.CODEX_API_KEY;
+  return child;
+}
+
+/**
+ * Does codex have a credential it will use? A login `auth.json`, or `CODEX_API_KEY`.
+ * `OPENAI_API_KEY` does not count - `codexEnv` never passes it on. Never throws.
  * @param {Object} [o]
  * @param {Record<string, (string|undefined)>} [o.env]
  * @param {(p: string) => boolean} [o.exists]
@@ -114,10 +133,7 @@ function codexEnv(env = process.env) {
  */
 function codexHasAuth(o = {}) {
   const env = o.env || process.env;
-  if (env.CODEX_API_KEY || env.OPENAI_API_KEY) return true;
-  const exists = o.exists || fs.existsSync;
-  const home = env.CODEX_HOME || path.join(o.home || os.homedir(), ".codex");
-  try { return exists(path.join(home, "auth.json")); } catch { return false; }
+  return Boolean(env.CODEX_API_KEY) || codexHasLogin(o);
 }
 
 /**
@@ -138,7 +154,7 @@ function codexHealth(o = {}) {
     return { ok: false, reason: `codex CLI not found (tried "${plan.cmd}"); install it or set CODEX_BIN` };
   }
   if (!codexHasAuth({ env, exists: o.exists, home: o.home })) {
-    return { ok: false, reason: "codex has no credential: set OPENAI_API_KEY (or CODEX_API_KEY), or run `codex login`" };
+    return { ok: false, reason: "codex has no credential: run `codex login` (ChatGPT), or set CODEX_API_KEY (OPENAI_API_KEY is never used)" };
   }
   return { ok: true };
 }
@@ -271,4 +287,4 @@ function makeCodexProvider(opts = {}) {
   };
 }
 
-module.exports = { makeCodexProvider, classifyCodex, codexExecArgs, buildSpawnPlan, codexEnv, codexHasAuth, codexHealth, CODEX_DEFAULT_TIMEOUT_MS };
+module.exports = { makeCodexProvider, classifyCodex, codexExecArgs, buildSpawnPlan, codexEnv, codexHasLogin, codexHasAuth, codexHealth, CODEX_DEFAULT_TIMEOUT_MS };

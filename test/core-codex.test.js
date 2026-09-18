@@ -210,7 +210,7 @@ test("CX-notfound-3: the timeout flag still wins over a spawn failure flag", asy
 });
 
 // --- Host budget (MCP_TOOL_TIMEOUT), credential passthrough, health -------------------------
-const { codexEnv, codexHasAuth, codexHealth } = require("../core/providers/codex.js");
+const { codexEnv, codexHasLogin, codexHasAuth, codexHealth } = require("../core/providers/codex.js");
 
 test("CX-host-1: the default ceiling is clamped under MCP_TOOL_TIMEOUT, and a timeout names the cap", async () => {
   let seen;
@@ -240,15 +240,43 @@ test("CX-host-2: a ceiling already under the cap is not clamped and a timeout ca
   assert.doesNotMatch(String(/** @type {any} */ (r).message), /MCP_TOOL_TIMEOUT/);
 });
 
-test("CX-env-1: OPENAI_API_KEY is forwarded as CODEX_API_KEY (the name codex reads), never overriding an explicit one", () => {
-  assert.equal(codexEnv({ OPENAI_API_KEY: "sk-a" }).CODEX_API_KEY, "sk-a");
-  assert.equal(codexEnv({ OPENAI_API_KEY: "sk-a", CODEX_API_KEY: "ck-b" }).CODEX_API_KEY, "ck-b");
-  const untouched = { PATH: "/x" };
-  assert.equal(codexEnv(untouched), untouched, "no key -> the same env object, nothing invented");
+test("CX-env-1: a codex login wins - an exported OPENAI_API_KEY never reaches codex and CODEX_API_KEY cannot override the login", () => {
+  const login = { home: "/h", exists: (/** @type {string} */ p) => p === "/h/.codex/auth.json" };
+  const env = { PATH: "/x", OPENAI_API_KEY: "sk-a" };
+  const child = codexEnv(env, login);
+  assert.equal(child.OPENAI_API_KEY, undefined, "OPENAI_API_KEY is stripped");
+  assert.equal(child.CODEX_API_KEY, undefined, "and never forwarded - it would beat the ChatGPT login");
+  assert.equal(child.PATH, "/x");
+  assert.equal(env.OPENAI_API_KEY, "sk-a", "the caller's env is not mutated");
+  assert.equal(codexEnv({ CODEX_API_KEY: "ck-b" }, login).CODEX_API_KEY, undefined, "login beats CODEX_API_KEY");
+  assert.equal("CODEX_API_KEY" in codexEnv({ CODEX_API_KEY: "" }, login), false, "an empty CODEX_API_KEY is dropped too");
 });
 
-test("CX-auth-1: codexHasAuth accepts either env key or a login auth.json under CODEX_HOME / ~/.codex", () => {
-  assert.equal(codexHasAuth({ env: { OPENAI_API_KEY: "k" }, exists: () => false }), true);
+test("CX-login-1: only a regular auth.json file is a login - a directory under that name is not", () => {
+  const fs = require("node:fs"), os = require("node:os"), path = require("node:path");
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "cx-login-"));
+  try {
+    fs.mkdirSync(path.join(home, "auth.json"));
+    assert.equal(codexHasLogin({ env: { CODEX_HOME: home } }), false, "directory -> no login");
+    assert.equal(codexEnv({ CODEX_HOME: home, CODEX_API_KEY: "ck" }).CODEX_API_KEY, "ck", "so CODEX_API_KEY is kept");
+    fs.rmdirSync(path.join(home, "auth.json"));
+    fs.writeFileSync(path.join(home, "auth.json"), "{}");
+    assert.equal(codexHasLogin({ env: { CODEX_HOME: home } }), true, "regular file -> login");
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("CX-env-2: without a login, CODEX_API_KEY is used as-is and OPENAI_API_KEY still never is", () => {
+  const noLogin = { home: "/h", exists: () => false };
+  const child = codexEnv({ OPENAI_API_KEY: "sk-a", CODEX_API_KEY: "ck-b" }, noLogin);
+  assert.equal(child.CODEX_API_KEY, "ck-b");
+  assert.equal(child.OPENAI_API_KEY, undefined);
+  assert.equal(codexEnv({ OPENAI_API_KEY: "sk-a" }, noLogin).CODEX_API_KEY, undefined, "nothing invented");
+});
+
+test("CX-auth-1: codexHasAuth accepts CODEX_API_KEY or a login auth.json under CODEX_HOME / ~/.codex, never OPENAI_API_KEY", () => {
+  assert.equal(codexHasAuth({ env: { OPENAI_API_KEY: "k" }, home: "/h", exists: () => false }), false);
   assert.equal(codexHasAuth({ env: { CODEX_API_KEY: "k" }, exists: () => false }), true);
   assert.equal(codexHasAuth({ env: {}, home: "/h", exists: (p) => p.endsWith("/h/.codex/auth.json") }), true);
   assert.equal(codexHasAuth({ env: { CODEX_HOME: "/ch" }, exists: (p) => p === "/ch/auth.json" }), true);
@@ -257,11 +285,14 @@ test("CX-auth-1: codexHasAuth accepts either env key or a login auth.json under 
 
 test("CX-health-1: health is stat-only and names the missing piece (CLI, then credential)", async () => {
   const onPath = (/** @type {string} */ p) => p === "/bin/codex";
-  assert.deepEqual(codexHealth({ platform: "linux", env: { PATH: "/bin", OPENAI_API_KEY: "k" }, exists: onPath }), { ok: true });
-  const noCli = codexHealth({ platform: "linux", env: { PATH: "/nowhere", OPENAI_API_KEY: "k" }, exists: () => false });
+  assert.deepEqual(codexHealth({ platform: "linux", env: { PATH: "/bin", CODEX_API_KEY: "k" }, exists: onPath }), { ok: true });
+  const noCli = codexHealth({ platform: "linux", env: { PATH: "/nowhere", CODEX_API_KEY: "k" }, exists: () => false });
   assert.equal(noCli.ok, false); assert.match(String(noCli.reason), /codex CLI not found/);
   const noAuth = codexHealth({ platform: "linux", env: { PATH: "/bin" }, home: "/h", exists: onPath });
   assert.equal(noAuth.ok, false); assert.match(String(noAuth.reason), /no credential/);
+  const openaiOnly = codexHealth({ platform: "linux", env: { PATH: "/bin", OPENAI_API_KEY: "k" }, home: "/h", exists: onPath });
+  assert.equal(openaiOnly.ok, false, "OPENAI_API_KEY alone is not a codex credential");
+  assert.match(String(openaiOnly.reason), /codex login/);
   // The provider's health() reads the injected env, so a panel probe never spawns anything.
   const h = await mkCx({ run: async () => ({ code: 0, stdout: "", stderr: "" }), env: { PATH: "/nowhere" } }).health();
   assert.equal(h.ok, false);
