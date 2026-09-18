@@ -87,8 +87,8 @@ function buildSpawnPlan(o = {}) {
 }
 
 /**
- * Has the user run `codex login`? Stat-only: an `auth.json` under `$CODEX_HOME` / `~/.codex`.
- * Never throws.
+ * Has the user run `codex login`? Stat-only: a regular `auth.json` file under `$CODEX_HOME` /
+ * `~/.codex` (a directory by that name is not a login). Never reads it; never throws.
  * @param {Object} [o]
  * @param {Record<string, (string|undefined)>} [o.env]
  * @param {(p: string) => boolean} [o.exists]
@@ -97,7 +97,7 @@ function buildSpawnPlan(o = {}) {
  */
 function codexHasLogin(o = {}) {
   const env = o.env || process.env;
-  const exists = o.exists || fs.existsSync;
+  const exists = o.exists || ((/** @type {string} */ p) => fs.statSync(p).isFile());
   const home = env.CODEX_HOME || path.join(o.home || os.homedir(), ".codex");
   try { return exists(path.join(home, "auth.json")); } catch { return false; }
 }
@@ -118,7 +118,7 @@ function codexHasLogin(o = {}) {
  */
 function codexEnv(env = process.env, o = {}) {
   const { OPENAI_API_KEY, ...child } = env;
-  if (child.CODEX_API_KEY && codexHasLogin({ env, ...o })) delete child.CODEX_API_KEY;
+  if ("CODEX_API_KEY" in child && codexHasLogin({ env, ...o })) delete child.CODEX_API_KEY;
   return child;
 }
 

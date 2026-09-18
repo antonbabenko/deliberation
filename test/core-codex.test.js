@@ -210,7 +210,7 @@ test("CX-notfound-3: the timeout flag still wins over a spawn failure flag", asy
 });
 
 // --- Host budget (MCP_TOOL_TIMEOUT), credential passthrough, health -------------------------
-const { codexEnv, codexHasAuth, codexHealth } = require("../core/providers/codex.js");
+const { codexEnv, codexHasLogin, codexHasAuth, codexHealth } = require("../core/providers/codex.js");
 
 test("CX-host-1: the default ceiling is clamped under MCP_TOOL_TIMEOUT, and a timeout names the cap", async () => {
   let seen;
@@ -249,6 +249,22 @@ test("CX-env-1: a codex login wins - an exported OPENAI_API_KEY never reaches co
   assert.equal(child.PATH, "/x");
   assert.equal(env.OPENAI_API_KEY, "sk-a", "the caller's env is not mutated");
   assert.equal(codexEnv({ CODEX_API_KEY: "ck-b" }, login).CODEX_API_KEY, undefined, "login beats CODEX_API_KEY");
+  assert.equal("CODEX_API_KEY" in codexEnv({ CODEX_API_KEY: "" }, login), false, "an empty CODEX_API_KEY is dropped too");
+});
+
+test("CX-login-1: only a regular auth.json file is a login - a directory under that name is not", () => {
+  const fs = require("node:fs"), os = require("node:os"), path = require("node:path");
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "cx-login-"));
+  try {
+    fs.mkdirSync(path.join(home, "auth.json"));
+    assert.equal(codexHasLogin({ env: { CODEX_HOME: home } }), false, "directory -> no login");
+    assert.equal(codexEnv({ CODEX_HOME: home, CODEX_API_KEY: "ck" }).CODEX_API_KEY, "ck", "so CODEX_API_KEY is kept");
+    fs.rmdirSync(path.join(home, "auth.json"));
+    fs.writeFileSync(path.join(home, "auth.json"), "{}");
+    assert.equal(codexHasLogin({ env: { CODEX_HOME: home } }), true, "regular file -> login");
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
 });
 
 test("CX-env-2: without a login, CODEX_API_KEY is used as-is and OPENAI_API_KEY still never is", () => {
