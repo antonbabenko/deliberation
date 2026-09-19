@@ -191,8 +191,10 @@ deliberation@antonbabenko` and start a new session. `/deliberation:doctor` repor
 the codex credential, and a missing `agy`; the panel skips providers that cannot answer
 (`panel.unavailable`) instead of waiting on them. For GPT, do not copy your laptop's
 `~/.codex/auth.json` into the container: a ChatGPT login's refresh token works once, so both
-the other copy stops working as soon as one of them refreshes. Run `codex login --device-auth` in the
-session (Plus/Pro), or set `CODEX_ACCESS_TOKEN` (Business/Enterprise). See [SETUP.md](SETUP.md#claude-code-on-the-web-and-other-capped-hosts).
+the other copy stops working as soon as one of them refreshes. On Plus/Pro, the first GPT call
+in a session starts `codex login --device-auth` and shows its link and code (a dialog when the
+host supports it, else in the result); approve it and GPT answers. On Business/Enterprise, set
+`CODEX_ACCESS_TOKEN`. See [SETUP.md](SETUP.md#claude-code-on-the-web-and-other-capped-hosts).
 
 ## Commands
 

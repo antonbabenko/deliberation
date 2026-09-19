@@ -338,12 +338,41 @@ codex's refresh failures share. It matches that exact phrase and reads stderr on
 `codex exec` echoes the user's prompt to stderr and a prompt about token code says "refresh
 token" freely; a bare `refresh token` match would turn a rate limit into a non-retryable `auth`.
 The result is `errorKind: "auth"` (not retried), and the message STARTS with codex's own line and
-the fix (`codex login --device-auth` on this machine, or `CODEX_ACCESS_TOKEN`), then the full
-output. Both go first because `toErrorResult` caps a message at 500 characters and `codex exec`
-prints a banner on stderr before the error. The hint is added only when the result is `auth`, so
-the kind and the message never disagree. `stat` cannot see this state (the file exists and parses), so health stays `ok`
-and the circuit breaker drops codex after repeated errors. Setup per host:
+the fix, then the full output: codex prints its banner and the whole echoed prompt on stderr
+before the error, so the line would otherwise sit far below them. The hint is added only when
+the result is `auth`, so the kind and the message never disagree. `stat` cannot see this state
+(the file exists and parses), so health stays `ok`. Setup per host:
 [SETUP.md - Claude Code on the web](SETUP.md#claude-code-on-the-web-and-other-capped-hosts).
+
+**Login on first use.** The unified server builds the codex provider with `deviceLogin: true`
+(the library default is off). Two states start a device login: no credential at all, and a
+spent login (the refresh failure above). Instead of failing, `ask()` then:
+
+1. Starts `codex login --device-auth` (same binary resolution and env scrub as `codex exec`)
+   and parses the link, the one-time code and its lifetime from codex's output
+   (`parseDevicePrompt`). That output is text for humans, so the match is loose: if the link or
+   code is not found within 20s, the result carries codex's own output instead. One login per
+   process (`makeDeviceLogin`): a second caller while the code is valid gets the same code;
+   an expired or finished login is replaced.
+2. Asks the host to show the code (`confirmLogin`). The server negotiates the client's MCP
+   protocol version (up to `2025-11-25`) and records its `elicitation` capability at
+   `initialize`. A host with URL-mode elicitation gets `elicitation/create` with
+   `mode: "url"`, the link, and the code in the message; a form-only host gets a form whose
+   message carries both. The wait is bounded by the code's lifetime and half the host budget
+   left for the call (the other half is for the codex run). Approving in the browser ends the
+   wait even if the dialog is never answered.
+3. Once `auth.json` exists (the login's exit code 0 AND the file), runs codex on the same call
+   with the host budget reduced by the time spent waiting, retrying once after a spent login.
+   With no dialog, a decline, an error or a timeout, it returns `errorKind: "auth"` whose
+   message carries the link and code. The login keeps polling in the background, so the next
+   call after the user approves simply finds `auth.json`.
+
+Health treats "no credential" as `ok` while `deviceLogin` is on: that is the one gap `ask()`
+closes itself, so GPT stays on the panel and delivers the code. `consensus-step`'s
+`dispatch_peers` now includes an errored voice's `message` (bounded plain text, `plainMessage`)
+so the code reaches `/consensus`; the command files tell Claude to show it as-is. The link
+and code never go to the debug log or the session store. A host that neither supports
+elicitation nor shows tool errors still gets the code in the result text.
 
 **Timeouts and retries.** See [Timeouts](#timeouts) for the full precedence ladder
 (`providers.defaults.timeout` is the one knob that covers every provider) and
@@ -1596,7 +1625,7 @@ to invoke or not invoke. Edit these to change expert behavior for your workflow.
 | MCP server not found | Restart Claude Code after setup |
 | Provider not authenticated | Codex: `codex login` (ChatGPT subscription; `codex login --device-auth` on a remote or headless machine), `CODEX_ACCESS_TOKEN` (ChatGPT Business/Enterprise), or export `CODEX_API_KEY` when there is neither; `OPENAI_API_KEY` is never used. Gemini: run `agy` once (or set `GOOGLE_API_KEY`). Grok: export `XAI_API_KEY` (else calls return `errorKind: missing-auth`) |
 | `tool "ask-grok" timed out after 60s` from the host, or a `timeout` result naming `MCP_TOOL_TIMEOUT=60000` (Claude Code on the web) | The host exports `MCP_TOOL_TIMEOUT=60000`. The current manifest overrides it per server (`"timeout": 1800000` + env mirror), so either message means the plugin install predates that manifest: `claude plugin update deliberation@antonbabenko`, start a new session. Hand-written `.mcp.json`: add `"timeout": 1800000` and `"env": {"MCP_TOOL_TIMEOUT": "1800000"}` to the entry. `/deliberation:doctor` reports it. See [Timeouts](#timeouts) |
-| GPT returns `errorKind: "auth"` with `refresh token was already used` / `has expired` / `was revoked` | The `auth.json` in use was copied from another machine, and one of the copies refreshed first (a ChatGPT refresh token works once), or the login expired. Give each machine its own login: `codex login --device-auth` in the remote session, or `CODEX_ACCESS_TOKEN` (Business/Enterprise). A seeded secret must come from a login used for nothing else and must be re-seeded after its first refresh. See "One login per machine" under [Environment variables](#environment-variables) |
+| GPT returns `errorKind: "auth"` with `refresh token was already used` / `has expired` / `was revoked` | The `auth.json` in use was copied from another machine, and one of the copies refreshed first (a ChatGPT refresh token works once), or the login expired. Give each machine its own login: the next GPT call starts `codex login --device-auth` and shows its link and code (see "Login on first use"), or set `CODEX_ACCESS_TOKEN` (Business/Enterprise). A seeded secret must come from a login used for nothing else and must be re-seeded after its first refresh. See "One login per machine" under [Environment variables](#environment-variables) |
 | `deliberation-gemini` shows `CONNECTION_CLOSED` (Claude Code on the web) | No `agy` in the container: the standalone Gemini bridge refuses to start rather than advertise tools it cannot serve. The unified server keeps working and lists gemini under `panel.unavailable`; `/consensus` and `/ask-all` run on the remaining providers |
 | `panel` lists a provider under `unavailable` | Its stat-only health check failed; the `reason` names the missing piece (CLI on PATH, credential). Fix that and call again - nothing is cached |
 | Tool not appearing | Run `claude mcp list` and verify registration |

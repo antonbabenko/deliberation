@@ -1,5 +1,6 @@
 "use strict";
 /** @typedef {import("../types.js").Provider} Provider */
+/** @typedef {import("../types.js").DelegationRequest} DelegationRequest */
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -90,6 +91,7 @@ function codexExecArgs(mode) {
  *
  * @param {Object} [o]
  * @param {("advisory"|"implement")} [o.mode]
+ * @param {string[]} [o.args]  codex arguments instead of `exec ...` (the device login uses it)
  * @param {string} [o.platform]
  * @param {Record<string, (string|undefined)>} [o.env]
  * @param {(p: string) => boolean} [o.exists]
@@ -107,7 +109,7 @@ function buildSpawnPlan(o = {}) {
     npmEntry: CODEX_NPM_ENTRY,
   });
   // prefixArgs (the npm entry point, when the shim was bypassed) must lead: `node <entry> exec ...`.
-  return { cmd: target.cmd, argv: [...target.prefixArgs, ...codexExecArgs(o.mode)], shim: target.shim, name };
+  return { cmd: target.cmd, argv: [...target.prefixArgs, ...(o.args || codexExecArgs(o.mode))], shim: target.shim, name };
 }
 
 /**
@@ -170,7 +172,7 @@ function codexHasAuth(o = {}) {
  * @param {(p: string) => boolean} [o.exists]
  * @param {string} [o.platform]
  * @param {string} [o.home]
- * @returns {{ok:boolean, reason?:string}}
+ * @returns {{ok:boolean, reason?:string, needsLogin?:boolean}}
  */
 function codexHealth(o = {}) {
   const env = o.env || process.env;
@@ -180,7 +182,7 @@ function codexHealth(o = {}) {
     return { ok: false, reason: `codex CLI not found (tried "${plan.cmd}"); install it or set CODEX_BIN` };
   }
   if (!codexHasAuth({ env, exists: o.exists, home: o.home })) {
-    return { ok: false, reason: "codex has no credential: run `codex login` (ChatGPT; `codex login --device-auth` on a remote machine), set CODEX_ACCESS_TOKEN (ChatGPT Business/Enterprise), or set CODEX_API_KEY (OPENAI_API_KEY is never used)" };
+    return { ok: false, needsLogin: true, reason: "codex has no credential: run `codex login` (ChatGPT; `codex login --device-auth` on a remote machine), set CODEX_ACCESS_TOKEN (ChatGPT Business/Enterprise), or set CODEX_API_KEY (OPENAI_API_KEY is never used)" };
   }
   return { ok: true };
 }
@@ -241,6 +243,122 @@ function defaultRun({ prompt, cwd, timeoutMs, mode, env }) {
   });
 }
 
+// ---- Login on first use ------------------------------------------------------------------
+// A remote container (Claude Code on the web) has no browser and must not borrow another
+// machine's auth.json, so the first call that needs GPT starts `codex login --device-auth` and
+// hands the user its link and one-time code. The login keeps polling in the background; once
+// the user approves, codex writes auth.json and the next call simply finds it.
+
+const ANSI_RE = /\x1b\[[0-9;?]*[A-Za-z]/g;
+const DEVICE_PROMPT_WAIT_MS = 20000; // codex prints the code within a second or two
+const DEVICE_CODE_TTL_MS = 15 * 60000; // what codex says today; used when it stops saying
+
+/** @typedef {{url:string, code:string, expiresAt:number}} DevicePrompt */
+/** @typedef {{prompt?:DevicePrompt, error?:string, done:Promise<boolean>}} DeviceFlight */
+
+/**
+ * Link, code and lifetime from `codex login --device-auth` output (codex colours it even into a
+ * pipe). This is codex's text for humans, not an API, so the match is loose and anything
+ * unrecognised is null - the caller then reports the raw output instead of guessing.
+ * @param {string} text
+ * @returns {{url:string, code:string, expiresInMs:number}|null}
+ */
+function parseDevicePrompt(text) {
+  const t = String(text || "").replace(ANSI_RE, "");
+  const url = (t.match(/https:\/\/\S+/) || [])[0];
+  const code = (t.match(/\b[A-Z0-9]{4,}-[A-Z0-9]{4,}\b/) || [])[0];
+  if (!url || !code) return null;
+  const mins = t.match(/expires in (\d+) minute/i);
+  return { url, code, expiresInMs: mins ? Number(mins[1]) * 60000 : DEVICE_CODE_TTL_MS };
+}
+
+/** @param {string} text */
+function outputTail(text) {
+  return text.replace(ANSI_RE, "").trim().slice(-300);
+}
+
+/**
+ * Spawns `codex login --device-auth`, streaming its output to `onText`. Resolved like every
+ * other codex spawn (CODEX_BIN, the Windows shim bypass), with the same credential scrub.
+ * @param {Record<string, (string|undefined)>} env
+ * @param {(text: string) => void} onText
+ * @returns {{exit: Promise<number>, kill: () => void}}
+ */
+function defaultSpawnLogin(env, onText) {
+  const plan = buildSpawnPlan({ env, args: ["login", "--device-auth"] });
+  const child = spawn(plan.cmd, plan.argv, { env: codexEnv(env), stdio: ["ignore", "pipe", "pipe"] });
+  child.stdout.on("data", (d) => onText(String(d)));
+  child.stderr.on("data", (d) => onText(String(d)));
+  const exit = new Promise((resolve) => {
+    child.on("error", (e) => { onText(String(e.message)); resolve(127); });
+    child.on("close", (code) => resolve(code == null ? 1 : code));
+  });
+  return { exit: /** @type {Promise<number>} */ (exit), kill: () => { child.kill("SIGKILL"); } };
+}
+
+/**
+ * One device login at a time for the whole process: a second caller while a code is still
+ * valid gets the same code, so a consensus round and a parallel ask never show two.
+ * @param {{spawnLogin?: typeof defaultSpawnLogin, now?: () => number}} [o]
+ * @returns {{start: (env: Record<string, (string|undefined)>) => Promise<DeviceFlight>}}
+ */
+function makeDeviceLogin(o = {}) {
+  const spawnLogin = o.spawnLogin || defaultSpawnLogin;
+  const now = o.now || Date.now;
+  /** @type {{finished:boolean, expiresAt:number, ready:Promise<DeviceFlight>, kill:()=>void}|null} */
+  let flight = null;
+
+  /** @param {Record<string, (string|undefined)>} env */
+  function launch(env) {
+    let text = "";
+    /** @type {(v: DeviceFlight) => void} */ let settle = () => {};
+    /** @type {(ok: boolean) => void} */ let finish = () => {};
+    const done = new Promise((r) => { finish = r; });
+    const f = { finished: false, expiresAt: Infinity, kill: () => {}, ready: /** @type {Promise<DeviceFlight>} */ (new Promise((r) => { settle = r; })) };
+    const proc = spawnLogin(env, (chunk) => {
+      text += chunk;
+      const p = f.expiresAt === Infinity ? parseDevicePrompt(text) : null;
+      if (!p) return;
+      f.expiresAt = now() + p.expiresInMs;
+      settle({ prompt: { url: p.url, code: p.code, expiresAt: f.expiresAt }, done });
+    });
+    f.kill = proc.kill;
+    const noCode = setTimeout(() => {
+      settle({ error: `no code within ${DEVICE_PROMPT_WAIT_MS / 1000}s: ${outputTail(text)}`, done });
+      proc.kill();
+    }, DEVICE_PROMPT_WAIT_MS);
+    noCode.unref();
+    proc.exit.then((code) => {
+      clearTimeout(noCode);
+      f.finished = true;
+      // Success is the file, not the exit code alone: that is what the next call looks for.
+      finish(code === 0 && codexHasLogin({ env }));
+      settle({ error: outputTail(text) || `exited ${code}`, done }); // no-op once a code was shown
+    });
+    return f;
+  }
+
+  return {
+    start(env) {
+      if (flight && !flight.finished && now() < flight.expiresAt) return flight.ready;
+      if (flight && !flight.finished) flight.kill(); // an expired code: nobody can use it
+      flight = launch(env);
+      return flight.ready;
+    },
+  };
+}
+
+/**
+ * @param {DevicePrompt} prompt
+ * @returns {string}
+ */
+function loginMessage(prompt) {
+  const minutes = Math.max(1, Math.round((prompt.expiresAt - Date.now()) / 60000));
+  return `GPT (Codex) needs a ChatGPT login on this machine. Open ${prompt.url} and enter the code ${prompt.code} ` +
+    `(expires in ${minutes} min). GPT answers on the next call after you approve. ` +
+    "This is a login of its own - never copy auth.json from another machine.";
+}
+
 /**
  * @param {Object} [opts]
  * @param {(args:{prompt:string,cwd?:string,timeoutMs?:number,mode?:("advisory"|"implement"),env?:Record<string,(string|undefined)>})=>Promise<{code:number,stdout:string,stderr:string,timedOut?:boolean,spawnFailed?:boolean}>} [opts.run]
@@ -252,6 +370,14 @@ function defaultRun({ prompt, cwd, timeoutMs, mode, env }) {
  * @param {Record<string, (string|undefined)>} [opts.env]  environment read for the host budget
  *   (MCP_TOOL_TIMEOUT), the health probe, and the child's credential. Defaults to process.env;
  *   tests inject it so a capped host (Claude Code on the web) does not change what they assert.
+ * @param {boolean} [opts.deviceLogin]  log in on first use: with no working credential, start
+ *   `codex login --device-auth` and return its link + code instead of failing. The composition
+ *   root turns it on; the library default is off, so nothing spawns a login unasked.
+ * @param {(prompt: DevicePrompt, waitMs: number) => Promise<boolean>} [opts.confirmLogin]  shows
+ *   the link + code in the host's own UI (an MCP elicitation) and resolves true once the user
+ *   says they approved. Absent, or false, the link rides in the result instead.
+ * @param {{start: (env: Record<string, (string|undefined)>) => Promise<DeviceFlight>}} [opts.login]
+ *   the device-login manager (tests inject one with a fake CLI)
  * @returns {Provider}
  */
 function makeCodexProvider(opts = {}) {
@@ -259,48 +385,100 @@ function makeCodexProvider(opts = {}) {
   const env = opts.env || process.env;
   const model = opts.model || "default"; // codex resolves its own model from config.toml
   const allowImplement = opts.allowImplement === true;
+  const deviceLogin = opts.deviceLogin === true;
+  const login = opts.login || makeDeviceLogin();
+  const confirmLogin = opts.confirmLogin;
   const defaultTimeoutMs = typeof opts.timeoutMs === "number" && opts.timeoutMs > 0
     ? opts.timeoutMs
     : CODEX_DEFAULT_TIMEOUT_MS;
-  return {
-    name: "codex",
-    // canImplement reflects the construction lock so discovery (panel) is honest about THIS
-    // process. Option A: no threadId continuity (multiTurn:false).
-    capabilities: { canImplement: allowImplement, fileUpload: false, multiTurn: false, walksFilesystem: true },
-    async health() { return codexHealth({ env }); },
-    async ask(req) {
-      const started = Date.now();
-      // Two-lock gate: write only when constructed write-capable AND this call explicitly asks.
-      const mode = allowImplement && req.mode === "implement" ? "implement" : "advisory";
-      const full = req.developerInstructions ? `${req.developerInstructions}\n\n---\n\n${req.prompt}` : req.prompt;
-      // Effective ceiling: explicit per-call wins, else the construction default,
-      // else the module default. Always a positive number, so defaultRun's kill
-      // timer is ALWAYS armed - no Codex call can run unbounded.
-      // Then clamped under the host's own per-call cap (MCP_TOOL_TIMEOUT), so a run the
-      // host would kill mid-flight fails HERE first, as a timeout that names the cap.
-      const clamp = clampToHostBudget(typeof req.timeoutMs === "number" && req.timeoutMs > 0 ? req.timeoutMs : defaultTimeoutMs, env, req.hostBudgetRemainingMs);
-      const timeoutMs = /** @type {number} */ (clamp.timeoutMs);
-      const { code, stdout, stderr, timedOut, spawnFailed } = await run({ prompt: full, cwd: req.cwd, timeoutMs, mode, env });
-      if (code === 0) {
-        // Codex CLI has no per-call reasoning-effort knob in this integration -> null.
-        return { provider: "codex", model, text: stdout.trim(), isError: false, ms: Date.now() - started, reasoningEffort: null };
-      }
-      // The kill timer is authoritative: a run we killed is a timeout regardless of what
-      // (if anything) landed on stderr. Without this a codex timeout classifies as
-      // `unknown` and can never trip the consensus circuit breaker.
-      // Both flags are authoritative over the stderr classifier, for the same reason: they
-      // describe the RUN, while stderr is the child's own text. `not-found` is non-retryable -
-      // callProvider retries only network/rate-limit/empty, so a missing CLI fails fast.
-      const { errorKind, retryable } = timedOut
-        ? { errorKind: "timeout", retryable: true }
-        : spawnFailed
-          ? { errorKind: "not-found", retryable: false }
-          : classifyCodex(stderr);
-      const output = (stdout && stdout.trim()) || stderr || undefined;
-      // codex's line and the fix LEAD: toErrorResult caps the message at 500 chars and codex
-      // prints a banner first. Gated on `auth`, so errorKind and message never disagree.
-      const refreshLine = errorKind === "auth" ? refreshFailureLine(stderr) : undefined;
-      return {
+
+  /**
+   * @param {number} started
+   * @param {string} message
+   */
+  const authError = (started, message) =>
+    ({ provider: "codex", model, isError: true, errorKind: "auth", retryable: false, message, ms: Date.now() - started, reasoningEffort: null });
+
+  /**
+   * What the host still allows after `started`: a call that waited for a login must not hand
+   * the codex run the budget stamped at tool entry.
+   * @param {DelegationRequest} req
+   * @param {number} started
+   * @returns {DelegationRequest}
+   */
+  const afterWait = (req, started) => typeof req.hostBudgetRemainingMs === "number"
+    ? { ...req, hostBudgetRemainingMs: req.hostBudgetRemainingMs - (Date.now() - started) }
+    : req;
+
+  /**
+   * Start (or join) the device login and give the user the code. Resolves null once a login
+   * has landed, or the error result to return when it has not.
+   * @param {DelegationRequest} req
+   * @param {number} started
+   * @param {string} [lead]  codex's own failure line, when a spent login brought us here
+   * @returns {Promise<object|null>}
+   */
+  async function signIn(req, started, lead = "") {
+    const flight = await login.start(env);
+    const head = lead ? `${lead}\n` : "";
+    if (!flight.prompt) return authError(started, `${head}GPT (Codex) has no working ChatGPT login here, and \`codex login --device-auth\` gave no code: ${flight.error}`);
+    const prompt = flight.prompt;
+    // Wait only while the code lives, and for at most half of what the host still allows this
+    // call - the other half is the codex run itself.
+    const hostLeft = /** @type {number} */ (clampToHostBudget(Number.MAX_SAFE_INTEGER, env, req.hostBudgetRemainingMs).timeoutMs);
+    const waitMs = Math.min(prompt.expiresAt - Date.now(), hostLeft / 2);
+    if (confirmLogin && waitMs > 0) {
+      const timeout = new Promise((r) => { setTimeout(() => r(false), waitMs).unref(); });
+      const viaDialog = Promise.resolve()
+        .then(() => confirmLogin(prompt, waitMs))
+        .then((ok) => (ok ? Promise.race([flight.done, timeout]) : false), () => false);
+      // Approving in the browser without touching the dialog counts too.
+      if (await Promise.race([viaDialog, flight.done, timeout])) return null;
+    }
+    return authError(started, `${head}${loginMessage(prompt)}`);
+  }
+
+  /**
+   * One `codex exec` run, mapped to a result.
+   * @param {DelegationRequest} req
+   * @param {number} started
+   * @returns {Promise<{result: object, refreshLine?: string}>}
+   */
+  async function runOnce(req, started) {
+    // Two-lock gate: write only when constructed write-capable AND this call explicitly asks.
+    const mode = allowImplement && req.mode === "implement" ? "implement" : "advisory";
+    const full = req.developerInstructions ? `${req.developerInstructions}\n\n---\n\n${req.prompt}` : req.prompt;
+    // Effective ceiling: explicit per-call wins, else the construction default,
+    // else the module default. Always a positive number, so defaultRun's kill
+    // timer is ALWAYS armed - no Codex call can run unbounded.
+    // Then clamped under the host's own per-call cap (MCP_TOOL_TIMEOUT), so a run the
+    // host would kill mid-flight fails HERE first, as a timeout that names the cap.
+    const clamp = clampToHostBudget(typeof req.timeoutMs === "number" && req.timeoutMs > 0 ? req.timeoutMs : defaultTimeoutMs, env, req.hostBudgetRemainingMs);
+    const timeoutMs = /** @type {number} */ (clamp.timeoutMs);
+    const { code, stdout, stderr, timedOut, spawnFailed } = await run({ prompt: full, cwd: req.cwd, timeoutMs, mode, env });
+    if (code === 0) {
+      // Codex CLI has no per-call reasoning-effort knob in this integration -> null.
+      return { result: { provider: "codex", model, text: stdout.trim(), isError: false, ms: Date.now() - started, reasoningEffort: null } };
+    }
+    // The kill timer is authoritative: a run we killed is a timeout regardless of what
+    // (if anything) landed on stderr. Without this a codex timeout classifies as
+    // `unknown` and can never trip the consensus circuit breaker.
+    // Both flags are authoritative over the stderr classifier, for the same reason: they
+    // describe the RUN, while stderr is the child's own text. `not-found` is non-retryable -
+    // callProvider retries only network/rate-limit/empty, so a missing CLI fails fast.
+    const { errorKind, retryable } = timedOut
+      ? { errorKind: "timeout", retryable: true }
+      : spawnFailed
+        ? { errorKind: "not-found", retryable: false }
+        : classifyCodex(stderr);
+    const output = (stdout && stdout.trim()) || stderr || undefined;
+    // codex's line and the fix LEAD: codex prints its banner and echoes the whole prompt on
+    // stderr first, so the line would otherwise sit far below them. Gated on `auth`, so
+    // errorKind and message never disagree.
+    const refreshLine = errorKind === "auth" ? refreshFailureLine(stderr) : undefined;
+    return {
+      refreshLine,
+      result: {
         provider: "codex",
         model,
         isError: true,
@@ -312,9 +490,35 @@ function makeCodexProvider(opts = {}) {
           : refreshLine ? `${refreshLine}\n${CODEX_REFRESH_HINT}\n\n${output}` : output,
         ms: Date.now() - started,
         reasoningEffort: null,
-      };
+      },
+    };
+  }
+
+  return {
+    name: "codex",
+    // canImplement reflects the construction lock so discovery (panel) is honest about THIS
+    // process. Option A: no threadId continuity (multiTurn:false).
+    capabilities: { canImplement: allowImplement, fileUpload: false, multiTurn: false, walksFilesystem: true },
+    async health() {
+      const h = codexHealth({ env });
+      // No credential is the one gap ask() can close itself, so it must not keep GPT off the panel.
+      return deviceLogin && h.needsLogin ? { ok: true } : h;
+    },
+    async ask(req) {
+      const started = Date.now();
+      if (deviceLogin && !codexHasAuth({ env })) {
+        const blocked = await signIn(req, started);
+        if (blocked) return /** @type {any} */ (blocked);
+        return /** @type {any} */ ((await runOnce(afterWait(req, started), started)).result);
+      }
+      const first = await runOnce(req, started);
+      if (!(deviceLogin && first.refreshLine)) return /** @type {any} */ (first.result);
+      // A spent login (a copied auth.json that another machine refreshed first): replace it, retry once.
+      const blocked = await signIn(req, started, first.refreshLine);
+      if (blocked) return /** @type {any} */ (blocked);
+      return /** @type {any} */ ((await runOnce(afterWait(req, started), started)).result);
     },
   };
 }
 
-module.exports = { makeCodexProvider, classifyCodex, codexExecArgs, buildSpawnPlan, codexEnv, codexHasLogin, codexHasAuth, codexHealth, CODEX_DEFAULT_TIMEOUT_MS };
+module.exports = { makeCodexProvider, classifyCodex, codexExecArgs, buildSpawnPlan, codexEnv, codexHasLogin, codexHasAuth, codexHealth, parseDevicePrompt, makeDeviceLogin, CODEX_DEFAULT_TIMEOUT_MS };

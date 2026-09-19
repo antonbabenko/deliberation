@@ -337,6 +337,9 @@ async function unhealthyMap(providers) {
   return m;
 }
 
+// MCP protocol versions this server speaks, newest first.
+const PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
+
 /**
  * @param {Object} deps
  * @param {Provider[]} deps.providers
@@ -344,8 +347,9 @@ async function unhealthyMap(providers) {
  * @param {() => (string|null)} [deps.getConfigError]  // last config load error (e.g. JSON parse), or null
  * @param {string} [deps.sessionsDir]  // dir for the opt-in session store; omit to disable persistence
  * @param {(method:string, params:any) => void} [deps.notify]  // server->client JSON-RPC notification sender (Phase 4); no-op if omitted
+ * @param {(msg:any) => void} [deps.write]  // raw server->client JSON-RPC writer, for requests the server makes (elicitation); none -> no dialogs
  */
-function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify }) {
+function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify, write }) {
   const registry = makeRegistry(providers);
   // Server->client notification sender (Phase 4 spike). Injected by the stdio loop
   // so it can write an unsolicited JSON-RPC notification to stdout; a no-op in tests
@@ -356,9 +360,64 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
   // machine, the review parser, and an ephemeral per-server store that carries
   // LoopState across the stateless step tool calls (no sessions.persist needed).
   const loop = /** @type {any} */ (require("../../core/consensus-loop.js"));
-  const { parseReview } = require("../../core/provider.js");
+  const { parseReview, plainMessage } = require("../../core/provider.js");
   const { makeLoopStore } = require("../../core/loop-store.js");
   const loopStore = makeLoopStore();
+
+  // ---- Requests TO the client (MCP elicitation) -----------------------------------------
+  // What the host said it can do at `initialize`. Elicitation is the one server->client
+  // request we make: showing a codex device-login code in the host's own UI.
+  /** @type {any} */ let clientCapabilities = {};
+  /** @type {Map<string, (reply: any) => void>} */ const pendingRequests = new Map();
+  let requestSeq = 0;
+
+  /**
+   * Send a request to the client; resolves with its reply ({result} or {error}), or null when
+   * no writer is wired or the client stays silent for `timeoutMs`.
+   * @param {string} method
+   * @param {any} params
+   * @param {number} timeoutMs
+   * @returns {Promise<any>}
+   */
+  function requestClient(method, params, timeoutMs) {
+    if (typeof write !== "function") return Promise.resolve(null);
+    const id = `deliberation-${++requestSeq}`;
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => { pendingRequests.delete(id); resolve(null); }, Math.max(0, timeoutMs));
+      timer.unref();
+      pendingRequests.set(id, (reply) => { clearTimeout(timer); resolve(reply); });
+      write({ jsonrpc: "2.0", id, method, params });
+    });
+  }
+
+  /**
+   * Show a codex device-login code in the host's UI and wait for the user. URL mode when the
+   * host offers it (MCP 2025-11-25: made for sending the user to a sign-in page), else a form
+   * dialog carrying the link and code as text. Resolves true only on an explicit accept;
+   * a host without elicitation, a decline, an error or silence is false, and the caller then
+   * returns the link in the tool result.
+   * @param {{url:string, code:string, expiresAt:number}} prompt
+   * @param {number} waitMs
+   * @returns {Promise<boolean>}
+   */
+  async function confirmLogin(prompt, waitMs) {
+    const el = clientCapabilities && clientCapabilities.elicitation;
+    if (!el || typeof el !== "object") return false;
+    const minutes = Math.max(1, Math.round((prompt.expiresAt - Date.now()) / 60000));
+    const params = el.url
+      ? {
+        mode: "url",
+        elicitationId: `codex-login-${prompt.code}`,
+        url: prompt.url,
+        message: `GPT (Codex) needs a ChatGPT login on this machine. Open the link, sign in, and enter the code ${prompt.code} (expires in ${minutes} min).`,
+      }
+      : {
+        message: `GPT (Codex) needs a ChatGPT login on this machine.\n\n1. Open ${prompt.url}\n2. Sign in and enter the code ${prompt.code} (expires in ${minutes} min)\n\nAccept once you have approved it. Decline to go on without GPT for now; the code stays valid.`,
+        requestedSchema: { type: "object", properties: { approved: { type: "boolean", title: "I entered the code and approved the login", default: true } } },
+      };
+    const reply = await requestClient("elicitation/create", params, waitMs);
+    return Boolean(reply && reply.result && reply.result.action === "accept");
+  }
 
   // In-session dedup cache (Phase 5) for the ADVISORY paths only (ask-all / ask-one):
   // an identical re-ask returns the prior success instantly. Deliberately NOT used on
@@ -1017,7 +1076,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         const peerResults = await askAll(selected, withPersona(peerReq, ex), { logger: lg, tool: "consensus", orientationFiles: orient(peerReq), startedAt: toolStartedAt });
         const results = peerResults.map((r) =>
           r.isError
-            ? { source: r.provider, isError: true, errorKind: r.errorKind, verdict: null, criticalIssues: [], model: r.model, reasoningEffort: r.reasoningEffort ?? null, ms: r.ms }
+            ? { source: r.provider, isError: true, errorKind: r.errorKind, message: plainMessage(r.message), verdict: null, criticalIssues: [], model: r.model, reasoningEffort: r.reasoningEffort ?? null, ms: r.ms }
             // Retain the raw response `text` on the in-memory loop result so a terminal
             // persist can store it WHEN sessions.captureText is on (persistRun gates it;
             // the wire `opinions` mapping below omits text, so it never leaves the loop).
@@ -1031,7 +1090,9 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
           round: next.round,
           // model + reasoningEffort + ms ride along so the command can show real
           // reasoning effort per voice (no more hardcoded "n/a") and a time footer.
-          opinions: results.map((r) => ({ source: r.source, isError: r.isError, errorKind: r.errorKind, verdict: r.verdict, criticalIssues: r.criticalIssues, model: r.model, reasoningEffort: r.reasoningEffort, ms: r.ms })),
+          // An errored voice keeps its bounded message: that is where a codex login link and
+          // code reach the host.
+          opinions: results.map((r) => ({ source: r.source, isError: r.isError, errorKind: r.errorKind, ...(r.isError && r.message ? { message: r.message } : {}), verdict: r.verdict, criticalIssues: r.criticalIssues, model: r.model, reasoningEffort: r.reasoningEffort, ms: r.ms })),
           // Peers the breaker has removed. Reported so the panel can say so ONCE
           // instead of relisting them as ERRORED every round.
           ...(newlyDropped.length ? { droppedProviders: newlyDropped } : {}),
@@ -1369,8 +1430,19 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
 
   /** @param {any} msg */
   async function handle(msg) {
+    // A reply to a request WE sent (elicitation): route it, never answer it.
+    if (msg && msg.method === undefined && msg.id !== undefined) {
+      const settle = pendingRequests.get(String(msg.id));
+      if (settle) { pendingRequests.delete(String(msg.id)); settle(msg); }
+      return undefined;
+    }
     try {
       if (msg.method === "initialize") {
+        clientCapabilities = (msg.params && msg.params.capabilities) || {};
+        // The client's version when we speak it, else our latest; a client that names none
+        // keeps the version this server always answered. Elicitation needs 2025-06-18+.
+        const requested = msg.params && msg.params.protocolVersion;
+        const protocolVersion = typeof requested !== "string" ? "2024-11-05" : PROTOCOL_VERSIONS.includes(requested) ? requested : PROTOCOL_VERSIONS[0];
         // Capture the client name (hint for the arbiter default; see isClaudeHost).
         const ci = msg.params && msg.params.clientInfo;
         if (ci && typeof ci.name === "string") clientName = ci.name;
@@ -1381,7 +1453,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         // that line (quotes, spacing, key order) - the sync would silently stop finding it.
         // Deliberately not restated here: a comment carrying that shape would shadow the
         // real line and the sync would rewrite the comment instead.
-        return { jsonrpc: "2.0", id: msg.id, result: { protocolVersion: "2024-11-05", capabilities: { tools: {}, logging: {} }, serverInfo: { name: "deliberation-mcp", version: "3.14.11" } } };
+        return { jsonrpc: "2.0", id: msg.id, result: { protocolVersion, capabilities: { tools: {}, logging: {} }, serverInfo: { name: "deliberation-mcp", version: "3.14.11" } } };
       }
       if (msg.method === "logging/setLevel") {
         const level = msg.params && msg.params.level;
@@ -1400,7 +1472,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
     }
   }
 
-  return { handle, toolList };
+  return { handle, toolList, confirmLogin };
 }
 
 function startStdio() {
@@ -1433,8 +1505,18 @@ function startStdio() {
   /** @type {Provider[]} */
   // Composition root: core is transport-agnostic, so wire each adapter to its
   // bridge here. Codex spawns the `codex` CLI directly and needs no bridge.
+  // Bound once the server exists (it holds the client's capabilities); codex asks it to show
+  // a device-login code in the host's UI.
+  /** @type {any} */ let srv = null;
   const providers = [
-    makeCodexProvider({ timeoutMs: providerTimeout("codex") }),
+    // deviceLogin: with no working ChatGPT login, the first GPT call starts
+    // `codex login --device-auth` and shows its link + code (a host dialog when the client
+    // supports MCP elicitation, else in the result) instead of failing.
+    makeCodexProvider({
+      timeoutMs: providerTimeout("codex"),
+      deviceLogin: true,
+      confirmLogin: (prompt, waitMs) => (srv ? srv.confirmLogin(prompt, waitMs) : Promise.resolve(false)),
+    }),
     // providers.<name>.{model,reasoningEffort,timeout} are read ONCE here (constructor
     // args), so unlike the hot-reloading models map a change needs an MCP restart. Absent
     // -> undefined, letting each adapter fall through to its env var then its built-in.
@@ -1465,7 +1547,8 @@ function startStdio() {
   // (no `id`) on stdout. Used to stream per-provider progress during a blocking call.
   const notify = (/** @type {string} */ method, /** @type {any} */ params) =>
     process.stdout.write(JSON.stringify({ jsonrpc: "2.0", method, params }) + "\n");
-  const srv = buildServer({ providers, getConfig, getConfigError, sessionsDir, notify });
+  const write = (/** @type {any} */ m) => process.stdout.write(JSON.stringify(m) + "\n");
+  srv = buildServer({ providers, getConfig, getConfigError, sessionsDir, notify, write });
 
   if (typeof globalThis.fetch !== "function") {
     console.error("deliberation-mcp requires Node 18+ (global fetch unavailable).");
@@ -1477,13 +1560,19 @@ function startStdio() {
     buffer += chunk.toString();
     const lines = buffer.split("\n");
     buffer = lines.pop() || "";
+    /** @type {any[]} */ const msgs = [];
     for (const line of lines) {
       const l = line.trim();
       if (!l) continue;
-      let msg;
-      try { msg = JSON.parse(l); } catch { continue; }
+      try { msgs.push(JSON.parse(l)); } catch { /* not JSON-RPC */ }
+    }
+    // Replies to our own requests first: a tool call earlier in this batch may be the one
+    // waiting on them, and the loop below awaits each request in turn.
+    for (const msg of msgs) if (msg && msg.method === undefined) await srv.handle(msg);
+    for (const msg of msgs) {
+      if (!msg || msg.method === undefined) continue;
       const res = await srv.handle(msg);
-      if (msg.id !== undefined) process.stdout.write(JSON.stringify(res) + "\n");
+      if (msg.id !== undefined && res !== undefined) process.stdout.write(JSON.stringify(res) + "\n");
     }
   });
 }

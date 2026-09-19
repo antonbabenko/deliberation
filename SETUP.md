@@ -154,11 +154,15 @@ Three things differ in a web container, and the plugin now handles each:
   (about every 8 days, or on a 401), the other one fails with `Your access token could not be
   refreshed because your refresh token was already used`. Restoring the same copy from a
   secret at every session start fails the same way. Pick one of these:
-  - **ChatGPT Plus / Pro:** run `codex login --device-auth` once in each remote session
-    (type `! codex login --device-auth`, open the printed link, enter the code). It creates a
-    separate login for that container, so it never conflicts with your laptop. Turn on device
-    code login in ChatGPT's security settings first. The environment's network allowlist
-    must reach `auth.openai.com` and `chatgpt.com`.
+  - **ChatGPT Plus / Pro:** nothing to set up beyond turning on device code login in
+    ChatGPT's security settings. The first GPT call in a session that has no working login
+    starts `codex login --device-auth` and shows its link and one-time code. If the host
+    supports MCP elicitation you get a dialog during the call: approve in the browser, accept,
+    and that same call answers. Otherwise the code comes back in the result (`errorKind:
+    "auth"`); approve it and GPT answers from the next call (in `/consensus`, from the next
+    round). The login belongs to that container alone, so it never conflicts with your
+    laptop. The environment's network allowlist must reach `auth.openai.com` and
+    `chatgpt.com`. To log in ahead of time, run `! codex login --device-auth` yourself.
   - **ChatGPT Business / Enterprise:** create a Codex access token and set
     `CODEX_ACCESS_TOKEN` in the environment's variables. It never refreshes (it expires on the
     date the workspace allows, 90 days by default), so the same value works in every session.
@@ -172,8 +176,8 @@ Three things differ in a web container, and the plugin now handles each:
   - **API billing:** export `CODEX_API_KEY`, or run
     `printenv CODEX_API_KEY | codex login --with-api-key` once.
 
-  When a login can no longer refresh, the GPT result is `errorKind: "auth"` and its message
-  starts with these steps.
+  When a login can no longer refresh (a copied `auth.json`), the same thing happens: the
+  first GPT call starts a fresh device login, shows its code, and retries once you approve.
 - **No `agy`.** The standalone Gemini bridge refuses to start (`CONNECTION_CLOSED` in the
   host's server list); the unified server lists gemini under `panel.unavailable` and the
   panel runs without it.

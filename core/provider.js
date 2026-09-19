@@ -9,6 +9,20 @@ const ANSI_ESCAPE_RE = /\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)
 // eslint-disable-next-line no-control-regex
 const CONTROL_CHAR_RE = /[\x00-\x08\x0b-\x1f\x7f]/g;
 
+const MAX_MESSAGE_CHARS = 500;
+
+/**
+ * A provider's diagnostic as bounded plain text: ANSI and control bytes stripped, capped at
+ * 500 chars. undefined when there is nothing to say.
+ * @param {unknown} raw
+ * @returns {string|undefined}
+ */
+function plainMessage(raw) {
+  const text = (typeof raw === "string" ? raw : "").replace(ANSI_ESCAPE_RE, "").replace(CONTROL_CHAR_RE, "").trim();
+  if (!text) return undefined;
+  return text.length > MAX_MESSAGE_CHARS ? text.slice(0, MAX_MESSAGE_CHARS) + "..." : text;
+}
+
 /**
  * Normalize a thrown bridge error into a DelegationError using that bridge's
  * own classifier, so behavior matches the standalone bridge exactly.
@@ -38,13 +52,7 @@ function toErrorResult(name, model, started, err, classify, extra) {
   // whitelist) or the session store (opinionsFrom copies only text/verdict fields).
   // Plain text only: a CLI's stderr can carry ANSI colour/cursor sequences and other
   // control bytes, which have no place in a JSON envelope a host renders.
-  const MAX_MESSAGE_CHARS = 500;
-  const rawMessage = (err && typeof err.message === "string" ? err.message : "")
-    .replace(ANSI_ESCAPE_RE, "")
-    .replace(CONTROL_CHAR_RE, "")
-    .trim();
-  const message = !rawMessage ? undefined
-    : rawMessage.length > MAX_MESSAGE_CHARS ? rawMessage.slice(0, MAX_MESSAGE_CHARS) + "..." : rawMessage;
+  const message = plainMessage(err && err.message);
   // Spread `extra` FIRST so the canonical envelope fields always win - a caller's
   // stray `extra` key (or a non-object) can never clobber provider/isError/ms/etc.
   return {
@@ -529,6 +537,7 @@ function resolveIssues(lines) {
 
 module.exports = {
   toErrorResult,
+  plainMessage,
   parseRetryAfterMs,
   classifyFetchFailure,
   fetchFailureError,

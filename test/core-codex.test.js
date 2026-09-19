@@ -324,12 +324,13 @@ test("CX-refresh-1: a failed ChatGPT token refresh is an auth error, not unknown
   for (const s of REFRESH_FAILURES) assert.deepEqual(classifyCodex(s), { errorKind: "auth", retryable: false }, s);
 });
 
-test("CX-refresh-2: the fix leads the message, so the 500-char cap cannot cut it off", async () => {
-  // codex exec prints a banner on stderr before the error; a long one would push a trailing hint out.
+test("CX-refresh-2: codex's line and the fix lead the message, ahead of the banner and echoed prompt", async () => {
+  // codex exec prints a banner and echoes the prompt on stderr before the error; the reader
+  // (and any host that truncates a long tool error) must meet the diagnosis first.
   const stderr = `${"banner line\n".repeat(60)}ERROR: ${REFRESH_FAILURES[1]}`;
   const r = /** @type {any} */ (await mkCx({ run: async () => ({ code: 1, stdout: "", stderr, timedOut: false }), env: {} }).ask({ prompt: "x" }));
   assert.equal(r.errorKind, "auth");
-  const capped = r.message.slice(0, 500);
+  const capped = r.message.slice(0, 500); // what a truncating host would still show
   assert.match(capped, /^ERROR: Your access token could not be refreshed because your refresh token was already used/, "codex's own line comes first");
   assert.match(capped, /codex login --device-auth/);
   assert.match(capped, /CODEX_ACCESS_TOKEN/);
@@ -355,4 +356,144 @@ test("CX-refresh-3: other auth errors do not get the refresh hint", async () => 
   const r = /** @type {any} */ (await mkCx({ run: async () => ({ code: 1, stdout: "", stderr: "Not logged in. Run codex login.", timedOut: false }), env: {} }).ask({ prompt: "x" }));
   assert.equal(r.errorKind, "auth");
   assert.doesNotMatch(r.message, /device-auth/);
+});
+
+// ---- login on first use: `codex login --device-auth`, started lazily when GPT is needed ----
+const { parseDevicePrompt, makeDeviceLogin } = require("../core/providers/codex.js");
+// Captured from codex-cli 0.155.1 (code replaced); codex colours stdout even when it is a pipe.
+const DEVICE_OUT = "\nWelcome to Codex [v\x1b[90m0.155.1\x1b[0m]\n\x1b[90mOpenAI's command-line coding agent\x1b[0m\n\n" +
+  "Follow these steps to sign in with ChatGPT using device code authorization:\n\n" +
+  "1. Open this link in your browser and sign in to your account\n   \x1b[94mhttps://auth.openai.com/codex/device\x1b[0m\n\n" +
+  "2. Enter this one-time code \x1b[90m(expires in 15 minutes)\x1b[0m\n   \x1b[94mABCD-12345\x1b[0m\n\n" +
+  "\x1b[90mContinue only if you started this login in Codex. If a website or another person gave you this code, cancel.\x1b[0m\n";
+
+/** A fake `codex login --device-auth`: prints the prompt, then waits for approve()/fail(). */
+function fakeLoginCli() {
+  const calls = { spawned: 0 };
+  /** @type {(code:number)=>void} */ let exit = () => {};
+  const spawnLogin = (/** @type {any} */ env, /** @type {(t:string)=>void} */ onText) => {
+    calls.spawned++;
+    onText(DEVICE_OUT);
+    return { exit: new Promise((r) => { exit = r; }), kill: () => exit(143) };
+  };
+  return { calls, spawnLogin, approve: (/** @type {string} */ home) => { require("node:fs").writeFileSync(require("node:path").join(home, "auth.json"), "{}"); exit(0); }, fail: () => exit(1) };
+}
+
+function tmpCodexHome() {
+  const fs = require("node:fs"), os = require("node:os"), path = require("node:path");
+  return fs.mkdtempSync(path.join(os.tmpdir(), "cx-home-"));
+}
+
+test("CX-login-parse: link, code and expiry come out of codex's coloured device-auth output", () => {
+  assert.deepEqual(parseDevicePrompt(DEVICE_OUT), { url: "https://auth.openai.com/codex/device", code: "ABCD-12345", expiresInMs: 15 * 60000 });
+  assert.equal(parseDevicePrompt("\nWelcome to Codex [v0.155.1]\n"), null, "nothing printed yet");
+});
+
+test("CX-login-flight: one login at a time - a second start reuses the pending code", async () => {
+  const cli = fakeLoginCli();
+  const login = makeDeviceLogin({ spawnLogin: cli.spawnLogin });
+  const a = /** @type {any} */ (await login.start({}));
+  const b = /** @type {any} */ (await login.start({}));
+  assert.equal(cli.calls.spawned, 1);
+  assert.equal(a.prompt.code, "ABCD-12345");
+  assert.equal(b.prompt, a.prompt);
+});
+
+test("CX-login-restart: a finished or expired login is replaced by a fresh one", async () => {
+  let t = 0;
+  const cli = fakeLoginCli();
+  const login = makeDeviceLogin({ spawnLogin: cli.spawnLogin, now: () => t });
+  const first = /** @type {any} */ (await login.start({}));
+  cli.fail();
+  assert.equal(await first.done, false, "a failed login is not done");
+  await login.start({});
+  assert.equal(cli.calls.spawned, 2, "restarted after it exited");
+  t = 16 * 60000;
+  await login.start({});
+  assert.equal(cli.calls.spawned, 3, "restarted after the code expired");
+});
+
+test("CX-login-noprompt: a login that exits before printing a code reports what it said", async () => {
+  const login = makeDeviceLogin({
+    spawnLogin: (_env, onText) => { onText("\x1b[31mError: device code login is disabled for this workspace\x1b[0m\n"); return { exit: Promise.resolve(1), kill() {} }; },
+  });
+  const r = /** @type {any} */ (await login.start({}));
+  assert.equal(r.prompt, undefined);
+  assert.match(r.error, /device code login is disabled/);
+  assert.doesNotMatch(r.error, /\x1b/, "no ANSI in the message");
+});
+
+test("CX-login-link: no credential and no host dialog -> an auth result carrying the link and code; codex never runs", async () => {
+  const home = tmpCodexHome();
+  const cli = fakeLoginCli();
+  let ran = 0;
+  const p = mkCx({ env: { CODEX_HOME: home, PATH: "/nowhere" }, deviceLogin: true, login: makeDeviceLogin({ spawnLogin: cli.spawnLogin }), run: async () => { ran++; return { code: 0, stdout: "x", stderr: "" }; } });
+  const r = /** @type {any} */ (await p.ask({ prompt: "x" }));
+  assert.equal(ran, 0);
+  assert.equal(r.isError, true);
+  assert.equal(r.errorKind, "auth");
+  assert.match(r.message, /https:\/\/auth\.openai\.com\/codex\/device/);
+  assert.match(r.message, /ABCD-12345/);
+});
+
+test("CX-login-health: with login on first use, a missing credential does not keep GPT off the panel", async () => {
+  const fs = require("node:fs"), path = require("node:path");
+  const home = tmpCodexHome();
+  const bin = path.join(home, "bin");
+  fs.mkdirSync(bin);
+  fs.writeFileSync(path.join(bin, "codex"), "#!/bin/sh\n", { mode: 0o755 });
+  const env = { CODEX_HOME: home, PATH: bin };
+  assert.equal(codexHealth({ env }).ok, false, "the stat probe itself is unchanged");
+  const off = mkCx({ env, run: async () => ({ code: 0, stdout: "", stderr: "" }) });
+  assert.equal((await off.health()).ok, false, "and so is the provider without deviceLogin");
+  const p = mkCx({ env, deviceLogin: true, login: makeDeviceLogin({ spawnLogin: fakeLoginCli().spawnLogin }), run: async () => ({ code: 0, stdout: "", stderr: "" }) });
+  assert.deepEqual(await p.health(), { ok: true });
+});
+
+test("CX-login-dialog: the host confirms, the login lands, and the same call answers", async () => {
+  const home = tmpCodexHome();
+  const cli = fakeLoginCli();
+  /** @type {any} */ let shown;
+  const confirmLogin = async (/** @type {any} */ prompt) => { shown = prompt; cli.approve(home); return true; };
+  const p = mkCx({ env: { CODEX_HOME: home }, deviceLogin: true, confirmLogin, login: makeDeviceLogin({ spawnLogin: cli.spawnLogin }), run: async () => ({ code: 0, stdout: "answer", stderr: "" }) });
+  const r = /** @type {any} */ (await p.ask({ prompt: "x" }));
+  assert.equal(shown.code, "ABCD-12345");
+  assert.equal(r.isError, false);
+  assert.equal(r.text, "answer");
+});
+
+test("CX-login-declined: a declined dialog falls back to the link; the login keeps waiting in the background", async () => {
+  const home = tmpCodexHome();
+  const cli = fakeLoginCli();
+  const login = makeDeviceLogin({ spawnLogin: cli.spawnLogin });
+  const p = mkCx({ env: { CODEX_HOME: home }, deviceLogin: true, confirmLogin: async () => false, login, run: async () => ({ code: 0, stdout: "answer", stderr: "" }) });
+  const r = /** @type {any} */ (await p.ask({ prompt: "x" }));
+  assert.equal(r.errorKind, "auth");
+  assert.match(r.message, /ABCD-12345/);
+  cli.approve(home);
+  const again = /** @type {any} */ (await p.ask({ prompt: "x" }));
+  assert.equal(again.text, "answer", "approved in the browser later: the next call just works");
+  assert.equal(cli.calls.spawned, 1);
+});
+
+test("CX-login-refresh: a spent login triggers a fresh device login and one retry", async () => {
+  const home = tmpCodexHome();
+  require("node:fs").writeFileSync(require("node:path").join(home, "auth.json"), "{}"); // the stale copy
+  const cli = fakeLoginCli();
+  let runs = 0;
+  const run = async () => (++runs === 1
+    ? { code: 1, stdout: "", stderr: `ERROR: ${REFRESH_FAILURES[1]}`, timedOut: false }
+    : { code: 0, stdout: "answer", stderr: "" });
+  const p = mkCx({ env: { CODEX_HOME: home }, deviceLogin: true, confirmLogin: async () => { cli.approve(home); return true; }, login: makeDeviceLogin({ spawnLogin: cli.spawnLogin }), run });
+  const r = /** @type {any} */ (await p.ask({ prompt: "x" }));
+  assert.equal(runs, 2);
+  assert.equal(r.text, "answer");
+});
+
+test("CX-login-off: without deviceLogin nothing is spawned (library default)", async () => {
+  const home = tmpCodexHome();
+  const cli = fakeLoginCli();
+  const p = mkCx({ env: { CODEX_HOME: home }, login: makeDeviceLogin({ spawnLogin: cli.spawnLogin }), run: async () => ({ code: 1, stdout: "", stderr: "Not logged in", timedOut: false }) });
+  await p.ask({ prompt: "x" });
+  assert.equal(cli.calls.spawned, 0);
 });
