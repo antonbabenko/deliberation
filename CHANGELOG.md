@@ -1,3 +1,10 @@
+## [3.15.0](https://github.com/antonbabenko/deliberation/compare/v3.14.11...v3.15.0) (2026-09-19)
+
+
+### Features
+
+* **codex:** log in on first use via device auth; recognize CODEX_ACCESS_TOKEN and rotated ChatGPT logins ([#198](https://github.com/antonbabenko/deliberation/issues/198)) ([b914dae](https://github.com/antonbabenko/deliberation/commit/b914dae1527cdff1590405625be6955a918a5e2b))
+
 ## [3.14.11](https://github.com/antonbabenko/deliberation/compare/v3.14.10...v3.14.11) (2026-09-18)
 
 
@@ -25,11 +32,4 @@
 ### Bug Fixes
 
 * **consensus:** raise default maxWallMs to 30 min ([#190](https://github.com/antonbabenko/deliberation/issues/190)) ([c477c04](https://github.com/antonbabenko/deliberation/commit/c477c0483cdfe42c17ef04364c591265b529c105))
-
-## [3.14.7](https://github.com/antonbabenko/deliberation/compare/v3.14.6...v3.14.7) (2026-09-11)
-
-
-### Bug Fixes
-
-* **commands:** run the command scripts from files, not from the prompt ([#186](https://github.com/antonbabenko/deliberation/issues/186)) ([7af4248](https://github.com/antonbabenko/deliberation/commit/7af4248cec32fd89bf232df6d3aa1fe17c25b548))
 
