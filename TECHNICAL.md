@@ -352,8 +352,9 @@ spent login (the refresh failure above). Instead of failing, `ask()` then:
    and parses the link, the one-time code and its lifetime from codex's output
    (`parseDevicePrompt`). That output is text for humans, so the match is loose: the link is
    the URL with `/device` in its path (codex may print an update notice with its own URL
-   first), and if no link and code appear within 20s the result carries codex's own output
-   instead. One login per
+   first), and only an `openai.com` / `chatgpt.com` host (or a subdomain) is ever offered as
+   the link. If no such link and code appear within 20s, the result carries codex's own
+   output instead. A code nobody used is reaped 5s after it expires, whatever codex does. One login per
    process (`makeDeviceLogin`): a second caller while the code is valid gets the same code;
    an expired or finished login is replaced.
 2. Asks the host to show the code (`confirmLogin`). The server negotiates the client's MCP
@@ -369,8 +370,10 @@ spent login (the refresh failure above). Instead of failing, `ask()` then:
    warning codex prints.
 3. Once `auth.json` exists (the login's exit code 0 AND the file), runs codex on the same call
    with the host budget reduced by the time spent waiting, retrying once after a spent login.
-   With no dialog, a decline, an error or a timeout, it returns `errorKind: "auth"` whose
-   message starts with the link and code (codex's refresh line, if any, follows). The login
+   A decline is a no: that login is killed and the result says GPT was skipped (the next GPT
+   call offers a new code, never the refused one). With no dialog, a dismissed dialog, an
+   error or a timeout, it returns `errorKind: "auth"` whose message starts with the link and
+   code (codex's refresh line, if any, follows). The login
    keeps polling in the background, so the next call after the user approves simply finds
    `auth.json`. A login that ended without landing is reported as such, never with its dead
    code, and the next call starts a fresh one. The login child is killed when the server

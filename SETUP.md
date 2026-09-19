@@ -158,7 +158,7 @@ Three things differ in a web container, and the plugin now handles each:
     ChatGPT's security settings. The first GPT call in a session that has no working login
     starts `codex login --device-auth` and shows its link and one-time code. If the host
     supports MCP elicitation you get a dialog during the call: approve in the browser, accept,
-    and that same call answers. Otherwise the code comes back in the result (`errorKind:
+    and that same call answers. Decline if you did not ask for GPT: that login ends at once. Otherwise the code comes back in the result (`errorKind:
     "auth"`); approve it and GPT answers from the next call (in `/consensus`, from the next
     round). The login belongs to that container alone, so it never conflicts with your
     laptop. The environment's network allowlist must reach `auth.openai.com` and

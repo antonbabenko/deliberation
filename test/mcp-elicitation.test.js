@@ -29,7 +29,7 @@ test("EL-version: the client's protocol version when supported, the latest when 
 test("EL-none: a host without elicitation gets no request - the link rides in the result instead", async () => {
   const { srv, sent } = mk();
   await init(srv, {});
-  assert.equal(await srv.confirmLogin(PROMPT, 1000), false);
+  assert.equal(await srv.confirmLogin(PROMPT, 1000), "none");
   assert.equal(sent.length, 0);
 });
 
@@ -44,7 +44,7 @@ test("EL-url: a host that supports URL mode gets the link as a URL elicitation, 
   assert.equal(req.params.url, PROMPT.url);
   assert.match(req.params.message, /ABCD-12345/);
   assert.equal(await srv.handle({ jsonrpc: "2.0", id: req.id, result: { action: "accept" } }), undefined, "a reply is routed, never answered");
-  assert.equal(await pending, true);
+  assert.equal(await pending, "accept");
 });
 
 test("EL-form: a form-only host gets a dialog carrying link + code; decline means no", async () => {
@@ -57,7 +57,7 @@ test("EL-form: a form-only host gets a dialog carrying link + code; decline mean
   assert.match(req.params.message, /ABCD-12345/);
   assert.equal(req.params.requestedSchema.type, "object");
   await srv.handle({ jsonrpc: "2.0", id: req.id, result: { action: "decline" } });
-  assert.equal(await pending, false);
+  assert.equal(await pending, "decline");
 });
 
 test("EL-error-timeout: an error reply or no reply at all is a no, never a hang", async () => {
@@ -65,9 +65,9 @@ test("EL-error-timeout: an error reply or no reply at all is a no, never a hang"
   await init(srv, { elicitation: { url: {} } });
   const errored = srv.confirmLogin(PROMPT, 1000);
   await srv.handle({ jsonrpc: "2.0", id: sent[0].id, error: { code: -32600, message: "not supported" } });
-  assert.equal(await errored, false);
+  assert.equal(await errored, "none");
   const t0 = Date.now();
-  assert.equal(await srv.confirmLogin(PROMPT, 50), false);
+  assert.equal(await srv.confirmLogin(PROMPT, 50), "none");
   assert.ok(Date.now() - t0 < 1000);
 });
 
@@ -97,17 +97,17 @@ test("EL-dedupe: two callers waiting on the same code share ONE dialog", async (
   const b = srv.confirmLogin(PROMPT, 1000);
   assert.equal(sent.length, 1);
   await srv.handle({ jsonrpc: "2.0", id: sent[0].id, result: { action: "accept" } });
-  assert.deepEqual(await Promise.all([a, b]), [true, true]);
+  assert.deepEqual(await Promise.all([a, b]), ["accept", "accept"]);
   const c = srv.confirmLogin(PROMPT, 1000);
   assert.equal(sent.length, 2, "once answered, a later call may ask again");
   await srv.handle({ jsonrpc: "2.0", id: sent[1].id, result: { action: "decline" } });
-  assert.equal(await c, false);
+  assert.equal(await c, "decline");
 });
 
 test("EL-version-gate: elicitation only on a negotiated 2025-06-18+, URL mode only on 2025-11-25+", async () => {
   const old = mk();
   await init(old.srv, { elicitation: { url: {} } }, "2025-03-26");
-  assert.equal(await old.srv.confirmLogin(PROMPT, 50), false);
+  assert.equal(await old.srv.confirmLogin(PROMPT, 50), "none");
   assert.equal(old.sent.length, 0, "no elicitation before 2025-06-18");
   const mid = mk();
   await init(mid.srv, { elicitation: { form: {}, url: {} } }, "2025-06-18");
@@ -126,7 +126,7 @@ test("EL-stdin: a reply arriving in a LATER chunk releases the tool call that is
     capabilities: { canImplement: false, fileUpload: false, multiTurn: false, walksFilesystem: true },
     async health() { return { ok: true }; },
     async ask() {
-      const ok = await srv.confirmLogin(PROMPT, 2000);
+      const ok = (await srv.confirmLogin(PROMPT, 2000)) === "accept";
       return ok ? { provider: "codex", model: "m", text: "answer", isError: false, ms: 1 } : { provider: "codex", model: "m", isError: true, errorKind: "auth", message: "no", ms: 1 };
     },
   };
@@ -143,4 +143,12 @@ test("EL-stdin: a reply arriving in a LATER chunk releases the tool call that is
   assert.ok(res, "the waiting tool call answered");
   assert.match(res.result.content[0].text, /answer/);
   assert.equal(out.filter((m) => m.id === req.id).length, 1, "the reply itself was never answered");
+});
+
+test("EL-cancel: a dismissed dialog (cancel) is neither accept nor decline", async () => {
+  const { srv, sent } = mk();
+  await init(srv, { elicitation: { url: {} } });
+  const pending = srv.confirmLogin(PROMPT, 1000);
+  await srv.handle({ jsonrpc: "2.0", id: sent[0].id, result: { action: "cancel" } });
+  assert.equal(await pending, "none");
 });

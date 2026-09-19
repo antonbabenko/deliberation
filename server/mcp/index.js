@@ -394,14 +394,14 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
   /**
    * Show a codex device-login code in the host's UI and wait for the user. URL mode when the
    * host offers it (MCP 2025-11-25: made for sending the user to a sign-in page), else a form
-   * dialog carrying the link and code as text. Resolves true only on an explicit accept;
-   * a host without elicitation, a decline, an error or silence is false, and the caller then
-   * returns the link in the tool result.
+   * dialog carrying the link and code as text. Resolves with the user's action: "accept",
+   * "decline" (the caller ends that login), or "none" - a host without elicitation, a
+   * dismissed dialog, an error or silence - after which the link rides in the tool result.
    * @param {{url:string, code:string, expiresAt:number}} prompt
    * @param {number} waitMs
-   * @returns {Promise<boolean>}
+   * @returns {Promise<("accept"|"decline"|"none")>}
    */
-  /** @type {Map<string, Promise<boolean>>} */ const openDialogs = new Map();
+  /** @type {Map<string, Promise<("accept"|"decline"|"none")>>} */ const openDialogs = new Map();
   function confirmLogin(/** @type {{url:string, code:string, expiresAt:number}} */ prompt, /** @type {number} */ waitMs) {
     // One code, one dialog: concurrent GPT calls share the device login, so they share this too.
     const open = openDialogs.get(prompt.code);
@@ -414,13 +414,13 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
   /**
    * @param {{url:string, code:string, expiresAt:number}} prompt
    * @param {number} waitMs
-   * @returns {Promise<boolean>}
+   * @returns {Promise<("accept"|"decline"|"none")>}
    */
   async function askLogin(prompt, waitMs) {
     const el = clientCapabilities && clientCapabilities.elicitation;
     // The capability alone is not enough: elicitation exists from 2025-06-18, URL mode from
     // 2025-11-25 (ISO dates compare as strings).
-    if (!el || typeof el !== "object" || negotiatedVersion < "2025-06-18") return false;
+    if (!el || typeof el !== "object" || negotiatedVersion < "2025-06-18") return "none";
     const urlMode = Boolean(el.url) && negotiatedVersion >= "2025-11-25";
     const minutes = Math.max(1, Math.round((prompt.expiresAt - Date.now()) / 60000));
     const params = urlMode
@@ -435,7 +435,9 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         requestedSchema: { type: "object", properties: { approved: { type: "boolean", title: "I entered the code and approved the login", default: true } } },
       };
     const reply = await requestClient("elicitation/create", params, waitMs);
-    return Boolean(reply && reply.result && reply.result.action === "accept");
+    const action = reply && reply.result && reply.result.action;
+    // "cancel" (dismissed), an error reply or silence: no decision, the code stays valid.
+    return action === "accept" || action === "decline" ? action : "none";
   }
 
   // In-session dedup cache (Phase 5) for the ADVISORY paths only (ask-all / ask-one):

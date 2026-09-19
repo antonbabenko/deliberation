@@ -454,7 +454,7 @@ test("CX-login-dialog: the host confirms, the login lands, and the same call ans
   const home = tmpCodexHome();
   const cli = fakeLoginCli();
   /** @type {any} */ let shown;
-  const confirmLogin = async (/** @type {any} */ prompt) => { shown = prompt; cli.approve(home); return true; };
+  const confirmLogin = async (/** @type {any} */ prompt) => { shown = prompt; cli.approve(home); return /** @type {const} */ ("accept"); };
   const p = mkCx({ env: { CODEX_HOME: home }, deviceLogin: true, confirmLogin, login: makeDeviceLogin({ spawnLogin: cli.spawnLogin }), run: async () => ({ code: 0, stdout: "answer", stderr: "" }) });
   const r = /** @type {any} */ (await p.ask({ prompt: "x" }));
   assert.equal(shown.code, "ABCD-12345");
@@ -462,17 +462,32 @@ test("CX-login-dialog: the host confirms, the login lands, and the same call ans
   assert.equal(r.text, "answer");
 });
 
-test("CX-login-declined: a declined dialog falls back to the link; the login keeps waiting in the background", async () => {
+test("CX-login-declined: a decline is a no - that login is killed, the result says so, the next call offers a new code", async () => {
+  const home = tmpCodexHome();
+  const cli = fakeLoginCli();
+  let killed = 0;
+  const spawnLogin = (/** @type {any} */ env, /** @type {(t:string)=>void} */ onText) => { const p = cli.spawnLogin(env, onText); return { exit: p.exit, kill: () => { killed++; p.kill(); } }; };
+  const p = mkCx({ env: { CODEX_HOME: home }, deviceLogin: true, confirmLogin: async () => /** @type {const} */ ("decline"), login: makeDeviceLogin({ spawnLogin }), run: async () => ({ code: 0, stdout: "answer", stderr: "" }) });
+  const r = /** @type {any} */ (await p.ask({ prompt: "x" }));
+  assert.equal(r.errorKind, "auth");
+  assert.match(r.message, /declined/);
+  assert.doesNotMatch(r.message, /ABCD-12345/, "a refused code is not handed out anyway");
+  assert.equal(killed, 1);
+  await p.ask({ prompt: "x" });
+  assert.equal(cli.calls.spawned, 2, "a fresh login, never the refused one");
+});
+
+test("CX-login-dismissed: no answer from the dialog keeps the code valid; approving later makes the next call work", async () => {
   const home = tmpCodexHome();
   const cli = fakeLoginCli();
   const login = makeDeviceLogin({ spawnLogin: cli.spawnLogin });
-  const p = mkCx({ env: { CODEX_HOME: home }, deviceLogin: true, confirmLogin: async () => false, login, run: async () => ({ code: 0, stdout: "answer", stderr: "" }) });
+  const p = mkCx({ env: { CODEX_HOME: home }, deviceLogin: true, confirmLogin: async () => /** @type {const} */ ("none"), login, run: async () => ({ code: 0, stdout: "answer", stderr: "" }) });
   const r = /** @type {any} */ (await p.ask({ prompt: "x" }));
   assert.equal(r.errorKind, "auth");
   assert.match(r.message, /ABCD-12345/);
   cli.approve(home);
   const again = /** @type {any} */ (await p.ask({ prompt: "x" }));
-  assert.equal(again.text, "answer", "approved in the browser later: the next call just works");
+  assert.equal(again.text, "answer");
   assert.equal(cli.calls.spawned, 1);
 });
 
@@ -484,7 +499,7 @@ test("CX-login-refresh: a spent login triggers a fresh device login and one retr
   const run = async () => (++runs === 1
     ? { code: 1, stdout: "", stderr: `ERROR: ${REFRESH_FAILURES[1]}`, timedOut: false }
     : { code: 0, stdout: "answer", stderr: "" });
-  const p = mkCx({ env: { CODEX_HOME: home }, deviceLogin: true, confirmLogin: async () => { cli.approve(home); return true; }, login: makeDeviceLogin({ spawnLogin: cli.spawnLogin }), run });
+  const p = mkCx({ env: { CODEX_HOME: home }, deviceLogin: true, confirmLogin: async () => { cli.approve(home); return "accept"; }, login: makeDeviceLogin({ spawnLogin: cli.spawnLogin }), run });
   const r = /** @type {any} */ (await p.ask({ prompt: "x" }));
   assert.equal(runs, 2);
   assert.equal(r.text, "answer");
@@ -501,7 +516,8 @@ test("CX-login-off: without deviceLogin nothing is spawned (library default)", a
 test("CX-login-parse-url: the login link is picked by its role, not by being the first URL printed", () => {
   const withNotice = "Update available! See https://github.com/openai/codex/releases/latest\n" + DEVICE_OUT;
   assert.equal(/** @type {any} */ (parseDevicePrompt(withNotice)).url, "https://auth.openai.com/codex/device");
-  assert.equal(/** @type {any} */ (parseDevicePrompt("go to https://example.test/x and enter ABCD-12345")).url, "https://example.test/x", "no /device URL: the only one");
+  assert.equal(/** @type {any} */ (parseDevicePrompt("go to https://auth.openai.com/other and enter ABCD-12345")).url, "https://auth.openai.com/other", "an OpenAI URL without /device: still the link");
+  assert.equal(parseDevicePrompt("go to https://evil.example/codex/device and enter ABCD-12345"), null, "not an OpenAI host: no clickable link");
 });
 
 test("CX-login-order: on a spent login the link + code lead, codex's refresh line follows", async () => {
@@ -519,9 +535,30 @@ test("CX-login-order: on a spent login the link + code lead, codex's refresh lin
 test("CX-login-died: a login that dies before approval never shows its dead code", async () => {
   const home = tmpCodexHome();
   const cli = fakeLoginCli();
-  const confirmLogin = async () => { cli.fail(); return true; };
+  const confirmLogin = async () => { cli.fail(); return /** @type {const} */ ("accept"); };
   const r = /** @type {any} */ (await mkCx({ env: { CODEX_HOME: home }, deviceLogin: true, confirmLogin, login: makeDeviceLogin({ spawnLogin: cli.spawnLogin }), run: async () => ({ code: 0, stdout: "x", stderr: "" }) }).ask({ prompt: "x" }));
   assert.equal(r.errorKind, "auth");
   assert.doesNotMatch(r.message, /ABCD-12345/);
   assert.match(r.message, /ended before/);
+});
+
+test("CX-login-expiry: a code nobody used is reaped when it expires, whatever codex does", async () => {
+  let killed = 0;
+  const login = makeDeviceLogin({
+    killGraceMs: 5,
+    spawnLogin: (_env, onText) => { onText(DEVICE_OUT.replace("expires in 15 minutes", "expires in 0 minutes")); return { exit: new Promise(() => {}), kill: () => { killed++; } }; },
+  });
+  await login.start({});
+  await new Promise((r) => setTimeout(r, 40));
+  assert.equal(killed, 1);
+});
+
+test("CX-login-budget: a nearly spent host budget still gives the dialog a short, positive wait", async () => {
+  const home = tmpCodexHome();
+  /** @type {number[]} */ const waits = [];
+  const p = mkCx({ env: { CODEX_HOME: home, MCP_TOOL_TIMEOUT: "60000" }, deviceLogin: true, login: makeDeviceLogin({ spawnLogin: fakeLoginCli().spawnLogin }), confirmLogin: async (_p, ms) => { waits.push(ms); return /** @type {const} */ ("none"); }, run: async () => ({ code: 0, stdout: "", stderr: "" }) });
+  const r = /** @type {any} */ (await p.ask({ prompt: "x", hostBudgetRemainingMs: 100 }));
+  assert.equal(waits.length, 1);
+  assert.ok(waits[0] > 0 && waits[0] <= 1000, String(waits[0]));
+  assert.match(r.message, /ABCD-12345/);
 });

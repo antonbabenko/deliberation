@@ -269,13 +269,22 @@ const DIALOG_WAIT_MAX_MS = 5 * 60000;
  */
 function parseDevicePrompt(text) {
   const t = String(text || "").replace(ANSI_RE, "");
-  // By role, not position: codex can print an update notice with its own link first.
-  const urls = t.match(/https:\/\/\S+/g) || [];
+  // By role, not position: codex can print an update notice with its own link first. And only
+  // an OpenAI host is ever offered as a login link; anything else falls back to raw output.
+  const urls = (t.match(/https:\/\/\S+/g) || []).filter(isOpenAiUrl);
   const url = urls.find((u) => /\/device\b/.test(u)) || urls[0];
   const code = (t.match(/\b[A-Z0-9]{4,}-[A-Z0-9]{4,}\b/) || [])[0];
   if (!url || !code) return null;
   const mins = t.match(/expires in (\d+) minute/i);
   return { url, code, expiresInMs: mins ? Number(mins[1]) * 60000 : DEVICE_CODE_TTL_MS };
+}
+
+/** @param {string} u */
+function isOpenAiUrl(u) {
+  try {
+    const h = new URL(u).hostname;
+    return ["openai.com", "chatgpt.com"].some((d) => h === d || h.endsWith(`.${d}`));
+  } catch { return false; }
 }
 
 /** @param {string} text */
@@ -308,12 +317,13 @@ function defaultSpawnLogin(env, onText) {
 /**
  * One device login at a time for the whole process: a second caller while a code is still
  * valid gets the same code, so a consensus round and a parallel ask never show two.
- * @param {{spawnLogin?: typeof defaultSpawnLogin, now?: () => number}} [o]
- * @returns {{start: (env: Record<string, (string|undefined)>) => Promise<DeviceFlight>}}
+ * @param {{spawnLogin?: typeof defaultSpawnLogin, now?: () => number, killGraceMs?: number}} [o]
+ * @returns {{start: (env: Record<string, (string|undefined)>) => Promise<DeviceFlight>, cancel: () => void}}
  */
 function makeDeviceLogin(o = {}) {
   const spawnLogin = o.spawnLogin || defaultSpawnLogin;
   const now = o.now || Date.now;
+  const killGraceMs = typeof o.killGraceMs === "number" ? o.killGraceMs : 5000;
   /** @type {{finished:boolean, expiresAt:number, ready:Promise<DeviceFlight>, kill:()=>void}|null} */
   let flight = null;
 
@@ -340,6 +350,8 @@ function makeDeviceLogin(o = {}) {
       f.expiresAt = now() + p.expiresInMs;
       promptEnd = text.length;
       state.prompt = { url: p.url, code: p.code, expiresAt: f.expiresAt };
+      // Reap a code nobody used, whether or not codex exits on expiry by itself.
+      setTimeout(() => { if (!f.finished) proc.kill(); }, p.expiresInMs + killGraceMs).unref();
       settle(state);
     });
     f.kill = proc.kill;
@@ -367,6 +379,10 @@ function makeDeviceLogin(o = {}) {
       if (flight && !flight.finished) flight.kill(); // an expired code: nobody can use it
       flight = launch(env);
       return flight.ready;
+    },
+    // The user refused this code: end the login so it can never land.
+    cancel() {
+      if (flight && !flight.finished) { flight.finished = true; flight.kill(); }
     },
   };
 }
@@ -397,10 +413,11 @@ function loginMessage(prompt) {
  * @param {boolean} [opts.deviceLogin]  log in on first use: with no working credential, start
  *   `codex login --device-auth` and return its link + code instead of failing. The composition
  *   root turns it on; the library default is off, so nothing spawns a login unasked.
- * @param {(prompt: DevicePrompt, waitMs: number) => Promise<boolean>} [opts.confirmLogin]  shows
- *   the link + code in the host's own UI (an MCP elicitation) and resolves true once the user
- *   says they approved. Absent, or false, the link rides in the result instead.
- * @param {{start: (env: Record<string, (string|undefined)>) => Promise<DeviceFlight>}} [opts.login]
+ * @param {(prompt: DevicePrompt, waitMs: number) => Promise<("accept"|"decline"|"none")>} [opts.confirmLogin]
+ *   shows the link + code in the host's own UI (an MCP elicitation) and resolves with the user's
+ *   action. "none" (no dialog, dismissed, error, timeout) keeps the code valid and it rides in
+ *   the result; "decline" ends that login.
+ * @param {{start: (env: Record<string, (string|undefined)>) => Promise<DeviceFlight>, cancel: () => void}} [opts.login]
  *   the device-login manager (tests inject one with a fake CLI)
  * @returns {Provider}
  */
@@ -456,9 +473,14 @@ function makeCodexProvider(opts = {}) {
       const timeout = new Promise((r) => { setTimeout(() => r(false), waitMs).unref(); });
       const viaDialog = Promise.resolve()
         .then(() => confirmLogin(prompt, waitMs))
-        .then((ok) => (ok ? Promise.race([flight.done, timeout]) : false), () => false);
+        .then((action) => (action === "accept" ? Promise.race([flight.done, timeout]) : action), () => "none");
       // Approving in the browser without touching the dialog counts too.
-      if (await Promise.race([viaDialog, flight.done, timeout])) return null;
+      const outcome = await Promise.race([viaDialog, flight.done, timeout]);
+      if (outcome === true) return null;
+      if (outcome === "decline") {
+        login.cancel();
+        return authError(started, `You declined the ChatGPT login for GPT (Codex), so GPT is skipped this time and that code no longer works. The next GPT call offers a new one.${tail}`);
+      }
     }
     // A login that ended without landing has a dead code: say so rather than show it.
     if (flight.ended) return authError(started, `\`codex login --device-auth\` ended before the login landed: ${flight.error}. The next GPT call starts a fresh one.${tail}`);
