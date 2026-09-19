@@ -164,7 +164,9 @@ Three things differ in a web container, and the plugin now handles each:
     date the workspace allows, 90 days by default), so the same value works in every session.
   - **Seeded `auth.json` (fallback):** if a setup script must restore `auth.json` from a
     secret, seed it from a login made only for that purpose, never your laptop's:
-    `CODEX_HOME=$(mktemp -d) codex login --device-auth`, then store `$CODEX_HOME/auth.json`.
+    `d=$(mktemp -d); CODEX_HOME="$d" codex login --device-auth; jq -c . "$d/auth.json"`, and
+    store that output. (Keep `$d`: a bare `CODEX_HOME=...` prefix lasts one command, so a
+    later `$CODEX_HOME/auth.json` would be your laptop's own login.)
     It works in every session until the first refresh (about a week after the login). After
     that, re-seed it.
   - **API billing:** export `CODEX_API_KEY`, or run

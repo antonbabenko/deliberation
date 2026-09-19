@@ -22,16 +22,26 @@ const CODEX_DEFAULT_TIMEOUT_MS = 600000;
 
 // A ChatGPT login's refresh token is single-use: every refresh writes a new pair to auth.json and
 // retires the old one. So an auth.json copied to a second machine (a web container seeded from a
-// laptop) dies on the first refresh either side makes, with "...your refresh token was already
-// used. Please log out and sign in again." - text that names neither "auth" nor "login".
+// laptop) dies on the first refresh either side makes, with "Your access token could not be
+// refreshed because your refresh token was already used. Please log out and sign in again." -
+// text that names neither "auth" nor "login". All four of codex's refresh failures
+// (codex-rs/login/src/auth/manager.rs) share the phrase below. It is matched exactly, and on
+// stderr only, because `codex exec` echoes the user's prompt to stderr and a review of token code
+// says "refresh token" all the time.
+const REFRESH_FAILURE = "access token could not be refreshed";
 const CODEX_REFRESH_HINT =
   "The ChatGPT login in auth.json could not refresh: it expired, or a copy of it was refreshed on another machine " +
   "(one auth.json cannot be shared between machines). Run `codex login --device-auth` on this machine for a login of its own, " +
   "or set CODEX_ACCESS_TOKEN (ChatGPT Business/Enterprise).";
 
-/** @param {string} s lowercased codex output */
-function isRefreshFailure(s) {
-  return s.includes("refresh token") || s.includes("could not be refreshed");
+/**
+ * codex's own refresh-failure line, if stderr has one.
+ * @param {string} [stderr]
+ * @returns {string|undefined}
+ */
+function refreshFailureLine(stderr) {
+  const line = (stderr || "").split(/\r?\n/).find((l) => l.toLowerCase().includes(REFRESH_FAILURE));
+  return line && line.trim();
 }
 
 /**
@@ -45,7 +55,7 @@ function classifyCodex(stderr) {
   // Matching "enoent"/"einval" as substrings would also fire on a codex run that legitimately
   // printed ENOENT about a file in the user's own repo, which is a normal thing for a coding
   // agent to say, and would then tell that user to go fix their CODEX_BIN.
-  if (s.includes("auth") || s.includes("login") || isRefreshFailure(s)) return { errorKind: "auth", retryable: false };
+  if (s.includes("auth") || s.includes("login") || s.includes(REFRESH_FAILURE)) return { errorKind: "auth", retryable: false };
   if (s.includes("timeout")) return { errorKind: "timeout", retryable: true };
   if (s.includes("rate")) return { errorKind: "rate-limit", retryable: true };
   return { errorKind: "unknown", retryable: false };
@@ -287,8 +297,9 @@ function makeCodexProvider(opts = {}) {
           ? { errorKind: "not-found", retryable: false }
           : classifyCodex(stderr);
       const output = (stdout && stdout.trim()) || stderr || undefined;
-      // The hint LEADS: toErrorResult caps the message at 500 chars and codex prints a banner first.
-      const refreshFailed = !timedOut && !spawnFailed && isRefreshFailure(`${stdout}\n${stderr}`.toLowerCase());
+      // codex's line and the fix LEAD: toErrorResult caps the message at 500 chars and codex
+      // prints a banner first. Gated on `auth`, so errorKind and message never disagree.
+      const refreshLine = errorKind === "auth" ? refreshFailureLine(stderr) : undefined;
       return {
         provider: "codex",
         model,
@@ -298,7 +309,7 @@ function makeCodexProvider(opts = {}) {
         // Error results carry no text; surface stdout/stderr diagnostics in message.
         message: timedOut
           ? annotateTimeout({ code: "timeout", message: `codex timed out after ${Math.round(timeoutMs / 1000)}s` }, clamp).message
-          : refreshFailed ? `${CODEX_REFRESH_HINT}\n\n${output}` : output,
+          : refreshLine ? `${refreshLine}\n${CODEX_REFRESH_HINT}\n\n${output}` : output,
         ms: Date.now() - started,
         reasoningEffort: null,
       };

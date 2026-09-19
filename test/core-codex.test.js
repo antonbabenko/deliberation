@@ -329,9 +329,26 @@ test("CX-refresh-2: the fix leads the message, so the 500-char cap cannot cut it
   const stderr = `${"banner line\n".repeat(60)}ERROR: ${REFRESH_FAILURES[1]}`;
   const r = /** @type {any} */ (await mkCx({ run: async () => ({ code: 1, stdout: "", stderr, timedOut: false }), env: {} }).ask({ prompt: "x" }));
   assert.equal(r.errorKind, "auth");
-  assert.match(r.message.slice(0, 500), /codex login --device-auth/);
-  assert.match(r.message.slice(0, 500), /CODEX_ACCESS_TOKEN/);
-  assert.match(r.message, /refresh token was already used/, "the original error is still there");
+  const capped = r.message.slice(0, 500);
+  assert.match(capped, /^ERROR: Your access token could not be refreshed because your refresh token was already used/, "codex's own line comes first");
+  assert.match(capped, /codex login --device-auth/);
+  assert.match(capped, /CODEX_ACCESS_TOKEN/);
+  assert.match(r.message, /banner line/, "the full output follows");
+});
+
+test("CX-refresh-4: codex echoes the prompt on stderr - a prompt ABOUT refresh tokens is not an auth failure", async () => {
+  const stderr = "user\nreview the refresh token rotation in session.ts: why could the refresh token not be refreshed?\nERROR: stream error: 429 Too Many Requests, rate limited";
+  assert.equal(classifyCodex(stderr).errorKind, "rate-limit");
+  const r = /** @type {any} */ (await mkCx({ run: async () => ({ code: 1, stdout: "", stderr, timedOut: false }), env: {} }).ask({ prompt: "x" }));
+  assert.equal(r.errorKind, "rate-limit");
+  assert.doesNotMatch(r.message, /device-auth/);
+});
+
+test("CX-refresh-5: an answer on stdout that discusses refresh tokens never earns the hint", async () => {
+  const stdout = "Your access token could not be refreshed? Rotate the refresh token on every use.";
+  const r = /** @type {any} */ (await mkCx({ run: async () => ({ code: 1, stdout, stderr: "ERROR: something broke", timedOut: false }), env: {} }).ask({ prompt: "x" }));
+  assert.equal(r.errorKind, "unknown");
+  assert.equal(r.message, stdout);
 });
 
 test("CX-refresh-3: other auth errors do not get the refresh hint", async () => {

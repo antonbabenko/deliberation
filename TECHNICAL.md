@@ -333,11 +333,15 @@ token is dead. A copy of that file on a second machine (a web container seeded f
 setup script restoring it from a secret at every session start) therefore fails as soon as either
 side refreshes, with `Your access token could not be refreshed because your refresh token was
 already used. Please log out and sign in again.` Nothing in that text says "auth" or "login", so
-`classifyCodex()` also matches `refresh token` / `could not be refreshed`: the result is
-`errorKind: "auth"` (not retried), and the message STARTS with the fix (`codex login
---device-auth` on this machine, or `CODEX_ACCESS_TOKEN`). The fix goes first because
-`toErrorResult` caps a message at 500 characters and `codex exec` prints a banner on stderr
-before the error. `stat` cannot see this state (the file exists and parses), so health stays `ok`
+`classifyCodex()` also matches `access token could not be refreshed`, the phrase all four of
+codex's refresh failures share. It matches that exact phrase and reads stderr only, because
+`codex exec` echoes the user's prompt to stderr and a prompt about token code says "refresh
+token" freely; a bare `refresh token` match would turn a rate limit into a non-retryable `auth`.
+The result is `errorKind: "auth"` (not retried), and the message STARTS with codex's own line and
+the fix (`codex login --device-auth` on this machine, or `CODEX_ACCESS_TOKEN`), then the full
+output. Both go first because `toErrorResult` caps a message at 500 characters and `codex exec`
+prints a banner on stderr before the error. The hint is added only when the result is `auth`, so
+the kind and the message never disagree. `stat` cannot see this state (the file exists and parses), so health stays `ok`
 and the circuit breaker drops codex after repeated errors. Setup per host:
 [SETUP.md - Claude Code on the web](SETUP.md#claude-code-on-the-web-and-other-capped-hosts).
 
