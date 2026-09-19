@@ -449,6 +449,21 @@ function makeDeviceLogin(o = {}) {
 }
 
 /**
+ * A deadline a call in flight awaits. Deliberately NOT unref'd: an unref'd timer lets the process
+ * (or a test runner) decide nothing is pending while a caller still waits on it. `stop` clears it
+ * once the race is decided, so it never outlives the call.
+ * @template T
+ * @param {number} ms
+ * @param {T} value
+ * @returns {{promise: Promise<T>, stop: () => void}}
+ */
+function deadline(ms, value) {
+  /** @type {ReturnType<typeof setTimeout>|undefined} */ let timer;
+  const promise = /** @type {Promise<T>} */ (new Promise((r) => { timer = setTimeout(() => r(value), ms); }));
+  return { promise, stop: () => clearTimeout(timer) };
+}
+
+/**
  * When auth.json last changed, or null when there is none - so a login that landed can be told
  * apart from one that did not, whatever its exit code said.
  * @param {Record<string, (string|undefined)>} env
@@ -542,10 +557,9 @@ function makeCodexProvider(opts = {}) {
     // dialog wait below: the rest is for that wait and the codex run itself.
     const acquireLeft = /** @type {number} */ (clampToHostBudget(Number.MAX_SAFE_INTEGER, env, afterWait(req, started).hostBudgetRemainingMs).timeoutMs);
     const acquireMs = Math.min(acquireLeft / 2, DEVICE_PROMPT_WAIT_MS + 1000);
-    const flight = /** @type {DeviceFlight|null} */ (await Promise.race([
-      login.start(env),
-      new Promise((r) => { setTimeout(() => r(null), acquireMs).unref(); }),
-    ]));
+    const acquire = deadline(acquireMs, null);
+    const flight = /** @type {DeviceFlight|null} */ (await Promise.race([login.start(env), acquire.promise]));
+    acquire.stop();
     if (!flight) return authError(started, `GPT (Codex) needs a ChatGPT login on this machine; \`codex login --device-auth\` is starting but has no code yet within this call's time. The next GPT call shows it.${tail}`);
     if (!flight.prompt) return authError(started, `GPT (Codex) has no working ChatGPT login here, and \`codex login --device-auth\` gave no code: ${flight.error}${tail}`);
     const prompt = flight.prompt;
@@ -554,7 +568,8 @@ function makeCodexProvider(opts = {}) {
     const hostLeft = /** @type {number} */ (clampToHostBudget(Number.MAX_SAFE_INTEGER, env, afterWait(req, started).hostBudgetRemainingMs).timeoutMs);
     const waitMs = Math.min(prompt.expiresAt - Date.now(), DIALOG_WAIT_MAX_MS, hostLeft / 2);
     if (confirmLogin && waitMs > 0 && hostLeft >= DIALOG_MIN_BUDGET_MS) {
-      const timeout = new Promise((r) => { setTimeout(() => r(false), waitMs).unref(); });
+      const wait = deadline(waitMs, false);
+      const timeout = /** @type {Promise<any>} */ (wait.promise); // races mixed outcomes below
       // Aborted once this call stops waiting, so the host can close a dialog nobody reads.
       const dialog = new AbortController();
       const viaDialog = Promise.resolve()
@@ -562,13 +577,16 @@ function makeCodexProvider(opts = {}) {
         .then((action) => (action === "accept" ? Promise.race([flight.done, timeout]) : action), () => "none");
       // Approving in the browser without touching the dialog counts too.
       const outcome = await Promise.race([viaDialog, flight.done, timeout]);
+      wait.stop();
       dialog.abort();
       if (outcome === true) return null;
       if (outcome === "decline") {
         login.cancel();
         // The login may have landed just before the decline (or as we killed it): never claim a
         // code is dead when it was used, and never delete a credential file on the user's behalf.
-        const exitedOk = await Promise.race([flight.done, new Promise((r) => { setTimeout(() => r(false), 250).unref(); })]);
+        const settle = deadline(250, false);
+        const exitedOk = await Promise.race([flight.done, settle.promise]);
+        settle.stop();
         // A login killed right after saving reports a failed exit: the file is the truth.
         const stamp = authStamp(env);
         const landed = exitedOk || (stamp !== null && stamp !== flight.authBefore);

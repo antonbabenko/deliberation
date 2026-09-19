@@ -394,8 +394,8 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         write({ jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId: id, reason } });
         resolve(null);
       };
+      // Not unref'd: a tool call is awaiting this; the reply or an abort clears it.
       const timer = setTimeout(() => giveUp("timed out"), Math.max(0, timeoutMs));
-      timer.unref();
       pendingRequests.set(id, (reply) => { clearTimeout(timer); resolve(reply); });
       write({ jsonrpc: "2.0", id, method, params });
       if (signal) signal.addEventListener("abort", () => giveUp("no longer needed"), { once: true });
