@@ -85,7 +85,8 @@ function openrouterExampleLines() {
 function providerGuidanceLines() {
   return [
     "Provider setup:",
-    "  GPT (Codex)   - install the Codex CLI and run `codex login` (no env key).",
+    "  GPT (Codex)   - install the Codex CLI and run `codex login` (`codex login --device-auth` on a remote machine),",
+    "                  or set CODEX_ACCESS_TOKEN (ChatGPT Business/Enterprise).",
     "  Gemini        - install Antigravity and run `agy` once to sign in (no env key).",
     "  Grok (xAI)    - set XAI_API_KEY in the server env.",
     "  OpenRouter    - set OPENROUTER_API_KEY and declare models in the config.",

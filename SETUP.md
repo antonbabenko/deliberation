@@ -146,11 +146,34 @@ Three things differ in a web container, and the plugin now handles each:
   through `.mcp.json` on a capped host: add the same `"timeout": 1800000` and
   `"env": {"MCP_TOOL_TIMEOUT": "1800000"}` to the server entry. `/deliberation:doctor`
   explains the shell's residual value.
-- **Codex needs `codex login` or `CODEX_API_KEY`.** `OPENAI_API_KEY` is never used for
-  codex and never reaches the `codex exec` child. With a login (`auth.json`, usually a
-  ChatGPT subscription) codex always uses it, and a `CODEX_API_KEY` in the env is dropped so
-  it cannot override the login. Without a login, export `CODEX_API_KEY`, or run
-  `printenv CODEX_API_KEY | codex login --with-api-key` once.
+- **Codex needs a credential of its own in the container.** `OPENAI_API_KEY` is never used
+  for codex and never reaches the `codex exec` child. A ChatGPT credential (a `codex login` or
+  `CODEX_ACCESS_TOKEN`) always wins, and a `CODEX_API_KEY` in the env is then dropped so it
+  cannot bill the API instead. Do not copy your laptop's `~/.codex/auth.json` into the
+  container: a ChatGPT login's refresh token works once, so when either copy refreshes
+  (about every 8 days, or on a 401), the other one fails with `Your access token could not be
+  refreshed because your refresh token was already used`. Restoring the same copy from a
+  secret at every session start fails the same way. Pick one of these:
+  - **ChatGPT Plus / Pro:** run `codex login --device-auth` once in each remote session
+    (type `! codex login --device-auth`, open the printed link, enter the code). It creates a
+    separate login for that container, so it never conflicts with your laptop. Turn on device
+    code login in ChatGPT's security settings first. The environment's network allowlist
+    must reach `auth.openai.com` and `chatgpt.com`.
+  - **ChatGPT Business / Enterprise:** create a Codex access token and set
+    `CODEX_ACCESS_TOKEN` in the environment's variables. It never refreshes (it expires on the
+    date the workspace allows, 90 days by default), so the same value works in every session.
+  - **Seeded `auth.json` (fallback):** if a setup script must restore `auth.json` from a
+    secret, seed it from a login made only for that purpose, never your laptop's:
+    `d=$(mktemp -d); CODEX_HOME="$d" codex login --device-auth; jq -c . "$d/auth.json"`, and
+    store that output. (Keep `$d`: a bare `CODEX_HOME=...` prefix lasts one command, so a
+    later `$CODEX_HOME/auth.json` would be your laptop's own login.)
+    It works in every session until the first refresh (about a week after the login). After
+    that, re-seed it.
+  - **API billing:** export `CODEX_API_KEY`, or run
+    `printenv CODEX_API_KEY | codex login --with-api-key` once.
+
+  When a login can no longer refresh, the GPT result is `errorKind: "auth"` and its message
+  starts with these steps.
 - **No `agy`.** The standalone Gemini bridge refuses to start (`CONNECTION_CLOSED` in the
   host's server list); the unified server lists gemini under `panel.unavailable` and the
   panel runs without it.

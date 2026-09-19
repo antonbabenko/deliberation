@@ -61,14 +61,19 @@ fi
 if command -v codex >/dev/null 2>&1; then
   ok "codex CLI on PATH ($(codex --version 2>/dev/null | head -1))"
   CODEX_AUTH_JSON="${CODEX_HOME:-$HOME/.codex}/auth.json"
-  if [ -f "$CODEX_AUTH_JSON" ]; then
+  if [ -n "${CODEX_ACCESS_TOKEN:-}" ]; then
+    ok "codex credential: CODEX_ACCESS_TOKEN set (ChatGPT workspace access token; codex uses it ahead of any login)"
+    [ -n "${CODEX_API_KEY:-}" ] && echo "       note: CODEX_API_KEY is set but not passed to codex - the ChatGPT credential wins"
+  elif [ -f "$CODEX_AUTH_JSON" ]; then
     ok "codex credential: $CODEX_AUTH_JSON (codex login)"
     [ -n "${CODEX_API_KEY:-}" ] && echo "       note: CODEX_API_KEY is set but not passed to codex - the login wins"
+    echo "       note: this login refreshes itself and cannot be shared - a copy on another machine breaks on the first refresh"
   elif [ -n "${CODEX_API_KEY:-}" ]; then
     ok "codex credential: CODEX_API_KEY set (no codex login found)"
   else
     fail "codex has no credential - GPT is omitted from the panel and ask-gpt returns auth errors"
-    echo "       fix: run 'codex login' (ChatGPT subscription), or export CODEX_API_KEY - OPENAI_API_KEY is never used for codex"
+    echo "       fix: run 'codex login' (ChatGPT subscription; 'codex login --device-auth' on a remote or headless machine),"
+    echo "            export CODEX_ACCESS_TOKEN (ChatGPT Business/Enterprise), or export CODEX_API_KEY - OPENAI_API_KEY is never used for codex"
   fi
 else
   warn "codex (GPT) not on PATH - GPT is omitted from the panel"; echo "       fix: install the Codex CLI, or ignore if you don't use GPT"

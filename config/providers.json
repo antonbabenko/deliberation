@@ -5,7 +5,7 @@
       "description": "OpenAI GPT models via Codex CLI - specialized expert subagents",
       "cli": "codex",
       "install": "npm install -g @openai/codex",
-      "auth": "codex login",
+      "auth": "codex login (codex login --device-auth on a remote machine), or CODEX_ACCESS_TOKEN",
       "mcp": null,
       "note": "No dedicated MCP server - codex-cli ships no MCP server mode. GPT is served by the unified `deliberation` server, which spawns `codex exec` (core/providers/codex.js).",
       "experts": ["architect", "plan-reviewer", "scope-analyst", "code-reviewer", "security-analyst", "researcher", "debugger"],

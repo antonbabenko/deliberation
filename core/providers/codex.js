@@ -20,6 +20,30 @@ const CODEX_NPM_ENTRY = { pkg: "@openai/codex", bin: "bin/codex.js" };
 // req.timeoutMs, or per-construction via opts.timeoutMs.
 const CODEX_DEFAULT_TIMEOUT_MS = 600000;
 
+// A ChatGPT login's refresh token is single-use: every refresh writes a new pair to auth.json and
+// retires the old one. So an auth.json copied to a second machine (a web container seeded from a
+// laptop) dies on the first refresh either side makes, with "Your access token could not be
+// refreshed because your refresh token was already used. Please log out and sign in again." -
+// text that names neither "auth" nor "login". All four of codex's refresh failures
+// (codex-rs/login/src/auth/manager.rs) share the phrase below. It is matched exactly, and on
+// stderr only, because `codex exec` echoes the user's prompt to stderr and a review of token code
+// says "refresh token" all the time.
+const REFRESH_FAILURE = "access token could not be refreshed";
+const CODEX_REFRESH_HINT =
+  "The ChatGPT login in auth.json could not refresh: it expired, or a copy of it was refreshed on another machine " +
+  "(one auth.json cannot be shared between machines). Run `codex login --device-auth` on this machine for a login of its own, " +
+  "or set CODEX_ACCESS_TOKEN (ChatGPT Business/Enterprise).";
+
+/**
+ * codex's own refresh-failure line, if stderr has one.
+ * @param {string} [stderr]
+ * @returns {string|undefined}
+ */
+function refreshFailureLine(stderr) {
+  const line = (stderr || "").split(/\r?\n/).find((l) => l.toLowerCase().includes(REFRESH_FAILURE));
+  return line && line.trim();
+}
+
 /**
  * Map codex stderr to the shared errorKind vocabulary.
  * @param {string} [stderr]
@@ -31,7 +55,7 @@ function classifyCodex(stderr) {
   // Matching "enoent"/"einval" as substrings would also fire on a codex run that legitimately
   // printed ENOENT about a file in the user's own repo, which is a normal thing for a coding
   // agent to say, and would then tell that user to go fix their CODEX_BIN.
-  if (s.includes("auth") || s.includes("login")) return { errorKind: "auth", retryable: false };
+  if (s.includes("auth") || s.includes("login") || s.includes(REFRESH_FAILURE)) return { errorKind: "auth", retryable: false };
   if (s.includes("timeout")) return { errorKind: "timeout", retryable: true };
   if (s.includes("rate")) return { errorKind: "rate-limit", retryable: true };
   return { errorKind: "unknown", retryable: false };
@@ -105,9 +129,10 @@ function codexHasLogin(o = {}) {
 /**
  * The environment a `codex exec` child gets.
  *
- * The codex login (`auth.json`, usually a ChatGPT subscription) always wins. codex-cli ranks a
- * `CODEX_API_KEY` env var above `auth.json`, so when a login exists the key is dropped from the
- * child's env; without a login, `CODEX_API_KEY` is used as-is. `OPENAI_API_KEY` is never used
+ * A ChatGPT credential - the codex login (`auth.json`) or a `CODEX_ACCESS_TOKEN` - always wins.
+ * codex-cli ranks a `CODEX_API_KEY` env var above both, so when either exists the key is dropped
+ * from the child's env; without one, `CODEX_API_KEY` is used as-is. Between the token and the
+ * login, codex's own order applies (the token). `OPENAI_API_KEY` is never used
  * and never reaches the child: a machine that exports it for other tools had every GPT call
  * billed to that API key instead of the subscription ("You have no credits remaining").
  * Returns a copy; pure and injectable.
@@ -118,12 +143,13 @@ function codexHasLogin(o = {}) {
  */
 function codexEnv(env = process.env, o = {}) {
   const { OPENAI_API_KEY, ...child } = env;
-  if ("CODEX_API_KEY" in child && codexHasLogin({ env, ...o })) delete child.CODEX_API_KEY;
+  if ("CODEX_API_KEY" in child && (child.CODEX_ACCESS_TOKEN || codexHasLogin({ env, ...o }))) delete child.CODEX_API_KEY;
   return child;
 }
 
 /**
- * Does codex have a credential it will use? A login `auth.json`, or `CODEX_API_KEY`.
+ * Does codex have a credential it will use? `CODEX_ACCESS_TOKEN` (a ChatGPT Business/Enterprise
+ * access token, which never refreshes), a login `auth.json`, or `CODEX_API_KEY`.
  * `OPENAI_API_KEY` does not count - `codexEnv` never passes it on. Never throws.
  * @param {Object} [o]
  * @param {Record<string, (string|undefined)>} [o.env]
@@ -133,7 +159,7 @@ function codexEnv(env = process.env, o = {}) {
  */
 function codexHasAuth(o = {}) {
   const env = o.env || process.env;
-  return Boolean(env.CODEX_API_KEY) || codexHasLogin(o);
+  return Boolean(env.CODEX_API_KEY || env.CODEX_ACCESS_TOKEN) || codexHasLogin(o);
 }
 
 /**
@@ -154,7 +180,7 @@ function codexHealth(o = {}) {
     return { ok: false, reason: `codex CLI not found (tried "${plan.cmd}"); install it or set CODEX_BIN` };
   }
   if (!codexHasAuth({ env, exists: o.exists, home: o.home })) {
-    return { ok: false, reason: "codex has no credential: run `codex login` (ChatGPT), or set CODEX_API_KEY (OPENAI_API_KEY is never used)" };
+    return { ok: false, reason: "codex has no credential: run `codex login` (ChatGPT; `codex login --device-auth` on a remote machine), set CODEX_ACCESS_TOKEN (ChatGPT Business/Enterprise), or set CODEX_API_KEY (OPENAI_API_KEY is never used)" };
   }
   return { ok: true };
 }
@@ -270,6 +296,10 @@ function makeCodexProvider(opts = {}) {
         : spawnFailed
           ? { errorKind: "not-found", retryable: false }
           : classifyCodex(stderr);
+      const output = (stdout && stdout.trim()) || stderr || undefined;
+      // codex's line and the fix LEAD: toErrorResult caps the message at 500 chars and codex
+      // prints a banner first. Gated on `auth`, so errorKind and message never disagree.
+      const refreshLine = errorKind === "auth" ? refreshFailureLine(stderr) : undefined;
       return {
         provider: "codex",
         model,
@@ -279,7 +309,7 @@ function makeCodexProvider(opts = {}) {
         // Error results carry no text; surface stdout/stderr diagnostics in message.
         message: timedOut
           ? annotateTimeout({ code: "timeout", message: `codex timed out after ${Math.round(timeoutMs / 1000)}s` }, clamp).message
-          : (stdout && stdout.trim()) || stderr || undefined,
+          : refreshLine ? `${refreshLine}\n${CODEX_REFRESH_HINT}\n\n${output}` : output,
         ms: Date.now() - started,
         reasoningEffort: null,
       };

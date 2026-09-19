@@ -297,3 +297,62 @@ test("CX-health-1: health is stat-only and names the missing piece (CLI, then cr
   const h = await mkCx({ run: async () => ({ code: 0, stdout: "", stderr: "" }), env: { PATH: "/nowhere" } }).health();
   assert.equal(h.ok, false);
 });
+
+test("CX-token-1: CODEX_ACCESS_TOKEN (ChatGPT Business/Enterprise) is a credential on its own", () => {
+  assert.equal(codexHasAuth({ env: { CODEX_ACCESS_TOKEN: "at" }, home: "/h", exists: () => false }), true);
+  assert.equal(codexHasAuth({ env: { CODEX_ACCESS_TOKEN: "" }, home: "/h", exists: () => false }), false, "empty is not a token");
+  const onPath = (/** @type {string} */ p) => p === "/bin/codex";
+  assert.deepEqual(codexHealth({ platform: "linux", env: { PATH: "/bin", CODEX_ACCESS_TOKEN: "at" }, home: "/h", exists: onPath }), { ok: true });
+});
+
+test("CX-token-2: a ChatGPT access token beats CODEX_API_KEY - the key is dropped, the token is kept", () => {
+  const noLogin = { home: "/h", exists: () => false };
+  const child = codexEnv({ CODEX_ACCESS_TOKEN: "at", CODEX_API_KEY: "ck" }, noLogin);
+  assert.equal(child.CODEX_ACCESS_TOKEN, "at");
+  assert.equal("CODEX_API_KEY" in child, false, "codex ranks CODEX_API_KEY first, so it would bill the API");
+});
+
+// Verbatim from codex-rs/login/src/auth/manager.rs: what codex prints when a ChatGPT login cannot refresh.
+const REFRESH_FAILURES = [
+  "Your access token could not be refreshed because your refresh token has expired. Please log out and sign in again.",
+  "Your access token could not be refreshed because your refresh token was already used. Please log out and sign in again.",
+  "Your access token could not be refreshed because your refresh token was revoked. Please log out and sign in again.",
+  "Your access token could not be refreshed. Please log out and sign in again.",
+];
+
+test("CX-refresh-1: a failed ChatGPT token refresh is an auth error, not unknown", () => {
+  for (const s of REFRESH_FAILURES) assert.deepEqual(classifyCodex(s), { errorKind: "auth", retryable: false }, s);
+});
+
+test("CX-refresh-2: the fix leads the message, so the 500-char cap cannot cut it off", async () => {
+  // codex exec prints a banner on stderr before the error; a long one would push a trailing hint out.
+  const stderr = `${"banner line\n".repeat(60)}ERROR: ${REFRESH_FAILURES[1]}`;
+  const r = /** @type {any} */ (await mkCx({ run: async () => ({ code: 1, stdout: "", stderr, timedOut: false }), env: {} }).ask({ prompt: "x" }));
+  assert.equal(r.errorKind, "auth");
+  const capped = r.message.slice(0, 500);
+  assert.match(capped, /^ERROR: Your access token could not be refreshed because your refresh token was already used/, "codex's own line comes first");
+  assert.match(capped, /codex login --device-auth/);
+  assert.match(capped, /CODEX_ACCESS_TOKEN/);
+  assert.match(r.message, /banner line/, "the full output follows");
+});
+
+test("CX-refresh-4: codex echoes the prompt on stderr - a prompt ABOUT refresh tokens is not an auth failure", async () => {
+  const stderr = "user\nreview the refresh token rotation in session.ts: why could the refresh token not be refreshed?\nERROR: stream error: 429 Too Many Requests, rate limited";
+  assert.equal(classifyCodex(stderr).errorKind, "rate-limit");
+  const r = /** @type {any} */ (await mkCx({ run: async () => ({ code: 1, stdout: "", stderr, timedOut: false }), env: {} }).ask({ prompt: "x" }));
+  assert.equal(r.errorKind, "rate-limit");
+  assert.doesNotMatch(r.message, /device-auth/);
+});
+
+test("CX-refresh-5: an answer on stdout that discusses refresh tokens never earns the hint", async () => {
+  const stdout = "Your access token could not be refreshed? Rotate the refresh token on every use.";
+  const r = /** @type {any} */ (await mkCx({ run: async () => ({ code: 1, stdout, stderr: "ERROR: something broke", timedOut: false }), env: {} }).ask({ prompt: "x" }));
+  assert.equal(r.errorKind, "unknown");
+  assert.equal(r.message, stdout);
+});
+
+test("CX-refresh-3: other auth errors do not get the refresh hint", async () => {
+  const r = /** @type {any} */ (await mkCx({ run: async () => ({ code: 1, stdout: "", stderr: "Not logged in. Run codex login.", timedOut: false }), env: {} }).ask({ prompt: "x" }));
+  assert.equal(r.errorKind, "auth");
+  assert.doesNotMatch(r.message, /device-auth/);
+});
