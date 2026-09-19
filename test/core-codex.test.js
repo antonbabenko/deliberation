@@ -297,3 +297,45 @@ test("CX-health-1: health is stat-only and names the missing piece (CLI, then cr
   const h = await mkCx({ run: async () => ({ code: 0, stdout: "", stderr: "" }), env: { PATH: "/nowhere" } }).health();
   assert.equal(h.ok, false);
 });
+
+test("CX-token-1: CODEX_ACCESS_TOKEN (ChatGPT Business/Enterprise) is a credential on its own", () => {
+  assert.equal(codexHasAuth({ env: { CODEX_ACCESS_TOKEN: "at" }, home: "/h", exists: () => false }), true);
+  assert.equal(codexHasAuth({ env: { CODEX_ACCESS_TOKEN: "" }, home: "/h", exists: () => false }), false, "empty is not a token");
+  const onPath = (/** @type {string} */ p) => p === "/bin/codex";
+  assert.deepEqual(codexHealth({ platform: "linux", env: { PATH: "/bin", CODEX_ACCESS_TOKEN: "at" }, home: "/h", exists: onPath }), { ok: true });
+});
+
+test("CX-token-2: a ChatGPT access token beats CODEX_API_KEY - the key is dropped, the token is kept", () => {
+  const noLogin = { home: "/h", exists: () => false };
+  const child = codexEnv({ CODEX_ACCESS_TOKEN: "at", CODEX_API_KEY: "ck" }, noLogin);
+  assert.equal(child.CODEX_ACCESS_TOKEN, "at");
+  assert.equal("CODEX_API_KEY" in child, false, "codex ranks CODEX_API_KEY first, so it would bill the API");
+});
+
+// Verbatim from codex-rs/login/src/auth/manager.rs: what codex prints when a ChatGPT login cannot refresh.
+const REFRESH_FAILURES = [
+  "Your access token could not be refreshed because your refresh token has expired. Please log out and sign in again.",
+  "Your access token could not be refreshed because your refresh token was already used. Please log out and sign in again.",
+  "Your access token could not be refreshed because your refresh token was revoked. Please log out and sign in again.",
+  "Your access token could not be refreshed. Please log out and sign in again.",
+];
+
+test("CX-refresh-1: a failed ChatGPT token refresh is an auth error, not unknown", () => {
+  for (const s of REFRESH_FAILURES) assert.deepEqual(classifyCodex(s), { errorKind: "auth", retryable: false }, s);
+});
+
+test("CX-refresh-2: the fix leads the message, so the 500-char cap cannot cut it off", async () => {
+  // codex exec prints a banner on stderr before the error; a long one would push a trailing hint out.
+  const stderr = `${"banner line\n".repeat(60)}ERROR: ${REFRESH_FAILURES[1]}`;
+  const r = /** @type {any} */ (await mkCx({ run: async () => ({ code: 1, stdout: "", stderr, timedOut: false }), env: {} }).ask({ prompt: "x" }));
+  assert.equal(r.errorKind, "auth");
+  assert.match(r.message.slice(0, 500), /codex login --device-auth/);
+  assert.match(r.message.slice(0, 500), /CODEX_ACCESS_TOKEN/);
+  assert.match(r.message, /refresh token was already used/, "the original error is still there");
+});
+
+test("CX-refresh-3: other auth errors do not get the refresh hint", async () => {
+  const r = /** @type {any} */ (await mkCx({ run: async () => ({ code: 1, stdout: "", stderr: "Not logged in. Run codex login.", timedOut: false }), env: {} }).ask({ prompt: "x" }));
+  assert.equal(r.errorKind, "auth");
+  assert.doesNotMatch(r.message, /device-auth/);
+});

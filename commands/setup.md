@@ -98,7 +98,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/commands/setup-overwrite-commands.sh" <colli
 
 Print only the reminders relevant to what the Step-1 status showed as missing:
 
-- Codex: `codex login`
+- Codex: `codex login` (`codex login --device-auth` on a remote or headless machine; never copy `~/.codex/auth.json` between machines), or `CODEX_ACCESS_TOKEN` for a ChatGPT Business/Enterprise workspace
 - Gemini: run `agy` once and complete sign-in (or set the model in `~/.gemini/settings.json`)
 - Grok: `export XAI_API_KEY=xai-...` (https://console.x.ai) in your shell profile, then restart
 - OpenRouter: export the key named by `apiKeyEnv` (default `OPENROUTER_API_KEY`)

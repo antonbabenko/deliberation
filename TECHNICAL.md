@@ -289,7 +289,8 @@ This is the single source of truth for the bridge environment variables.
 | `GROK_MIN_ANSWER_CHARS` | Grok | `1` | Minimum trimmed answer length; shorter text, or a reply under 400 chars that only announces intent ("I'll verify the cited files..."), fails as `empty` (see [Answer floor](#answer-floor-gemini-grok)). `0` disables both checks |
 | `DELIBERATION_SESSIONS` | sessions | `<XDG cache>/deliberation/sessions` | Override the session store directory (see [Session persistence](#session-persistence)) |
 | `CODEX_BIN` | Codex | `codex` | Override the path to the `codex` binary (see [Windows CLI resolution](#windows-cli-resolution)) |
-| `CODEX_API_KEY` | Codex | unset | Codex API key, used ONLY when there is no `codex login` (`$CODEX_HOME/auth.json` / `~/.codex/auth.json`). With a login, the provider drops it from the `codex exec` child's env so the login (usually a ChatGPT subscription) wins. `OPENAI_API_KEY` is never used for codex and is always dropped from the child's env |
+| `CODEX_ACCESS_TOKEN` | Codex | unset | Codex access token (ChatGPT Business/Enterprise workspaces only), read by codex-cli itself. It never refreshes, so the same value works on every machine and in every web session until it expires. codex ranks it above `auth.json`. It counts as a credential for `codexHealth()`, and while it is set `CODEX_API_KEY` is dropped from the child's env |
+| `CODEX_API_KEY` | Codex | unset | Codex API key, used ONLY when there is no ChatGPT credential (`codex login` = `$CODEX_HOME/auth.json` / `~/.codex/auth.json`, or `CODEX_ACCESS_TOKEN`). With one, the provider drops the key from the `codex exec` child's env so the subscription wins. `OPENAI_API_KEY` is never used for codex and is always dropped from the child's env |
 | `MCP_TOOL_TIMEOUT` | host (all) | unset | Set by some MCP hosts (Claude Code on the web: `60000`) - the host kills any tool call longer than this. deliberation reads it and clamps every provider ceiling to `MCP_TOOL_TIMEOUT - 5000` ms so the call fails as a `timeout` naming the cap; see [Timeouts](#timeouts). Claude Code applies a per-server `timeout` ahead of this variable, so `.claude-plugin/plugin.json` sets `1800000` on every server and mirrors it into the server env under this name (the mirror is what the clamp reads) |
 | `DELIBERATION_DEBUG_LOG` | debug | `<XDG cache>/deliberation/debug.jsonl` | Override the debug log path (see [Observability](#observability--per-provider-progress)); only written when `debug.enabled` |
 
@@ -306,22 +307,39 @@ surface (`mcp__deliberation__ask-gpt`) exposes no `model` parameter. See
 block a consensus round indefinitely. Raise or lower it with `providers.codex.timeout` (or
 `providers.defaults.timeout`); a per-call `timeout` is not exposed through the MCP tool surface.
 
-**Codex credential.** The codex login always wins. `codexEnv()` builds the child's env with
-this rule:
+**Codex credential.** A ChatGPT credential always wins. `codexEnv()` builds the child's env
+with this rule:
 
-1. `$CODEX_HOME/auth.json` / `~/.codex/auth.json` exists (`codex login`, usually a ChatGPT
+1. `CODEX_ACCESS_TOKEN` is set (a ChatGPT Business/Enterprise access token), or
+   `$CODEX_HOME/auth.json` / `~/.codex/auth.json` exists (`codex login`, usually a ChatGPT
    subscription): codex uses it, and `CODEX_API_KEY` is dropped from the child's env. codex-cli
-   ranks that env var above `auth.json`, so leaving it in would silently override the login.
-2. No login: `CODEX_API_KEY` is passed through as-is.
+   ranks that env var above both, so leaving it in would silently bill the API instead. Between
+   the token and the login, codex's own order applies (the token first).
+2. No ChatGPT credential: `CODEX_API_KEY` is passed through as-is.
 3. `OPENAI_API_KEY` is never used and never reaches the child.
 
 Rule 3 replaces an earlier forward of `OPENAI_API_KEY` as `CODEX_API_KEY`. On a machine that
 exports `OPENAI_API_KEY` for other tools, that forward beat the ChatGPT login, so every GPT call
 was billed to the API key and failed with `You have no credits remaining` once its credit ran
-out. A host that exports only `OPENAI_API_KEY` must now run `codex login` or set `CODEX_API_KEY`.
-The provider's `health()` (`codexHealth()`) is stat-only: the CLI must be on PATH and a login
-`auth.json` or `CODEX_API_KEY` must exist. Otherwise the panel lists codex as `unavailable` with
-that reason and does not dispatch to it.
+out. A host that exports only `OPENAI_API_KEY` must now run `codex login`, set
+`CODEX_ACCESS_TOKEN`, or set `CODEX_API_KEY`.
+The provider's `health()` (`codexHealth()`) is stat-only: the CLI must be on PATH and
+`CODEX_ACCESS_TOKEN`, a login `auth.json`, or `CODEX_API_KEY` must exist. Otherwise the panel
+lists codex as `unavailable` with that reason and does not dispatch to it.
+
+**One login per machine.** A ChatGPT login's refresh token works once. codex refreshes about 8
+days after `last_refresh` (or on a 401), writes the new pair to `auth.json`, and the old refresh
+token is dead. A copy of that file on a second machine (a web container seeded from a laptop, a
+setup script restoring it from a secret at every session start) therefore fails as soon as either
+side refreshes, with `Your access token could not be refreshed because your refresh token was
+already used. Please log out and sign in again.` Nothing in that text says "auth" or "login", so
+`classifyCodex()` also matches `refresh token` / `could not be refreshed`: the result is
+`errorKind: "auth"` (not retried), and the message STARTS with the fix (`codex login
+--device-auth` on this machine, or `CODEX_ACCESS_TOKEN`). The fix goes first because
+`toErrorResult` caps a message at 500 characters and `codex exec` prints a banner on stderr
+before the error. `stat` cannot see this state (the file exists and parses), so health stays `ok`
+and the circuit breaker drops codex after repeated errors. Setup per host:
+[SETUP.md - Claude Code on the web](SETUP.md#claude-code-on-the-web-and-other-capped-hosts).
 
 **Timeouts and retries.** See [Timeouts](#timeouts) for the full precedence ladder
 (`providers.defaults.timeout` is the one knob that covers every provider) and
@@ -1572,8 +1590,9 @@ to invoke or not invoke. Edit these to change expert behavior for your workflow.
 | Issue | Solution |
 |-------|----------|
 | MCP server not found | Restart Claude Code after setup |
-| Provider not authenticated | Codex: `codex login` (ChatGPT subscription), or export `CODEX_API_KEY` when there is no login; `OPENAI_API_KEY` is never used. Gemini: run `agy` once (or set `GOOGLE_API_KEY`). Grok: export `XAI_API_KEY` (else calls return `errorKind: missing-auth`) |
+| Provider not authenticated | Codex: `codex login` (ChatGPT subscription; `codex login --device-auth` on a remote or headless machine), `CODEX_ACCESS_TOKEN` (ChatGPT Business/Enterprise), or export `CODEX_API_KEY` when there is neither; `OPENAI_API_KEY` is never used. Gemini: run `agy` once (or set `GOOGLE_API_KEY`). Grok: export `XAI_API_KEY` (else calls return `errorKind: missing-auth`) |
 | `tool "ask-grok" timed out after 60s` from the host, or a `timeout` result naming `MCP_TOOL_TIMEOUT=60000` (Claude Code on the web) | The host exports `MCP_TOOL_TIMEOUT=60000`. The current manifest overrides it per server (`"timeout": 1800000` + env mirror), so either message means the plugin install predates that manifest: `claude plugin update deliberation@antonbabenko`, start a new session. Hand-written `.mcp.json`: add `"timeout": 1800000` and `"env": {"MCP_TOOL_TIMEOUT": "1800000"}` to the entry. `/deliberation:doctor` reports it. See [Timeouts](#timeouts) |
+| GPT returns `errorKind: "auth"` with `refresh token was already used` / `has expired` / `was revoked` | The `auth.json` in use was copied from another machine, and one of the copies refreshed first (a ChatGPT refresh token works once), or the login expired. Give each machine its own login: `codex login --device-auth` in the remote session, or `CODEX_ACCESS_TOKEN` (Business/Enterprise). A seeded secret must come from a login used for nothing else and must be re-seeded after its first refresh. See "One login per machine" under [Environment variables](#environment-variables) |
 | `deliberation-gemini` shows `CONNECTION_CLOSED` (Claude Code on the web) | No `agy` in the container: the standalone Gemini bridge refuses to start rather than advertise tools it cannot serve. The unified server keeps working and lists gemini under `panel.unavailable`; `/consensus` and `/ask-all` run on the remaining providers |
 | `panel` lists a provider under `unavailable` | Its stat-only health check failed; the `reason` names the missing piece (CLI on PATH, credential). Fix that and call again - nothing is cached |
 | Tool not appearing | Run `claude mcp list` and verify registration |
