@@ -42,14 +42,20 @@ User question or topic: $ARGUMENTS
    })
    ```
 
-5. **Login link first.** If the result is `errorKind: "auth"` and its `message` carries a link
+5. **Never pre-empt the call.** Do not skip step 4 because GPT looks logged out (no
+   `auth.json`, `codex doctor` says so, a session-start hook said so): the call itself
+   starts the device login and returns the link and code, and a skipped call means the user
+   never gets one. Do not pre-check credentials at all. (`/deliberation:login` does only the
+   login, when the user wants it without a question.)
+
+6. **Login link first.** If the result is `errorKind: "auth"` and its `message` carries a link
    and a one-time code, GPT has no ChatGPT login on this machine yet and deliberation has
    started `codex login --device-auth`. Show that message to the user as-is (it is the
    user's action, not an expert answer), say GPT answers after they approve, and stop.
    Re-run the command once they confirm. A host that supports MCP elicitation shows the
    same link and code in a dialog during the call instead.
 
-6. **Synthesize response** - never paste raw output. Extract:
+7. **Synthesize response** - never paste raw output. Extract:
    - Bottom-line recommendation
    - Key reasoning points
    - Where GPT diverges from your prior analysis (if applicable)

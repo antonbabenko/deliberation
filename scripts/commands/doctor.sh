@@ -71,7 +71,7 @@ if command -v codex >/dev/null 2>&1; then
   elif [ -n "${CODEX_API_KEY:-}" ]; then
     ok "codex credential: CODEX_API_KEY set (no codex login found)"
   else
-    warn "codex has no credential yet - the first GPT call starts 'codex login --device-auth' and shows its link + code"
+    warn "codex has no credential yet - run /deliberation:login for a ChatGPT link + code (any GPT call also starts it)"
     echo "       (a dialog when the host supports MCP elicitation, else in the result); GPT answers once you approve."
     echo "       or now: 'codex login' (ChatGPT; '--device-auth' on a remote machine), CODEX_ACCESS_TOKEN (Business/Enterprise),"
     echo "       or CODEX_API_KEY - OPENAI_API_KEY is never used for codex"

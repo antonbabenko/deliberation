@@ -50,6 +50,10 @@ Fan-out and single-provider:
   applied), WITHOUT calling them. `unavailable[]` names enabled built-ins that cannot answer
   right now (CLI not on PATH, no credential) with the reason - they are skipped by every
   fan-out, so report them once rather than treating them as errors. Read-only.
+- `codex-login` - start (or join) the ChatGPT device login for GPT and return its link and
+  one-time code, without asking GPT anything. Show the returned `message` to the user as-is;
+  GPT answers once they approve. Never skip a GPT call because GPT looks logged out: with no
+  login, `ask-gpt` / `ask-one codex` start the same login and return the same code.
 - `ask-one { provider, prompt }` - one question to ONE provider named by `panel`
   (e.g. `codex`, `grok`, `openrouter:<alias>`). The progress pattern: call `panel`, then
   issue one `ask-one` per name **in a single turn** so they run concurrently and each

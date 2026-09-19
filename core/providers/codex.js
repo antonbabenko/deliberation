@@ -274,6 +274,10 @@ const DIALOG_MIN_BUDGET_MS = 15000;
 
 /** @typedef {{url:string, code:string, expiresAt:number}} DevicePrompt */
 /** @typedef {{prompt?:DevicePrompt, error?:string, ended:boolean, done:Promise<boolean>, authBefore?:(number|null)}} DeviceFlight */
+/**
+ * Where a device login stands, for the `codex-login` tool and on ask()'s auth results.
+ * @typedef {{status:("authenticated"|"pending"|"starting"|"declined"|"failed"|"unavailable"), message:string, url?:string, code?:string, expiresAt?:number}} LoginResult
+ */
 
 /**
  * Link, code and lifetime from `codex login --device-auth` output (codex colours it even into a
@@ -507,7 +511,7 @@ function loginMessage(prompt) {
  *   the result; "decline" ends that login.
  * @param {{start: (env: Record<string, (string|undefined)>) => Promise<DeviceFlight>, cancel: () => void}} [opts.login]
  *   the device-login manager (tests inject one with a fake CLI)
- * @returns {Provider}
+ * @returns {Provider & {login: (req?: Partial<DelegationRequest>) => Promise<LoginResult>}}
  */
 function makeCodexProvider(opts = {}) {
   const run = opts.run || defaultRun;
@@ -524,9 +528,10 @@ function makeCodexProvider(opts = {}) {
   /**
    * @param {number} started
    * @param {string} message
+   * @param {Partial<LoginResult>} [state]
    */
-  const authError = (started, message) =>
-    ({ provider: "codex", model, isError: true, errorKind: "auth", retryable: false, message, ms: Date.now() - started, reasoningEffort: null });
+  const authError = (started, message, state = {}) =>
+    ({ provider: "codex", model, isError: true, errorKind: "auth", retryable: false, message, deviceLogin: { ...state, message }, ms: Date.now() - started, reasoningEffort: null });
 
   /**
    * What the host still allows after `started`: a call that waited for a login must not hand
@@ -560,8 +565,8 @@ function makeCodexProvider(opts = {}) {
     const acquire = deadline(acquireMs, null);
     const flight = /** @type {DeviceFlight|null} */ (await Promise.race([login.start(env), acquire.promise]));
     acquire.stop();
-    if (!flight) return authError(started, `GPT (Codex) needs a ChatGPT login on this machine; \`codex login --device-auth\` is starting but has no code yet within this call's time. The next GPT call shows it.${tail}`);
-    if (!flight.prompt) return authError(started, `GPT (Codex) has no working ChatGPT login here, and \`codex login --device-auth\` gave no code: ${flight.error}${tail}`);
+    if (!flight) return authError(started, `GPT (Codex) needs a ChatGPT login on this machine; \`codex login --device-auth\` is starting but has no code yet within this call's time. The next GPT call shows it.${tail}`, { status: "starting" });
+    if (!flight.prompt) return authError(started, `GPT (Codex) has no working ChatGPT login here, and \`codex login --device-auth\` gave no code: ${flight.error}${tail}`, { status: "failed" });
     const prompt = flight.prompt;
     // Wait only while the code lives, at most DIALOG_WAIT_MAX_MS, and at most half of what the
     // host still allows this call (after any failed first run) - the other half is the codex run.
@@ -590,13 +595,13 @@ function makeCodexProvider(opts = {}) {
         // A login killed right after saving reports a failed exit: the file is the truth.
         const stamp = authStamp(env);
         const landed = exitedOk || (stamp !== null && stamp !== flight.authBefore);
-        if (landed) return authError(started, `You declined, but the ChatGPT login had already completed on this machine. GPT is skipped this time. If you did not approve that login yourself, run \`codex logout\` here.${tail}`);
-        return authError(started, `You declined the ChatGPT login for GPT (Codex), so GPT is skipped this time and that code no longer works. The next GPT call offers a new one.${tail}`);
+        if (landed) return authError(started, `You declined, but the ChatGPT login had already completed on this machine. GPT is skipped this time. If you did not approve that login yourself, run \`codex logout\` here.${tail}`, { status: "declined" });
+        return authError(started, `You declined the ChatGPT login for GPT (Codex), so GPT is skipped this time and that code no longer works. The next GPT call offers a new one.${tail}`, { status: "declined" });
       }
     }
     // A login that ended without landing has a dead code: say so rather than show it.
-    if (flight.ended) return authError(started, `\`codex login --device-auth\` ended before the login landed: ${flight.error}. The next GPT call starts a fresh one.${tail}`);
-    return authError(started, `${loginMessage(prompt)}${tail}`);
+    if (flight.ended) return authError(started, `\`codex login --device-auth\` ended before the login landed: ${flight.error}. The next GPT call starts a fresh one.${tail}`, { status: "failed" });
+    return authError(started, `${loginMessage(prompt)}${tail}`, { status: "pending", url: prompt.url, code: prompt.code, expiresAt: prompt.expiresAt });
   }
 
   /**
@@ -678,6 +683,16 @@ function makeCodexProvider(opts = {}) {
       const blocked = await signIn(req, started, first.refreshLine);
       if (blocked) return /** @type {any} */ (blocked);
       return /** @type {any} */ ((await runOnce(afterWait(req, started), started)).result);
+    },
+    // The login ask() would start, without a question: an agent that decides a logged-out GPT
+    // call "would only return a link" skips the call, and then nobody ever gets the code.
+    async login(req = {}) {
+      const started = Date.now();
+      if (codexHasAuth({ env })) return { status: "authenticated", message: "GPT (Codex) already has a credential on this machine." };
+      if (!deviceLogin) return { status: "unavailable", message: "Login on first use is off in this process: run `codex login` (`codex login --device-auth` on a remote machine) yourself." };
+      const blocked = /** @type {any} */ (await signIn(/** @type {DelegationRequest} */ ({ prompt: "", ...req }), started));
+      if (!blocked) return { status: "authenticated", message: "Logged in. GPT answers from the next call." };
+      return /** @type {LoginResult} */ (blocked.deviceLogin);
     },
   };
 }

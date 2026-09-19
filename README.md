@@ -205,6 +205,7 @@ Bundled with the plugin (available once installed):
 | `/deliberation:setup` | Configure Codex/Gemini/Grok/OpenRouter MCP servers + orchestration rules |
 | `/deliberation:help` | How to use deliberation on your host, with paste-ready example prompts |
 | `/deliberation:doctor` | Health check (config, provider CLIs, sessions/debug, path drift) with fixes; read-only |
+| `/deliberation:login` | Log GPT (Codex) in on this machine with a ChatGPT device login - shows a link + code; for web and headless sessions |
 | `/deliberation:consensus` | 🔥🔥🔥 Arbiter-mediated GPT + Gemini + Grok + Claude convergence loop |
 | `/deliberation:ask-all` | 🔥 GPT + Gemini + Grok (+ configured OpenRouter models) in parallel, synthesized |
 | `/deliberation:ask-gpt` | One-shot GPT (Codex) second opinion |

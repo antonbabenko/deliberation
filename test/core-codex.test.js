@@ -705,3 +705,52 @@ test("CX-login-acquire-budget: waiting for codex to print its code is bounded by
   const again = /** @type {any} */ (await p.ask({ prompt: "x" }));
   assert.match(again.message, /ABCD-12345/, "the next call gets the code at once");
 });
+
+// ---- codex-login: the same login as ask(), without a question, so nobody has to "waste" a GPT call ----
+const noRun = async () => { throw new Error("login() must never run codex exec"); };
+
+test("CX-login-tool-pending: login() starts (or joins) the device login and returns link + code; ask() joins it", async () => {
+  const home = tmpCodexHome();
+  const cli = fakeLoginCli();
+  const p = /** @type {any} */ (mkCx({ env: { CODEX_HOME: home }, deviceLogin: true, login: makeDeviceLogin({ spawnLogin: cli.spawnLogin }), run: noRun }));
+  const a = await p.login({});
+  assert.equal(a.status, "pending");
+  assert.equal(a.url, "https://auth.openai.com/codex/device");
+  assert.equal(a.code, "ABCD-12345");
+  assert.ok(a.expiresAt > Date.now());
+  assert.match(a.message, /ABCD-12345/);
+  assert.equal((await p.login({})).code, "ABCD-12345", "a second call joins the same code");
+  assert.match((await p.ask({ prompt: "x" })).message, /ABCD-12345/, "and so does ask()");
+  assert.equal(cli.calls.spawned, 1);
+});
+
+test("CX-login-tool-authenticated: with a credential, login() says so and spawns nothing", async () => {
+  const home = tmpCodexHome();
+  require("node:fs").writeFileSync(require("node:path").join(home, "auth.json"), "{}");
+  const cli = fakeLoginCli();
+  const r = await /** @type {any} */ (mkCx({ env: { CODEX_HOME: home }, deviceLogin: true, login: makeDeviceLogin({ spawnLogin: cli.spawnLogin }), run: noRun })).login({});
+  assert.equal(r.status, "authenticated");
+  assert.equal(cli.calls.spawned, 0);
+});
+
+test("CX-login-tool-dialog: accepted in a host dialog, the login lands and login() reports authenticated without running codex", async () => {
+  const home = tmpCodexHome();
+  const cli = fakeLoginCli();
+  const r = await /** @type {any} */ (mkCx({ env: { CODEX_HOME: home }, deviceLogin: true, confirmLogin: async () => { cli.approve(home); return /** @type {const} */ ("accept"); }, login: makeDeviceLogin({ spawnLogin: cli.spawnLogin }), run: noRun })).login({});
+  assert.equal(r.status, "authenticated");
+});
+
+test("CX-login-tool-declined: a declined dialog is reported as declined", async () => {
+  const home = tmpCodexHome();
+  const r = await /** @type {any} */ (mkCx({ env: { CODEX_HOME: home }, deviceLogin: true, confirmLogin: async () => /** @type {const} */ ("decline"), login: makeDeviceLogin({ spawnLogin: fakeLoginCli().spawnLogin }), run: noRun })).login({});
+  assert.equal(r.status, "declined");
+  assert.doesNotMatch(r.message, /ABCD-12345/);
+});
+
+test("CX-login-tool-off: without deviceLogin (library default) login() is unavailable and spawns nothing", async () => {
+  const home = tmpCodexHome();
+  const cli = fakeLoginCli();
+  const r = await /** @type {any} */ (mkCx({ env: { CODEX_HOME: home }, login: makeDeviceLogin({ spawnLogin: cli.spawnLogin }), run: noRun })).login({});
+  assert.equal(r.status, "unavailable");
+  assert.equal(cli.calls.spawned, 0);
+});
