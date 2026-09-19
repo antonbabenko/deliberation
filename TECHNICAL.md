@@ -351,7 +351,9 @@ the result is `auth`, so the kind and the message never disagree. `stat` cannot 
 (the library default is off). Two states start a device login: no credential at all, and a
 spent login (the refresh failure above). Instead of failing, `ask()` then:
 
-1. Starts `codex login --device-auth` (same binary resolution and env scrub as `codex exec`)
+1. Starts `codex login --device-auth` (same binary resolution and env scrub as `codex exec`;
+   waiting for its code is bounded by half the host budget left, and a call that runs out
+   returns "no code yet" while the shared login keeps going for the next call)
    and parses the link, the one-time code and its lifetime from codex's output
    (`parseDevicePrompt`). That output is text for humans, so the match is loose: the link is
    the URL with `/device` in its path (codex may print an update notice with its own URL
@@ -386,7 +388,8 @@ spent login (the refresh failure above). Instead of failing, `ask()` then:
    with the host budget reduced by the time spent waiting, retrying once after a spent login.
    A decline is a no: that login is killed and the result says GPT was skipped (the next GPT
    call offers a new code, never the refused one). If the login had already landed when the
-   decline arrived (a clean exit, or `auth.json` changed since the attempt began - a login
+   decline arrived (a clean exit, or `auth.json` changed since that LOGIN began - recorded
+   once per login, so a caller that joins after the approval was saved sees it too; a login
    killed right after saving exits non-zero), the result says so and suggests `codex logout`;
    deliberation never deletes a credential file itself. With no dialog, a dismissed dialog, an
    error or a timeout, it returns `errorKind: "auth"` whose message starts with the link and

@@ -670,3 +670,38 @@ test("CX-login-closed: once the server is shutting down, no new login starts", a
   assert.equal(cli.calls.spawned, 0);
   assert.match(r.error, /shutting down/);
 });
+
+test("CX-login-decline-shared: a caller that JOINS a login after its credentials were saved still reports them", async () => {
+  const fs = require("node:fs"), path = require("node:path");
+  const home = tmpCodexHome();
+  const cli = fakeLoginCli();
+  const login = makeDeviceLogin({ spawnLogin: cli.spawnLogin });
+  // A: no credential -> starts the login, gets the code, no dialog.
+  const a = mkCx({ env: { CODEX_HOME: home }, deviceLogin: true, login, confirmLogin: async () => /** @type {const} */ ("none"), run: async () => ({ code: 0, stdout: "", stderr: "" }) });
+  assert.match(/** @type {any} */ (await a.ask({ prompt: "x" })).message, /ABCD-12345/);
+  // The browser approval is saved while the login process is still open.
+  fs.writeFileSync(path.join(home, "auth.json"), "{}");
+  // B: its codex run reports a spent login, it joins the SAME flight, then the user declines;
+  // killing the login gives a non-zero exit although the credentials are already in place.
+  const b = mkCx({ env: { CODEX_HOME: home }, deviceLogin: true, login, confirmLogin: async () => /** @type {const} */ ("decline"), run: async () => ({ code: 1, stdout: "", stderr: `ERROR: ${REFRESH_FAILURES[1]}`, timedOut: false }) });
+  const r = /** @type {any} */ (await b.ask({ prompt: "y" }));
+  assert.equal(cli.calls.spawned, 1, "B joined A's login");
+  assert.match(r.message, /already completed/);
+});
+
+test("CX-login-acquire-budget: waiting for codex to print its code is bounded by the host budget; the login keeps going", async () => {
+  const home = tmpCodexHome();
+  /** @type {(t:string)=>void} */ let emit = () => {};
+  let killed = 0;
+  const login = makeDeviceLogin({ spawnLogin: (_env, onText) => { emit = onText; return { exit: new Promise(() => {}), kill: () => { killed++; } }; } });
+  const p = mkCx({ env: { CODEX_HOME: home, MCP_TOOL_TIMEOUT: "60000" }, deviceLogin: true, login, run: async () => ({ code: 0, stdout: "", stderr: "" }) });
+  const t0 = Date.now();
+  const r = /** @type {any} */ (await p.ask({ prompt: "x", hostBudgetRemainingMs: 1000 }));
+  assert.ok(Date.now() - t0 < 900, `returned in ${Date.now() - t0} ms`);
+  assert.equal(r.errorKind, "auth");
+  assert.match(r.message, /no code yet/);
+  assert.equal(killed, 0, "the shared login is left running");
+  emit(DEVICE_OUT);
+  const again = /** @type {any} */ (await p.ask({ prompt: "x" }));
+  assert.match(again.message, /ABCD-12345/, "the next call gets the code at once");
+});

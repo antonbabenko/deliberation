@@ -273,7 +273,7 @@ const DIALOG_WAIT_MAX_MS = 5 * 60000;
 const DIALOG_MIN_BUDGET_MS = 15000;
 
 /** @typedef {{url:string, code:string, expiresAt:number}} DevicePrompt */
-/** @typedef {{prompt?:DevicePrompt, error?:string, ended:boolean, done:Promise<boolean>}} DeviceFlight */
+/** @typedef {{prompt?:DevicePrompt, error?:string, ended:boolean, done:Promise<boolean>, authBefore?:(number|null)}} DeviceFlight */
 
 /**
  * Link, code and lifetime from `codex login --device-auth` output (codex colours it even into a
@@ -386,8 +386,10 @@ function makeDeviceLogin(o = {}) {
     let promptEnd = 0; // after a code is shown, only what codex prints next explains a failure
     /** @type {ReturnType<typeof setTimeout>|undefined} */ let noCode;
     /** @type {(ok: boolean) => void} */ let finish = () => {};
+    // auth.json as it was when THIS login began, shared by every caller that joins it: one that
+    // joins after the approval was saved must still see the credentials as new.
     /** @type {DeviceFlight} */
-    const state = { ended: false, done: new Promise((r) => { finish = r; }) };
+    const state = { ended: false, done: new Promise((r) => { finish = r; }), authBefore: authStamp(env) };
     /** @type {(v: DeviceFlight) => void} */ let settle = () => {};
     const f = { finished: false, expiresAt: Infinity, kill: () => {}, ready: /** @type {Promise<DeviceFlight>} */ (new Promise((r) => { settle = r; })) };
     /** @param {string} error */
@@ -533,10 +535,17 @@ function makeCodexProvider(opts = {}) {
    * @returns {Promise<object|null>}
    */
   async function signIn(req, started, lead = "") {
-    const authBefore = authStamp(env);
-    const flight = await login.start(env);
     // The action leads, codex's own line follows: whatever truncates a long error keeps the code.
     const tail = lead ? `\n\n${lead}` : "";
+    // Waiting for codex to print its code spends this call's budget too: bound it, and leave the
+    // shared login running for the next call if the code is not out in time.
+    const acquireLeft = /** @type {number} */ (clampToHostBudget(Number.MAX_SAFE_INTEGER, env, afterWait(req, started).hostBudgetRemainingMs).timeoutMs);
+    const acquireMs = Math.min(acquireLeft / 2, DEVICE_PROMPT_WAIT_MS + 1000);
+    const flight = /** @type {DeviceFlight|null} */ (await Promise.race([
+      login.start(env),
+      new Promise((r) => { setTimeout(() => r(null), acquireMs).unref(); }),
+    ]));
+    if (!flight) return authError(started, `GPT (Codex) needs a ChatGPT login on this machine; \`codex login --device-auth\` is starting but has no code yet within this call's time. The next GPT call shows it.${tail}`);
     if (!flight.prompt) return authError(started, `GPT (Codex) has no working ChatGPT login here, and \`codex login --device-auth\` gave no code: ${flight.error}${tail}`);
     const prompt = flight.prompt;
     // Wait only while the code lives, at most DIALOG_WAIT_MAX_MS, and at most half of what the
@@ -561,7 +570,7 @@ function makeCodexProvider(opts = {}) {
         const exitedOk = await Promise.race([flight.done, new Promise((r) => { setTimeout(() => r(false), 250).unref(); })]);
         // A login killed right after saving reports a failed exit: the file is the truth.
         const stamp = authStamp(env);
-        const landed = exitedOk || (stamp !== null && stamp !== authBefore);
+        const landed = exitedOk || (stamp !== null && stamp !== flight.authBefore);
         if (landed) return authError(started, `You declined, but the ChatGPT login had already completed on this machine. GPT is skipped this time. If you did not approve that login yourself, run \`codex logout\` here.${tail}`);
         return authError(started, `You declined the ChatGPT login for GPT (Codex), so GPT is skipped this time and that code no longer works. The next GPT call offers a new one.${tail}`);
       }
