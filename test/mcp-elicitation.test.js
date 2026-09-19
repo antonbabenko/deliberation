@@ -257,3 +257,13 @@ test("EL-login-tool-unavailable: no codex provider, or GPT disabled in config, i
   assert.match(r.message, /disabled/);
   assert.equal(c.calls(), 0);
 });
+
+test("EL-login-tool-no-cli: a codex that fails its health check (no CLI) is unavailable with the reason; login() is not called", async () => {
+  const c = codexWithLogin({ status: "pending" });
+  c.p.health = async () => ({ ok: false, reason: "codex CLI not found (tried \"codex\")" });
+  const srv = /** @type {any} */ (buildServer({ providers: [/** @type {any} */ (c.p)], getConfig: () => config }));
+  const r = await callLogin(srv);
+  assert.equal(r.status, "unavailable");
+  assert.match(r.message, /CLI not found/);
+  assert.equal(c.calls(), 0);
+});

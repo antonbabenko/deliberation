@@ -21,10 +21,12 @@ in a Claude Code web session.
    truncated. By `status`:
    - `pending` - the message carries the link and the code. Tell the user to open the
      link, sign in to ChatGPT, and enter the code; GPT answers from their next GPT call.
-   - `authenticated` - GPT is already logged in, or the login just landed through a host
-     dialog. Nothing else to do.
-   - `starting` - codex has not printed its code yet. Run `/deliberation:login` again in
-     a few seconds; it joins the same login.
+   - `authenticated` - GPT has a credential here, or the login just landed through a host
+     dialog. The message also says what to do if an existing credential turns out to be
+     spent (a copied `auth.json`): the next GPT call replaces it, or `codex logout` first.
+   - `starting` - codex has not printed its code yet. Call the tool again (it joins the
+     same login), up to 3 times, before showing anything; only if it is still `starting`,
+     show the message and ask the user to run `/deliberation:login` again shortly.
    - `declined` - the user refused the dialog; that login was ended.
    - `failed` / `unavailable` - show the message; it names the cause (no codex CLI, GPT
      disabled in config, a login that ended).

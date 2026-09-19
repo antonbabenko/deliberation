@@ -688,11 +688,19 @@ function makeCodexProvider(opts = {}) {
     // call "would only return a link" skips the call, and then nobody ever gets the code.
     async login(req = {}) {
       const started = Date.now();
-      if (codexHasAuth({ env })) return { status: "authenticated", message: "GPT (Codex) already has a credential on this machine." };
+      // A credential FILE is all a stat can see: a copied or spent auth.json looks the same.
+      if (codexHasAuth({ env })) {
+        return {
+          status: "authenticated",
+          message: "GPT (Codex) already has a credential on this machine. If GPT calls still fail with \"access token could not be refreshed\", " +
+            "that login is spent: the next GPT call replaces it with a new device login, or run `codex logout` here and then /deliberation:login.",
+        };
+      }
       if (!deviceLogin) return { status: "unavailable", message: "Login on first use is off in this process: run `codex login` (`codex login --device-auth` on a remote machine) yourself." };
       const blocked = /** @type {any} */ (await signIn(/** @type {DelegationRequest} */ ({ prompt: "", ...req }), started));
       if (!blocked) return { status: "authenticated", message: "Logged in. GPT answers from the next call." };
-      return /** @type {LoginResult} */ (blocked.deviceLogin);
+      // signIn's auth results always carry deviceLogin; the fallback keeps the contract total.
+      return /** @type {LoginResult} */ (blocked.deviceLogin || { status: "failed", message: String(blocked.message || "device login failed") });
     },
   };
 }

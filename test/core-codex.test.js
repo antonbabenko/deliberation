@@ -434,6 +434,10 @@ test("CX-login-link: no credential and no host dialog -> an auth result carrying
   assert.equal(r.errorKind, "auth");
   assert.match(r.message, /https:\/\/auth\.openai\.com\/codex\/device/);
   assert.match(r.message, /ABCD-12345/);
+  // The same state rides along structured, for hosts and the codex-login tool.
+  assert.equal(r.deviceLogin.status, "pending");
+  assert.equal(r.deviceLogin.code, "ABCD-12345");
+  assert.equal(r.deviceLogin.url, "https://auth.openai.com/codex/device");
 });
 
 test("CX-login-health: with login on first use, a missing credential does not keep GPT off the panel", async () => {
@@ -731,6 +735,9 @@ test("CX-login-tool-authenticated: with a credential, login() says so and spawns
   const r = await /** @type {any} */ (mkCx({ env: { CODEX_HOME: home }, deviceLogin: true, login: makeDeviceLogin({ spawnLogin: cli.spawnLogin }), run: noRun })).login({});
   assert.equal(r.status, "authenticated");
   assert.equal(cli.calls.spawned, 0);
+  // A file on disk is not a working login (a copied or spent auth.json exists too): say so.
+  assert.match(r.message, /refresh/);
+  assert.match(r.message, /codex logout/);
 });
 
 test("CX-login-tool-dialog: accepted in a host dialog, the login lands and login() reports authenticated without running codex", async () => {
