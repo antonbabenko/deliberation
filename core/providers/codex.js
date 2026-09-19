@@ -538,7 +538,8 @@ function makeCodexProvider(opts = {}) {
     // The action leads, codex's own line follows: whatever truncates a long error keeps the code.
     const tail = lead ? `\n\n${lead}` : "";
     // Waiting for codex to print its code spends this call's budget too: bound it, and leave the
-    // shared login running for the next call if the code is not out in time.
+    // shared login running for the next call if the code is not out in time. Half, like the
+    // dialog wait below: the rest is for that wait and the codex run itself.
     const acquireLeft = /** @type {number} */ (clampToHostBudget(Number.MAX_SAFE_INTEGER, env, afterWait(req, started).hostBudgetRemainingMs).timeoutMs);
     const acquireMs = Math.min(acquireLeft / 2, DEVICE_PROMPT_WAIT_MS + 1000);
     const flight = /** @type {DeviceFlight|null} */ (await Promise.race([
