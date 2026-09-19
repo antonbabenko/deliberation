@@ -256,6 +256,8 @@ const DEVICE_CODE_TTL_MS = 15 * 60000; // what codex says today; used when it st
 // past it the result path returns the still-valid code instead of risking a host that kills
 // long calls on a cap it never told us about.
 const DIALOG_WAIT_MAX_MS = 5 * 60000;
+// Below this much host budget a dialog cannot be answered in time: return the link at once.
+const DIALOG_MIN_BUDGET_MS = 15000;
 
 /** @typedef {{url:string, code:string, expiresAt:number}} DevicePrompt */
 /** @typedef {{prompt?:DevicePrompt, error?:string, ended:boolean, done:Promise<boolean>}} DeviceFlight */
@@ -469,7 +471,7 @@ function makeCodexProvider(opts = {}) {
     // host still allows this call (after any failed first run) - the other half is the codex run.
     const hostLeft = /** @type {number} */ (clampToHostBudget(Number.MAX_SAFE_INTEGER, env, afterWait(req, started).hostBudgetRemainingMs).timeoutMs);
     const waitMs = Math.min(prompt.expiresAt - Date.now(), DIALOG_WAIT_MAX_MS, hostLeft / 2);
-    if (confirmLogin && waitMs > 0) {
+    if (confirmLogin && waitMs > 0 && hostLeft >= DIALOG_MIN_BUDGET_MS) {
       const timeout = new Promise((r) => { setTimeout(() => r(false), waitMs).unref(); });
       const viaDialog = Promise.resolve()
         .then(() => confirmLogin(prompt, waitMs))
@@ -479,6 +481,10 @@ function makeCodexProvider(opts = {}) {
       if (outcome === true) return null;
       if (outcome === "decline") {
         login.cancel();
+        // The login may have landed just before the decline (or as we killed it): never claim a
+        // code is dead when it was used, and never delete a credential file on the user's behalf.
+        const landed = await Promise.race([flight.done, new Promise((r) => { setTimeout(() => r(false), 250).unref(); })]);
+        if (landed) return authError(started, `You declined, but the ChatGPT login had already completed on this machine. GPT is skipped this time. If you did not approve that login yourself, run \`codex logout\` here.${tail}`);
         return authError(started, `You declined the ChatGPT login for GPT (Codex), so GPT is skipped this time and that code no longer works. The next GPT call offers a new one.${tail}`);
       }
     }

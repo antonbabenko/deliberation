@@ -518,6 +518,8 @@ test("CX-login-parse-url: the login link is picked by its role, not by being the
   assert.equal(/** @type {any} */ (parseDevicePrompt(withNotice)).url, "https://auth.openai.com/codex/device");
   assert.equal(/** @type {any} */ (parseDevicePrompt("go to https://auth.openai.com/other and enter ABCD-12345")).url, "https://auth.openai.com/other", "an OpenAI URL without /device: still the link");
   assert.equal(parseDevicePrompt("go to https://evil.example/codex/device and enter ABCD-12345"), null, "not an OpenAI host: no clickable link");
+  assert.equal(parseDevicePrompt("go to https://evilopenai.com/codex/device and enter ABCD-12345"), null, "suffix without a dot is not a subdomain");
+  assert.equal(parseDevicePrompt("go to https://openai.com.evil.com/codex/device and enter ABCD-12345"), null, "openai.com as a label is not the host");
 });
 
 test("CX-login-order: on a spent login the link + code lead, codex's refresh line follows", async () => {
@@ -553,12 +555,42 @@ test("CX-login-expiry: a code nobody used is reaped when it expires, whatever co
   assert.equal(killed, 1);
 });
 
-test("CX-login-budget: a nearly spent host budget still gives the dialog a short, positive wait", async () => {
+test("CX-login-budget: with under 15 s of host budget left there is no dialog - the link comes back at once", async () => {
   const home = tmpCodexHome();
-  /** @type {number[]} */ const waits = [];
-  const p = mkCx({ env: { CODEX_HOME: home, MCP_TOOL_TIMEOUT: "60000" }, deviceLogin: true, login: makeDeviceLogin({ spawnLogin: fakeLoginCli().spawnLogin }), confirmLogin: async (_p, ms) => { waits.push(ms); return /** @type {const} */ ("none"); }, run: async () => ({ code: 0, stdout: "", stderr: "" }) });
+  let asked = 0;
+  const p = mkCx({ env: { CODEX_HOME: home, MCP_TOOL_TIMEOUT: "60000" }, deviceLogin: true, login: makeDeviceLogin({ spawnLogin: fakeLoginCli().spawnLogin }), confirmLogin: async () => { asked++; return /** @type {const} */ ("accept"); }, run: async () => ({ code: 0, stdout: "", stderr: "" }) });
   const r = /** @type {any} */ (await p.ask({ prompt: "x", hostBudgetRemainingMs: 100 }));
-  assert.equal(waits.length, 1);
-  assert.ok(waits[0] > 0 && waits[0] <= 1000, String(waits[0]));
+  assert.equal(asked, 0);
   assert.match(r.message, /ABCD-12345/);
+});
+
+test("CX-login-decline-late: a decline that arrives after the login landed says so instead of calling the code dead", async () => {
+  const home = tmpCodexHome();
+  const cli = fakeLoginCli();
+  // The login completes at the moment we try to kill it.
+  const spawnLogin = (/** @type {any} */ env, /** @type {(t:string)=>void} */ onText) => { const p = cli.spawnLogin(env, onText); return { exit: p.exit, kill: () => cli.approve(home) }; };
+  const p = mkCx({ env: { CODEX_HOME: home }, deviceLogin: true, confirmLogin: async () => /** @type {const} */ ("decline"), login: makeDeviceLogin({ spawnLogin }), run: async () => ({ code: 0, stdout: "answer", stderr: "" }) });
+  const r = /** @type {any} */ (await p.ask({ prompt: "x" }));
+  assert.equal(r.errorKind, "auth");
+  assert.match(r.message, /already completed/);
+  assert.match(r.message, /codex logout/);
+  assert.doesNotMatch(r.message, /no longer works/);
+});
+
+test("CX-login-expiry-noop: the reaper leaves a login that already finished alone", async () => {
+  const home = tmpCodexHome();
+  const cli = fakeLoginCli();
+  let killed = 0;
+  const login = makeDeviceLogin({
+    killGraceMs: 5,
+    spawnLogin: (env, onText) => {
+      const p = cli.spawnLogin(env, (s) => onText(s.replace("expires in 15 minutes", "expires in 0 minutes")));
+      return { exit: p.exit, kill: () => { killed++; } };
+    },
+  });
+  const f = /** @type {any} */ (await login.start({ CODEX_HOME: home }));
+  cli.approve(home);
+  assert.equal(await f.done, true);
+  await new Promise((r) => setTimeout(r, 40));
+  assert.equal(killed, 0);
 });

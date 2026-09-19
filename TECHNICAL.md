@@ -364,14 +364,17 @@ spent login (the refresh failure above). Instead of failing, `ask()` then:
    `mode: "url"`, the link, and the code in the message); otherwise a form whose message
    carries both. One code raises one dialog, however many calls wait on it. The wait is
    bounded by the code's lifetime, 5 minutes, and half the host budget left after any failed
-   first run (the other half is for the codex run). Approving in the browser ends the wait
+   first run (the other half is for the codex run). With under 15 s of host budget left there
+   is no dialog at all: the link comes back at once. Approving in the browser ends the wait
    even if the dialog is never answered. Both the dialog and the result text carry a line
    saying the code signs this machine's codex into the user's ChatGPT account, the same
    warning codex prints.
 3. Once `auth.json` exists (the login's exit code 0 AND the file), runs codex on the same call
    with the host budget reduced by the time spent waiting, retrying once after a spent login.
    A decline is a no: that login is killed and the result says GPT was skipped (the next GPT
-   call offers a new code, never the refused one). With no dialog, a dismissed dialog, an
+   call offers a new code, never the refused one). If the login had already landed when the
+   decline arrived, the result says so and suggests `codex logout`; deliberation never
+   deletes a credential file itself. With no dialog, a dismissed dialog, an
    error or a timeout, it returns `errorKind: "auth"` whose message starts with the link and
    code (codex's refresh line, if any, follows). The login
    keeps polling in the background, so the next call after the user approves simply finds
