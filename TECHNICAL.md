@@ -350,22 +350,31 @@ spent login (the refresh failure above). Instead of failing, `ask()` then:
 
 1. Starts `codex login --device-auth` (same binary resolution and env scrub as `codex exec`)
    and parses the link, the one-time code and its lifetime from codex's output
-   (`parseDevicePrompt`). That output is text for humans, so the match is loose: if the link or
-   code is not found within 20s, the result carries codex's own output instead. One login per
+   (`parseDevicePrompt`). That output is text for humans, so the match is loose: the link is
+   the URL with `/device` in its path (codex may print an update notice with its own URL
+   first), and if no link and code appear within 20s the result carries codex's own output
+   instead. One login per
    process (`makeDeviceLogin`): a second caller while the code is valid gets the same code;
    an expired or finished login is replaced.
 2. Asks the host to show the code (`confirmLogin`). The server negotiates the client's MCP
    protocol version (up to `2025-11-25`) and records its `elicitation` capability at
-   `initialize`. A host with URL-mode elicitation gets `elicitation/create` with
-   `mode: "url"`, the link, and the code in the message; a form-only host gets a form whose
-   message carries both. The wait is bounded by the code's lifetime and half the host budget
-   left for the call (the other half is for the codex run). Approving in the browser ends the
-   wait even if the dialog is never answered.
+   `initialize`. Elicitation is sent only on a negotiated `2025-06-18` or later; URL mode only
+   on `2025-11-25` or later with `elicitation.url` declared (`elicitation/create` with
+   `mode: "url"`, the link, and the code in the message); otherwise a form whose message
+   carries both. One code raises one dialog, however many calls wait on it. The wait is
+   bounded by the code's lifetime, 5 minutes, and half the host budget left after any failed
+   first run (the other half is for the codex run). Approving in the browser ends the wait
+   even if the dialog is never answered. Both the dialog and the result text carry a line
+   saying the code signs this machine's codex into the user's ChatGPT account, the same
+   warning codex prints.
 3. Once `auth.json` exists (the login's exit code 0 AND the file), runs codex on the same call
    with the host budget reduced by the time spent waiting, retrying once after a spent login.
    With no dialog, a decline, an error or a timeout, it returns `errorKind: "auth"` whose
-   message carries the link and code. The login keeps polling in the background, so the next
-   call after the user approves simply finds `auth.json`.
+   message starts with the link and code (codex's refresh line, if any, follows). The login
+   keeps polling in the background, so the next call after the user approves simply finds
+   `auth.json`. A login that ended without landing is reported as such, never with its dead
+   code, and the next call starts a fresh one. The login child is killed when the server
+   process exits.
 
 Health treats "no credential" as `ok` while `deviceLogin` is on: that is the one gap `ask()`
 closes itself, so GPT stays on the panel and delivers the code. `consensus-step`'s

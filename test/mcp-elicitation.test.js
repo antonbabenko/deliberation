@@ -89,3 +89,58 @@ test("EL-opinion-message: an errored panel voice carries its (bounded) message, 
   assert.doesNotMatch(op.message, /\x1b/);
   assert.ok(op.message.length <= 503);
 });
+
+test("EL-dedupe: two callers waiting on the same code share ONE dialog", async () => {
+  const { srv, sent } = mk();
+  await init(srv, { elicitation: { url: {} } });
+  const a = srv.confirmLogin(PROMPT, 1000);
+  const b = srv.confirmLogin(PROMPT, 1000);
+  assert.equal(sent.length, 1);
+  await srv.handle({ jsonrpc: "2.0", id: sent[0].id, result: { action: "accept" } });
+  assert.deepEqual(await Promise.all([a, b]), [true, true]);
+  const c = srv.confirmLogin(PROMPT, 1000);
+  assert.equal(sent.length, 2, "once answered, a later call may ask again");
+  await srv.handle({ jsonrpc: "2.0", id: sent[1].id, result: { action: "decline" } });
+  assert.equal(await c, false);
+});
+
+test("EL-version-gate: elicitation only on a negotiated 2025-06-18+, URL mode only on 2025-11-25+", async () => {
+  const old = mk();
+  await init(old.srv, { elicitation: { url: {} } }, "2025-03-26");
+  assert.equal(await old.srv.confirmLogin(PROMPT, 50), false);
+  assert.equal(old.sent.length, 0, "no elicitation before 2025-06-18");
+  const mid = mk();
+  await init(mid.srv, { elicitation: { form: {}, url: {} } }, "2025-06-18");
+  const pending = mid.srv.confirmLogin(PROMPT, 1000);
+  assert.equal(mid.sent[0].params.mode, undefined, "2025-06-18 has no URL mode: form");
+  await mid.srv.handle({ jsonrpc: "2.0", id: mid.sent[0].id, result: { action: "decline" } });
+  await pending;
+});
+
+test("EL-stdin: a reply arriving in a LATER chunk releases the tool call that is waiting on it", async () => {
+  const { makeLineReader } = require("../server/mcp/index.js");
+  /** @type {any[]} */ const out = [];
+  /** @type {any} */ let srv;
+  const codex = {
+    name: "codex",
+    capabilities: { canImplement: false, fileUpload: false, multiTurn: false, walksFilesystem: true },
+    async health() { return { ok: true }; },
+    async ask() {
+      const ok = await srv.confirmLogin(PROMPT, 2000);
+      return ok ? { provider: "codex", model: "m", text: "answer", isError: false, ms: 1 } : { provider: "codex", model: "m", isError: true, errorKind: "auth", message: "no", ms: 1 };
+    },
+  };
+  srv = buildServer({ providers: [/** @type {any} */ (codex)], getConfig: () => config, write: (/** @type {any} */ m) => out.push(m) });
+  const onData = makeLineReader(srv, (/** @type {any} */ m) => out.push(m));
+  await onData(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-11-25", capabilities: { elicitation: { url: {} } } } }) + "\n");
+  const call = onData(JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "ask-gpt", arguments: { prompt: "q" } } }) + "\n");
+  await new Promise((r) => setTimeout(r, 20));
+  const req = out.find((m) => m.method === "elicitation/create");
+  assert.ok(req, "the dialog request went out");
+  await onData(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { action: "accept" } }) + "\n");
+  await call;
+  const res = out.find((m) => m.id === 2);
+  assert.ok(res, "the waiting tool call answered");
+  assert.match(res.result.content[0].text, /answer/);
+  assert.equal(out.filter((m) => m.id === req.id).length, 1, "the reply itself was never answered");
+});

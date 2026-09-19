@@ -368,6 +368,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
   // What the host said it can do at `initialize`. Elicitation is the one server->client
   // request we make: showing a codex device-login code in the host's own UI.
   /** @type {any} */ let clientCapabilities = {};
+  let negotiatedVersion = "2024-11-05";
   /** @type {Map<string, (reply: any) => void>} */ const pendingRequests = new Map();
   let requestSeq = 0;
 
@@ -400,19 +401,37 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
    * @param {number} waitMs
    * @returns {Promise<boolean>}
    */
-  async function confirmLogin(prompt, waitMs) {
+  /** @type {Map<string, Promise<boolean>>} */ const openDialogs = new Map();
+  function confirmLogin(/** @type {{url:string, code:string, expiresAt:number}} */ prompt, /** @type {number} */ waitMs) {
+    // One code, one dialog: concurrent GPT calls share the device login, so they share this too.
+    const open = openDialogs.get(prompt.code);
+    if (open) return open;
+    const asked = askLogin(prompt, waitMs).finally(() => openDialogs.delete(prompt.code));
+    openDialogs.set(prompt.code, asked);
+    return asked;
+  }
+
+  /**
+   * @param {{url:string, code:string, expiresAt:number}} prompt
+   * @param {number} waitMs
+   * @returns {Promise<boolean>}
+   */
+  async function askLogin(prompt, waitMs) {
     const el = clientCapabilities && clientCapabilities.elicitation;
-    if (!el || typeof el !== "object") return false;
+    // The capability alone is not enough: elicitation exists from 2025-06-18, URL mode from
+    // 2025-11-25 (ISO dates compare as strings).
+    if (!el || typeof el !== "object" || negotiatedVersion < "2025-06-18") return false;
+    const urlMode = Boolean(el.url) && negotiatedVersion >= "2025-11-25";
     const minutes = Math.max(1, Math.round((prompt.expiresAt - Date.now()) / 60000));
-    const params = el.url
+    const params = urlMode
       ? {
         mode: "url",
         elicitationId: `codex-login-${prompt.code}`,
         url: prompt.url,
-        message: `GPT (Codex) needs a ChatGPT login on this machine. Open the link, sign in, and enter the code ${prompt.code} (expires in ${minutes} min).`,
+        message: `GPT (Codex) needs a ChatGPT login on this machine. Open the link, sign in, and enter the code ${prompt.code} (expires in ${minutes} min). The code signs this machine's codex into your ChatGPT account: only continue if you are using GPT through deliberation in this session.`,
       }
       : {
-        message: `GPT (Codex) needs a ChatGPT login on this machine.\n\n1. Open ${prompt.url}\n2. Sign in and enter the code ${prompt.code} (expires in ${minutes} min)\n\nAccept once you have approved it. Decline to go on without GPT for now; the code stays valid.`,
+        message: `GPT (Codex) needs a ChatGPT login on this machine.\n\n1. Open ${prompt.url}\n2. Sign in and enter the code ${prompt.code} (expires in ${minutes} min)\n\nThe code signs this machine's codex into your ChatGPT account: only continue if you are using GPT through deliberation in this session.\n\nAccept once you have approved it. Decline to go on without GPT for now; the code stays valid.`,
         requestedSchema: { type: "object", properties: { approved: { type: "boolean", title: "I entered the code and approved the login", default: true } } },
       };
     const reply = await requestClient("elicitation/create", params, waitMs);
@@ -1443,6 +1462,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         // keeps the version this server always answered. Elicitation needs 2025-06-18+.
         const requested = msg.params && msg.params.protocolVersion;
         const protocolVersion = typeof requested !== "string" ? "2024-11-05" : PROTOCOL_VERSIONS.includes(requested) ? requested : PROTOCOL_VERSIONS[0];
+        negotiatedVersion = protocolVersion;
         // Capture the client name (hint for the arbiter default; see isClaudeHost).
         const ci = msg.params && msg.params.clientInfo;
         if (ci && typeof ci.name === "string") clientName = ci.name;
@@ -1473,6 +1493,37 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
   }
 
   return { handle, toolList, confirmLogin };
+}
+
+/**
+ * The stdio read loop, one call per data chunk. A partial trailing line is kept for the next
+ * chunk. Replies to our own requests (elicitation) are routed FIRST: a tool call earlier in
+ * this batch may be the one waiting on them, and requests below are awaited in turn. Each
+ * chunk is its own async call, so a reply in a LATER chunk is routed while an earlier call
+ * still waits.
+ * @param {{handle: (msg: any) => Promise<any>}} srv
+ * @param {(msg: any) => void} out
+ * @returns {(chunk: string|Buffer) => Promise<void>}
+ */
+function makeLineReader(srv, out) {
+  let buffer = "";
+  return async (chunk) => {
+    buffer += chunk.toString();
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+    /** @type {any[]} */ const msgs = [];
+    for (const line of lines) {
+      const l = line.trim();
+      if (!l) continue;
+      try { msgs.push(JSON.parse(l)); } catch { /* not JSON-RPC */ }
+    }
+    for (const msg of msgs) if (msg && msg.method === undefined) await srv.handle(msg);
+    for (const msg of msgs) {
+      if (!msg || msg.method === undefined) continue;
+      const res = await srv.handle(msg);
+      if (msg.id !== undefined && res !== undefined) out(res);
+    }
+  };
 }
 
 function startStdio() {
@@ -1555,28 +1606,9 @@ function startStdio() {
     process.exit(1);
   }
 
-  let buffer = "";
-  process.stdin.on("data", async (chunk) => {
-    buffer += chunk.toString();
-    const lines = buffer.split("\n");
-    buffer = lines.pop() || "";
-    /** @type {any[]} */ const msgs = [];
-    for (const line of lines) {
-      const l = line.trim();
-      if (!l) continue;
-      try { msgs.push(JSON.parse(l)); } catch { /* not JSON-RPC */ }
-    }
-    // Replies to our own requests first: a tool call earlier in this batch may be the one
-    // waiting on them, and the loop below awaits each request in turn.
-    for (const msg of msgs) if (msg && msg.method === undefined) await srv.handle(msg);
-    for (const msg of msgs) {
-      if (!msg || msg.method === undefined) continue;
-      const res = await srv.handle(msg);
-      if (msg.id !== undefined && res !== undefined) process.stdout.write(JSON.stringify(res) + "\n");
-    }
-  });
+  process.stdin.on("data", makeLineReader(srv, write));
 }
 
 if (require.main === module) startStdio();
 
-module.exports = { buildServer, toolList };
+module.exports = { buildServer, toolList, makeLineReader };

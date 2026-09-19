@@ -497,3 +497,31 @@ test("CX-login-off: without deviceLogin nothing is spawned (library default)", a
   await p.ask({ prompt: "x" });
   assert.equal(cli.calls.spawned, 0);
 });
+
+test("CX-login-parse-url: the login link is picked by its role, not by being the first URL printed", () => {
+  const withNotice = "Update available! See https://github.com/openai/codex/releases/latest\n" + DEVICE_OUT;
+  assert.equal(/** @type {any} */ (parseDevicePrompt(withNotice)).url, "https://auth.openai.com/codex/device");
+  assert.equal(/** @type {any} */ (parseDevicePrompt("go to https://example.test/x and enter ABCD-12345")).url, "https://example.test/x", "no /device URL: the only one");
+});
+
+test("CX-login-order: on a spent login the link + code lead, codex's refresh line follows", async () => {
+  const home = tmpCodexHome();
+  require("node:fs").writeFileSync(require("node:path").join(home, "auth.json"), "{}");
+  const cli = fakeLoginCli();
+  const run = async () => ({ code: 1, stdout: "", stderr: `ERROR: ${REFRESH_FAILURES[1]}`, timedOut: false });
+  const r = /** @type {any} */ (await mkCx({ env: { CODEX_HOME: home }, deviceLogin: true, login: makeDeviceLogin({ spawnLogin: cli.spawnLogin }), run }).ask({ prompt: "x" }));
+  assert.match(r.message, /^GPT \(Codex\) needs a ChatGPT login/);
+  assert.ok(r.message.indexOf("ABCD-12345") < 200, "the code is well inside any 500-char cap");
+  assert.match(r.message, /refresh token was already used/);
+  assert.match(r.message, /only continue/i, "anti-phishing line");
+});
+
+test("CX-login-died: a login that dies before approval never shows its dead code", async () => {
+  const home = tmpCodexHome();
+  const cli = fakeLoginCli();
+  const confirmLogin = async () => { cli.fail(); return true; };
+  const r = /** @type {any} */ (await mkCx({ env: { CODEX_HOME: home }, deviceLogin: true, confirmLogin, login: makeDeviceLogin({ spawnLogin: cli.spawnLogin }), run: async () => ({ code: 0, stdout: "x", stderr: "" }) }).ask({ prompt: "x" }));
+  assert.equal(r.errorKind, "auth");
+  assert.doesNotMatch(r.message, /ABCD-12345/);
+  assert.match(r.message, /ended before/);
+});

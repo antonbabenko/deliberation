@@ -252,9 +252,13 @@ function defaultRun({ prompt, cwd, timeoutMs, mode, env }) {
 const ANSI_RE = /\x1b\[[0-9;?]*[A-Za-z]/g;
 const DEVICE_PROMPT_WAIT_MS = 20000; // codex prints the code within a second or two
 const DEVICE_CODE_TTL_MS = 15 * 60000; // what codex says today; used when it stops saying
+// A dialog holds the tool call open. Five minutes is ample to open a link and type a code;
+// past it the result path returns the still-valid code instead of risking a host that kills
+// long calls on a cap it never told us about.
+const DIALOG_WAIT_MAX_MS = 5 * 60000;
 
 /** @typedef {{url:string, code:string, expiresAt:number}} DevicePrompt */
-/** @typedef {{prompt?:DevicePrompt, error?:string, done:Promise<boolean>}} DeviceFlight */
+/** @typedef {{prompt?:DevicePrompt, error?:string, ended:boolean, done:Promise<boolean>}} DeviceFlight */
 
 /**
  * Link, code and lifetime from `codex login --device-auth` output (codex colours it even into a
@@ -265,7 +269,9 @@ const DEVICE_CODE_TTL_MS = 15 * 60000; // what codex says today; used when it st
  */
 function parseDevicePrompt(text) {
   const t = String(text || "").replace(ANSI_RE, "");
-  const url = (t.match(/https:\/\/\S+/) || [])[0];
+  // By role, not position: codex can print an update notice with its own link first.
+  const urls = t.match(/https:\/\/\S+/g) || [];
+  const url = urls.find((u) => /\/device\b/.test(u)) || urls[0];
   const code = (t.match(/\b[A-Z0-9]{4,}-[A-Z0-9]{4,}\b/) || [])[0];
   if (!url || !code) return null;
   const mins = t.match(/expires in (\d+) minute/i);
@@ -289,9 +295,12 @@ function defaultSpawnLogin(env, onText) {
   const child = spawn(plan.cmd, plan.argv, { env: codexEnv(env), stdio: ["ignore", "pipe", "pipe"] });
   child.stdout.on("data", (d) => onText(String(d)));
   child.stderr.on("data", (d) => onText(String(d)));
+  // A login still waiting for approval must not outlive the server that asked for it.
+  const reap = () => { child.kill("SIGKILL"); };
+  process.once("exit", reap);
   const exit = new Promise((resolve) => {
     child.on("error", (e) => { onText(String(e.message)); resolve(127); });
-    child.on("close", (code) => resolve(code == null ? 1 : code));
+    child.on("close", (code) => { process.removeListener("exit", reap); resolve(code == null ? 1 : code); });
   });
   return { exit: /** @type {Promise<number>} */ (exit), kill: () => { child.kill("SIGKILL"); } };
 }
@@ -311,29 +320,43 @@ function makeDeviceLogin(o = {}) {
   /** @param {Record<string, (string|undefined)>} env */
   function launch(env) {
     let text = "";
-    /** @type {(v: DeviceFlight) => void} */ let settle = () => {};
+    let promptEnd = 0; // after a code is shown, only what codex prints next explains a failure
     /** @type {(ok: boolean) => void} */ let finish = () => {};
-    const done = new Promise((r) => { finish = r; });
+    /** @type {DeviceFlight} */
+    const state = { ended: false, done: new Promise((r) => { finish = r; }) };
+    /** @type {(v: DeviceFlight) => void} */ let settle = () => {};
     const f = { finished: false, expiresAt: Infinity, kill: () => {}, ready: /** @type {Promise<DeviceFlight>} */ (new Promise((r) => { settle = r; })) };
+    /** @param {string} error */
+    const fail = (error) => {
+      if (state.prompt || state.error) return;
+      state.error = error;
+      f.finished = true; // the next start() launches a fresh login instead of joining this one
+      settle(state);
+    };
     const proc = spawnLogin(env, (chunk) => {
       text += chunk;
-      const p = f.expiresAt === Infinity ? parseDevicePrompt(text) : null;
+      const p = state.prompt || state.error ? null : parseDevicePrompt(text);
       if (!p) return;
       f.expiresAt = now() + p.expiresInMs;
-      settle({ prompt: { url: p.url, code: p.code, expiresAt: f.expiresAt }, done });
+      promptEnd = text.length;
+      state.prompt = { url: p.url, code: p.code, expiresAt: f.expiresAt };
+      settle(state);
     });
     f.kill = proc.kill;
     const noCode = setTimeout(() => {
-      settle({ error: `no code within ${DEVICE_PROMPT_WAIT_MS / 1000}s: ${outputTail(text)}`, done });
+      fail(`no code within ${DEVICE_PROMPT_WAIT_MS / 1000}s: ${outputTail(text)}`);
       proc.kill();
     }, DEVICE_PROMPT_WAIT_MS);
     noCode.unref();
     proc.exit.then((code) => {
       clearTimeout(noCode);
-      f.finished = true;
       // Success is the file, not the exit code alone: that is what the next call looks for.
-      finish(code === 0 && codexHasLogin({ env }));
-      settle({ error: outputTail(text) || `exited ${code}`, done }); // no-op once a code was shown
+      const ok = code === 0 && codexHasLogin({ env });
+      fail(outputTail(text) || `exited ${code}`); // no-op once a code was shown
+      f.finished = true;
+      state.ended = true;
+      if (!ok && !state.error) state.error = outputTail(text.slice(promptEnd)) || `exited with code ${code}`;
+      finish(ok);
     });
     return f;
   }
@@ -356,7 +379,8 @@ function loginMessage(prompt) {
   const minutes = Math.max(1, Math.round((prompt.expiresAt - Date.now()) / 60000));
   return `GPT (Codex) needs a ChatGPT login on this machine. Open ${prompt.url} and enter the code ${prompt.code} ` +
     `(expires in ${minutes} min). GPT answers on the next call after you approve. ` +
-    "This is a login of its own - never copy auth.json from another machine.";
+    "The code signs this machine's codex into your ChatGPT account: only continue if you are using GPT through " +
+    "deliberation in this session. It is a login of its own - never copy auth.json from another machine.";
 }
 
 /**
@@ -420,13 +444,14 @@ function makeCodexProvider(opts = {}) {
    */
   async function signIn(req, started, lead = "") {
     const flight = await login.start(env);
-    const head = lead ? `${lead}\n` : "";
-    if (!flight.prompt) return authError(started, `${head}GPT (Codex) has no working ChatGPT login here, and \`codex login --device-auth\` gave no code: ${flight.error}`);
+    // The action leads, codex's own line follows: whatever truncates a long error keeps the code.
+    const tail = lead ? `\n\n${lead}` : "";
+    if (!flight.prompt) return authError(started, `GPT (Codex) has no working ChatGPT login here, and \`codex login --device-auth\` gave no code: ${flight.error}${tail}`);
     const prompt = flight.prompt;
-    // Wait only while the code lives, and for at most half of what the host still allows this
-    // call - the other half is the codex run itself.
-    const hostLeft = /** @type {number} */ (clampToHostBudget(Number.MAX_SAFE_INTEGER, env, req.hostBudgetRemainingMs).timeoutMs);
-    const waitMs = Math.min(prompt.expiresAt - Date.now(), hostLeft / 2);
+    // Wait only while the code lives, at most DIALOG_WAIT_MAX_MS, and at most half of what the
+    // host still allows this call (after any failed first run) - the other half is the codex run.
+    const hostLeft = /** @type {number} */ (clampToHostBudget(Number.MAX_SAFE_INTEGER, env, afterWait(req, started).hostBudgetRemainingMs).timeoutMs);
+    const waitMs = Math.min(prompt.expiresAt - Date.now(), DIALOG_WAIT_MAX_MS, hostLeft / 2);
     if (confirmLogin && waitMs > 0) {
       const timeout = new Promise((r) => { setTimeout(() => r(false), waitMs).unref(); });
       const viaDialog = Promise.resolve()
@@ -435,7 +460,9 @@ function makeCodexProvider(opts = {}) {
       // Approving in the browser without touching the dialog counts too.
       if (await Promise.race([viaDialog, flight.done, timeout])) return null;
     }
-    return authError(started, `${head}${loginMessage(prompt)}`);
+    // A login that ended without landing has a dead code: say so rather than show it.
+    if (flight.ended) return authError(started, `\`codex login --device-auth\` ended before the login landed: ${flight.error}. The next GPT call starts a fresh one.${tail}`);
+    return authError(started, `${loginMessage(prompt)}${tail}`);
   }
 
   /**
