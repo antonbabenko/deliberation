@@ -38,25 +38,29 @@ const CODEX_REFRESH_HINT =
 /**
  * codex's own refresh-failure line, if stderr has one.
  * @param {string} [stderr]
+ * @param {string} [prompt]  what was sent to codex (its echo is excluded)
  * @returns {string|undefined}
  */
-function refreshFailureLine(stderr) {
-  const line = (stderr || "").split(/\r?\n/).find((l) => l.toLowerCase().includes(REFRESH_FAILURE));
-  return line && line.trim();
+function refreshFailureLine(stderr, prompt = "") {
+  // codex echoes the prompt on stderr, and a prompt may quote this very phrase: a line that is
+  // part of what we sent is the echo, not codex's error. Last one wins - errors follow the echo.
+  const lines = String(stderr || "").replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "").split(/\r?\n/).map((l) => l.trim());
+  return lines.filter((l) => l.toLowerCase().includes(REFRESH_FAILURE) && !(prompt && prompt.includes(l))).pop();
 }
 
 /**
  * Map codex stderr to the shared errorKind vocabulary.
  * @param {string} [stderr]
+ * @param {string} [prompt]  what was sent to codex, so its echo on stderr is not mistaken for codex's own error
  * @returns {{errorKind:string, retryable:boolean}}
  */
-function classifyCodex(stderr) {
+function classifyCodex(stderr, prompt) {
   const s = (stderr || "").toLowerCase();
   // A failed SPAWN is deliberately not classified here - see the `spawnFailed` flag in `ask`.
   // Matching "enoent"/"einval" as substrings would also fire on a codex run that legitimately
   // printed ENOENT about a file in the user's own repo, which is a normal thing for a coding
   // agent to say, and would then tell that user to go fix their CODEX_BIN.
-  if (s.includes("auth") || s.includes("login") || s.includes(REFRESH_FAILURE)) return { errorKind: "auth", retryable: false };
+  if (s.includes("auth") || s.includes("login") || refreshFailureLine(stderr, prompt)) return { errorKind: "auth", retryable: false };
   if (s.includes("timeout")) return { errorKind: "timeout", retryable: true };
   if (s.includes("rate")) return { errorKind: "rate-limit", retryable: true };
   return { errorKind: "unknown", retryable: false };
@@ -273,9 +277,11 @@ function parseDevicePrompt(text) {
   const t = String(text || "").replace(ANSI_RE, "");
   // By role, not position: codex can print an update notice with its own link first. And only
   // an OpenAI host is ever offered as a login link; anything else falls back to raw output.
-  const urls = (t.match(/https:\/\/\S+/g) || []).filter(isOpenAiUrl);
+  // Each token must be followed by whitespace: at the end of a partial chunk "ABCD-1234" or
+  // ".../dev" would otherwise pass for the whole thing, and the first parse wins.
+  const urls = (t.match(/https:\/\/\S+(?=\s)/g) || []).filter(isOpenAiUrl);
   const url = urls.find((u) => /\/device\b/.test(u)) || urls[0];
-  const code = (t.match(/\b[A-Z0-9]{4,}-[A-Z0-9]{4,}\b/) || [])[0];
+  const code = (t.match(/\b[A-Z0-9]{4,}-[A-Z0-9]{4,}(?=\s)/) || [])[0];
   if (!url || !code) return null;
   const mins = t.match(/expires in (\d+) minute/i);
   return { url, code, expiresInMs: mins ? Number(mins[1]) * 60000 : DEVICE_CODE_TTL_MS };
@@ -303,29 +309,55 @@ function outputTail(text) {
  */
 function defaultSpawnLogin(env, onText) {
   const plan = buildSpawnPlan({ env, args: ["login", "--device-auth"] });
-  const child = spawn(plan.cmd, plan.argv, { env: codexEnv(env), stdio: ["ignore", "pipe", "pipe"] });
+  // Its own process group (POSIX): an npm install runs a Node launcher that starts the native
+  // binary, and killing the launcher alone leaves the real login polling - it could still land
+  // after a decline. killTree takes the whole group.
+  const child = spawn(plan.cmd, plan.argv, { env: codexEnv(env), stdio: ["ignore", "pipe", "pipe"], detached: process.platform !== "win32", windowsHide: true });
   child.stdout.on("data", (d) => onText(String(d)));
   child.stderr.on("data", (d) => onText(String(d)));
-  // A login still waiting for approval must not outlive the server that asked for it.
-  const reap = () => { child.kill("SIGKILL"); };
-  process.once("exit", reap);
+  const reap = () => killTree(child);
+  liveLogins.add(reap);
   const exit = new Promise((resolve) => {
-    child.on("error", (e) => { onText(String(e.message)); resolve(127); });
-    child.on("close", (code) => { process.removeListener("exit", reap); resolve(code == null ? 1 : code); });
+    child.on("error", (e) => { liveLogins.delete(reap); onText(String(e.message)); resolve(127); });
+    child.on("close", (code) => { liveLogins.delete(reap); resolve(code == null ? 1 : code); });
   });
-  return { exit: /** @type {Promise<number>} */ (exit), kill: () => { child.kill("SIGKILL"); } };
+  return { exit: /** @type {Promise<number>} */ (exit), kill: reap };
 }
+
+/**
+ * Kill a spawned CLI and everything it started. POSIX: the child leads its own process group.
+ * Windows: taskkill /T walks the tree.
+ * @param {import("node:child_process").ChildProcess} child
+ */
+function killTree(child) {
+  if (!child.pid) return;
+  try {
+    if (process.platform === "win32") spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true }).on("error", () => {});
+    else process.kill(-child.pid, "SIGKILL");
+  } catch {
+    try { child.kill("SIGKILL"); } catch { /* already gone */ }
+  }
+}
+
+/** Every device login still running, so a server shutting down can end them. */
+const liveLogins = new Set();
+/** End every device login this process started (stdin closed, SIGTERM, exit). */
+function killDeviceLogins() {
+  for (const reap of [...liveLogins]) reap();
+}
+process.once("exit", killDeviceLogins);
 
 /**
  * One device login at a time for the whole process: a second caller while a code is still
  * valid gets the same code, so a consensus round and a parallel ask never show two.
- * @param {{spawnLogin?: typeof defaultSpawnLogin, now?: () => number, killGraceMs?: number}} [o]
+ * @param {{spawnLogin?: typeof defaultSpawnLogin, now?: () => number, killGraceMs?: number, promptWaitMs?: number}} [o]
  * @returns {{start: (env: Record<string, (string|undefined)>) => Promise<DeviceFlight>, cancel: () => void}}
  */
 function makeDeviceLogin(o = {}) {
   const spawnLogin = o.spawnLogin || defaultSpawnLogin;
   const now = o.now || Date.now;
   const killGraceMs = typeof o.killGraceMs === "number" ? o.killGraceMs : 5000;
+  const promptWaitMs = typeof o.promptWaitMs === "number" ? o.promptWaitMs : DEVICE_PROMPT_WAIT_MS;
   /** @type {{finished:boolean, expiresAt:number, ready:Promise<DeviceFlight>, kill:()=>void}|null} */
   let flight = null;
 
@@ -333,6 +365,7 @@ function makeDeviceLogin(o = {}) {
   function launch(env) {
     let text = "";
     let promptEnd = 0; // after a code is shown, only what codex prints next explains a failure
+    /** @type {ReturnType<typeof setTimeout>|undefined} */ let noCode;
     /** @type {(ok: boolean) => void} */ let finish = () => {};
     /** @type {DeviceFlight} */
     const state = { ended: false, done: new Promise((r) => { finish = r; }) };
@@ -349,6 +382,7 @@ function makeDeviceLogin(o = {}) {
       text += chunk;
       const p = state.prompt || state.error ? null : parseDevicePrompt(text);
       if (!p) return;
+      clearTimeout(noCode); // a code is out: from here only its expiry (or the user) ends the login
       f.expiresAt = now() + p.expiresInMs;
       promptEnd = text.length;
       state.prompt = { url: p.url, code: p.code, expiresAt: f.expiresAt };
@@ -357,10 +391,13 @@ function makeDeviceLogin(o = {}) {
       settle(state);
     });
     f.kill = proc.kill;
-    const noCode = setTimeout(() => {
-      fail(`no code within ${DEVICE_PROMPT_WAIT_MS / 1000}s: ${outputTail(text)}`);
+    // Armed after the spawn: a codex (or fake) that printed its code synchronously found no timer
+    // to clear, so the guard below keeps this from killing a login that already showed its code.
+    noCode = setTimeout(() => {
+      if (state.prompt || f.finished) return;
+      fail(`no code within ${Math.round(promptWaitMs / 1000)}s: ${outputTail(text)}`);
       proc.kill();
-    }, DEVICE_PROMPT_WAIT_MS);
+    }, promptWaitMs);
     noCode.unref();
     proc.exit.then((code) => {
       clearTimeout(noCode);
@@ -415,7 +452,7 @@ function loginMessage(prompt) {
  * @param {boolean} [opts.deviceLogin]  log in on first use: with no working credential, start
  *   `codex login --device-auth` and return its link + code instead of failing. The composition
  *   root turns it on; the library default is off, so nothing spawns a login unasked.
- * @param {(prompt: DevicePrompt, waitMs: number) => Promise<("accept"|"decline"|"none")>} [opts.confirmLogin]
+ * @param {(prompt: DevicePrompt, waitMs: number, signal: AbortSignal) => Promise<("accept"|"decline"|"none")>} [opts.confirmLogin]
  *   shows the link + code in the host's own UI (an MCP elicitation) and resolves with the user's
  *   action. "none" (no dialog, dismissed, error, timeout) keeps the code valid and it rides in
  *   the result; "decline" ends that login.
@@ -473,11 +510,14 @@ function makeCodexProvider(opts = {}) {
     const waitMs = Math.min(prompt.expiresAt - Date.now(), DIALOG_WAIT_MAX_MS, hostLeft / 2);
     if (confirmLogin && waitMs > 0 && hostLeft >= DIALOG_MIN_BUDGET_MS) {
       const timeout = new Promise((r) => { setTimeout(() => r(false), waitMs).unref(); });
+      // Aborted once this call stops waiting, so the host can close a dialog nobody reads.
+      const dialog = new AbortController();
       const viaDialog = Promise.resolve()
-        .then(() => confirmLogin(prompt, waitMs))
+        .then(() => confirmLogin(prompt, waitMs, dialog.signal))
         .then((action) => (action === "accept" ? Promise.race([flight.done, timeout]) : action), () => "none");
       // Approving in the browser without touching the dialog counts too.
       const outcome = await Promise.race([viaDialog, flight.done, timeout]);
+      dialog.abort();
       if (outcome === true) return null;
       if (outcome === "decline") {
         login.cancel();
@@ -525,12 +565,12 @@ function makeCodexProvider(opts = {}) {
       ? { errorKind: "timeout", retryable: true }
       : spawnFailed
         ? { errorKind: "not-found", retryable: false }
-        : classifyCodex(stderr);
+        : classifyCodex(stderr, full);
     const output = (stdout && stdout.trim()) || stderr || undefined;
     // codex's line and the fix LEAD: codex prints its banner and echoes the whole prompt on
     // stderr first, so the line would otherwise sit far below them. Gated on `auth`, so
     // errorKind and message never disagree.
-    const refreshLine = errorKind === "auth" ? refreshFailureLine(stderr) : undefined;
+    const refreshLine = errorKind === "auth" ? refreshFailureLine(stderr, full) : undefined;
     return {
       refreshLine,
       result: {
@@ -576,4 +616,4 @@ function makeCodexProvider(opts = {}) {
   };
 }
 
-module.exports = { makeCodexProvider, classifyCodex, codexExecArgs, buildSpawnPlan, codexEnv, codexHasLogin, codexHasAuth, codexHealth, parseDevicePrompt, makeDeviceLogin, CODEX_DEFAULT_TIMEOUT_MS };
+module.exports = { makeCodexProvider, classifyCodex, codexExecArgs, buildSpawnPlan, codexEnv, codexHasLogin, codexHasAuth, codexHealth, parseDevicePrompt, makeDeviceLogin, killDeviceLogins, CODEX_DEFAULT_TIMEOUT_MS };

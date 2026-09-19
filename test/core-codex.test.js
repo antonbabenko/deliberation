@@ -516,7 +516,7 @@ test("CX-login-off: without deviceLogin nothing is spawned (library default)", a
 test("CX-login-parse-url: the login link is picked by its role, not by being the first URL printed", () => {
   const withNotice = "Update available! See https://github.com/openai/codex/releases/latest\n" + DEVICE_OUT;
   assert.equal(/** @type {any} */ (parseDevicePrompt(withNotice)).url, "https://auth.openai.com/codex/device");
-  assert.equal(/** @type {any} */ (parseDevicePrompt("go to https://auth.openai.com/other and enter ABCD-12345")).url, "https://auth.openai.com/other", "an OpenAI URL without /device: still the link");
+  assert.equal(/** @type {any} */ (parseDevicePrompt("go to https://auth.openai.com/other and enter ABCD-12345\n")).url, "https://auth.openai.com/other", "an OpenAI URL without /device: still the link");
   assert.equal(parseDevicePrompt("go to https://evil.example/codex/device and enter ABCD-12345"), null, "not an OpenAI host: no clickable link");
   assert.equal(parseDevicePrompt("go to https://evilopenai.com/codex/device and enter ABCD-12345"), null, "suffix without a dot is not a subdomain");
   assert.equal(parseDevicePrompt("go to https://openai.com.evil.com/codex/device and enter ABCD-12345"), null, "openai.com as a label is not the host");
@@ -593,4 +593,45 @@ test("CX-login-expiry-noop: the reaper leaves a login that already finished alon
   assert.equal(await f.done, true);
   await new Promise((r) => setTimeout(r, 40));
   assert.equal(killed, 0);
+});
+
+test("CX-login-keepalive: once a code is shown, the no-code timer never kills the login", async () => {
+  let killed = 0;
+  const cli = fakeLoginCli();
+  const login = makeDeviceLogin({ promptWaitMs: 10, spawnLogin: (env, onText) => { const p = cli.spawnLogin(env, onText); return { exit: p.exit, kill: () => { killed++; } }; } });
+  await login.start({});
+  await new Promise((r) => setTimeout(r, 40));
+  assert.equal(killed, 0);
+});
+
+test("CX-login-split: however codex's output is chunked, the full link and code come out", async () => {
+  const plain = DEVICE_OUT;
+  for (let i = 1; i < plain.length; i++) {
+    const login = makeDeviceLogin({ spawnLogin: (_env, onText) => { onText(plain.slice(0, i)); onText(plain.slice(i)); return { exit: new Promise(() => {}), kill() {} }; } });
+    const f = /** @type {any} */ (await login.start({}));
+    assert.equal(f.prompt.code, "ABCD-12345", `split at ${i}`);
+    assert.equal(f.prompt.url, "https://auth.openai.com/codex/device", `split at ${i}`);
+  }
+});
+
+test("CX-refresh-echo: codex's exact phrase inside the ECHOED prompt never starts a device login", async () => {
+  const home = tmpCodexHome();
+  require("node:fs").writeFileSync(require("node:path").join(home, "auth.json"), "{}");
+  const cli = fakeLoginCli();
+  const question = 'why does codex say "Your access token could not be refreshed because your refresh token was already used"?';
+  const stderr = `user\n${question}\nERROR: stream error: 429 Too Many Requests, rate limited`;
+  assert.equal(classifyCodex(stderr, question).errorKind, "rate-limit");
+  const r = /** @type {any} */ (await mkCx({ env: { CODEX_HOME: home }, deviceLogin: true, login: makeDeviceLogin({ spawnLogin: cli.spawnLogin }), run: async () => ({ code: 1, stdout: "", stderr, timedOut: false }) }).ask({ prompt: question }));
+  assert.equal(r.errorKind, "rate-limit");
+  assert.equal(cli.calls.spawned, 0);
+});
+
+test("CX-login-abandon: when the call stops waiting, the dialog is told so (its signal aborts)", async () => {
+  const home = tmpCodexHome();
+  const cli = fakeLoginCli();
+  /** @type {AbortSignal|undefined} */ let seen;
+  const confirmLogin = async (/** @type {any} */ _p, /** @type {number} */ _ms, /** @type {AbortSignal} */ signal) => { seen = signal; cli.fail(); return new Promise(() => {}); };
+  const r = /** @type {any} */ (await mkCx({ env: { CODEX_HOME: home }, deviceLogin: true, confirmLogin: /** @type {any} */ (confirmLogin), login: makeDeviceLogin({ spawnLogin: cli.spawnLogin }), run: async () => ({ code: 0, stdout: "", stderr: "" }) }).ask({ prompt: "x" }));
+  assert.match(r.message, /ended before/);
+  assert.equal(/** @type {any} */ (seen).aborted, true);
 });

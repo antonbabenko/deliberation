@@ -374,20 +374,31 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
 
   /**
    * Send a request to the client; resolves with its reply ({result} or {error}), or null when
-   * no writer is wired or the client stays silent for `timeoutMs`.
+   * no writer is wired, the client stays silent for `timeoutMs`, or `signal` aborts. Giving up
+   * tells the client with notifications/cancelled (MCP's advice for a request that timed out),
+   * so a host can close a dialog nobody is waiting on.
    * @param {string} method
    * @param {any} params
    * @param {number} timeoutMs
+   * @param {AbortSignal} [signal]
    * @returns {Promise<any>}
    */
-  function requestClient(method, params, timeoutMs) {
+  function requestClient(method, params, timeoutMs, signal) {
     if (typeof write !== "function") return Promise.resolve(null);
     const id = `deliberation-${++requestSeq}`;
     return new Promise((resolve) => {
-      const timer = setTimeout(() => { pendingRequests.delete(id); resolve(null); }, Math.max(0, timeoutMs));
+      /** @param {string} reason */
+      const giveUp = (reason) => {
+        if (!pendingRequests.delete(id)) return; // answered already
+        clearTimeout(timer);
+        write({ jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId: id, reason } });
+        resolve(null);
+      };
+      const timer = setTimeout(() => giveUp("timed out"), Math.max(0, timeoutMs));
       timer.unref();
       pendingRequests.set(id, (reply) => { clearTimeout(timer); resolve(reply); });
       write({ jsonrpc: "2.0", id, method, params });
+      if (signal) signal.addEventListener("abort", () => giveUp("no longer needed"), { once: true });
     });
   }
 
@@ -401,22 +412,36 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
    * @param {number} waitMs
    * @returns {Promise<("accept"|"decline"|"none")>}
    */
-  /** @type {Map<string, Promise<("accept"|"decline"|"none")>>} */ const openDialogs = new Map();
-  function confirmLogin(/** @type {{url:string, code:string, expiresAt:number}} */ prompt, /** @type {number} */ waitMs) {
+  /** @type {Map<string, {asked: Promise<("accept"|"decline"|"none")>, waiters: number, stop: AbortController}>} */
+  const openDialogs = new Map();
+  /**
+   * @param {{url:string, code:string, expiresAt:number}} prompt
+   * @param {number} waitMs
+   * @param {AbortSignal} [signal]  aborted when that caller stops waiting
+   */
+  function confirmLogin(prompt, waitMs, signal) {
     // One code, one dialog: concurrent GPT calls share the device login, so they share this too.
-    const open = openDialogs.get(prompt.code);
-    if (open) return open;
-    const asked = askLogin(prompt, waitMs).finally(() => openDialogs.delete(prompt.code));
-    openDialogs.set(prompt.code, asked);
-    return asked;
+    // The dialog is cancelled at the host only once EVERY caller waiting on it has given up.
+    let open = openDialogs.get(prompt.code);
+    if (!open) {
+      const stop = new AbortController();
+      const asked = askLogin(prompt, waitMs, stop.signal).finally(() => openDialogs.delete(prompt.code));
+      open = { asked, waiters: 0, stop };
+      openDialogs.set(prompt.code, open);
+    }
+    const entry = open;
+    entry.waiters++;
+    if (signal) signal.addEventListener("abort", () => { if (--entry.waiters === 0) entry.stop.abort(); }, { once: true });
+    return entry.asked;
   }
 
   /**
    * @param {{url:string, code:string, expiresAt:number}} prompt
    * @param {number} waitMs
+   * @param {AbortSignal} [signal]
    * @returns {Promise<("accept"|"decline"|"none")>}
    */
-  async function askLogin(prompt, waitMs) {
+  async function askLogin(prompt, waitMs, signal) {
     const el = clientCapabilities && clientCapabilities.elicitation;
     // The capability alone is not enough: elicitation exists from 2025-06-18, URL mode from
     // 2025-11-25 (ISO dates compare as strings).
@@ -434,7 +459,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         message: `GPT (Codex) needs a ChatGPT login on this machine.\n\n1. Open ${prompt.url}\n2. Sign in and enter the code ${prompt.code} (expires in ${minutes} min)\n\nThe code signs this machine's codex into your ChatGPT account: only continue if you are using GPT through deliberation in this session.\n\nAccept once you have approved it. Decline to go on without GPT for now; the code stays valid.`,
         requestedSchema: { type: "object", properties: { approved: { type: "boolean", title: "I entered the code and approved the login", default: true } } },
       };
-    const reply = await requestClient("elicitation/create", params, waitMs);
+    const reply = await requestClient("elicitation/create", params, waitMs, signal);
     const action = reply && reply.result && reply.result.action;
     // "cancel" (dismissed), an error reply or silence: no decision, the code stays valid.
     return action === "accept" || action === "decline" ? action : "none";
@@ -1609,6 +1634,14 @@ function startStdio() {
   }
 
   process.stdin.on("data", makeLineReader(srv, write));
+  // A device login waiting for approval must not outlive the session that asked for it: the
+  // host closing stdin is MCP's stdio shutdown, and the default SIGTERM/SIGINT exit skips
+  // "exit" hooks.
+  const { killDeviceLogins } = require("../../core/providers/codex.js");
+  process.stdin.on("end", killDeviceLogins);
+  for (const [sig, code] of /** @type {const} */ ([["SIGTERM", 143], ["SIGINT", 130]])) {
+    process.once(sig, () => { killDeviceLogins(); process.exit(code); });
+  }
 }
 
 if (require.main === module) startStdio();

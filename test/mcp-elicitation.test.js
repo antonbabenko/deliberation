@@ -152,3 +152,29 @@ test("EL-cancel: a dismissed dialog (cancel) is neither accept nor decline", asy
   await srv.handle({ jsonrpc: "2.0", id: sent[0].id, result: { action: "cancel" } });
   assert.equal(await pending, "none");
 });
+
+test("EL-abandon: when every waiter gives up, the host gets notifications/cancelled for the dialog", async () => {
+  const { srv, sent } = mk();
+  await init(srv, { elicitation: { url: {} } });
+  const a = new AbortController(), b = new AbortController();
+  const pa = srv.confirmLogin(PROMPT, 5000, a.signal);
+  srv.confirmLogin(PROMPT, 5000, b.signal);
+  const reqId = sent[0].id;
+  a.abort();
+  assert.equal(sent.length, 1, "one waiter left: the dialog stays");
+  b.abort();
+  const cancel = sent.find((m) => m.method === "notifications/cancelled");
+  assert.ok(cancel, "cancelled once nobody waits");
+  assert.equal(cancel.params.requestId, reqId);
+  assert.equal(await pa, "none");
+  assert.equal(await srv.handle({ jsonrpc: "2.0", id: reqId, result: { action: "accept" } }), undefined, "a late reply is dropped");
+});
+
+test("EL-timeout-cancel: a dialog that times out is cancelled at the host", async () => {
+  const { srv, sent } = mk();
+  await init(srv, { elicitation: { url: {} } });
+  assert.equal(await srv.confirmLogin(PROMPT, 20), "none");
+  const cancel = sent.find((m) => m.method === "notifications/cancelled");
+  assert.ok(cancel);
+  assert.equal(cancel.params.requestId, sent[0].id);
+});
