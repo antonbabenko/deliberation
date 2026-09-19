@@ -178,3 +178,44 @@ test("EL-timeout-cancel: a dialog that times out is cancelled at the host", asyn
   assert.ok(cancel);
   assert.equal(cancel.params.requestId, sent[0].id);
 });
+
+test("EL-e2e: over real stdio, a login that dies cancels the open dialog (the wiring, not just each side)", async () => {
+  const { spawn } = require("node:child_process");
+  const fs = require("node:fs"), os = require("node:os"), path = require("node:path");
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "el-e2e-"));
+  const fake = path.join(home, "codex");
+  // Prints a device prompt, then dies before anyone approves.
+  fs.writeFileSync(fake, "#!/bin/sh\nprintf 'Open this link\\n   https://auth.openai.com/codex/device\\n\\nEnter this one-time code (expires in 15 minutes)\\n   WXYZ-98765\\n\\n'\nsleep 0.3\nexit 1\n", { mode: 0o755 });
+  const srv = spawn(process.execPath, [path.resolve(__dirname, "../server/mcp/index.js")], {
+    env: { ...process.env, CODEX_HOME: home, CODEX_BIN: fake, CODEX_API_KEY: "", CODEX_ACCESS_TOKEN: "" }, stdio: ["pipe", "pipe", "ignore"],
+  });
+  try {
+    /** @type {any[]} */ const seen = [];
+    const done = new Promise((resolve, reject) => {
+      let buf = "";
+      const t = setTimeout(() => reject(new Error(`timed out; saw ${JSON.stringify(seen.map((m) => m.method || m.id))}`)), 15000);
+      srv.stdout.on("data", (d) => {
+        buf += d; const lines = buf.split("\n"); buf = lines.pop() || "";
+        for (const l of lines) {
+          if (!l.trim()) continue;
+          const m = JSON.parse(l); seen.push(m);
+          if (m.id === 1) srv.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "ask-gpt", arguments: { prompt: "q" } } }) + "\n");
+          if (m.id === 2) { clearTimeout(t); resolve(m); }
+        }
+      });
+    });
+    srv.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-11-25", capabilities: { elicitation: { url: {} } }, clientInfo: { name: "e2e" } } }) + "\n");
+    const res = /** @type {any} */ (await done);
+    const ask = seen.find((m) => m.method === "elicitation/create");
+    assert.ok(ask, "the dialog was requested");
+    assert.equal(ask.params.url, "https://auth.openai.com/codex/device");
+    await new Promise((r) => setTimeout(r, 100));
+    const cancel = seen.find((m) => m.method === "notifications/cancelled");
+    assert.ok(cancel, "the dead code's dialog was cancelled");
+    assert.equal(cancel.params.requestId, ask.id);
+    assert.match(res.result.content[0].text, /ended before/);
+  } finally {
+    srv.kill();
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});

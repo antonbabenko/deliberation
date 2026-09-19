@@ -334,8 +334,9 @@ setup script restoring it from a secret at every session start) therefore fails 
 side refreshes, with `Your access token could not be refreshed because your refresh token was
 already used. Please log out and sign in again.` Nothing in that text says "auth" or "login", so
 `classifyCodex()` also matches `access token could not be refreshed`, the phrase all four of
-codex's refresh failures share. It matches that exact phrase, reads stderr only, and skips any
-line that is part of the prompt it sent: `codex exec` echoes the prompt to stderr, a prompt
+codex's refresh failures share. It matches that exact phrase, reads stderr only, and consumes
+each line of the prompt it sent ONCE as echo (so the same line printed again by codex still
+counts): `codex exec` echoes the prompt to stderr, a prompt
 about token code says "refresh token" freely, and one may even quote this exact phrase. A
 bare match would turn a rate limit into a non-retryable `auth` and, with login on first use,
 start a needless device login.
@@ -363,8 +364,10 @@ spent login (the refresh failure above). Instead of failing, `ask()` then:
    expired or finished login is replaced. The login runs in its own process group
    (`detached` on POSIX; `taskkill /T` on Windows) and is always killed as a tree: an npm
    install runs a Node launcher that starts the native binary, and killing only the launcher
-   would leave the real login polling. The server kills every running login when stdin
-   closes (MCP stdio shutdown), on SIGTERM/SIGINT, and on exit.
+   would leave the real login polling. When stdin closes (MCP stdio shutdown) or on
+   SIGTERM/SIGINT the server kills every running login AND refuses new ones, since a codex run
+   still in flight could otherwise hit a spent login afterwards and start one nobody sees;
+   `exit` kills them too.
 2. Asks the host to show the code (`confirmLogin`). The server negotiates the client's MCP
    protocol version (up to `2025-11-25`) and records its `elicitation` capability at
    `initialize`. Elicitation is sent only on a negotiated `2025-06-18` or later; URL mode only
@@ -383,8 +386,9 @@ spent login (the refresh failure above). Instead of failing, `ask()` then:
    with the host budget reduced by the time spent waiting, retrying once after a spent login.
    A decline is a no: that login is killed and the result says GPT was skipped (the next GPT
    call offers a new code, never the refused one). If the login had already landed when the
-   decline arrived, the result says so and suggests `codex logout`; deliberation never
-   deletes a credential file itself. With no dialog, a dismissed dialog, an
+   decline arrived (a clean exit, or `auth.json` changed since the attempt began - a login
+   killed right after saving exits non-zero), the result says so and suggests `codex logout`;
+   deliberation never deletes a credential file itself. With no dialog, a dismissed dialog, an
    error or a timeout, it returns `errorKind: "auth"` whose message starts with the link and
    code (codex's refresh line, if any, follows). The login
    keeps polling in the background, so the next call after the user approves simply finds

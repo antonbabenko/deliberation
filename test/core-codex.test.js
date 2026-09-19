@@ -635,3 +635,38 @@ test("CX-login-abandon: when the call stops waiting, the dialog is told so (its 
   assert.match(r.message, /ended before/);
   assert.equal(/** @type {any} */ (seen).aborted, true);
 });
+
+test("CX-login-budget-spent: a budget used up while the code was fetched stays used up - no dialog", async () => {
+  const home = tmpCodexHome();
+  let asked = 0;
+  const slowCli = (/** @type {any} */ _env, /** @type {(t:string)=>void} */ onText) => { setTimeout(() => onText(DEVICE_OUT), 20); return { exit: new Promise(() => {}), kill() {} }; };
+  const p = mkCx({ env: { CODEX_HOME: home, MCP_TOOL_TIMEOUT: "60000" }, deviceLogin: true, login: makeDeviceLogin({ spawnLogin: /** @type {any} */ (slowCli) }), confirmLogin: async () => { asked++; return /** @type {const} */ ("accept"); }, run: async () => ({ code: 0, stdout: "", stderr: "" }) });
+  await p.ask({ prompt: "x", hostBudgetRemainingMs: 5 });
+  assert.equal(asked, 0);
+});
+
+test("CX-refresh-echo-repeat: quoting the error in the prompt does not hide codex then reporting it for real", () => {
+  const errorLine = `ERROR: ${REFRESH_FAILURES[1]}`;
+  const prompt = `what does this mean?\n${errorLine}`;
+  const stderr = `user\nwhat does this mean?\n${errorLine}\n${errorLine}`;
+  assert.equal(classifyCodex(stderr, prompt).errorKind, "auth", "the echo is consumed once; the second line is codex's own");
+});
+
+test("CX-login-decline-killed-after-landing: credentials that land as we kill the login are reported, even with a killed exit", async () => {
+  const home = tmpCodexHome();
+  const cli = fakeLoginCli();
+  const spawnLogin = (/** @type {any} */ env, /** @type {(t:string)=>void} */ onText) => {
+    const p = cli.spawnLogin(env, onText);
+    return { exit: p.exit, kill: () => { require("node:fs").writeFileSync(require("node:path").join(home, "auth.json"), "{}"); cli.fail(); } };
+  };
+  const r = /** @type {any} */ (await mkCx({ env: { CODEX_HOME: home }, deviceLogin: true, confirmLogin: async () => /** @type {const} */ ("decline"), login: makeDeviceLogin({ spawnLogin }), run: async () => ({ code: 0, stdout: "", stderr: "" }) }).ask({ prompt: "x" }));
+  assert.match(r.message, /already completed/);
+  assert.doesNotMatch(r.message, /offers a new one/);
+});
+
+test("CX-login-closed: once the server is shutting down, no new login starts", async () => {
+  const cli = fakeLoginCli();
+  const r = /** @type {any} */ (await makeDeviceLogin({ spawnLogin: cli.spawnLogin, isClosed: () => true }).start({}));
+  assert.equal(cli.calls.spawned, 0);
+  assert.match(r.error, /shutting down/);
+});

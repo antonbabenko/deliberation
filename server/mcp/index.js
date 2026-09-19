@@ -1593,7 +1593,8 @@ function startStdio() {
     makeCodexProvider({
       timeoutMs: providerTimeout("codex"),
       deviceLogin: true,
-      confirmLogin: (prompt, waitMs) => (srv ? srv.confirmLogin(prompt, waitMs) : Promise.resolve(false)),
+      // Every argument forwarded: the third is the AbortSignal that cancels an abandoned dialog.
+      confirmLogin: (prompt, waitMs, signal) => (srv ? srv.confirmLogin(prompt, waitMs, signal) : Promise.resolve(/** @type {const} */ ("none"))),
     }),
     // providers.<name>.{model,reasoningEffort,timeout} are read ONCE here (constructor
     // args), so unlike the hot-reloading models map a change needs an MCP restart. Absent
@@ -1637,10 +1638,10 @@ function startStdio() {
   // A device login waiting for approval must not outlive the session that asked for it: the
   // host closing stdin is MCP's stdio shutdown, and the default SIGTERM/SIGINT exit skips
   // "exit" hooks.
-  const { killDeviceLogins } = require("../../core/providers/codex.js");
-  process.stdin.on("end", killDeviceLogins);
+  const { shutdownDeviceLogins } = require("../../core/providers/codex.js");
+  process.stdin.on("end", shutdownDeviceLogins);
   for (const [sig, code] of /** @type {const} */ ([["SIGTERM", 143], ["SIGINT", 130]])) {
-    process.once(sig, () => { killDeviceLogins(); process.exit(code); });
+    process.once(sig, () => { shutdownDeviceLogins(); process.exit(code); });
   }
 }
 

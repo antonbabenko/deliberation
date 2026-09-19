@@ -6,7 +6,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { resolveCommand, commandOnPath, shimMessage } = require("../resolve-bin.js");
-const { clampToHostBudget, annotateTimeout } = require("../host-budget.js");
+const { clampToHostBudget, annotateTimeout, spendHostBudget } = require("../host-budget.js");
 
 // npm ships @openai/codex with `bin: {"codex": "bin/codex.js"}` and zero dependencies, so on
 // Windows - where npm installs a `codex.cmd` shim Node cannot spawn (issue #170) - the real JS
@@ -42,10 +42,19 @@ const CODEX_REFRESH_HINT =
  * @returns {string|undefined}
  */
 function refreshFailureLine(stderr, prompt = "") {
-  // codex echoes the prompt on stderr, and a prompt may quote this very phrase: a line that is
-  // part of what we sent is the echo, not codex's error. Last one wins - errors follow the echo.
-  const lines = String(stderr || "").replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "").split(/\r?\n/).map((l) => l.trim());
-  return lines.filter((l) => l.toLowerCase().includes(REFRESH_FAILURE) && !(prompt && prompt.includes(l))).pop();
+  // codex echoes the prompt on stderr, and a prompt may quote this very phrase. Each line of
+  // the prompt is consumed ONCE as echo, so the same line printed again by codex still counts.
+  // Last one wins - errors follow the echo.
+  /** @type {Map<string, number>} */ const echo = new Map();
+  for (const l of String(prompt).split(/\r?\n/)) { const k = l.trim(); if (k) echo.set(k, (echo.get(k) || 0) + 1); }
+  /** @type {string|undefined} */ let found;
+  for (const raw of String(stderr || "").replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "").split(/\r?\n/)) {
+    const l = raw.trim();
+    const n = echo.get(l);
+    if (n) { echo.set(l, n - 1); continue; }
+    if (l.toLowerCase().includes(REFRESH_FAILURE)) found = l;
+  }
+  return found;
 }
 
 /**
@@ -341,16 +350,25 @@ function killTree(child) {
 
 /** Every device login still running, so a server shutting down can end them. */
 const liveLogins = new Set();
-/** End every device login this process started (stdin closed, SIGTERM, exit). */
+let loginsClosed = false;
+/** End every device login this process started (exit). */
 function killDeviceLogins() {
   for (const reap of [...liveLogins]) reap();
+}
+/**
+ * The session is over (stdin closed, SIGTERM): end every login AND refuse new ones - a codex run
+ * still in flight could otherwise hit a spent login afterwards and start one nobody will see.
+ */
+function shutdownDeviceLogins() {
+  loginsClosed = true;
+  killDeviceLogins();
 }
 process.once("exit", killDeviceLogins);
 
 /**
  * One device login at a time for the whole process: a second caller while a code is still
  * valid gets the same code, so a consensus round and a parallel ask never show two.
- * @param {{spawnLogin?: typeof defaultSpawnLogin, now?: () => number, killGraceMs?: number, promptWaitMs?: number}} [o]
+ * @param {{spawnLogin?: typeof defaultSpawnLogin, now?: () => number, killGraceMs?: number, promptWaitMs?: number, isClosed?: () => boolean}} [o]
  * @returns {{start: (env: Record<string, (string|undefined)>) => Promise<DeviceFlight>, cancel: () => void}}
  */
 function makeDeviceLogin(o = {}) {
@@ -358,6 +376,7 @@ function makeDeviceLogin(o = {}) {
   const now = o.now || Date.now;
   const killGraceMs = typeof o.killGraceMs === "number" ? o.killGraceMs : 5000;
   const promptWaitMs = typeof o.promptWaitMs === "number" ? o.promptWaitMs : DEVICE_PROMPT_WAIT_MS;
+  const isClosed = o.isClosed || (() => loginsClosed);
   /** @type {{finished:boolean, expiresAt:number, ready:Promise<DeviceFlight>, kill:()=>void}|null} */
   let flight = null;
 
@@ -414,6 +433,7 @@ function makeDeviceLogin(o = {}) {
 
   return {
     start(env) {
+      if (isClosed()) return Promise.resolve({ error: "the server is shutting down", ended: true, done: Promise.resolve(false) });
       if (flight && !flight.finished && now() < flight.expiresAt) return flight.ready;
       if (flight && !flight.finished) flight.kill(); // an expired code: nobody can use it
       flight = launch(env);
@@ -424,6 +444,18 @@ function makeDeviceLogin(o = {}) {
       if (flight && !flight.finished) { flight.finished = true; flight.kill(); }
     },
   };
+}
+
+/**
+ * When auth.json last changed, or null when there is none - so a login that landed can be told
+ * apart from one that did not, whatever its exit code said.
+ * @param {Record<string, (string|undefined)>} env
+ * @returns {number|null}
+ */
+function authStamp(env) {
+  try {
+    return fs.statSync(path.join(env.CODEX_HOME || path.join(os.homedir(), ".codex"), "auth.json")).mtimeMs;
+  } catch { return null; }
 }
 
 /**
@@ -487,7 +519,9 @@ function makeCodexProvider(opts = {}) {
    * @returns {DelegationRequest}
    */
   const afterWait = (req, started) => typeof req.hostBudgetRemainingMs === "number"
-    ? { ...req, hostBudgetRemainingMs: req.hostBudgetRemainingMs - (Date.now() - started) }
+    // Floored at 1 ms, never 0 or below: clampToHostBudget reads a non-positive budget as
+    // "none given" and would hand back the whole cap.
+    ? { ...req, hostBudgetRemainingMs: spendHostBudget(req.hostBudgetRemainingMs, Date.now() - started) }
     : req;
 
   /**
@@ -499,6 +533,7 @@ function makeCodexProvider(opts = {}) {
    * @returns {Promise<object|null>}
    */
   async function signIn(req, started, lead = "") {
+    const authBefore = authStamp(env);
     const flight = await login.start(env);
     // The action leads, codex's own line follows: whatever truncates a long error keeps the code.
     const tail = lead ? `\n\n${lead}` : "";
@@ -523,7 +558,10 @@ function makeCodexProvider(opts = {}) {
         login.cancel();
         // The login may have landed just before the decline (or as we killed it): never claim a
         // code is dead when it was used, and never delete a credential file on the user's behalf.
-        const landed = await Promise.race([flight.done, new Promise((r) => { setTimeout(() => r(false), 250).unref(); })]);
+        const exitedOk = await Promise.race([flight.done, new Promise((r) => { setTimeout(() => r(false), 250).unref(); })]);
+        // A login killed right after saving reports a failed exit: the file is the truth.
+        const stamp = authStamp(env);
+        const landed = exitedOk || (stamp !== null && stamp !== authBefore);
         if (landed) return authError(started, `You declined, but the ChatGPT login had already completed on this machine. GPT is skipped this time. If you did not approve that login yourself, run \`codex logout\` here.${tail}`);
         return authError(started, `You declined the ChatGPT login for GPT (Codex), so GPT is skipped this time and that code no longer works. The next GPT call offers a new one.${tail}`);
       }
@@ -616,4 +654,4 @@ function makeCodexProvider(opts = {}) {
   };
 }
 
-module.exports = { makeCodexProvider, classifyCodex, codexExecArgs, buildSpawnPlan, codexEnv, codexHasLogin, codexHasAuth, codexHealth, parseDevicePrompt, makeDeviceLogin, killDeviceLogins, CODEX_DEFAULT_TIMEOUT_MS };
+module.exports = { makeCodexProvider, classifyCodex, codexExecArgs, buildSpawnPlan, codexEnv, codexHasLogin, codexHasAuth, codexHealth, parseDevicePrompt, makeDeviceLogin, killDeviceLogins, shutdownDeviceLogins, CODEX_DEFAULT_TIMEOUT_MS };
