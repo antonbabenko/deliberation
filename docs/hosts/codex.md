@@ -41,7 +41,7 @@ you use:
 
 | Provider | How it authenticates |
 |----------|----------------------|
-| GPT (Codex) | Codex CLI auth (`codex login`, e.g. ChatGPT; else `CODEX_API_KEY`) |
+| GPT (Codex) | Codex CLI auth (`codex login`, e.g. ChatGPT - `codex login --device-auth` on a remote machine; or `CODEX_ACCESS_TOKEN`; else `CODEX_API_KEY`) |
 | Gemini | The Antigravity CLI (`agy`) - sign in once with the CLI |
 | Grok (xAI) | `XAI_API_KEY` |
 | OpenRouter | `OPENROUTER_API_KEY` (advisory-only; declare models in `~/.config/deliberation/config.json`) |

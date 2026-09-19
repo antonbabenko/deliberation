@@ -126,7 +126,9 @@ User question or topic: $ARGUMENTS
    and produce the structure below. A result with `isError: true` is NOT a command failure:
    render that delegate as
    `**<provider> bottom line:** UNAVAILABLE (<errorKind|"error">: <message truncated to 200 chars>)`
-   and continue with the surviving delegates. Common cases: Grok `missing-auth` (no
+   and continue with the surviving delegates. Exception: a codex `auth` result whose message
+   carries a login link and one-time code is printed in full, untruncated - it is how GPT asks
+   the user to approve a `codex login --device-auth`; GPT answers on the next run after that. Common cases: Grok `missing-auth` (no
    `XAI_API_KEY`), `rate-limit`, `timeout`, Gemini `timeout`. Require **at least one** result
    with `isError: false`. If EVERY result is an error, skip the verdict comparison and emit
    exactly:

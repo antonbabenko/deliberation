@@ -51,7 +51,7 @@ Per-host config location and key:
 
 Set only the providers you use:
 
-- **GPT** - install the Codex CLI and run `codex login` (keys are not read from `env` here).
+- **GPT** - install the Codex CLI and run `codex login` (`codex login --device-auth` on a remote machine), or set `CODEX_ACCESS_TOKEN` (ChatGPT Business/Enterprise). `OPENAI_API_KEY` is never used.
 - **Gemini** - install the Antigravity CLI (`agy`) and run it once to sign in.
 - **Grok** - set `XAI_API_KEY` (https://console.x.ai).
 - **OpenRouter** - set `OPENROUTER_API_KEY` and declare models in

@@ -289,7 +289,8 @@ This is the single source of truth for the bridge environment variables.
 | `GROK_MIN_ANSWER_CHARS` | Grok | `1` | Minimum trimmed answer length; shorter text, or a reply under 400 chars that only announces intent ("I'll verify the cited files..."), fails as `empty` (see [Answer floor](#answer-floor-gemini-grok)). `0` disables both checks |
 | `DELIBERATION_SESSIONS` | sessions | `<XDG cache>/deliberation/sessions` | Override the session store directory (see [Session persistence](#session-persistence)) |
 | `CODEX_BIN` | Codex | `codex` | Override the path to the `codex` binary (see [Windows CLI resolution](#windows-cli-resolution)) |
-| `CODEX_API_KEY` | Codex | unset | Codex API key, used ONLY when there is no `codex login` (`$CODEX_HOME/auth.json` / `~/.codex/auth.json`). With a login, the provider drops it from the `codex exec` child's env so the login (usually a ChatGPT subscription) wins. `OPENAI_API_KEY` is never used for codex and is always dropped from the child's env |
+| `CODEX_ACCESS_TOKEN` | Codex | unset | Codex access token (ChatGPT Business/Enterprise workspaces only), read by codex-cli itself. It never refreshes, so the same value works on every machine and in every web session until it expires. codex ranks it above `auth.json`. It counts as a credential for `codexHealth()`, and while it is set `CODEX_API_KEY` is dropped from the child's env |
+| `CODEX_API_KEY` | Codex | unset | Codex API key, used ONLY when there is no ChatGPT credential (`codex login` = `$CODEX_HOME/auth.json` / `~/.codex/auth.json`, or `CODEX_ACCESS_TOKEN`). With one, the provider drops the key from the `codex exec` child's env so the subscription wins. `OPENAI_API_KEY` is never used for codex and is always dropped from the child's env |
 | `MCP_TOOL_TIMEOUT` | host (all) | unset | Set by some MCP hosts (Claude Code on the web: `60000`) - the host kills any tool call longer than this. deliberation reads it and clamps every provider ceiling to `MCP_TOOL_TIMEOUT - 5000` ms so the call fails as a `timeout` naming the cap; see [Timeouts](#timeouts). Claude Code applies a per-server `timeout` ahead of this variable, so `.claude-plugin/plugin.json` sets `1800000` on every server and mirrors it into the server env under this name (the mirror is what the clamp reads) |
 | `DELIBERATION_DEBUG_LOG` | debug | `<XDG cache>/deliberation/debug.jsonl` | Override the debug log path (see [Observability](#observability--per-provider-progress)); only written when `debug.enabled` |
 
@@ -306,22 +307,104 @@ surface (`mcp__deliberation__ask-gpt`) exposes no `model` parameter. See
 block a consensus round indefinitely. Raise or lower it with `providers.codex.timeout` (or
 `providers.defaults.timeout`); a per-call `timeout` is not exposed through the MCP tool surface.
 
-**Codex credential.** The codex login always wins. `codexEnv()` builds the child's env with
-this rule:
+**Codex credential.** A ChatGPT credential always wins. `codexEnv()` builds the child's env
+with this rule:
 
-1. `$CODEX_HOME/auth.json` / `~/.codex/auth.json` exists (`codex login`, usually a ChatGPT
+1. `CODEX_ACCESS_TOKEN` is set (a ChatGPT Business/Enterprise access token), or
+   `$CODEX_HOME/auth.json` / `~/.codex/auth.json` exists (`codex login`, usually a ChatGPT
    subscription): codex uses it, and `CODEX_API_KEY` is dropped from the child's env. codex-cli
-   ranks that env var above `auth.json`, so leaving it in would silently override the login.
-2. No login: `CODEX_API_KEY` is passed through as-is.
+   ranks that env var above both, so leaving it in would silently bill the API instead. Between
+   the token and the login, codex's own order applies (the token first).
+2. No ChatGPT credential: `CODEX_API_KEY` is passed through as-is.
 3. `OPENAI_API_KEY` is never used and never reaches the child.
 
 Rule 3 replaces an earlier forward of `OPENAI_API_KEY` as `CODEX_API_KEY`. On a machine that
 exports `OPENAI_API_KEY` for other tools, that forward beat the ChatGPT login, so every GPT call
 was billed to the API key and failed with `You have no credits remaining` once its credit ran
-out. A host that exports only `OPENAI_API_KEY` must now run `codex login` or set `CODEX_API_KEY`.
-The provider's `health()` (`codexHealth()`) is stat-only: the CLI must be on PATH and a login
-`auth.json` or `CODEX_API_KEY` must exist. Otherwise the panel lists codex as `unavailable` with
-that reason and does not dispatch to it.
+out. A host that exports only `OPENAI_API_KEY` must now run `codex login`, set
+`CODEX_ACCESS_TOKEN`, or set `CODEX_API_KEY`.
+The provider's `health()` (`codexHealth()`) is stat-only: the CLI must be on PATH and
+`CODEX_ACCESS_TOKEN`, a login `auth.json`, or `CODEX_API_KEY` must exist. Otherwise the panel
+lists codex as `unavailable` with that reason and does not dispatch to it.
+
+**One login per machine.** A ChatGPT login's refresh token works once. codex refreshes about 8
+days after `last_refresh` (or on a 401), writes the new pair to `auth.json`, and the old refresh
+token is dead. A copy of that file on a second machine (a web container seeded from a laptop, a
+setup script restoring it from a secret at every session start) therefore fails as soon as either
+side refreshes, with `Your access token could not be refreshed because your refresh token was
+already used. Please log out and sign in again.` Nothing in that text says "auth" or "login", so
+`classifyCodex()` also matches `access token could not be refreshed`, the phrase all four of
+codex's refresh failures share. It matches that exact phrase, reads stderr only, and consumes
+each line of the prompt it sent ONCE as echo (so the same line printed again by codex still
+counts): `codex exec` echoes the prompt to stderr, a prompt
+about token code says "refresh token" freely, and one may even quote this exact phrase. A
+bare match would turn a rate limit into a non-retryable `auth` and, with login on first use,
+start a needless device login.
+The result is `errorKind: "auth"` (not retried), and the message STARTS with codex's own line and
+the fix, then the full output: codex prints its banner and the whole echoed prompt on stderr
+before the error, so the line would otherwise sit far below them. The hint is added only when
+the result is `auth`, so the kind and the message never disagree. `stat` cannot see this state
+(the file exists and parses), so health stays `ok`. Setup per host:
+[SETUP.md - Claude Code on the web](SETUP.md#claude-code-on-the-web-and-other-capped-hosts).
+
+**Login on first use.** The unified server builds the codex provider with `deviceLogin: true`
+(the library default is off). Two states start a device login: no credential at all, and a
+spent login (the refresh failure above). Instead of failing, `ask()` then:
+
+1. Starts `codex login --device-auth` (same binary resolution and env scrub as `codex exec`;
+   waiting for its code is bounded by half the host budget left, and a call that runs out
+   returns "no code yet" while the shared login keeps going for the next call)
+   and parses the link, the one-time code and its lifetime from codex's output
+   (`parseDevicePrompt`). That output is text for humans, so the match is loose: the link is
+   the URL with `/device` in its path (codex may print an update notice with its own URL
+   first), and only an `openai.com` / `chatgpt.com` host (or a subdomain) is ever offered as
+   the link. Both must be followed by whitespace, so output split across pipe chunks never
+   yields a partial code. If no such link and code appear within 20s, the result carries
+   codex's own output instead; once a code is shown, that timer is off. A code nobody used is
+   reaped 5s after it expires, whatever codex does. One login per process
+   (`makeDeviceLogin`): a second caller while the code is valid gets the same code; an
+   expired or finished login is replaced. The login runs in its own process group
+   (`detached` on POSIX; `taskkill /T` on Windows) and is always killed as a tree: an npm
+   install runs a Node launcher that starts the native binary, and killing only the launcher
+   would leave the real login polling. When stdin closes (MCP stdio shutdown) or on
+   SIGTERM/SIGINT the server kills every running login AND refuses new ones, since a codex run
+   still in flight could otherwise hit a spent login afterwards and start one nobody sees;
+   `exit` kills them too.
+2. Asks the host to show the code (`confirmLogin`). The server negotiates the client's MCP
+   protocol version (up to `2025-11-25`) and records its `elicitation` capability at
+   `initialize`. Elicitation is sent only on a negotiated `2025-06-18` or later; URL mode only
+   on `2025-11-25` or later with `elicitation.url` declared (`elicitation/create` with
+   `mode: "url"`, the link, and the code in the message); otherwise a form whose message
+   carries both. One code raises one dialog, however many calls wait on it. The wait is
+   bounded by the code's lifetime, 5 minutes, and half the host budget left after any failed
+   first run (the other half is for the codex run). With under 15 s of host budget left there
+   is no dialog at all: the link comes back at once. Approving in the browser ends the wait
+   even if the dialog is never answered. Both the dialog and the result text carry a line
+   saying the code signs this machine's codex into the user's ChatGPT account, the same
+   warning codex prints. When a call stops waiting (the login landed or died, or the wait
+   ran out), it drops its interest in the dialog; once no call is waiting, or the request
+   times out, the server sends `notifications/cancelled` so the host can close it.
+3. Once `auth.json` exists (the login's exit code 0 AND the file), runs codex on the same call
+   with the host budget reduced by the time spent waiting, retrying once after a spent login.
+   A decline is a no: that login is killed and the result says GPT was skipped (the next GPT
+   call offers a new code, never the refused one). If the login had already landed when the
+   decline arrived (a clean exit, or `auth.json` changed since that LOGIN began - recorded
+   once per login, so a caller that joins after the approval was saved sees it too; a login
+   killed right after saving exits non-zero), the result says so and suggests `codex logout`;
+   deliberation never deletes a credential file itself. With no dialog, a dismissed dialog, an
+   error or a timeout, it returns `errorKind: "auth"` whose message starts with the link and
+   code (codex's refresh line, if any, follows). The login
+   keeps polling in the background, so the next call after the user approves simply finds
+   `auth.json`. A login that ended without landing is reported as such, never with its dead
+   code, and the next call starts a fresh one. The login child is killed when the server
+   process exits.
+
+Health treats "no credential" as `ok` while `deviceLogin` is on: that is the one gap `ask()`
+closes itself, so GPT stays on the panel and delivers the code. `consensus-step`'s
+`dispatch_peers` now includes an errored voice's `message` (bounded plain text, `plainMessage`)
+so the code reaches `/consensus`; the command files tell Claude to show it as-is. The link
+and code never go to the debug log or the session store. A host that neither supports
+elicitation nor shows tool errors still gets the code in the result text.
 
 **Timeouts and retries.** See [Timeouts](#timeouts) for the full precedence ladder
 (`providers.defaults.timeout` is the one knob that covers every provider) and
@@ -1572,8 +1655,9 @@ to invoke or not invoke. Edit these to change expert behavior for your workflow.
 | Issue | Solution |
 |-------|----------|
 | MCP server not found | Restart Claude Code after setup |
-| Provider not authenticated | Codex: `codex login` (ChatGPT subscription), or export `CODEX_API_KEY` when there is no login; `OPENAI_API_KEY` is never used. Gemini: run `agy` once (or set `GOOGLE_API_KEY`). Grok: export `XAI_API_KEY` (else calls return `errorKind: missing-auth`) |
+| Provider not authenticated | Codex: `codex login` (ChatGPT subscription; `codex login --device-auth` on a remote or headless machine), `CODEX_ACCESS_TOKEN` (ChatGPT Business/Enterprise), or export `CODEX_API_KEY` when there is neither; `OPENAI_API_KEY` is never used. Gemini: run `agy` once (or set `GOOGLE_API_KEY`). Grok: export `XAI_API_KEY` (else calls return `errorKind: missing-auth`) |
 | `tool "ask-grok" timed out after 60s` from the host, or a `timeout` result naming `MCP_TOOL_TIMEOUT=60000` (Claude Code on the web) | The host exports `MCP_TOOL_TIMEOUT=60000`. The current manifest overrides it per server (`"timeout": 1800000` + env mirror), so either message means the plugin install predates that manifest: `claude plugin update deliberation@antonbabenko`, start a new session. Hand-written `.mcp.json`: add `"timeout": 1800000` and `"env": {"MCP_TOOL_TIMEOUT": "1800000"}` to the entry. `/deliberation:doctor` reports it. See [Timeouts](#timeouts) |
+| GPT returns `errorKind: "auth"` with `refresh token was already used` / `has expired` / `was revoked` | The `auth.json` in use was copied from another machine, and one of the copies refreshed first (a ChatGPT refresh token works once), or the login expired. Give each machine its own login: the next GPT call starts `codex login --device-auth` and shows its link and code (see "Login on first use"), or set `CODEX_ACCESS_TOKEN` (Business/Enterprise). A seeded secret must come from a login used for nothing else and must be re-seeded after its first refresh. See "One login per machine" under [Environment variables](#environment-variables) |
 | `deliberation-gemini` shows `CONNECTION_CLOSED` (Claude Code on the web) | No `agy` in the container: the standalone Gemini bridge refuses to start rather than advertise tools it cannot serve. The unified server keeps working and lists gemini under `panel.unavailable`; `/consensus` and `/ask-all` run on the remaining providers |
 | `panel` lists a provider under `unavailable` | Its stat-only health check failed; the `reason` names the missing piece (CLI on PATH, credential). Fix that and call again - nothing is cached |
 | Tool not appearing | Run `claude mcp list` and verify registration |

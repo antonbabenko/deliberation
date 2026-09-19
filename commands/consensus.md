@@ -47,7 +47,7 @@ the next action:
 |--------|-----------|----------------|------|
 | `init` | `prompt` (the plan), `expert`, `cwd` | `sessionId`, `status: await_blind`, `round`, `blindPrompt` | write blind, `record_blind` |
 | `record_blind` | `sessionId`, `blindVerdict` (your verdict text) | `status: await_peers` | `dispatch_peers` |
-| `dispatch_peers` | `sessionId` | `status: await_adjudication`, `opinions[]` (per-voice `{source, isError, verdict, criticalIssues}`), optional `droppedProviders[]`, optional `unavailableProviders[]` (`{name, reason}`: skipped before dispatch - no CLI / no credential); or a terminal `status: unresolved` + `stopReason` | adjudicate, `submit_adjudication` |
+| `dispatch_peers` | `sessionId` | `status: await_adjudication`, `opinions[]` (per-voice `{source, isError, message?, verdict, criticalIssues}`), optional `droppedProviders[]`, optional `unavailableProviders[]` (`{name, reason}`: skipped before dispatch - no CLI / no credential); or a terminal `status: unresolved` + `stopReason` | adjudicate, `submit_adjudication` |
 | `submit_adjudication` | `sessionId`, `verdict`, `decisions[]` | `converged: true` + `finalReport` + `confidence`, OR `status: await_revision` | done, OR revise |
 | `submit_revision` | `sessionId`, `revisedPlan`, `diffSummary` | `status: await_blind` (next round), OR `status: unresolved` + `finalReport` (hit the cap) | next round, OR done |
 
@@ -142,8 +142,8 @@ in-memory `LoopState` for that `sessionId` may be gone, so recover by re-running
    The server selects the voting panel (enabled built-ins + eligible OpenRouter delegates,
    from the live hot-reloaded config) and fans out in parallel, then parses each reply.
    It returns `opinions[]`: one
-   `{ source, isError, errorKind?, verdict, criticalIssues, model, reasoningEffort, ms }`
-   per voice. `source` is `codex`, `gemini`, `grok`, or `openrouter:<alias>`.
+   `{ source, isError, errorKind?, message?, verdict, criticalIssues, model, reasoningEffort, ms }`
+   per voice (`message` only on an errored voice, bounded plain text). `source` is `codex`, `gemini`, `grok`, or `openrouter:<alias>`.
    - On **round 1 only**, print the panel block (one line per voice from `opinions[]`),
      showing the real reasoning effort - `reasoningEffort` for the HTTP voices (Grok,
      OpenRouter), or `n/a (CLI)` when it is `null` (Codex, Gemini have no such knob):
@@ -162,6 +162,9 @@ in-memory `LoopState` for that `sessionId` may be gone, so recover by re-running
      gemini (R{R}): REQUEST CHANGES (3 critical)
      grok (R{R}): ERRORED (missing-auth)
      ```
+     An ERRORED codex voice whose `message` carries a login link and one-time code has no
+     ChatGPT login yet; deliberation started `codex login --device-auth`. Print that message
+     in full under its status line: once the user approves, GPT joins from the next round.
    - After the per-voice lines, print a one-line round time footer from the voices' `ms`
      (the fan-out is parallel, so the round wall time ~ the slowest voice):
      ```

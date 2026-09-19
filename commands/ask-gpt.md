@@ -42,7 +42,14 @@ User question or topic: $ARGUMENTS
    })
    ```
 
-5. **Synthesize response** - never paste raw output. Extract:
+5. **Login link first.** If the result is `errorKind: "auth"` and its `message` carries a link
+   and a one-time code, GPT has no ChatGPT login on this machine yet and deliberation has
+   started `codex login --device-auth`. Show that message to the user as-is (it is the
+   user's action, not an expert answer), say GPT answers after they approve, and stop.
+   Re-run the command once they confirm. A host that supports MCP elicitation shows the
+   same link and code in a dialog during the call instead.
+
+6. **Synthesize response** - never paste raw output. Extract:
    - Bottom-line recommendation
    - Key reasoning points
    - Where GPT diverges from your prior analysis (if applicable)

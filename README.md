@@ -169,7 +169,7 @@ Provider credentials work the same as the standalone server (GPT via the Codex C
 
 You need at least one provider:
 
-- **Codex CLI** (GPT): `npm install -g @openai/codex`, then `codex login` (ChatGPT subscription). With no login, codex uses `CODEX_API_KEY`; `OPENAI_API_KEY` is never used.
+- **Codex CLI** (GPT): `npm install -g @openai/codex`, then `codex login` (ChatGPT subscription; `codex login --device-auth` on a remote machine, one login per machine). A ChatGPT Business/Enterprise workspace can set `CODEX_ACCESS_TOKEN` instead. With neither, codex uses `CODEX_API_KEY`; `OPENAI_API_KEY` is never used.
 - **Antigravity CLI**: [Getting Started with Antigravity CLI](https://antigravity.google/docs/cli-getting-started) and [Migrating from Gemini CLI](https://antigravity.google/docs/gcli-migration), then run `agy` and login.
 - **Grok (xAI)**: no CLI to install; the bridge ships with the plugin (needs Node 18+). Set `XAI_API_KEY` (get a key at https://console.x.ai).
 - **OpenRouter**: no CLI; the bridge ships with the plugin (needs Node 18+). Set `OPENROUTER_API_KEY` (get a key at https://openrouter.ai/keys), then declare models in `~/.config/deliberation/config.json` (Windows: `%APPDATA%\deliberation\config.json`; override with `DELIBERATION_CONFIG`). Works with any OpenAI-compatible endpoint (Ollama, vLLM, LM Studio, HuggingFace Inference) - auth is skipped automatically when the key env var is empty.
@@ -189,7 +189,12 @@ the real cap. Nothing to set in the environment. A `timeout` result whose messag
 `MCP_TOOL_TIMEOUT=60000` means an older plugin install: `claude plugin update
 deliberation@antonbabenko` and start a new session. `/deliberation:doctor` reports the cap,
 the codex credential, and a missing `agy`; the panel skips providers that cannot answer
-(`panel.unavailable`) instead of waiting on them. See [SETUP.md](SETUP.md#claude-code-on-the-web-and-other-capped-hosts).
+(`panel.unavailable`) instead of waiting on them. For GPT, do not copy your laptop's
+`~/.codex/auth.json` into the container: a ChatGPT login's refresh token works once, so both
+the other copy stops working as soon as one of them refreshes. On Plus/Pro, the first GPT call
+in a session starts `codex login --device-auth` and shows its link and code (a dialog when the
+host supports it, else in the result); approve it and GPT answers. On Business/Enterprise, set
+`CODEX_ACCESS_TOKEN`. See [SETUP.md](SETUP.md#claude-code-on-the-web-and-other-capped-hosts).
 
 ## Commands
 
