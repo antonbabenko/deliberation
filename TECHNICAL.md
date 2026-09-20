@@ -378,7 +378,10 @@ spent login (the refresh failure above). Instead of failing, `ask()` then:
    carries both. One code raises one dialog, however many calls join it. **The dialog is never
    awaited.** It is sent and the call returns; its outcome belongs to the LOGIN, not to the
    call: `accept` simply lets the shared login land, `decline` ends that login whenever the
-   refusal arrives, anything else is ignored. A decline is scoped to ITS OWN login: a
+   refusal arrives, anything else is ignored. A dialog that is already stale before it goes out is never sent at all (the signal is checked
+   first), and one that is open lives at most as long as its code: a settled login aborts it and
+   the server sends `notifications/cancelled`. One code raises one dialog, so repeated calls
+   cannot pile them up on the host. A decline is scoped to ITS OWN login: a
    refusal can arrive long after that code was replaced, and killing the login that took its
    place would revoke a code the user is holding. A decline that arrives AFTER the login landed
    can only end the process, not the credential: the call returned long ago, so there is no

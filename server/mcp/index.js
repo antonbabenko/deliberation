@@ -390,6 +390,9 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
    */
   function requestClient(method, params, timeoutMs, signal) {
     if (typeof write !== "function") return Promise.resolve(null);
+    // Already abandoned before we could send: an "abort" listener would never fire, so the
+    // request would sit on the host forever. Send nothing.
+    if (signal && signal.aborted) return Promise.resolve(null);
     const id = `deliberation-${++requestSeq}`;
     return new Promise((resolve) => {
       /** @param {string} reason */
@@ -425,6 +428,8 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
    * @param {AbortSignal} [signal]  aborted when that caller stops waiting
    */
   function confirmLogin(prompt, waitMs, signal) {
+    // Abandoned before it could be sent (the login settled first): raise no dialog at all.
+    if (signal && signal.aborted) return Promise.resolve(/** @type {const} */ ("none"));
     // One code, one dialog: concurrent GPT calls share the device login, so they share this too.
     // The dialog is cancelled at the host only once EVERY caller waiting on it has given up.
     let open = openDialogs.get(prompt.code);
@@ -451,6 +456,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
     // The capability alone is not enough: elicitation exists from 2025-06-18, URL mode from
     // 2025-11-25 (ISO dates compare as strings).
     if (!el || typeof el !== "object" || negotiatedVersion < "2025-06-18") return "none";
+    if (signal && signal.aborted) return "none"; // the login settled before this went out
     const urlMode = Boolean(el.url) && negotiatedVersion >= "2025-11-25";
     const minutes = Math.max(1, Math.round((prompt.expiresAt - Date.now()) / 60000));
     const params = urlMode

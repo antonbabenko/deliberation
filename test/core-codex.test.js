@@ -775,3 +775,30 @@ test("CX-login-dialog-throws: a host whose dialog rejects never becomes an unhan
     process.removeListener("unhandledRejection", onUnhandled);
   }
 });
+
+test("CX-login-settled-first: a login that lands before the dialog goes out raises no dialog", async () => {
+  const home = tmpCodexHome();
+  const cli = fakeLoginCli();
+  let asked = 0;
+  const spawnLogin = (/** @type {any} */ env, /** @type {(s:string)=>void} */ onText) => {
+    const f = cli.spawnLogin(env, onText);
+    cli.approve(home); // the login lands in the same tick the code is printed
+    return f;
+  };
+  const p = mkCx({ env: { CODEX_HOME: home }, deviceLogin: true, confirmLogin: async () => { asked++; return /** @type {const} */ ("none"); }, login: makeDeviceLogin({ spawnLogin }), run: async () => ({ code: 0, stdout: "answer", stderr: "" }) });
+  await p.ask({ prompt: "x" });
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(asked, 0, "the dialog is skipped: its signal was aborted before it could be sent");
+});
+
+test("CX-login-abandon-dead: a login that dies also closes its dialog", async () => {
+  const home = tmpCodexHome();
+  const cli = fakeLoginCli();
+  /** @type {AbortSignal|undefined} */ let seen;
+  const p = mkCx({ env: { CODEX_HOME: home }, deviceLogin: true, confirmLogin: (/** @type {any} */ _p, /** @type {number} */ _ms, /** @type {AbortSignal} */ s) => { seen = s; return new Promise(() => {}); }, login: makeDeviceLogin({ spawnLogin: cli.spawnLogin }), run: noRun });
+  await p.ask({ prompt: "x" });
+  assert.equal(/** @type {any} */ (seen).aborted, false);
+  cli.fail(); // codex exits without a login
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(/** @type {any} */ (seen).aborted, true, "a dead code's dialog is closed too");
+});

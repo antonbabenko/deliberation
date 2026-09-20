@@ -268,3 +268,12 @@ test("EL-login-tool-no-cli: a codex that fails its health check (no CLI) is unav
   assert.match(r.message, /CLI not found/);
   assert.equal(c.calls(), 0);
 });
+
+test("EL-aborted-before-send: a signal already aborted means no dialog is sent at all", async () => {
+  const { srv, sent } = mk();
+  await init(srv, { elicitation: { url: {} } });
+  const dead = new AbortController();
+  dead.abort();
+  assert.equal(await srv.confirmLogin(PROMPT, 5000, dead.signal), "none");
+  assert.equal(sent.length, 0, "nothing goes to the host, so nothing lingers there");
+});

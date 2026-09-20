@@ -574,9 +574,10 @@ function makeCodexProvider(opts = {}) {
       const dialog = new AbortController();
       // A settled login makes the dialog stale either way - landed (nothing left to approve) or
       // dead (the code it shows no longer works). Closing it is what notifications/cancelled is for.
-      flight.done.then(() => dialog.abort(), () => dialog.abort());
+      flight.done.then(() => dialog.abort(), () => dialog.abort()).catch(() => {});
       Promise.resolve()
-        .then(() => confirmLogin(prompt, Math.max(0, prompt.expiresAt - Date.now()), dialog.signal))
+        // The login can settle before this microtask runs; then the dialog is already stale.
+        .then(() => (dialog.signal.aborted ? "none" : confirmLogin(prompt, Math.max(0, prompt.expiresAt - Date.now()), dialog.signal)))
         .then((action) => {
           // A refused code must not stay live, whenever the refusal arrives.
           if (action === "decline") { login.cancel(flight); dialog.abort(); }
