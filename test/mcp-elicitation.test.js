@@ -209,11 +209,12 @@ test("EL-e2e: over real stdio, a login that dies cancels the open dialog (the wi
     const ask = seen.find((m) => m.method === "elicitation/create");
     assert.ok(ask, "the dialog was requested");
     assert.equal(ask.params.url, "https://auth.openai.com/codex/device");
-    await new Promise((r) => setTimeout(r, 100));
+    // The call did not wait for the dialog: it carries the code already.
+    assert.match(res.result.content[0].text, /WXYZ-98765/);
+    await new Promise((r) => setTimeout(r, 400)); // the fake login exits at ~300ms
     const cancel = seen.find((m) => m.method === "notifications/cancelled");
-    assert.ok(cancel, "the dead code's dialog was cancelled");
+    assert.ok(cancel, "a settled login closes its dialog");
     assert.equal(cancel.params.requestId, ask.id);
-    assert.match(res.result.content[0].text, /ended before/);
   } finally {
     srv.kill();
     fs.rmSync(home, { recursive: true, force: true });
@@ -266,4 +267,13 @@ test("EL-login-tool-no-cli: a codex that fails its health check (no CLI) is unav
   assert.equal(r.status, "unavailable");
   assert.match(r.message, /CLI not found/);
   assert.equal(c.calls(), 0);
+});
+
+test("EL-aborted-before-send: a signal already aborted means no dialog is sent at all", async () => {
+  const { srv, sent } = mk();
+  await init(srv, { elicitation: { url: {} } });
+  const dead = new AbortController();
+  dead.abort();
+  assert.equal(await srv.confirmLogin(PROMPT, 5000, dead.signal), "none");
+  assert.equal(sent.length, 0, "nothing goes to the host, so nothing lingers there");
 });
