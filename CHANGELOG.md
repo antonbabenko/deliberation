@@ -1,3 +1,10 @@
+## [3.16.1](https://github.com/antonbabenko/deliberation/compare/v3.16.0...v3.16.1) (2026-09-20)
+
+
+### Performance Improvements
+
+* **codex:** show the device code in ~1s instead of after a 5-minute dialog wait ([#202](https://github.com/antonbabenko/deliberation/issues/202)) ([6b90229](https://github.com/antonbabenko/deliberation/commit/6b90229ace82112a0a54700f4d273f4b7fbfe215))
+
 ## [3.16.0](https://github.com/antonbabenko/deliberation/compare/v3.15.0...v3.16.0) (2026-09-20)
 
 
@@ -25,11 +32,4 @@
 ### Bug Fixes
 
 * **plugin:** declare a 30-min per-server tool-call timeout so capped hosts stop killing calls at 60s ([#194](https://github.com/antonbabenko/deliberation/issues/194)) ([9cf2d8a](https://github.com/antonbabenko/deliberation/commit/9cf2d8a0387913e60600447f7d96788519eb6272))
-
-## [3.14.9](https://github.com/antonbabenko/deliberation/compare/v3.14.8...v3.14.9) (2026-09-14)
-
-
-### Bug Fixes
-
-* make the plugin work under a host tool-call cap (Claude Code on the web) ([#192](https://github.com/antonbabenko/deliberation/issues/192)) ([bea2af5](https://github.com/antonbabenko/deliberation/commit/bea2af5c675756344993562fa3983e75aaee109d))
 
