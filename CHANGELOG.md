@@ -1,3 +1,10 @@
+## [3.16.0](https://github.com/antonbabenko/deliberation/compare/v3.15.0...v3.16.0) (2026-09-20)
+
+
+### Features
+
+* **codex:** add a codex-login tool and /deliberation:codex-login so a login never depends on a GPT call ([#200](https://github.com/antonbabenko/deliberation/issues/200)) ([1062b1f](https://github.com/antonbabenko/deliberation/commit/1062b1fe3cb38bd5fa3d950bbc0284dd7f2d774a))
+
 ## [3.15.0](https://github.com/antonbabenko/deliberation/compare/v3.14.11...v3.15.0) (2026-09-19)
 
 
@@ -25,11 +32,4 @@
 ### Bug Fixes
 
 * make the plugin work under a host tool-call cap (Claude Code on the web) ([#192](https://github.com/antonbabenko/deliberation/issues/192)) ([bea2af5](https://github.com/antonbabenko/deliberation/commit/bea2af5c675756344993562fa3983e75aaee109d))
-
-## [3.14.8](https://github.com/antonbabenko/deliberation/compare/v3.14.7...v3.14.8) (2026-09-11)
-
-
-### Bug Fixes
-
-* **consensus:** raise default maxWallMs to 30 min ([#190](https://github.com/antonbabenko/deliberation/issues/190)) ([c477c04](https://github.com/antonbabenko/deliberation/commit/c477c0483cdfe42c17ef04364c591265b529c105))
 
