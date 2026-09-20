@@ -584,6 +584,11 @@ function makeCodexProvider(opts = {}) {
         }, () => {})
         .catch(() => {}); // a host that rejects must never become an unhandled rejection
     }
+    // It may have LANDED while we were getting here (an instant approval, or a flight another
+    // call started): then this very call can just run codex - no waiting, nothing to show. The
+    // flight's own outcome decides, not a file on disk: on the spent-login path the old
+    // auth.json is still sitting there.
+    if (flight.ended && (await flight.done)) return null;
     // A login that ended without landing has a dead code: say so rather than show it.
     if (flight.ended) return authError(started, `\`codex login --device-auth\` ended before the login landed: ${flight.error}. The next GPT call starts a fresh one.${tail}`, { status: "failed" });
     return authError(started, `${loginMessage(prompt)}${tail}`, { status: "pending", url: prompt.url, code: prompt.code, expiresAt: prompt.expiresAt });

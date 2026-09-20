@@ -786,9 +786,12 @@ test("CX-login-settled-first: a login that lands before the dialog goes out rais
     return f;
   };
   const p = mkCx({ env: { CODEX_HOME: home }, deviceLogin: true, confirmLogin: async () => { asked++; return /** @type {const} */ ("none"); }, login: makeDeviceLogin({ spawnLogin }), run: async () => ({ code: 0, stdout: "answer", stderr: "" }) });
-  await p.ask({ prompt: "x" });
-  await new Promise((r) => setTimeout(r, 20));
+  const r = /** @type {any} */ (await p.ask({ prompt: "x" }));
+  await new Promise((r2) => setTimeout(r2, 20));
   assert.equal(asked, 0, "the dialog is skipped: its signal was aborted before it could be sent");
+  // It LANDED, so this very call can answer - no "ended before the login landed".
+  assert.equal(r.text, "answer");
+  assert.equal(r.isError, false);
 });
 
 test("CX-login-abandon-dead: a login that dies also closes its dialog", async () => {
