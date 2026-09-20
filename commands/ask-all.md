@@ -128,7 +128,9 @@ User question or topic: $ARGUMENTS
    `**<provider> bottom line:** UNAVAILABLE (<errorKind|"error">: <message truncated to 200 chars>)`
    and continue with the surviving delegates. Exception: a codex `auth` result whose message
    carries a login link and one-time code is printed in full, untruncated - it is how GPT asks
-   the user to approve a `codex login --device-auth`; GPT answers on the next run after that. Common cases: Grok `missing-auth` (no
+   the user to approve a `codex login --device-auth`; GPT answers on the next run after that.
+   Never drop `codex` from the dispatch because it looks logged out: that call is what starts
+   the login and returns the code. Common cases: Grok `missing-auth` (no
    `XAI_API_KEY`), `rate-limit`, `timeout`, Gemini `timeout`. Require **at least one** result
    with `isError: false`. If EVERY result is an error, skip the verdict comparison and emit
    exactly:

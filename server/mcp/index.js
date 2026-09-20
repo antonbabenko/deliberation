@@ -9,6 +9,7 @@ const { askAll, askOne, consensus, runToConvergence } = require("../../core/orch
 const { orientationFilesFor } = require("../../core/orientation.js");
 const { PROMPTS } = require("../../core/prompts/index.js");
 const analyzeCore = require("../../core/analyze.js");
+const { fitToHostBudget } = require("../../core/host-budget.js");
 
 // MCP tool annotations. readOnlyHint reflects each tool's PRIMARY CONTRACT, not
 // whether some opt-in mode can ever write: ask-all/consensus stay read-only (their
@@ -198,13 +199,17 @@ function toolList() {
     { name: "ask-all", description: "Fan out one question to GPT, Gemini, Grok, and any configured OpenRouter models in parallel for independent second opinions, then return all results (advisory, no cross-contamination). Pass `expert` to apply a persona to every delegate. Calls external LLM providers (each needs its key/CLI; provider rate limits apply); returns a text-wrapped JSON envelope { results[], omitted[] } and persists a session record only when sessions.persist is enabled (default off).", inputSchema: inputSchema(), annotations: EXT_RO },
     { name: "consensus", description: "Run the FULL multi-round consensus convergence loop server-side with a provider arbiter (blind pass + peer fan-out -> adjudicate -> revise) and return the converged verdict. Default depth is `consensus.maxRounds` (config, default 5); pass `maxRounds` to override. Pass `synthesizeAlways:true` for a SINGLE arbiter synthesis pass instead of the loop (best for open questions, not plan convergence): it returns a free-text `synthesis` and `maxRounds` is ignored. Configure the arbiter via `consensus.arbiter` - a concrete provider/openrouter alias runs server-side; `host` mode returns the opinions for YOU to synthesize. Advisory; pass `expert` to apply a persona. Calls external providers (keys/CLI; rate limits apply); returns a text-wrapped JSON envelope (split verdict/synthesis, loop fields nullable) and persists a session record only when sessions.persist is enabled (default off). NOTE (Claude Code): use the `/consensus` slash command for the transcript-visible host-arbiter loop (it drives `consensus-step`); this tool is the provider-arbiter path for any host.", inputSchema: consensusInputSchema(), annotations: EXT_RO },
     { name: "consensus-step", description: "Client-driven consensus loop where YOU (the host model) are the arbiter, one action per call: init (returns sessionId + blind prompt) -> record_blind (your pre-commit verdict) -> dispatch_peers (server fans out to the providers) -> submit_adjudication (your verdict + per-issue accept/dismiss/defer) -> submit_revision (your revised plan), looping until converged or consensus.maxRounds rounds (default 5). Only the dispatch_peers action calls external providers; the others are local transitions on the ephemeral per-session loop store (keyed by sessionId, lost on server restart). Each call returns a text-wrapped JSON envelope with the next status/round (plus blindPrompt, opinions[], or finalReport by action). Advisory to the outside world, but mutates server loop state on every call.", inputSchema: consensusStepInputSchema(), annotations: EXT_RW },
+    { name: "codex-login", description: "Start (or join) the ChatGPT device login for GPT (Codex) and return its link + one-time code WITHOUT asking GPT anything. Use it when GPT has no login on this machine (e.g. Claude Code on the web): show the returned `message` to the user as-is; GPT answers once they approve in the browser. A host with MCP elicitation also gets a dialog. At most one `codex login --device-auth` runs per server; credentials are never read or copied. Returns a text-wrapped JSON envelope { status: authenticated|pending|starting|declined|failed|unavailable, message, url?, code?, expiresAt? }.", inputSchema: { type: "object", properties: {}, additionalProperties: false }, annotations: EXT_RW },
     { name: "panel", description: "Return the names of the providers `ask-all` WOULD dispatch for the current config + expert (enabled built-ins + eligible OpenRouter aliases, fanout cap applied), WITHOUT calling them. Use this to discover the panel, then issue one `ask-one` call per provider in parallel for visible per-provider progress. Local and read-only (no provider calls); returns a text-wrapped JSON envelope { providers[], omitted[] }.", inputSchema: panelInputSchema(), annotations: LOCAL_RO },
-    { name: "ask-one", description: "Second opinion from ONE named provider in the active panel (e.g. `codex`, `gemini`, `grok`, `openrouter:<alias>` - get the names from `panel`). Issue N in parallel (one per panel name) so each renders independently as it lands. Calls one external LLM provider (needs its key/CLI; rate limits apply); returns a text-wrapped JSON envelope { result }, or { error, panel } when the name is not in the panel. Advisory, single-shot.", inputSchema: askOneInputSchema(), annotations: EXT_RO },
+    { name: "ask-one", description: "Second opinion from ONE named provider in the active panel (e.g. `codex`, `gemini`, `grok`, `openrouter:<alias>` - get the names from `panel`). Issue N in parallel (one per panel name) so each renders independently as it lands. For `codex` with no login, the call itself starts a device login and returns its link + code (errorKind auth): never skip it for that reason. Calls one external LLM provider (needs its key/CLI; rate limits apply); returns a text-wrapped JSON envelope { result }, or { error, panel } when the name is not in the panel. Advisory, single-shot.", inputSchema: askOneInputSchema(), annotations: EXT_RO },
     { name: "analyze", description: "Analyze recent runs from the opt-in debug log (latency/tokens/reasoning-effort per model) plus the session store (verdict agreement rate), and return advisory tuning suggestions (disable a slow/redundant model in ask-all, lower an OpenRouter model's reasoning, adjust maxFanout). Two lenses reported side by side - timing and agreement are NOT joined (no shared run id). Requires `debug.enabled` for the timing lens. Local and read-only (no provider calls, writes nothing); returns a text-wrapped JSON envelope with the two lenses + suggestions. The `/deliberation:analyze` slash command renders this for humans.", inputSchema: analyzeInputSchema(), annotations: LOCAL_RO },
   ];
   for (const t of Object.keys(ASK_PROVIDER)) {
     const prov = ASK_PROVIDER[t];
-    tools.push({ name: t, description: `Single-provider second opinion via ${prov} (advisory, single-shot). Pass \`expert\` to apply one of the expert personas. Calls the external ${prov} provider (${ASK_AUTH[prov]}; rate limits apply) and returns a text-wrapped JSON envelope { result }.`, inputSchema: inputSchema(), annotations: EXT_RO });
+    // An agent that decided a logged-out GPT call "would only return a link" skipped it, and
+    // the login it would have started never happened: say so where the call is decided.
+    const codexNote = prov === "codex" ? " With no codex login, this call itself starts a device login and returns its link + code (errorKind auth): never skip it for that reason. `codex-login` does only the login." : "";
+    tools.push({ name: t, description: `Single-provider second opinion via ${prov} (advisory, single-shot). Pass \`expert\` to apply one of the expert personas. Calls the external ${prov} provider (${ASK_AUTH[prov]}; rate limits apply) and returns a text-wrapped JSON envelope { result }.${codexNote}`, inputSchema: inputSchema(), annotations: EXT_RO });
   }
   for (const e of EXPERTS) {
     tools.push({ name: e, description: EXPERT_DESCRIPTIONS[e] + EXPERT_SUFFIX, inputSchema: inputSchema(), annotations: EXT_RO });
@@ -1341,6 +1346,18 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       reasoningEffort: args.reasoningEffort,
       files: args.files,
     };
+    if (name === "codex-login") {
+      const codex = /** @type {any} */ (registry.get("codex"));
+      if (!codex || typeof codex.login !== "function") return jsonResult({ status: "unavailable", message: "GPT (Codex) is not part of this server." });
+      if (((getConfig().providers || {}).codex || {}).enabled === false) {
+        return jsonResult({ status: "unavailable", message: "GPT (Codex) is disabled in config (providers.codex.enabled: false)." });
+      }
+      // No CLI (or a shim-only install) is not something a login can fix. "No credential" is:
+      // health reports it ok while login on first use is on.
+      const health = await Promise.resolve().then(() => codex.health()).catch((/** @type {any} */ e) => ({ ok: false, reason: String((e && e.message) || e) }));
+      if (!(health && health.ok)) return jsonResult({ status: "unavailable", message: (health && health.reason) || "codex health check failed" });
+      return jsonResult(await codex.login(fitToHostBudget({}, toolStartedAt)));
+    }
     if (name === "panel") {
       // Echo the EXACT set ask-all would dispatch (same selection function, same
       // fanout cap), WITHOUT calling any provider. The command issues one ask-one

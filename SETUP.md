@@ -162,7 +162,9 @@ Three things differ in a web container, and the plugin now handles each:
     "auth"`); approve it and GPT answers from the next call (in `/consensus`, from the next
     round). The login belongs to that container alone, so it never conflicts with your
     laptop. The environment's network allowlist must reach `auth.openai.com` and
-    `chatgpt.com`. To log in ahead of time, run `! codex login --device-auth` yourself.
+    `chatgpt.com`. To log in ahead of time, or if the agent does not call GPT, run
+    `/deliberation:codex-login`: it starts the same login (the `codex-login` tool) and shows the
+    link and code without asking GPT anything.
   - **ChatGPT Business / Enterprise:** create a Codex access token and set
     `CODEX_ACCESS_TOKEN` in the environment's variables. It never refreshes (it expires on the
     date the workspace allows, 90 days by default), so the same value works in every session.

@@ -399,6 +399,20 @@ spent login (the refresh failure above). Instead of failing, `ask()` then:
    code, and the next call starts a fresh one. The login child is killed when the server
    process exits.
 
+**`codex-login` tool and `/deliberation:codex-login`.** Login on first use depends on the agent
+actually making a GPT call. In a real web session it did not: the agent read `codex.js`,
+decided a logged-out call "would only return the device-auth link, not an answer", and
+answered from local config, so the login never started. The `codex-login` tool runs the same
+`signIn` path with no question (`provider.login()`; it never runs `codex exec`) and returns
+`{ status: authenticated|pending|starting|declined|failed|unavailable, message, url?, code?,
+expiresAt? }`; ask()'s auth results carry the same object as `deviceLogin`. It joins the one
+shared login, so it and `ask-gpt` always show the same code. It is `unavailable` when codex is
+not on this server, is disabled in config, or fails its health check (no CLI). The command
+files and the `ask-gpt` / `ask-one` tool descriptions also say never to skip a GPT call
+because GPT looks logged out; `/deliberation:doctor` and the session-hook text point at
+`/deliberation:codex-login`. `panel` and health stay side-effect-free: a login is never started by
+a probe.
+
 Health treats "no credential" as `ok` while `deviceLogin` is on: that is the one gap `ask()`
 closes itself, so GPT stays on the panel and delivers the code. `consensus-step`'s
 `dispatch_peers` now includes an errored voice's `message` (bounded plain text, `plainMessage`)

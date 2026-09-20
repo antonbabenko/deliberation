@@ -219,3 +219,51 @@ test("EL-e2e: over real stdio, a login that dies cancels the open dialog (the wi
     fs.rmSync(home, { recursive: true, force: true });
   }
 });
+
+// ---- the codex-login tool ----
+/** @param {any} loginResult */
+function codexWithLogin(loginResult) {
+  let calls = 0;
+  const p = {
+    name: "codex",
+    capabilities: { canImplement: false, fileUpload: false, multiTurn: false, walksFilesystem: true },
+    async health() { return { ok: true }; },
+    async ask() { throw new Error("codex-login must not ask"); },
+    async login() { calls++; return loginResult; },
+  };
+  return { p, calls: () => calls };
+}
+/** @param {any} srv @param {any} [args] */
+const callLogin = async (srv, args = {}) => JSON.parse((await srv.handle({ jsonrpc: "2.0", id: 7, method: "tools/call", params: { name: "codex-login", arguments: args } })).result.content[0].text);
+
+test("EL-login-tool: codex-login is listed and returns the provider's login result as-is", async () => {
+  const pending = { status: "pending", url: PROMPT.url, code: PROMPT.code, expiresAt: PROMPT.expiresAt, message: `Open ${PROMPT.url} and enter ${PROMPT.code}` };
+  const c = codexWithLogin(pending);
+  const srv = /** @type {any} */ (buildServer({ providers: [/** @type {any} */ (c.p)], getConfig: () => config }));
+  const listed = (await srv.handle({ jsonrpc: "2.0", id: 6, method: "tools/list", params: {} })).result.tools.find((/** @type {any} */ t) => t.name === "codex-login");
+  assert.ok(listed, "codex-login is advertised");
+  assert.match(listed.description, /device/i);
+  assert.deepEqual(await callLogin(srv), pending);
+  assert.equal(c.calls(), 1);
+});
+
+test("EL-login-tool-unavailable: no codex provider, or GPT disabled in config, is an honest 'unavailable'", async () => {
+  const none = /** @type {any} */ (buildServer({ providers: [], getConfig: () => config }));
+  assert.equal((await callLogin(none)).status, "unavailable");
+  const c = codexWithLogin({ status: "pending" });
+  const disabled = /** @type {any} */ (buildServer({ providers: [/** @type {any} */ (c.p)], getConfig: () => ({ ...config, providers: { codex: { enabled: false } } }) }));
+  const r = await callLogin(disabled);
+  assert.equal(r.status, "unavailable");
+  assert.match(r.message, /disabled/);
+  assert.equal(c.calls(), 0);
+});
+
+test("EL-login-tool-no-cli: a codex that fails its health check (no CLI) is unavailable with the reason; login() is not called", async () => {
+  const c = codexWithLogin({ status: "pending" });
+  c.p.health = async () => ({ ok: false, reason: "codex CLI not found (tried \"codex\")" });
+  const srv = /** @type {any} */ (buildServer({ providers: [/** @type {any} */ (c.p)], getConfig: () => config }));
+  const r = await callLogin(srv);
+  assert.equal(r.status, "unavailable");
+  assert.match(r.message, /CLI not found/);
+  assert.equal(c.calls(), 0);
+});

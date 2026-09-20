@@ -35,6 +35,7 @@ Render the sections below. Keep it tight - this is a cheat sheet, not a manual.
 | `/consensus` | The decision matters and you want the models to argue to one verdict. |
 | `/deliberation:analyze` | You want to see which models are slow or rarely add anything. |
 | `/deliberation:doctor` | Something looks broken - commands missing, providers failing, empty analyze. |
+| `/deliberation:codex-login` | GPT has no login on this machine (e.g. a Claude Code web session): get a ChatGPT link + code. |
 | `/deliberation:setup` | First install, or to repair the install. |
 
 ### Prompts you can paste right now
