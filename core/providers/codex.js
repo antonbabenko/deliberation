@@ -693,7 +693,7 @@ function makeCodexProvider(opts = {}) {
         return {
           status: "authenticated",
           message: "GPT (Codex) already has a credential on this machine. If GPT calls still fail with \"access token could not be refreshed\", " +
-            "that login is spent: the next GPT call replaces it with a new device login, or run `codex logout` here and then /deliberation:login.",
+            "that login is spent: the next GPT call replaces it with a new device login, or run `codex logout` here and then /deliberation:codex-login.",
         };
       }
       if (!deviceLogin) return { status: "unavailable", message: "Login on first use is off in this process: run `codex login` (`codex login --device-auth` on a remote machine) yourself." };

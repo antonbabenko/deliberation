@@ -45,7 +45,7 @@ User question or topic: $ARGUMENTS
 5. **Never pre-empt the call.** Do not skip step 4 because GPT looks logged out (no
    `auth.json`, `codex doctor` says so, a session-start hook said so): the call itself
    starts the device login and returns the link and code, and a skipped call means the user
-   never gets one. Do not pre-check credentials at all. (`/deliberation:login` does only the
+   never gets one. Do not pre-check credentials at all. (`/deliberation:codex-login` does only the
    login, when the user wants it without a question.)
 
 6. **Login link first.** If the result is `errorKind: "auth"` and its `message` carries a link

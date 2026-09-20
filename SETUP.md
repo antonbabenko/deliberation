@@ -163,7 +163,7 @@ Three things differ in a web container, and the plugin now handles each:
     round). The login belongs to that container alone, so it never conflicts with your
     laptop. The environment's network allowlist must reach `auth.openai.com` and
     `chatgpt.com`. To log in ahead of time, or if the agent does not call GPT, run
-    `/deliberation:login`: it starts the same login (the `codex-login` tool) and shows the
+    `/deliberation:codex-login`: it starts the same login (the `codex-login` tool) and shows the
     link and code without asking GPT anything.
   - **ChatGPT Business / Enterprise:** create a Codex access token and set
     `CODEX_ACCESS_TOKEN` in the environment's variables. It never refreshes (it expires on the

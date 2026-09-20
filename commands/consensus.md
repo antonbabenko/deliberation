@@ -166,7 +166,7 @@ in-memory `LoopState` for that `sessionId` may be gone, so recover by re-running
      ChatGPT login yet; deliberation started `codex login --device-auth`. Print that message
      in full under its status line: once the user approves, GPT joins from the next round.
      Never skip or work around the codex voice because it looks logged out; the dispatch is
-     what starts the login and returns the code (`/deliberation:login` does only the login).
+     what starts the login and returns the code (`/deliberation:codex-login` does only the login).
    - After the per-voice lines, print a one-line round time footer from the voices' `ms`
      (the fan-out is parallel, so the round wall time ~ the slowest voice):
      ```

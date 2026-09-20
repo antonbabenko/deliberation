@@ -1,11 +1,11 @@
 ---
-name: login
+name: codex-login
 description: Log GPT (Codex) in on this machine with a ChatGPT device login - shows a link and a one-time code. For remote or headless sessions (Claude Code on the web). No question is sent to GPT.
 allowed-tools: mcp__deliberation__codex-login
 timeout: 60000
 ---
 
-# Login (GPT via codex)
+# Codex login (GPT)
 
 Starts, or joins, the ChatGPT device login for GPT on this machine and shows its link
 and one-time code. Nothing is asked of GPT. Use it when GPT has no login here, typically
@@ -26,7 +26,7 @@ in a Claude Code web session.
      spent (a copied `auth.json`): the next GPT call replaces it, or `codex logout` first.
    - `starting` - codex has not printed its code yet. Call the tool again (it joins the
      same login), up to 3 times, before showing anything; only if it is still `starting`,
-     show the message and ask the user to run `/deliberation:login` again shortly.
+     show the message and ask the user to run `/deliberation:codex-login` again shortly.
    - `declined` - the user refused the dialog; that login was ended.
    - `failed` / `unavailable` - show the message; it names the cause (no codex CLI, GPT
      disabled in config, a login that ended).
