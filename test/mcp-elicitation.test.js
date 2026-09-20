@@ -209,11 +209,12 @@ test("EL-e2e: over real stdio, a login that dies cancels the open dialog (the wi
     const ask = seen.find((m) => m.method === "elicitation/create");
     assert.ok(ask, "the dialog was requested");
     assert.equal(ask.params.url, "https://auth.openai.com/codex/device");
-    await new Promise((r) => setTimeout(r, 100));
+    // The call did not wait for the dialog: it carries the code already.
+    assert.match(res.result.content[0].text, /WXYZ-98765/);
+    await new Promise((r) => setTimeout(r, 400)); // the fake login exits at ~300ms
     const cancel = seen.find((m) => m.method === "notifications/cancelled");
-    assert.ok(cancel, "the dead code's dialog was cancelled");
+    assert.ok(cancel, "a settled login closes its dialog");
     assert.equal(cancel.params.requestId, ask.id);
-    assert.match(res.result.content[0].text, /ended before/);
   } finally {
     srv.kill();
     fs.rmSync(home, { recursive: true, force: true });

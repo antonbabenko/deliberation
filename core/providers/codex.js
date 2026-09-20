@@ -265,18 +265,16 @@ function defaultRun({ prompt, cwd, timeoutMs, mode, env }) {
 const ANSI_RE = /\x1b\[[0-9;?]*[A-Za-z]/g;
 const DEVICE_PROMPT_WAIT_MS = 20000; // codex prints the code within a second or two
 const DEVICE_CODE_TTL_MS = 15 * 60000; // what codex says today; used when it stops saying
-// A dialog holds the tool call open. Five minutes is ample to open a link and type a code;
-// past it the result path returns the still-valid code instead of risking a host that kills
-// long calls on a cap it never told us about.
-const DIALOG_WAIT_MAX_MS = 5 * 60000;
-// Below this much host budget a dialog cannot be answered in time: return the link at once.
-const DIALOG_MIN_BUDGET_MS = 15000;
+// The dialog never holds the tool call open. A host may advertise elicitation and never answer
+// (Claude Code on the web does exactly that): waiting cost a measured 300 791 ms and burned a
+// third of the code's 15-minute life before the user ever saw it. The code goes back the moment
+// codex prints it; the dialog is sent alongside and lives with the LOGIN, not with the call.
 
 /** @typedef {{url:string, code:string, expiresAt:number}} DevicePrompt */
-/** @typedef {{prompt?:DevicePrompt, error?:string, ended:boolean, done:Promise<boolean>, authBefore?:(number|null)}} DeviceFlight */
+/** @typedef {{prompt?:DevicePrompt, error?:string, ended:boolean, done:Promise<boolean>}} DeviceFlight */
 /**
  * Where a device login stands, for the `codex-login` tool and on ask()'s auth results.
- * @typedef {{status:("authenticated"|"pending"|"starting"|"declined"|"failed"|"unavailable"), message:string, url?:string, code?:string, expiresAt?:number}} LoginResult
+ * @typedef {{status:("authenticated"|"pending"|"starting"|"failed"|"unavailable"), message:string, url?:string, code?:string, expiresAt?:number}} LoginResult
  */
 
 /**
@@ -390,10 +388,8 @@ function makeDeviceLogin(o = {}) {
     let promptEnd = 0; // after a code is shown, only what codex prints next explains a failure
     /** @type {ReturnType<typeof setTimeout>|undefined} */ let noCode;
     /** @type {(ok: boolean) => void} */ let finish = () => {};
-    // auth.json as it was when THIS login began, shared by every caller that joins it: one that
-    // joins after the approval was saved must still see the credentials as new.
     /** @type {DeviceFlight} */
-    const state = { ended: false, done: new Promise((r) => { finish = r; }), authBefore: authStamp(env) };
+    const state = { ended: false, done: new Promise((r) => { finish = r; }) };
     /** @type {(v: DeviceFlight) => void} */ let settle = () => {};
     const f = { finished: false, expiresAt: Infinity, kill: () => {}, ready: /** @type {Promise<DeviceFlight>} */ (new Promise((r) => { settle = r; })) };
     /** @param {string} error */
@@ -468,27 +464,26 @@ function deadline(ms, value) {
 }
 
 /**
- * When auth.json last changed, or null when there is none - so a login that landed can be told
- * apart from one that did not, whatever its exit code said.
- * @param {Record<string, (string|undefined)>} env
- * @returns {number|null}
- */
-function authStamp(env) {
-  try {
-    return fs.statSync(path.join(env.CODEX_HOME || path.join(os.homedir(), ".codex"), "auth.json")).mtimeMs;
-  } catch { return null; }
-}
-
-/**
  * @param {DevicePrompt} prompt
  * @returns {string}
  */
 function loginMessage(prompt) {
   const minutes = Math.max(1, Math.round((prompt.expiresAt - Date.now()) / 60000));
-  return `GPT (Codex) needs a ChatGPT login on this machine. Open ${prompt.url} and enter the code ${prompt.code} ` +
-    `(expires in ${minutes} min). GPT answers on the next call after you approve. ` +
-    "The code signs this machine's codex into your ChatGPT account: only continue if you are using GPT through " +
-    "deliberation in this session. It is a login of its own - never copy auth.json from another machine.";
+  // The link and the code each stand alone on a line: one click, one copy, no hunting in prose.
+  return [
+    "GPT (Codex) needs a ChatGPT login on this machine. Open:",
+    "",
+    prompt.url,
+    "",
+    "and enter this code:",
+    "",
+    prompt.code,
+    "",
+    `The code expires in ${minutes} min. Re-run your question after you approve; a confirmation dialog was also ` +
+    "sent, if your host shows one. The code signs this machine's codex into your ChatGPT account: only continue " +
+    "if you are using GPT through deliberation in this session. It is a login of its own - never copy auth.json " +
+    "from another machine.",
+  ].join("\n");
 }
 
 /**
@@ -568,36 +563,19 @@ function makeCodexProvider(opts = {}) {
     if (!flight) return authError(started, `GPT (Codex) needs a ChatGPT login on this machine; \`codex login --device-auth\` is starting but has no code yet within this call's time. The next GPT call shows it.${tail}`, { status: "starting" });
     if (!flight.prompt) return authError(started, `GPT (Codex) has no working ChatGPT login here, and \`codex login --device-auth\` gave no code: ${flight.error}${tail}`, { status: "failed" });
     const prompt = flight.prompt;
-    // Wait only while the code lives, at most DIALOG_WAIT_MAX_MS, and at most half of what the
-    // host still allows this call (after any failed first run) - the other half is the codex run.
-    const hostLeft = /** @type {number} */ (clampToHostBudget(Number.MAX_SAFE_INTEGER, env, afterWait(req, started).hostBudgetRemainingMs).timeoutMs);
-    const waitMs = Math.min(prompt.expiresAt - Date.now(), DIALOG_WAIT_MAX_MS, hostLeft / 2);
-    if (confirmLogin && waitMs > 0 && hostLeft >= DIALOG_MIN_BUDGET_MS) {
-      const wait = deadline(waitMs, false);
-      const timeout = /** @type {Promise<any>} */ (wait.promise); // races mixed outcomes below
-      // Aborted once this call stops waiting, so the host can close a dialog nobody reads.
+    // The dialog is sent, never awaited: the code goes back now. Its outcome matters to the
+    // LOGIN, not to this call - accept just lets the shared login land, decline ends it.
+    if (confirmLogin) {
       const dialog = new AbortController();
-      const viaDialog = Promise.resolve()
-        .then(() => confirmLogin(prompt, waitMs, dialog.signal))
-        .then((action) => (action === "accept" ? Promise.race([flight.done, timeout]) : action), () => "none");
-      // Approving in the browser without touching the dialog counts too.
-      const outcome = await Promise.race([viaDialog, flight.done, timeout]);
-      wait.stop();
-      dialog.abort();
-      if (outcome === true) return null;
-      if (outcome === "decline") {
-        login.cancel();
-        // The login may have landed just before the decline (or as we killed it): never claim a
-        // code is dead when it was used, and never delete a credential file on the user's behalf.
-        const settle = deadline(250, false);
-        const exitedOk = await Promise.race([flight.done, settle.promise]);
-        settle.stop();
-        // A login killed right after saving reports a failed exit: the file is the truth.
-        const stamp = authStamp(env);
-        const landed = exitedOk || (stamp !== null && stamp !== flight.authBefore);
-        if (landed) return authError(started, `You declined, but the ChatGPT login had already completed on this machine. GPT is skipped this time. If you did not approve that login yourself, run \`codex logout\` here.${tail}`, { status: "declined" });
-        return authError(started, `You declined the ChatGPT login for GPT (Codex), so GPT is skipped this time and that code no longer works. The next GPT call offers a new one.${tail}`, { status: "declined" });
-      }
+      // A settled login makes the dialog stale either way - landed (nothing left to approve) or
+      // dead (the code it shows no longer works). Closing it is what notifications/cancelled is for.
+      flight.done.then(() => dialog.abort(), () => dialog.abort());
+      Promise.resolve()
+        .then(() => confirmLogin(prompt, Math.max(0, prompt.expiresAt - Date.now()), dialog.signal))
+        .then((action) => {
+          // A refused code must not stay live, whenever the refusal arrives.
+          if (action === "decline") { login.cancel(); dialog.abort(); }
+        }, () => {});
     }
     // A login that ended without landing has a dead code: say so rather than show it.
     if (flight.ended) return authError(started, `\`codex login --device-auth\` ended before the login landed: ${flight.error}. The next GPT call starts a fresh one.${tail}`, { status: "failed" });

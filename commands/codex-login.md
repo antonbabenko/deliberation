@@ -17,8 +17,9 @@ in a Claude Code web session.
    ```
    mcp__deliberation__codex-login({})
    ```
-2. Show the result's `message` to the user **as-is**, never paraphrased and never
-   truncated. By `status`:
+2. Show the result's `message` to the user **as-is**: never paraphrased, never truncated, and
+   never reflowed - the link and the code each stand on their own line so they are one copy.
+   By `status`:
    - `pending` - the message carries the link and the code. Tell the user to open the
      link, sign in to ChatGPT, and enter the code; GPT answers from their next GPT call.
    - `authenticated` - GPT has a credential here, or the login just landed through a host
@@ -27,7 +28,8 @@ in a Claude Code web session.
    - `starting` - codex has not printed its code yet. Call the tool again (it joins the
      same login), up to 3 times, before showing anything; only if it is still `starting`,
      show the message and ask the user to run `/deliberation:codex-login` again shortly.
-   - `declined` - the user refused the dialog; that login was ended.
+   - `declined` - only from an older server; current ones report the refusal by ending that
+     login, and the next call offers a new code.
    - `failed` / `unavailable` - show the message; it names the cause (no codex CLI, GPT
      disabled in config, a login that ended).
 3. Stop. Do not run shell commands, do not read or check `~/.codex/auth.json`, and do not

@@ -375,23 +375,18 @@ spent login (the refresh failure above). Instead of failing, `ask()` then:
    `initialize`. Elicitation is sent only on a negotiated `2025-06-18` or later; URL mode only
    on `2025-11-25` or later with `elicitation.url` declared (`elicitation/create` with
    `mode: "url"`, the link, and the code in the message); otherwise a form whose message
-   carries both. One code raises one dialog, however many calls wait on it. The wait is
-   bounded by the code's lifetime, 5 minutes, and half the host budget left after any failed
-   first run (the other half is for the codex run). With under 15 s of host budget left there
-   is no dialog at all: the link comes back at once. Approving in the browser ends the wait
-   even if the dialog is never answered. Both the dialog and the result text carry a line
-   saying the code signs this machine's codex into the user's ChatGPT account, the same
-   warning codex prints. When a call stops waiting (the login landed or died, or the wait
-   ran out), it drops its interest in the dialog; once no call is waiting, or the request
-   times out, the server sends `notifications/cancelled` so the host can close it.
-3. Once `auth.json` exists (the login's exit code 0 AND the file), runs codex on the same call
-   with the host budget reduced by the time spent waiting, retrying once after a spent login.
-   A decline is a no: that login is killed and the result says GPT was skipped (the next GPT
-   call offers a new code, never the refused one). If the login had already landed when the
-   decline arrived (a clean exit, or `auth.json` changed since that LOGIN began - recorded
-   once per login, so a caller that joins after the approval was saved sees it too; a login
-   killed right after saving exits non-zero), the result says so and suggests `codex logout`;
-   deliberation never deletes a credential file itself. With no dialog, a dismissed dialog, an
+   carries both. One code raises one dialog, however many calls join it. **The dialog is never
+   awaited.** It is sent and the call returns; its outcome belongs to the LOGIN, not to the
+   call: `accept` simply lets the shared login land, `decline` ends that login whenever the
+   refusal arrives, anything else is ignored. A settled login (landed or dead) makes the
+   dialog stale, so the server then sends `notifications/cancelled` and the host can close it.
+   Both the dialog and the result text carry a line saying the code signs this machine's codex
+   into the user's ChatGPT account, the same warning codex prints.
+3. Returns `errorKind: "auth"` as soon as codex prints the code, typically ~1 s and at most
+   `DEVICE_PROMPT_WAIT_MS` (20 s). The message puts the link and the code each alone on a line,
+   blank lines around them, so both are one copy; the lifetime it quotes is what is actually
+   left (~15 min). The user approves in the browser and re-runs; the shared login keeps polling,
+   so the next call finds `auth.json` and answers. With no dialog, a dismissed dialog, an
    error or a timeout, it returns `errorKind: "auth"` whose message starts with the link and
    code (codex's refresh line, if any, follows). The login
    keeps polling in the background, so the next call after the user approves simply finds
@@ -404,7 +399,7 @@ actually making a GPT call. In a real web session it did not: the agent read `co
 decided a logged-out call "would only return the device-auth link, not an answer", and
 answered from local config, so the login never started. The `codex-login` tool runs the same
 `signIn` path with no question (`provider.login()`; it never runs `codex exec`) and returns
-`{ status: authenticated|pending|starting|declined|failed|unavailable, message, url?, code?,
+`{ status: authenticated|pending|starting|failed|unavailable, message, url?, code?,
 expiresAt? }`; ask()'s auth results carry the same object as `deviceLogin`. It joins the one
 shared login, so it and `ask-gpt` always show the same code. It is `unavailable` when codex is
 not on this server, is disabled in config, or fails its health check (no CLI). The command
