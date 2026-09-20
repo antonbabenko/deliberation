@@ -378,7 +378,13 @@ spent login (the refresh failure above). Instead of failing, `ask()` then:
    carries both. One code raises one dialog, however many calls join it. **The dialog is never
    awaited.** It is sent and the call returns; its outcome belongs to the LOGIN, not to the
    call: `accept` simply lets the shared login land, `decline` ends that login whenever the
-   refusal arrives, anything else is ignored. A settled login (landed or dead) makes the
+   refusal arrives, anything else is ignored. A decline is scoped to ITS OWN login: a
+   refusal can arrive long after that code was replaced, and killing the login that took its
+   place would revoke a code the user is holding. A decline that arrives AFTER the login landed
+   can only end the process, not the credential: the call returned long ago, so there is no
+   channel left to report it. The dialog therefore says up front that declining ends the login
+   and that `codex logout` undoes one already approved in the browser. deliberation never
+   deletes a credential file itself. A settled login (landed or dead) makes the
    dialog stale, so the server then sends `notifications/cancelled` and the host can close it.
    Both the dialog and the result text carry a line saying the code signs this machine's codex
    into the user's ChatGPT account, the same warning codex prints.

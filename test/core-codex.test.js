@@ -723,3 +723,55 @@ test("CX-login-accept-later: an accepted dialog lands the login, and the NEXT ca
   assert.equal(/** @type {any} */ (await p.ask({ prompt: "x" })).text, "answer");
   assert.equal(cli.calls.spawned, 1);
 });
+
+test("CX-login-decline-stale: a decline for an OLD code never touches the login that replaced it", async () => {
+  let t = 0;
+  const home = tmpCodexHome();
+  const cli = fakeLoginCli();
+  /** @type {number[]} */ const killed = [];
+  let spawned = 0;
+  const spawnLogin = (/** @type {any} */ env, /** @type {(s:string)=>void} */ onText) => {
+    const mine = ++spawned;
+    const f = cli.spawnLogin(env, onText);
+    return { exit: f.exit, kill: () => { killed.push(mine); f.kill(); } };
+  };
+  /** @type {((a:any)=>void)[]} */ const answers = [];
+  const p = mkCx({ env: { CODEX_HOME: home }, deviceLogin: true, confirmLogin: () => new Promise((r) => answers.push(r)), login: makeDeviceLogin({ spawnLogin, now: () => t }), run: noRun });
+  await p.ask({ prompt: "x" });          // login #1, dialog #1
+  t = 16 * 60000;                        // its code expires
+  await p.ask({ prompt: "x" });          // login #2 replaces it, dialog #2
+  assert.equal(spawned, 2);
+  answers[0]("decline");                 // the stale dialog is answered late
+  await new Promise((r) => setTimeout(r, 20));
+  assert.ok(!killed.includes(2), `the live login was killed: ${JSON.stringify(killed)}`);
+});
+
+test("CX-login-decline-after-landing: a decline once the login landed leaves the credential alone", async () => {
+  const fs = require("node:fs"), path = require("node:path");
+  const home = tmpCodexHome();
+  const cli = fakeLoginCli();
+  /** @type {(a:any)=>void} */ let answer = () => {};
+  const p = mkCx({ env: { CODEX_HOME: home }, deviceLogin: true, confirmLogin: () => new Promise((r) => { answer = r; }), login: makeDeviceLogin({ spawnLogin: cli.spawnLogin }), run: async () => ({ code: 0, stdout: "answer", stderr: "" }) });
+  await p.ask({ prompt: "x" });
+  cli.approve(home);                     // the user approved in the browser first
+  await new Promise((r) => setTimeout(r, 20));
+  answer("decline");                     // ...then declined the stale dialog
+  await new Promise((r) => setTimeout(r, 20));
+  assert.ok(fs.existsSync(path.join(home, "auth.json")), "deliberation never deletes a credential");
+  assert.equal(/** @type {any} */ (await p.ask({ prompt: "x" })).text, "answer");
+});
+
+test("CX-login-dialog-throws: a host whose dialog rejects never becomes an unhandled rejection", async () => {
+  const home = tmpCodexHome();
+  /** @type {unknown[]} */ const unhandled = [];
+  const onUnhandled = (/** @type {unknown} */ e) => unhandled.push(e);
+  process.on("unhandledRejection", onUnhandled);
+  try {
+    const p = mkCx({ env: { CODEX_HOME: home }, deviceLogin: true, confirmLogin: () => Promise.reject(new Error("host says no")), login: makeDeviceLogin({ spawnLogin: fakeLoginCli().spawnLogin }), run: noRun });
+    assert.match(/** @type {any} */ (await p.ask({ prompt: "x" })).message, /ABCD-12345/);
+    await new Promise((r) => setTimeout(r, 20));
+    assert.deepEqual(unhandled, []);
+  } finally {
+    process.removeListener("unhandledRejection", onUnhandled);
+  }
+});

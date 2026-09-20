@@ -371,7 +371,7 @@ process.once("exit", killDeviceLogins);
  * One device login at a time for the whole process: a second caller while a code is still
  * valid gets the same code, so a consensus round and a parallel ask never show two.
  * @param {{spawnLogin?: typeof defaultSpawnLogin, now?: () => number, killGraceMs?: number, promptWaitMs?: number, isClosed?: () => boolean}} [o]
- * @returns {{start: (env: Record<string, (string|undefined)>) => Promise<DeviceFlight>, cancel: () => void}}
+ * @returns {{start: (env: Record<string, (string|undefined)>) => Promise<DeviceFlight>, cancel: (which?: DeviceFlight) => void}}
  */
 function makeDeviceLogin(o = {}) {
   const spawnLogin = o.spawnLogin || defaultSpawnLogin;
@@ -379,7 +379,7 @@ function makeDeviceLogin(o = {}) {
   const killGraceMs = typeof o.killGraceMs === "number" ? o.killGraceMs : 5000;
   const promptWaitMs = typeof o.promptWaitMs === "number" ? o.promptWaitMs : DEVICE_PROMPT_WAIT_MS;
   const isClosed = o.isClosed || (() => loginsClosed);
-  /** @type {{finished:boolean, expiresAt:number, ready:Promise<DeviceFlight>, kill:()=>void}|null} */
+  /** @type {{finished:boolean, expiresAt:number, ready:Promise<DeviceFlight>, kill:()=>void, state:DeviceFlight}|null} */
   let flight = null;
 
   /** @param {Record<string, (string|undefined)>} env */
@@ -391,7 +391,7 @@ function makeDeviceLogin(o = {}) {
     /** @type {DeviceFlight} */
     const state = { ended: false, done: new Promise((r) => { finish = r; }) };
     /** @type {(v: DeviceFlight) => void} */ let settle = () => {};
-    const f = { finished: false, expiresAt: Infinity, kill: () => {}, ready: /** @type {Promise<DeviceFlight>} */ (new Promise((r) => { settle = r; })) };
+    const f = { finished: false, expiresAt: Infinity, kill: () => {}, state, ready: /** @type {Promise<DeviceFlight>} */ (new Promise((r) => { settle = r; })) };
     /** @param {string} error */
     const fail = (error) => {
       if (state.prompt || state.error) return;
@@ -441,9 +441,14 @@ function makeDeviceLogin(o = {}) {
       flight = launch(env);
       return flight.ready;
     },
-    // The user refused this code: end the login so it can never land.
-    cancel() {
-      if (flight && !flight.finished) { flight.finished = true; flight.kill(); }
+    // The user refused a code: end THAT login so it can never land. A refusal can arrive late
+    // (the dialog is never awaited), by which time this code may already have been replaced -
+    // so a stale decline must not kill the login that took its place.
+    cancel(which) {
+      if (!flight || flight.finished) return;
+      if (which && flight.state !== which) return;
+      flight.finished = true;
+      flight.kill();
     },
   };
 }
@@ -504,7 +509,7 @@ function loginMessage(prompt) {
  *   shows the link + code in the host's own UI (an MCP elicitation) and resolves with the user's
  *   action. "none" (no dialog, dismissed, error, timeout) keeps the code valid and it rides in
  *   the result; "decline" ends that login.
- * @param {{start: (env: Record<string, (string|undefined)>) => Promise<DeviceFlight>, cancel: () => void}} [opts.login]
+ * @param {{start: (env: Record<string, (string|undefined)>) => Promise<DeviceFlight>, cancel: (which?: DeviceFlight) => void}} [opts.login]
  *   the device-login manager (tests inject one with a fake CLI)
  * @returns {Provider & {login: (req?: Partial<DelegationRequest>) => Promise<LoginResult>}}
  */
@@ -574,8 +579,9 @@ function makeCodexProvider(opts = {}) {
         .then(() => confirmLogin(prompt, Math.max(0, prompt.expiresAt - Date.now()), dialog.signal))
         .then((action) => {
           // A refused code must not stay live, whenever the refusal arrives.
-          if (action === "decline") { login.cancel(); dialog.abort(); }
-        }, () => {});
+          if (action === "decline") { login.cancel(flight); dialog.abort(); }
+        }, () => {})
+        .catch(() => {}); // a host that rejects must never become an unhandled rejection
     }
     // A login that ended without landing has a dead code: say so rather than show it.
     if (flight.ended) return authError(started, `\`codex login --device-auth\` ended before the login landed: ${flight.error}. The next GPT call starts a fresh one.${tail}`, { status: "failed" });

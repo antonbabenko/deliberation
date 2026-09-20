@@ -458,10 +458,10 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         mode: "url",
         elicitationId: `codex-login-${prompt.code}`,
         url: prompt.url,
-        message: `GPT (Codex) needs a ChatGPT login on this machine. Open the link, sign in, and enter the code ${prompt.code} (expires in ${minutes} min). The code signs this machine's codex into your ChatGPT account: only continue if you are using GPT through deliberation in this session.`,
+        message: `GPT (Codex) needs a ChatGPT login on this machine. Open the link, sign in, and enter the code ${prompt.code} (expires in ${minutes} min). The code signs this machine's codex into your ChatGPT account: only continue if you are using GPT through deliberation in this session. Declining ends that login; if you had already approved it in the browser, run \`codex logout\` here to undo it.`,
       }
       : {
-        message: `GPT (Codex) needs a ChatGPT login on this machine.\n\n1. Open ${prompt.url}\n2. Sign in and enter the code ${prompt.code} (expires in ${minutes} min)\n\nThe code signs this machine's codex into your ChatGPT account: only continue if you are using GPT through deliberation in this session.\n\nAccept once you have approved it. Decline to go on without GPT for now; the code stays valid.`,
+        message: `GPT (Codex) needs a ChatGPT login on this machine.\n\n1. Open ${prompt.url}\n2. Sign in and enter the code ${prompt.code} (expires in ${minutes} min)\n\nThe code signs this machine's codex into your ChatGPT account: only continue if you are using GPT through deliberation in this session.\n\nAccept once you have approved it. Decline to end this login; if you had already approved it in the browser, run \`codex logout\` here to undo it.`,
         requestedSchema: { type: "object", properties: { approved: { type: "boolean", title: "I entered the code and approved the login", default: true } } },
       };
     const reply = await requestClient("elicitation/create", params, waitMs, signal);
