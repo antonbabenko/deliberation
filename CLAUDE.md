@@ -4,7 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-A Claude Code plugin that provides GPT (via Codex CLI), Gemini 3 (via the Antigravity CLI `agy`), Grok (via the xAI HTTP API), and OpenRouter (config-driven, advisory-only, 400+ models) as specialized expert subagents. Seven domain experts: Architect, Plan Reviewer, Scope Analyst, Code Reviewer, Security Analyst, Researcher, and Debugger. Only Gemini can advise OR implement. (GPT, Grok, and OpenRouter are advisory-only - they cannot edit files. Grok reads attached files via the xAI Files API; OpenRouter inlines text files only.)
+A Claude Code plugin that provides GPT (via Codex CLI), Gemini 3 (via the
+Antigravity CLI `agy`), Grok (via the xAI HTTP API), local models (via Ollama
+and LM Studio), and OpenRouter (config-driven, advisory-only, 400+ models) as
+specialized expert subagents. Seven domain experts: Architect, Plan Reviewer,
+Scope Analyst, Code Reviewer, Security Analyst, Researcher, and Debugger. Only
+Gemini can advise OR implement. (GPT, Grok, local models, and OpenRouter are
+advisory-only - they cannot edit files. Grok reads attached files via the xAI
+Files API; OpenRouter and local models inline text files only.)
 
 ## Development Commands
 
@@ -19,7 +26,12 @@ claude --plugin-dir /path/to/deliberation
 /deliberation:uninstall
 ```
 
-No build step, no dependencies. Codex exposes a native MCP server; Gemini, Grok, and OpenRouter use bundled zero-dependency Node bridges (`server/gemini/index.js`, `server/grok/index.js`, `server/openrouter/index.js`). The Gemini bridge wraps the Antigravity CLI (`agy`) in print mode. The OpenRouter bridge calls any OpenAI-compatible `/chat/completions` endpoint.
+No build step, no dependencies. Codex exposes a native MCP server; Gemini, Grok,
+and OpenRouter/local use bundled zero-dependency Node bridges
+(`server/gemini/index.js`, `server/grok/index.js`,
+`server/openrouter/index.js`). The Gemini bridge wraps the Antigravity CLI
+(`agy`) in print mode. The OpenAI-compatible bridge calls any
+`/chat/completions` endpoint (OpenRouter, Ollama, LM Studio).
 
 ## Architecture
 
@@ -263,6 +275,41 @@ When `orientation.enabled` is true, the server auto-attaches a small bundle of h
 13. **Another tool's subcommand is not an API, and a CLI that forwards is worse than one that errors** - `.claude-plugin/plugin.json` registered a `deliberation-codex` server as `codex mcp-server` for as long as that subcommand existed. codex-cli removed it (0.154.0 ships no MCP server mode; `codex mcp` manages *external* servers, `app-server` is a different protocol, and no `mcp-server` crate remains in `openai/codex`). The removal was invisible at the only moment it mattered: codex forwards an UNKNOWN subcommand to the interactive CLI, which exits on `Error: stdin is not a terminal` - exit 0, no stderr about a missing command - so the host reported `CONNECTION_CLOSED` and two tools (`codex` / `codex-reply`) stayed advertised, forever unable to answer ([issue #185](https://github.com/antonbabenko/deliberation/issues/185)). Same shape as #9 one layer down: a stub is not an answer, and a forwarded subcommand is not a server. The fix was deletion, not a probe - `core/providers/codex.js` already spawns `codex exec` (a subcommand that exists), and the Codex/Kiro host manifests already shipped only the unified server, so dropping the entry left ONE GPT path instead of two advertised ones. What the delete costs, honestly: GPT multi-turn (`codex-reply`) and GPT `workspace-write` - both already dead upstream, so the docs claiming them were the remaining bug. Implementation now means Gemini. The lesson generalises to every vendored CLI invocation: pin to the narrowest subcommand that the vendor documents as stable (`exec`), and treat "the process started but said nothing useful" as a failure signal, never as a connection.
 
 14. **The host's cap wins, so fail under it and name it; a peer that cannot answer is not a voice** - three independent defects made the plugin unusable in Claude Code on the web, each invisible from the error surface. (a) The web host exports `MCP_TOOL_TIMEOUT=60000` and kills any tool call at 60s; the provider ceilings (180-600s) were unreachable, so the host reported `tool "ask-grok" timed out after 60s` and the provider's own error path - `errorKind`, message, circuit-breaker input - never ran. `core/host-budget.js` reads the cap and clamps every ceiling to `cap - 5000` ms at the point it is applied (Codex `ask`, `runGrok`, `runGeminiOnce`, `callOpenRouter` - the standalone `/ask-*` bridges included); a timeout that fired because of the clamp says so in `message` (`Host MCP_TOOL_TIMEOUT=60000 caps every MCP tool call ...`). Review caught that a per-leg clamp alone re-arms the whole cap for every SEQUENTIAL leg (a retry, the arbiter passes of a round, Gemini's 120s drain after a 55s soft timeout = a 175s call under a 60s cap), so the server takes the clock at tool entry and every leg is stamped with what is LEFT (`fitToHostBudget` -> `req.hostBudgetRemainingMs`, a separate field so a shorter configured ceiling still wins; the adapters' clamp reads it); a retry whose backoff would not fit is not even slept on; the Grok fallback and stale-file retry spend the same budget; `runToConvergence` stops `budget-exhausted` once the cap is spent; and the Gemini drain is off under any cap (`graceWithinHostBudget`). Deliberately NOT a config key: the cap is the host's, so the fix (raise it where the host is launched) is named, not emulated. (b) Making the clamp fire exposed that Grok's ceiling was unenforceable while an SSE body was flowing: on Node 22 aborting the fetch signal does not reliably error a streaming body (chunks kept arriving 20s+ past the abort) and the `for await` loop holds the stream lock, so an outside `cancel()` is refused. `core/sse.js readSseStream` now takes the signal, races each `reader.read()` against it, and cancels the reader it owns - without awaiting the cancel, which is async and need not settle (review reproduced a pending `cancel()` holding the timeout hostage). (c) codex-cli 0.154 reads `CODEX_API_KEY` or `auth.json`, never `OPENAI_API_KEY` - the only key the web container exports - so every GPT call was `401 Missing bearer` after 17s of reconnects; `codexEnv()` forwards it under the name codex reads. And `codex.health()` was hardcoded `{ok:true}` while `antigravity.health()` checked only that the bridge object existed, so the panel kept listing peers with no CLI or no credential and every `/consensus` round paid to discover it. Health is now stat-only and real (`codexHealth`, `bridge.cliAvailable`), `registry.selectFor*` takes the `unhealthy` map and reports `unavailable[]` with reasons, and `panel` / `ask-all` / `consensus` / `consensus-step` all consult it before dispatch. The Gemini bridge's boot `process.exit(1)` when `agy` is missing stays: an honest `CONNECTION_CLOSED` beats a server advertising tools it cannot serve (#13), and the unified server now simply omits gemini. `/deliberation:doctor` reports all three. Rule of thumb: every ceiling in the process must be at or under the outermost one, or the outermost one is the only one that ever fires - and it is the one that says nothing.
+
+15. **Local Providers & Explicit Provider Attribution in `models`** - operators
+    frequently run local inference runtimes (Ollama, LM Studio) alongside
+    remote APIs, or configure multiple alternative Google/Gemini models (e.g.
+    `gemini-3.8-flash-high`, `gpt-oss-120b-medium`). Previously, `models` was
+    hardcoded to `"provider": "openrouter"`. In v1.1+, `models` records accept
+    `"provider": "openrouter" | "ollama" | "lmstudio" | "google"`. Keyless
+    local endpoints (`http://localhost:11434/v1` for Ollama and
+    `http://localhost:1234/v1` for LM Studio) execute without an API key.
+    To eliminate model ambiguity, shadowing, or silent model substitutions,
+    `core/registry.js formatDelegateName` explicitly attributes every delegate
+    in `panel`, `ask-all`, `consensus`, and `ask-one`: `google:<model>`,
+    `ollama:<model>`, `lmstudio:<model>`, and `openrouter:<alias>`. Model
+    slugs in `model` accept colons, dots, and slashes (e.g.
+    `nemotron-3-ultra:cloud`), while record IDs remain restricted to
+    `^[a-z0-9-]+$`.
+
+16. **Mandatory Temporal Grounding & Live RAG Verification** - all LLM models
+    suffer from training cutoff boundaries. When assessing plans or queries
+    involving modern tools, library versions, cloud offerings, or foundation
+    models released after a delegate's pre-training cutoff, ungrounded
+    delegates consistently commit false-negative errors, asserting that real
+    technologies are "hallucinated" or "fictional". To solve this, deliberation
+    implements the `/temporal-grounding` protocol: (a) determine current UTC
+    date (`date -u` or system metadata); (b) delta check: if current date is
+    3+ months past cutoff, static weights cannot be trusted as authoritative
+    for versioning or offerings; (c) strict prohibition on unverified negative
+    claims; (d) mandatory live RAG retrieval via AWS MCP (`call_aws`,
+    `suggest_aws_commands`), Terraform MCP (`search_providers`), and web
+    search (`search_web`, `read_url_content`); (e) inlining retrieved facts
+    into delegation prompts for `/ask-all` and `/consensus` so file-blind or
+    cutoff-bound subagents debate technical merits rather than false cutoff
+    objections. First-class slash commands (`/ask-all`, `/consensus`,
+    `/temporal-grounding`) are supported across Claude Code, Antigravity CLI,
+    and Codex CLI.
 
 ## Commit Conventions & Releases
 

@@ -9,19 +9,21 @@ this file is for everyone else.
 ## What deliberation is
 
 A single MCP server that exposes GPT (via the Codex CLI), Gemini 3 (via the
-Antigravity CLI), Grok (via the xAI API), and OpenRouter models (400+, advisory)
-as expert subagents. You stay the primary agent. When a task benefits from a
-second opinion or cross-model review, call one of the tools below, read the
-result, and apply your own judgment. Every tool here is ADVISORY: this server
-reads and reasons, it never edits your files. (Implementation exists only in the
-Claude Code plugin's standalone Gemini bridge, which this server does not expose.)
+Antigravity CLI), Grok (via the xAI API), local models (via Ollama and LM
+Studio), and OpenRouter models (400+, advisory) as expert subagents. You stay
+the primary agent. When a task benefits from a second opinion or cross-model
+review, call one of the tools below, read the result, and apply your own
+judgment. Every tool here is ADVISORY: this server reads and reasons, it never
+edits your files. (Implementation exists only in the Claude Code plugin's
+standalone Gemini bridge, which this server does not expose.)
 
 ## Tools
 
 Fan-out and single-provider:
 
-- `ask-all` - send one question to GPT, Gemini, Grok, and configured OpenRouter
-  models in parallel, get every answer back independently (no cross-talk).
+- `ask-all` - send one question to GPT, Gemini, Grok, local models (Ollama,
+  LM Studio), and configured OpenRouter models in parallel, get every answer
+  back independently (no cross-talk).
 - `consensus` - run the FULL multi-round convergence loop server-side with a provider
   arbiter (blind pass + peer fan-out -> adjudicate -> revise) and get the converged
   verdict in one call. Depth is `consensus.maxRounds` (config, default 5); pass
@@ -51,11 +53,12 @@ Fan-out and single-provider:
   right now (CLI not on PATH, no credential) with the reason - they are skipped by every
   fan-out, so report them once rather than treating them as errors. Read-only.
 - `ask-one { provider, prompt }` - one question to ONE provider named by `panel`
-  (e.g. `codex`, `grok`, `openrouter:<alias>`). The progress pattern: call `panel`, then
-  issue one `ask-one` per name **in a single turn** so they run concurrently and each
-  result lands independently as it finishes - visible per-provider progress with parallel
-  wall-time, instead of the one opaque `ask-all` call. (The single-call `ask-all` still
-  works; `ask-one` is the progressive alternative.)
+  (e.g. `codex`, `google:<model>`, `ollama:<model>`, `lmstudio:<model>`, `grok`,
+  `openrouter:<alias>`). The progress pattern: call `panel`, then issue one
+  `ask-one` per name **in a single turn** so they run concurrently and each
+  result lands independently as it finishes - visible per-provider progress
+  with parallel wall-time, instead of the one opaque `ask-all` call. (The
+  single-call `ask-all` still works; `ask-one` is the progressive alternative.)
 - `analyze` - read-only run analytics. Reads the opt-in debug log (per-model p50/p95/max
   latency over SUCCESSFUL calls, mean tokens, error rate, reasoning effort) and the session
   store (verdict agreement rate), then returns advisory tuning suggestions (disable a
