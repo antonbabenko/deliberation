@@ -13,14 +13,15 @@ Every expert supports two modes, chosen automatically from your request:
 | Advisory | `read-only` | Analysis, recommendations, reviews |
 | Implementation | `workspace-write` | Making changes, fixing issues |
 
-## OpenRouter config
+## Provider & Model config (OpenRouter, Ollama, LM Studio, Google)
 
-OpenRouter models are declared in `~/.config/deliberation/config.json` - the canonical
-XDG path (Windows: `%APPDATA%\deliberation\config.json`). You can override the path
-with `DELIBERATION_CONFIG`. The file is the live single source of
-truth: changes to `models`, `routing`, or the `providers.openrouter` block hot-reload
-without restarting Claude Code. Toggling a built-in provider (codex / gemini / grok)
-still requires `/setup`.
+OpenRouter, local models (Ollama, LM Studio), and Google models are declared in
+`~/.config/deliberation/config.json` - the canonical XDG path (Windows:
+`%APPDATA%\deliberation\config.json`). You can override the path with
+`DELIBERATION_CONFIG`. The file is the live single source of truth: changes to
+`models`, `routing`, or provider blocks (`openrouter`, `ollama`, `lmstudio`)
+hot-reload without restarting Claude Code. Toggling built-in CLI providers
+(codex / gemini / grok) still requires `/setup`.
 
 The config has six sections: `providers` (transport / connection per provider),
 `models` (named model records keyed by id), `routing` (fan-out policy),
@@ -29,7 +30,7 @@ arbiter pre-vote), `sessions` (opt-in run persistence; default off - see
 [Session persistence](#session-persistence)), and `debug` (opt-in debug log; default off).
 The `$schema` key gives editors validation and autocomplete - VS Code needs no extension.
 
-Minimal example:
+Example configuration:
 
 ```json
 {
@@ -38,8 +39,10 @@ Minimal example:
   "providers": {
     "defaults": { "timeout": 600000 },
     "codex":  { "enabled": true },
-    "gemini": { "enabled": true, "model": "auto-gemini-3" },
+    "gemini": { "enabled": true, "model": "gemini-3.8-flash-high" },
     "grok":   { "enabled": true, "apiKeyEnv": "XAI_API_KEY", "model": "grok-4.6", "reasoningEffort": "high" },
+    "ollama": { "enabled": true, "apiBase": "http://localhost:11434/v1" },
+    "lmstudio": { "enabled": true, "apiBase": "http://localhost:1234/v1" },
     "openrouter": {
       "enabled": true,
       "apiKeyEnv": "OPENROUTER_API_KEY",
@@ -49,9 +52,21 @@ Minimal example:
     }
   },
   "models": {
-    "gpt-4-or": {
-      "provider": "openrouter",
-      "model": "openai/gpt-4.1",
+    "gemini-flash": {
+      "provider": "google",
+      "model": "gemini-3.8-flash-high",
+      "askAll": true,
+      "consensus": true
+    },
+    "nemotron-local": {
+      "provider": "ollama",
+      "model": "nemotron-3-ultra:cloud",
+      "askAll": true,
+      "consensus": false
+    },
+    "deepseek-local": {
+      "provider": "lmstudio",
+      "model": "deepseek-r1-distill-qwen-14b",
       "askAll": true,
       "consensus": false
     },
@@ -75,9 +90,33 @@ round to `<XDG cache>/deliberation/debug.jsonl` (override with `debug.path` or
 `DELIBERATION_DEBUG_LOG`): latency, reasoning effort, HTTP token usage, and voting/approval
 outcomes - never prompts, responses, or issue text. Useful for debugging slow runs.
 
-Browse model slugs at [openrouter.ai/models](https://openrouter.ai/models?input_modalities=text);
-the `model` field takes any slug listed there. Each record's `provider` must be
-`"openrouter"` in v1 (codex / gemini / grok are managed by their own CLI / API).
+### Supported model providers
+
+Each record in `models` requires a `provider` and a `model` slug:
+
+- `"openrouter"`: routes through OpenRouter API (requires `OPENROUTER_API_KEY`).
+  Browse model slugs at [openrouter.ai/models](https://openrouter.ai/models).
+- `"ollama"`: routes to local Ollama. Defaults to `http://localhost:11434/v1`,
+  keyless (no API key required). Supports model tags with colons, dots, and
+  slashes (e.g. `nemotron-3-ultra:cloud`, `llama3.3:70b`, `glm-5.3:cloud`).
+- `"lmstudio"` (or `"llmstudio"`): routes to local LM Studio. Defaults to
+  `http://localhost:1234/v1`, keyless (no API key required).
+- `"google"` (or `"gemini"`): routes through the Antigravity CLI (`agy`) with
+  explicit model pinning (e.g. `gemini-3.8-flash-high`, `gpt-oss-120b-medium`),
+  bypassing default model drift.
+
+### Explicit provider attribution
+
+All models participating in `panel`, `ask-all`, `consensus`, and `ask-one` are
+transparently attributed in responses:
+- `google:<model>` (e.g., `google: gemini-3.8-flash-high`)
+- `ollama:<model>` (e.g., `ollama: nemotron-3-ultra:cloud`)
+- `lmstudio:<model>` (e.g., `lmstudio: deepseek-r1-distill-qwen-14b`)
+- `openrouter:<alias>` (e.g., `openrouter: claude-arb`)
+
+This guarantees that both the operator and primary agent always know which
+exact runtime and model provided each critique or verdict, avoiding accidental
+model shadowing or loss of multi-model independence.
 
 `providers.gemini.model` and `providers.grok.model` pin those two providers without
 touching their own config files. Precedence for both: per-call `model` argument, then
@@ -236,7 +275,40 @@ in-flight call. Implementation tasks always route to Gemini - GPT, Grok, and Ope
 For the full schema, the `$schema` / VS Code validation story, apiBase override matrix
 (Ollama, vLLM, LM Studio, HuggingFace), file-attachment caps, session model persistence,
 consensus cost model, and error kinds, see
-[TECHNICAL.md - OpenRouter bridge](TECHNICAL.md#openrouter-bridge).
+[TECHNICAL.md - OpenAI-compatible bridge (OpenRouter, Ollama, LM Studio)](TECHNICAL.md#openai-compatible-bridge-openrouter-ollama-lm-studio).
+
+## Temporal Grounding & Live RAG Protocol
+
+When evaluating modern tools, library versions, cloud features, or recent model
+releases, models relying exclusively on static training weights are prone to
+knowledge cutoff errors - frequently asserting that modern tools or models are
+"hallucinated" or "fictional".
+
+To prevent knowledge-cutoff discrepancies, deliberation provides the
+`/deliberation:temporal-grounding` slash command (or `/temporal-grounding` alias
+on supported hosts):
+
+1. **Current Date Lookup**: Always establish the real-world date using a tool
+   call (e.g. `date -u` or system environment metadata).
+2. **Knowledge Cutoff Delta Check**: If the current date is 3+ months after the
+   model's pre-training cutoff date, static weights MUST NOT be trusted as
+   authoritative for model lineups, tool versions, or feature availability.
+3. **Strict Prohibition on Unverified Negative Claims**: Agents are strictly
+   FORBIDDEN from claiming or asserting that a model, tool, API, feature, or
+   version is "hallucinated", "fictional", or "non-existent" without first
+   performing live verification.
+4. **Mandatory Live Tool Retrieval (RAG)**:
+   - **AWS & Bedrock**: Use AWS MCP tools (`call_aws`, `suggest_aws_commands`,
+     `search_cdk_documentation`, `search_cloudformation_documentation`) or
+     AWS CLI to verify live service availability and model IDs.
+   - **Terraform / IaC**: Use Terraform MCP tools (`search_providers`,
+     `get_latest_provider_version`, `get_provider_details`).
+   - **Web Search & Documentation**: Use `search_web` and `read_url_content`
+     to retrieve official provider documentation, release notes, or pricing.
+5. **Ground Deliberation Delegates**: When dispatching questions to
+   deliberation subagents (`/ask-all`, `/consensus`, `ask-one`), inline the
+   retrieved live facts directly into the delegation prompt so file-blind or
+   cutoff-bound delegates do not fall victim to knowledge cutoff errors.
 
 ## Session persistence
 

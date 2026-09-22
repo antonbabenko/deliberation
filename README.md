@@ -1,6 +1,10 @@
 # Deliberation
 
-Get a second opinion in Claude Code from GPT, Gemini, and Grok - plus 400+ more models through OpenRouter, including Qwen, Kimi, and DeepSeek. Seven domain experts (Architect, Code Reviewer, Security Analyst, and four more) review your plans, find bugs, and debate edge cases until they agree.
+Get a second opinion in Claude Code from GPT, Gemini, and Grok - plus local
+models (via Ollama and LM Studio) and 400+ more models through OpenRouter,
+including Qwen, Kimi, and DeepSeek. Seven domain experts (Architect, Code
+Reviewer, Security Analyst, and four more) review your plans, find bugs, and
+debate edge cases until they agree.
 
 ![Four chairs at the table: Claude, GPT, Gemini, Grok - one verdict you can ship](assets/agents.png)<br>Recent blog post: [Meet Deliberation: 400+ models is easy, knowing which ones earn a place is hard.](https://builder.aws.com/content/3Eaq94hQW8HywInrVaQm9qNih1P/meet-deliberation-400-models-is-easy-knowing-which-ones-earn-a-place-is-hard)
 
@@ -31,19 +35,24 @@ When three models argue, the real bug reveals itself. Round 1 = independent top 
 
 ## What is Deliberation?
 
-Claude can ask GPT, Gemini, Grok, or any OpenAI-compatible model (via OpenRouter) for help
-through MCP. The plugin handles the wiring for each provider so you just write the prompt.
-Each expert has a distinct specialty and can advise or implement.
+Claude can ask GPT, Gemini, Grok, local models (Ollama, LM Studio), or any
+OpenAI-compatible model (via OpenRouter) for help through MCP. The plugin
+handles the wiring for each provider so you just write the prompt. Each expert
+has a distinct specialty and can advise or implement.
 
-You can use any subset of the providers. The plugin detects which are configured and routes
-accordingly. OpenRouter is advisory-only and config-driven: models are declared in
-`~/.config/deliberation/config.json` (Windows: `%APPDATA%\deliberation\config.json`; override
-with `DELIBERATION_CONFIG`) and hot-reload without restarting Claude Code.
+You can use any subset of the providers. The plugin detects which are configured
+and routes accordingly. Local and OpenRouter models are advisory-only and
+config-driven: models are declared in `~/.config/deliberation/config.json`
+(Windows: `%APPDATA%\deliberation\config.json`; override with
+`DELIBERATION_CONFIG`) and hot-reload without restarting Claude Code.
+Delegate responses are transparently attributed with their provider and model
+(e.g., `google: gemini-3.8-flash-high`, `ollama: nemotron-3-ultra:cloud`,
+`lmstudio: deepseek-r1-distill-qwen-14b`, `openrouter: claude-arb`).
 
 | What you get | Why it matters |
 |--------------|----------------|
 | 7 domain experts | The right specialist for each problem type |
-| GPT, Gemini, Grok, or OpenRouter models | Use your preferred provider(s) |
+| GPT, Gemini, Grok, local, or OpenRouter models | Use your preferred provider(s) |
 | Dual mode | Experts analyze (read-only) or implement (write) |
 | Auto-routing | Claude detects when to delegate from your request |
 | Synthesized responses | Claude interprets expert output, never raw passthrough |
@@ -67,7 +76,9 @@ with `DELIBERATION_CONFIG`) and hot-reload without restarting Claude Code.
 /deliberation:setup
 ```
 
-Claude now routes complex tasks to your GPT, Gemini, Grok, and OpenRouter experts (GPT, Grok, and OpenRouter advise; only Gemini can also implement).
+Claude now routes complex tasks to your GPT, Gemini, Grok, local, and
+OpenRouter experts (GPT, Grok, local, and OpenRouter advise; only Gemini can
+also implement).
 
 > **Setup is a one-time step.** The MCP servers are registered by the plugin manifest, so they load
 > automatically and stay current across updates.
@@ -172,6 +183,13 @@ You need at least one provider:
 - **Codex CLI** (GPT): `npm install -g @openai/codex`, then `codex login` (ChatGPT subscription; `codex login --device-auth` on a remote machine, one login per machine). A ChatGPT Business/Enterprise workspace can set `CODEX_ACCESS_TOKEN` instead. With neither, codex uses `CODEX_API_KEY`; `OPENAI_API_KEY` is never used.
 - **Antigravity CLI**: [Getting Started with Antigravity CLI](https://antigravity.google/docs/cli-getting-started) and [Migrating from Gemini CLI](https://antigravity.google/docs/gcli-migration), then run `agy` and login.
 - **Grok (xAI)**: no CLI to install; the bridge ships with the plugin (needs Node 18+). Set `XAI_API_KEY` (get a key at https://console.x.ai).
+- **Ollama (local)**: keyless local models via `http://localhost:11434/v1`
+  (default port 11434; override with `providers.ollama.apiBase`). Declare
+  models in `config.json` with `"provider": "ollama"` and model tags (e.g.,
+  `nemotron-3-ultra:cloud`, `llama3.3:70b`).
+- **LM Studio (local)**: keyless local models via `http://localhost:1234/v1`
+  (default port 1234; override with `providers.lmstudio.apiBase`). Declare
+  models in `config.json` with `"provider": "lmstudio"`.
 - **OpenRouter**: no CLI; the bridge ships with the plugin (needs Node 18+). Set `OPENROUTER_API_KEY` (get a key at https://openrouter.ai/keys), then declare models in `~/.config/deliberation/config.json` (Windows: `%APPDATA%\deliberation\config.json`; override with `DELIBERATION_CONFIG`). Works with any OpenAI-compatible endpoint (Ollama, vLLM, LM Studio, HuggingFace Inference) - auth is skipped automatically when the key env var is empty.
 
 **Windows note (CLI providers).** `npm install -g` on Windows installs a `codex.cmd` shim, not an
@@ -207,7 +225,8 @@ Bundled with the plugin (available once installed):
 | `/deliberation:doctor` | Health check (config, provider CLIs, sessions/debug, path drift) with fixes; read-only |
 | `/deliberation:codex-login` | Log GPT (Codex) in on this machine with a ChatGPT device login - shows a link + code; for web and headless sessions |
 | `/deliberation:consensus` | 🔥🔥🔥 Arbiter-mediated GPT + Gemini + Grok + Claude convergence loop |
-| `/deliberation:ask-all` | 🔥 GPT + Gemini + Grok (+ configured OpenRouter models) in parallel, synthesized |
+| `/deliberation:ask-all` | 🔥 GPT + Gemini + Grok + local (+ configured OpenRouter) in parallel, synthesized |
+| `/deliberation:temporal-grounding` | Ground analysis with live date & tool RAG to prevent cutoff false-positives |
 | `/deliberation:ask-gpt` | One-shot GPT (Codex) second opinion |
 | `/deliberation:ask-gemini` | One-shot Gemini second opinion |
 | `/deliberation:ask-grok` | One-shot Grok (xAI) second opinion (advisory-only) |
@@ -216,7 +235,15 @@ Bundled with the plugin (available once installed):
 | `/deliberation:uninstall` | Remove MCP config, rules, and aliases |
 | `/deliberation:grok-files` | List, prune, or gc Grok-uploaded files (storage + local cache cleanup) |
 
-`/setup` can also install short aliases (`/ask-gpt`, `/ask-gemini`, `/ask-grok`, `/ask-openrouter`, `/ask-all`, `/consensus`) into `~/.claude/commands/`. This is opt-in. Existing same-named commands are kept by default; setup asks before overwriting any of them. `/deliberation:uninstall` removes an alias only if it is byte-identical to the bundled copy.
+`/setup` can also install short aliases (`/ask-gpt`, `/ask-gemini`, `/ask-grok`,
+`/ask-openrouter`, `/ask-all`, `/consensus`, `/temporal-grounding`) into
+`~/.claude/commands/`. This is opt-in. Existing same-named commands are kept by
+default; setup asks before overwriting any of them. `/deliberation:uninstall`
+removes an alias only if it is byte-identical to the bundled copy.
+
+On Google Antigravity (AGY) and Codex CLI, slash commands are natively exposed
+as top-level actions (including `/ask-all`, `/consensus`, and
+`/temporal-grounding`) with full prompt completion and UI dropdown discovery.
 
 `analyze` is deliberately excluded: `/analyze` is a common name and a bare copy collides with any other plugin that ships one. Use `/deliberation:analyze`, which is always available. If an earlier setup installed `~/.claude/commands/analyze.md`, setup now points out the path so you can delete it. `/deliberation:uninstall` also lists `analyze`, but its byte-identical guard only matches a copy of the *current* bundled file - an alias copied from an older release will differ and is deliberately left alone rather than deleted on a guess.
 
@@ -299,6 +326,39 @@ The same engine backs the entry points other hosts use: the `consensus` tool (ru
 
 </details>
 
+## Mandatory Temporal Grounding & Live RAG Verification
+
+When autonomous agents or deliberation experts evaluate plans, modern versions,
+cloud offerings, tools, or model lineages, static weights can cause severe
+knowledge cutoff issues. When ungrounded models encounter tools, libraries, or
+model versions released after their training cutoffs, they frequently falsely
+claim that these modern offerings are "hallucinations" or "fictional".
+
+To eliminate knowledge cutoff discrepancies and false claims, deliberation
+provides the `/temporal-grounding` protocol and skill:
+
+1. **Current Date Lookup**: Always establish the real-world date using a tool
+   call (e.g. `date -u` or system environment metadata).
+2. **Knowledge Cutoff Delta Check**: If the current date is 3+ months past the
+   model's pre-training cutoff date, static weights MUST NOT be trusted as
+   authoritative for model lineups, tool versions, or feature availability.
+3. **Strict Prohibition on Unverified Negative Claims**: Agents are strictly
+   FORBIDDEN from claiming or asserting that a model, tool, API, feature, or
+   version is "hallucinated", "fictional", or "non-existent" without first
+   performing live verification.
+4. **Mandatory Live Tool Retrieval (RAG)**:
+   - **AWS & Bedrock**: Use AWS MCP tools (`call_aws`, `suggest_aws_commands`,
+     `search_cdk_documentation`, `search_cloudformation_documentation`) or
+     AWS CLI to verify live service availability and model IDs.
+   - **Terraform / IaC**: Use Terraform MCP tools (`search_providers`,
+     `get_latest_provider_version`, `get_provider_details`).
+   - **Web Search & Documentation**: Use `search_web` and `read_url_content`
+     to retrieve official provider documentation, release notes, or pricing.
+5. **Ground Deliberation Delegates**: When dispatching questions to
+   deliberation subagents (`/ask-all`, `/consensus`, `ask-one`), inline the
+   retrieved live facts directly into the delegation prompt so file-blind or
+   cutoff-bound delegates do not fall victim to knowledge cutoff errors.
+
 ## Configuration
 
 Full setup and configuration reference lives in **[SETUP.md](SETUP.md)**. It covers:
@@ -306,7 +366,13 @@ Full setup and configuration reference lives in **[SETUP.md](SETUP.md)**. It cov
 - **Expert modes** - advisory (`read-only`) vs implementation (`workspace-write`), chosen automatically from your request
 - **Config file** - location (`~/.config/deliberation/config.json`), the `DELIBERATION_CONFIG` override, and hot-reload
 - **The six config sections** - `providers`, `models`, `routing`, `consensus`, `sessions`, `debug` - with a minimal example
-- **OpenRouter models** - declaring records, `askAll` / `consensus` eligibility, fan-out, `reasoningEffort`, and arbiter selection; `consensus` also configures the round cap (`maxRounds`) and wall-time budget (`maxWallMs`, default 30 min)
+- **Local & OpenRouter models** - declaring records with
+  `"provider": "openrouter" | "ollama" | "lmstudio" | "google"`, `askAll` /
+  `consensus` eligibility, transparent provider attribution (`google:...`,
+  `ollama:...`, `lmstudio:...`, `openrouter:...`), tag syntax with
+  colons/dots/slashes, fan-out, `reasoningEffort`, and arbiter selection;
+  `consensus` also configures the round cap (`maxRounds`) and wall-time budget
+  (`maxWallMs`, default 30 min)
 - **Timeouts** - `providers.defaults.timeout` raises the per-call ceiling for every provider at once; `providers.<name>.timeout` overrides one, and a pinned model's `models.<id>.timeout` still wins. A host cap (`MCP_TOOL_TIMEOUT`, set by Claude Code on the web) clamps all of them and is named in the timeout message. A rate-limited (HTTP 429) call is retried once, honoring the upstream's `Retry-After`
 - **Debug log** - opt-in latency / token / voting trace
 - **Session persistence** - opt-in on-disk run history (incl. the host-driven `/consensus` loop) and the `session-*` tools; `sessions.captureText` (default off) additionally stores provider response bodies (scrubbed)
