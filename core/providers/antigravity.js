@@ -5,6 +5,7 @@ const { toErrorResult } = require("../provider.js");
 /**
  * @param {Object} [opts]
  * @param {Object} [opts.bridge]
+ * @param {string} [opts.name]
  * @param {string} [opts.model]
  * @param {boolean} [opts.allowImplement]  construction-time lock (first of two AND-ed locks).
  *   When false/absent, this provider is read-only no matter what `req.mode` says. Set ONLY in a
