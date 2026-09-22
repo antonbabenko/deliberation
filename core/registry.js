@@ -7,6 +7,10 @@
  * @typedef {Object} OrModel
  * @property {string}  alias
  * @property {string}  model
+ * @property {string}  [provider]
+ * @property {string}  [apiBase]
+ * @property {string}  [apiKey]
+ * @property {string}  [apiKeyEnv]
  * @property {boolean} [askAll]
  * @property {boolean} [consensus]
  * @property {(string[]|null)} [experts]
@@ -26,6 +30,9 @@
  * Per-provider enable flags from the loaded config.
  * @typedef {Object} ProviderFlag
  * @property {boolean} [enabled]
+ * @property {string}  [apiBase]
+ * @property {string}  [apiKeyEnv]
+ * @property {string}  [model]
  */
 
 /**
@@ -75,6 +82,7 @@ const BUILTINS = ["codex", "gemini", "grok"];
 // alias model and re-labels the result. This is the issue-001 fix: selection
 // AND dispatch happen inside one server call, so the orchestrator never names
 // an alias and a disabled one cannot leak from a stale cache.
+/** @param {OrModel|any} m */
 function formatDelegateName(m) {
   const prov = m.provider || "openrouter";
   if (prov === "openrouter") {
@@ -217,15 +225,17 @@ function makeRegistry(providers) {
   const pinDelegates = (delegates, config) => {
     const orProvider = byName.get("openrouter");
     const geminiProvider = byName.get("gemini") || byName.get("google");
-    return delegates
-      .map((/** @type {OrModel} */ d) => {
-        const prov = d.provider || "openrouter";
-        if ((prov === "google" || prov === "gemini") && geminiProvider) {
-          return pinGoogleAlias(geminiProvider, d, config);
-        }
-        return orProvider ? pinAlias(orProvider, d, config) : null;
-      })
-      .filter(Boolean);
+    /** @type {Provider[]} */
+    const res = [];
+    for (const d of delegates) {
+      const prov = d.provider || "openrouter";
+      if ((prov === "google" || prov === "gemini") && geminiProvider) {
+        res.push(pinGoogleAlias(geminiProvider, d, config));
+      } else if (orProvider) {
+        res.push(pinAlias(orProvider, d, config));
+      }
+    }
+    return res;
   };
 
   return {

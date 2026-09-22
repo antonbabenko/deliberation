@@ -1260,7 +1260,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       );
       if (!p) {
         const models = (cfg.openrouter && cfg.openrouter.models) || [];
-        const matchModel = models.find((m) =>
+        const matchModel = models.find((/** @type {any} */ m) =>
           m && (want === m.alias || (formatDelegateName && want === formatDelegateName(m)) || want === `${m.provider}:${m.alias}` || want === `${m.provider}:${m.model}` || (m.model && want === m.model))
         );
         if (matchModel) {
