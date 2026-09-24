@@ -1527,7 +1527,8 @@ Notes:
   so a prose rule telling them to run `date -u` or search the web could never be
   followed. The host (Claude, or any agent reading `AGENTS.md`) is told to verify
   time-sensitive facts with its own retrieval and inline them with an as-of date and
-  source ("Time-sensitive questions" in `AGENTS.md`; the ask-all and consensus commands).
+  source ("Time-sensitive questions" in `AGENTS.md`; every `/ask-*` command and `/consensus`;
+  the CONTEXT section of `rules/delegation-format.md`).
 - **The rule travels with the date.** A date alone still lets a model reject a name it
   does not know; the no-denial clause is what turns that into `[unverified]`.
 - **Not in the personas.** `prompts/*.md` are unchanged. The note is short because it is

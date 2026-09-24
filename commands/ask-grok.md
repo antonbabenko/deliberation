@@ -32,6 +32,7 @@ User question or topic: $ARGUMENTS
    - Verbatim user question from `$ARGUMENTS`
    - Relevant code snippets / file paths from current conversation context (attach local files Grok should read via `files` in step 4; inline small snippets directly)
    - Any specific constraints user has mentioned this session
+   - Time-sensitive facts: when the question turns on latest or current versions, pricing, a roadmap, or whether a model or tool exists, verify it with your own tools first and add the facts with as-of date and source (the delegate gets today's date from the server but cannot look anything up)
 
 4. **Call Grok** - single-shot, advisory:
    ```
