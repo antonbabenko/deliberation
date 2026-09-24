@@ -200,13 +200,17 @@ jobs:
       # Best-effort (never reds a release) and idempotent: a hidden marker per
       # tag skips PRs already commented, so a retry dispatch posts nothing twice.
       - name: Comment on released PRs
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
           TAG: ${{ steps.ver.outputs.tag }}
           VERSION: ${{ steps.ver.outputs.version }}
         run: |
-          set -uo pipefail
+          # The default shell is `bash -e`; turn -e off so an empty grep or one
+          # failed API call can never abort the step (continue-on-error is the
+          # backstop if this script ever regresses).
+          set +e -uo pipefail
           PREV="$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)"
           if [ -z "$PREV" ]; then
             echo "No tag before ${TAG}; nothing to comment on."; exit 0
@@ -215,7 +219,7 @@ jobs:
           # set without it, and is filtered out anyway.
           PRS="$(git log "${PREV}..${TAG}" --format=%s \
             | grep -v '^chore(release):' \
-            | grep -oE '\(#[0-9]+\)$' | tr -d '(#)' | sort -un)"
+            | grep -oE '\(#[0-9]+\)$' | tr -d '(#)' | sort -un || true)"
           if [ -z "$PRS" ]; then
             echo "No PRs between ${PREV} and ${TAG}."; exit 0
           fi
@@ -238,10 +242,16 @@ jobs:
           **MCP server (any host):** [`@antonbabenko/deliberation-mcp@@VERSION@`](https://www.npmjs.com/package/@antonbabenko/deliberation-mcp/v/@VERSION@) is published. Restart your host to pick it up.
           EOF
           sed -i -e "s|@MARKER@|${MARKER}|" -e "s|@TAG@|${TAG}|g" \
-            -e "s|@REPO@|${REPO}|g" -e "s|@VERSION@|${VERSION}|g" /tmp/comment.md
+            -e "s|@REPO@|${REPO}|g" -e "s|@VERSION@|${VERSION}|g" /tmp/comment.md \
+            || { echo "::warning::could not render the comment; skipping."; exit 0; }
           for PR in $PRS; do
-            if gh api "repos/${REPO}/issues/${PR}/comments" --paginate --jq '.[].body' 2>/dev/null \
-                | grep -qF "$MARKER"; then
+            # Read all comments first: a failed read must skip (never post
+            # blind), and grep -q on a live pipe could SIGPIPE gh under pipefail.
+            if ! BODIES="$(gh api "repos/${REPO}/issues/${PR}/comments" --paginate --jq '.[].body')"; then
+              echo "::warning::could not read comments on #${PR}; skipping."
+              continue
+            fi
+            if grep -qF "$MARKER" <<<"$BODIES"; then
               echo "#${PR}: already commented for ${TAG}; skipping."
               continue
             fi
