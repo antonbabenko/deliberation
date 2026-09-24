@@ -278,6 +278,8 @@ The four guards:
 
 The `/ask-*` commands carry a lighter version of the same rule. The external model only advises: Claude reads the output, applies its own judgment, and owns the synthesized answer. When the models agree, that is input, not a verdict.
 
+Every delegate prompt also carries today's UTC date and a rule against calling an unrecognized model, tool, or version non-existent from memory: a model trained months ago marks such a claim `[unverified]` instead of filing it as a critical issue. Looking up the actual facts stays with Claude, which has tools; Grok and OpenRouter have none. See [TECHNICAL.md](TECHNICAL.md#date-grounding).
+
 <details>
 <summary>Deep dive: how a single /consensus round actually runs</summary>
 

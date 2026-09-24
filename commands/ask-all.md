@@ -60,6 +60,11 @@ User question or topic: $ARGUMENTS
    synthesis ("file-blind delegates answered without repo source; discount their
    specificity").
 
+   **Time-sensitive facts:** delegates get today's UTC date and a no-denial rule from
+   the server, but cannot retrieve anything. When the question turns on latest or
+   current versions, pricing, a roadmap, or whether a model or tool exists, verify it
+   with your own tools first and put the facts, with as-of date and source, in the `prompt`.
+
    **Server auto-attach (if configured):** when `orientation.enabled` is `true` in
    `config.json`, the server automatically attaches the orientation bundle to file-blind
    delegates that carry no files of their own - so the manual embedding above becomes

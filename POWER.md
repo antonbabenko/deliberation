@@ -160,6 +160,14 @@ These apply to every MCP host, not just Claude Code:
 Skip delegation for simple edits, the first attempt at a fix, and trivial
 questions you can answer directly.
 
+**Time-sensitive questions.** Every delegate prompt already carries today's UTC
+date and a rule not to call an unrecognized model, tool, or version
+non-existent. Delegates still cannot look anything up (Grok and OpenRouter have
+no tools). When the question turns on latest or current versions, pricing, a
+roadmap, or whether a model or tool exists, verify it first with whatever
+retrieval this host has, and put the facts in the delegation prompt with their
+as-of date and source.
+
 ## Updating
 
 If you run the standalone server via `npx -y @antonbabenko/deliberation-mcp`,

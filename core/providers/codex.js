@@ -7,6 +7,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { resolveCommand, commandOnPath, shimMessage } = require("../resolve-bin.js");
 const { clampToHostBudget, annotateTimeout, spendHostBudget } = require("../host-budget.js");
+const { groundingNote } = require("../grounding.js");
 
 // npm ships @openai/codex with `bin: {"codex": "bin/codex.js"}` and zero dependencies, so on
 // Windows - where npm installs a `codex.cmd` shim Node cannot spawn (issue #170) - the real JS
@@ -603,7 +604,9 @@ function makeCodexProvider(opts = {}) {
   async function runOnce(req, started) {
     // Two-lock gate: write only when constructed write-capable AND this call explicitly asks.
     const mode = allowImplement && req.mode === "implement" ? "implement" : "advisory";
-    const full = req.developerInstructions ? `${req.developerInstructions}\n\n---\n\n${req.prompt}` : req.prompt;
+    // Date grounding rides with the instructions, above the separator (see core/grounding.js).
+    const head = req.developerInstructions ? `${req.developerInstructions}\n\n${groundingNote()}` : groundingNote();
+    const full = `${head}\n\n---\n\n${req.prompt}`;
     // Effective ceiling: explicit per-call wins, else the construction default,
     // else the module default. Always a positive number, so defaultRun's kill
     // timer is ALWAYS armed - no Codex call can run unbounded.

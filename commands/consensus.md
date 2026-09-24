@@ -194,6 +194,11 @@ in-memory `LoopState` for that `sessionId` may be gone, so recover by re-running
    the comparison is fair. Refresh it in a `submit_revision` `revisedPlan` only if the
    plan's touch-set changes. Purely conceptual loops need no such context.
 
+   **Time-sensitive facts:** voices get today's UTC date and a no-denial rule from the
+   server, but cannot retrieve anything. When the plan turns on latest or current
+   versions, pricing, a roadmap, or whether a model or tool exists, verify it with your
+   own tools first and put the facts, with as-of date and source, in the `init` `prompt`.
+
    **Server auto-attach (if configured):** when `orientation.enabled` is `true` in
    `config.json`, the server auto-attaches the orientation bundle to file-blind voices
    that carry no files of their own on `dispatch_peers` AND on the arbiter blind pass.
