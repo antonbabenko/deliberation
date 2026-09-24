@@ -1523,7 +1523,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         // that line (quotes, spacing, key order) - the sync would silently stop finding it.
         // Deliberately not restated here: a comment carrying that shape would shadow the
         // real line and the sync would rewrite the comment instead.
-        return { jsonrpc: "2.0", id: msg.id, result: { protocolVersion, capabilities: { tools: {}, logging: {} }, serverInfo: { name: "deliberation-mcp", version: "3.17.0" } } };
+        return { jsonrpc: "2.0", id: msg.id, result: { protocolVersion, capabilities: { tools: {}, logging: {} }, serverInfo: { name: "deliberation-mcp", version: "3.17.1" } } };
       }
       if (msg.method === "logging/setLevel") {
         const level = msg.params && msg.params.level;

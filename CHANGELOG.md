@@ -1,3 +1,10 @@
+## [3.17.1](https://github.com/antonbabenko/deliberation/compare/v3.17.0...v3.17.1) (2026-09-24)
+
+
+### Bug Fixes
+
+* comment on each released PR with its version and how to update ([#207](https://github.com/antonbabenko/deliberation/issues/207)) ([aea7f85](https://github.com/antonbabenko/deliberation/commit/aea7f85b2df6539f4d3256196cc047e7b5ae5a20))
+
 ## [3.17.0](https://github.com/antonbabenko/deliberation/compare/v3.16.1...v3.17.0) (2026-09-24)
 
 
@@ -25,11 +32,4 @@
 ### Features
 
 * **codex:** log in on first use via device auth; recognize CODEX_ACCESS_TOKEN and rotated ChatGPT logins ([#198](https://github.com/antonbabenko/deliberation/issues/198)) ([b914dae](https://github.com/antonbabenko/deliberation/commit/b914dae1527cdff1590405625be6955a918a5e2b))
-
-## [3.14.11](https://github.com/antonbabenko/deliberation/compare/v3.14.10...v3.14.11) (2026-09-18)
-
-
-### Bug Fixes
-
-* **codex:** prefer the ChatGPT login and never use OPENAI_API_KEY ([#196](https://github.com/antonbabenko/deliberation/issues/196)) ([0b57922](https://github.com/antonbabenko/deliberation/commit/0b5792248c09fed0d022f112cf9ce6f44e70a3db))
 
