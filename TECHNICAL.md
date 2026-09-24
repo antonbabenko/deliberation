@@ -1508,8 +1508,8 @@ consensus round. `core/grounding.js` `groundingNote()` returns one short paragra
 
 > Current date (UTC): YYYY-MM-DD. Your training data may predate it. Do not call a
 > model, tool, library, API, or version hallucinated, fictional, or non-existent only
-> because you do not recognize it; if you cannot confirm it from this message or your
-> own tools, mark the claim [unverified] and say what would confirm it.
+> because you do not recognize it; if you cannot confirm it from this message or from
+> tools you actually have (if any), mark the claim [unverified] and say what would confirm it.
 
 Every prompt builder adds it, so it reaches every delegate on every path (unified
 server tools, consensus peers, arbiter passes, and the standalone `/ask-*` bridges):

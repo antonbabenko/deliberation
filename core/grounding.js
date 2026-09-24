@@ -23,7 +23,8 @@ function groundingNote(now = new Date()) {
     `Current date (UTC): ${date}. Your training data may predate it. ` +
     "Do not call a model, tool, library, API, or version hallucinated, fictional, or " +
     "non-existent only because you do not recognize it; if you cannot confirm it from this " +
-    "message or your own tools, mark the claim [unverified] and say what would confirm it."
+    "message or from tools you actually have (if any), mark the claim [unverified] and say " +
+    "what would confirm it."
   );
 }
 
