@@ -15,6 +15,7 @@ Every delegation prompt MUST include these sections:
    - Current state: [what exists now]
    - Relevant code: [paths or snippets]
    - Background: [why this is needed]
+   - Time-sensitive facts: [only when the question turns on latest versions, pricing, a roadmap, or whether a model/tool exists - verified facts with as-of date and source; delegates get today's date but cannot look anything up]
 
 4. CONSTRAINTS:
    - Technical: [versions, dependencies]

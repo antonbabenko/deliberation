@@ -6,6 +6,13 @@ const http = require("node:http");
 const path = require("node:path");
 const os = require("node:os");
 const fs = require("node:fs");
+const { groundingNote } = require("../core/grounding.js");
+
+// The grounding note carries today's date; pin it so an exact-shape assertion cannot
+// flake across midnight between the bridge building a prompt and the test comparing it.
+const DATE_RE = /Current date \(UTC\): \d{4}-\d{2}-\d{2}/g;
+const pinDate = (/** @type {any} */ v) => JSON.parse(JSON.stringify(v).replace(DATE_RE, "Current date (UTC): D"));
+const NOTE = pinDate(groundingNote());
 
 const BRIDGE = path.join(__dirname, "..", "server", "grok", "index.js");
 
@@ -103,12 +110,12 @@ test("G1: grok then grok-reply build /v1/responses input and accumulate turns", 
     assert.equal(r2.result.content[0].text, "reply-2");
     assert.equal(r2.result.threadId, threadId);
 
-    assert.deepEqual(bodies[0].input, [
-      { role: "system", content: [{ type: "input_text", text: `sys\n\n${grok.NO_TOOLS_NOTE}` }] },
+    assert.deepEqual(pinDate(bodies[0].input), [
+      { role: "system", content: [{ type: "input_text", text: `sys\n\n${grok.NO_TOOLS_NOTE}\n\n${NOTE}` }] },
       { role: "user", content: [{ type: "input_text", text: "hello" }] },
     ]);
-    assert.deepEqual(bodies[1].input, [
-      { role: "system", content: [{ type: "input_text", text: `sys\n\n${grok.NO_TOOLS_NOTE}` }] },
+    assert.deepEqual(pinDate(bodies[1].input), [
+      { role: "system", content: [{ type: "input_text", text: `sys\n\n${grok.NO_TOOLS_NOTE}\n\n${NOTE}` }] },
       { role: "user", content: [{ type: "input_text", text: "hello" }] },
       { type: "message", role: "assistant", content: [{ type: "output_text", text: "reply-1" }] },
       { role: "user", content: [{ type: "input_text", text: "again" }] },
@@ -292,8 +299,8 @@ test("G9: classifyGrokError maps transport codes and HTTP statuses", () => {
 
 test("G10: buildInitialTurns + turnsToInput produce the responses input shape", () => {
   const turns = grok.buildInitialTurns("sys", "hi", [{ file_id: "f1" }, { file_url: "https://u/x" }]);
-  assert.deepEqual(grok.turnsToInput(turns), [
-    { role: "system", content: [{ type: "input_text", text: `sys\n\n${grok.NO_TOOLS_NOTE}` }] },
+  assert.deepEqual(pinDate(grok.turnsToInput(turns)), [
+    { role: "system", content: [{ type: "input_text", text: `sys\n\n${grok.NO_TOOLS_NOTE}\n\n${NOTE}` }] },
     {
       role: "user",
       content: [
@@ -303,9 +310,9 @@ test("G10: buildInitialTurns + turnsToInput produce the responses input shape", 
       ],
     },
   ]);
-  // No developer-instructions -> the system turn still carries the no-tools note.
-  assert.deepEqual(grok.buildInitialTurns("", "hi", []), [
-    { role: "system", text: grok.NO_TOOLS_NOTE },
+  // No developer-instructions -> the system turn still carries the no-tools and date notes.
+  assert.deepEqual(pinDate(grok.buildInitialTurns("", "hi", [])), [
+    { role: "system", text: `${grok.NO_TOOLS_NOTE}\n\n${NOTE}` },
     { role: "user", text: "hi", fileRefs: [] },
   ]);
 });
@@ -575,7 +582,7 @@ test("GF7: buildInitialTurns always seeds a system turn that tells the model it 
   assert.match(withSys[0].text, /no further turns/i);
   const noSys = grok.buildInitialTurns(undefined, "hi", []);
   assert.equal(noSys[0].role, "system");
-  assert.equal(noSys[0].text, grok.NO_TOOLS_NOTE);
+  assert.equal(pinDate(noSys[0].text), `${grok.NO_TOOLS_NOTE}\n\n${NOTE}`);
 });
 
 // --- streaming ------------------------------------------------------------

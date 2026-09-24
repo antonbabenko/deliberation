@@ -529,23 +529,25 @@ test("C4: resolveConversationId reads cwd->id map, returns null on miss", () => 
 
 // --- advisory read-only enforcement (pure units; no spawn) ---
 
-test("S1: buildAgyArgs prepends the read-only guard on advisory runs, not on workspace-write", () => {
+test("S1: buildAgyArgs guards the question on advisory runs, not on workspace-write", () => {
   const { buildAgyArgs, READ_ONLY_GUARD } = require("../server/gemini/index.js");
   const ro = buildAgyArgs({ prompt: "hi" });
   const roPrompt = ro[ro.lastIndexOf("-p") + 1];
-  assert.ok(roPrompt.startsWith(READ_ONLY_GUARD), "read-only prompt leads with the guard");
+  assert.ok(roPrompt.endsWith(`${READ_ONLY_GUARD}\n\nhi`), "read-only prompt guards the question");
 
   const ww = buildAgyArgs({ prompt: "hi", sandbox: "workspace-write" });
   const wwPrompt = ww[ww.lastIndexOf("-p") + 1];
-  assert.equal(wwPrompt, "hi", "workspace-write prompt is unguarded");
+  assert.ok(!wwPrompt.includes(READ_ONLY_GUARD), "workspace-write prompt is unguarded");
+  assert.ok(wwPrompt.endsWith("\n\nhi"), "the question stays last");
   assert.ok(ww.includes("--dangerously-skip-permissions"), "workspace-write maps to skip-perms");
 });
 
-test("S2: the guard sits OUTSIDE developerInstructions (outermost)", () => {
+test("S2: order is instructions, date grounding, then the guard directly on the question", () => {
   const { buildAgyArgs, READ_ONLY_GUARD } = require("../server/gemini/index.js");
   const a = buildAgyArgs({ prompt: "Q", developerInstructions: "SYS" });
   const prompt = a[a.lastIndexOf("-p") + 1];
-  assert.ok(prompt.startsWith(`SYS\n\n${READ_ONLY_GUARD}`), "dev instructions wrap the guarded prompt");
+  assert.match(prompt, /^SYS\n\nCurrent date \(UTC\): \d{4}-\d{2}-\d{2}\. /, "dev instructions lead, then the date note");
+  assert.ok(prompt.endsWith(`\n\n${READ_ONLY_GUARD}\n\nQ`), "the guard sits directly on the question");
 });
 
 test("S3: advisoryEnv drops the kill-switch and scrubs push/exfil + credential-shaped env", () => {

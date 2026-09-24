@@ -29,6 +29,9 @@ is used.
    1. Glob `~/.claude/plugins/cache/*/deliberation/*/prompts/[expert].md` and pick the match with the highest semver version segment (the segment immediately after `deliberation/`, parsed as semver - not lexical compare).
    2. If no match is found, abort with: `Error: deliberation plugin cache missing for expert "[Expert]". Run /plugin install deliberation or /reload-plugins.`
 4. Build the 7-section delegation prompt per `~/.claude/rules/deliberation/delegation-format.md`.
+   Time-sensitive facts: when the question turns on latest or current versions, pricing,
+   a roadmap, or whether a model or tool exists, verify it with your own tools first and add
+   the facts with as-of date and source (the delegate cannot look anything up).
    If the question references local files, attach them with
    `files: [{ path: "...", mode: "auto" }]` (text-inline; `{ dir: "..." }` also supported).
 5. Print: `OpenRouter (<alias-or-default>) working (typical 30-60s)...` where `<alias-or-default>` is the selected alias, or `openrouter-default` when no alias was given.

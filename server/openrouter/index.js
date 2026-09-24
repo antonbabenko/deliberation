@@ -16,6 +16,7 @@ const MAX_MS = 600_000;
 
 const { parseRetryAfterMs, fetchFailureError } = require("../../core/provider.js");
 const { clampToHostBudget, annotateTimeout } = require("../../core/host-budget.js");
+const { groundingNote } = require("../../core/grounding.js");
 
 function isNonEmptyString(v) { return typeof v === "string" && v.trim().length > 0; }
 function truncate(s, n) { s = String(s == null ? "" : s); return s.length > n ? s.slice(0, n) + "..." : s; }
@@ -161,11 +162,15 @@ function errorResult(id, e, tool, startedAt) {
   return { content: [{ type: "text", text: `Error: ${(e && e.message) || String(e)}` }], isError: true, errorKind, retryable };
 }
 
+// The system turn always carries the date-grounding note (after the developer-instructions
+// when present), so openrouter-reply continuations - persisted from these turns - keep it too.
 function buildInitialTurns(developerInstructions, prompt, blocks) {
-  const turns = [];
-  if (isNonEmptyString(developerInstructions)) turns.push({ role: "system", text: developerInstructions });
-  turns.push({ role: "user", text: prompt, inlineBlocks: blocks || [] });
-  return turns;
+  const note = groundingNote();
+  const system = isNonEmptyString(developerInstructions) ? `${developerInstructions}\n\n${note}` : note;
+  return [
+    { role: "system", text: system },
+    { role: "user", text: prompt, inlineBlocks: blocks || [] },
+  ];
 }
 
 // Resolve args -> delegate {model, ...overrides} or { _error: 'model-not-allowed' }.

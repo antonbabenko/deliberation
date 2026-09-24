@@ -100,6 +100,7 @@ const NO_TOOLS_NOTE = [
 // downstream as an opinion. Detection keys on CONTENT (an announced-intent opening), not
 // length - a terse answer like "ok" is an answer (issue #180).
 const answerFloor = require("../../core/answer-floor.js");
+const { groundingNote } = require("../../core/grounding.js");
 /** Minimum trimmed answer length to count as an answer. 0 disables the floor AND the intent check. */
 function minAnswerChars() { return answerFloor.readMinAnswerChars(process.env.GROK_MIN_ANSWER_CHARS); }
 /** @returns {(string|null)} why `text` is a stub, or null when it counts as an answer. */
@@ -268,10 +269,12 @@ function classifyGrokError(status, errCode) {
 
 // A "turn" is { role, text, fileRefs? } where fileRefs is an array of
 // { file_id } | { file_url }. buildInitialTurns seeds a fresh conversation.
-// The system turn always carries NO_TOOLS_NOTE (after the developer-instructions when
-// present), so grok-reply continuations - persisted from these turns - keep it too.
+// The system turn always carries NO_TOOLS_NOTE and the date-grounding note (after the
+// developer-instructions when present), so grok-reply continuations - persisted from
+// these turns - keep them too.
 function buildInitialTurns(developerInstructions, prompt, fileRefs) {
-  const system = isNonEmptyString(developerInstructions) ? `${developerInstructions}\n\n${NO_TOOLS_NOTE}` : NO_TOOLS_NOTE;
+  const notes = `${NO_TOOLS_NOTE}\n\n${groundingNote()}`;
+  const system = isNonEmptyString(developerInstructions) ? `${developerInstructions}\n\n${notes}` : notes;
   return [
     { role: "system", text: system },
     { role: "user", text: prompt, fileRefs: fileRefs || [] },

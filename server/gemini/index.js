@@ -21,6 +21,7 @@ const path = require("node:path");
 const { resolveCommand, commandOnPath, shimMessage } = require("../../core/resolve-bin.js");
 const { clampToHostBudget, annotateTimeout, graceWithinHostBudget, seedHostBudget } = require("../../core/host-budget.js");
 const { stubReason, readMinAnswerChars } = require("../../core/answer-floor.js");
+const { groundingNote } = require("../../core/grounding.js");
 
 const AGY_BIN = process.env.AGY_BIN || "agy";
 // Windows installs a CLI as a `.cmd` shim that Node's spawn cannot execute (issue #170), so
@@ -196,9 +197,9 @@ function buildAgyArgs(req) {
     // (never by scanning values) to drop the shipped alias once agy has rejected it.
     args.push("--model", model);
   }
-  // Fold expert instructions into the prompt (no system channel in print mode),
-  // with the advisory guard outermost.
-  let prompt = applyReadOnlyGuard(req.prompt, readOnly);
+  // Fold expert instructions and the date-grounding note into the prompt (no system
+  // channel in print mode), with the advisory guard directly on the question.
+  let prompt = `${groundingNote()}\n\n${applyReadOnlyGuard(req.prompt, readOnly)}`;
   if (req.developerInstructions) prompt = `${req.developerInstructions}\n\n${prompt}`;
   args.push("-p", prompt); // "-p <prompt>" MUST be the tail
   return args;

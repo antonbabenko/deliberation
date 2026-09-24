@@ -18,6 +18,7 @@ and the Gemini recovery paths.
 - [Grok files and cleanup](#grok-files-and-cleanup)
 - [OpenRouter bridge](#openrouter-bridge)
 - [Orientation auto-attach](#orientation-auto-attach)
+- [Date grounding](#date-grounding)
 - [Session persistence](#session-persistence)
 - [Customizing expert prompts](#customizing-expert-prompts)
 - [Troubleshooting](#troubleshooting)
@@ -1498,6 +1499,48 @@ When `orientation.enabled` is `false` (the default), or when you need more than
 as described in the `ask-all` and `consensus` command files. The per-command
 guidance still applies and takes precedence over the auto-attach when you pass your
 own `files`.
+
+## Date grounding
+
+A delegate whose training data is months old will call a newer model, tool, or version
+"hallucinated" and file it as a critical issue - a false positive that blocks a
+consensus round. `core/grounding.js` `groundingNote()` returns one short paragraph:
+
+> Current date (UTC): YYYY-MM-DD. Your training data may predate it. Do not call a
+> model, tool, library, API, or version hallucinated, fictional, or non-existent only
+> because you do not recognize it; if you cannot confirm it from this message or from
+> tools you actually have (if any), mark the claim [unverified] and say what would confirm it.
+
+Every prompt builder adds it, so it reaches every delegate on every path (unified
+server tools, consensus peers, arbiter passes, and the standalone `/ask-*` bridges):
+
+| Provider | Builder | Placement |
+|----------|---------|-----------|
+| Codex | `core/providers/codex.js` `runOnce` | after the developer instructions, above the `---` separator |
+| Gemini | `server/gemini/index.js` `buildAgyArgs` | after the developer instructions, before the read-only guard + question |
+| Grok | `server/grok/index.js` `buildInitialTurns` | system turn, after `NO_TOOLS_NOTE` |
+| OpenRouter | `server/openrouter/index.js` `buildInitialTurns` | system turn (always emitted now), after the developer instructions |
+
+Notes:
+
+- **The date is code, the lookup is the host's.** Grok and OpenRouter run with no tools,
+  so a prose rule telling them to run `date -u` or search the web could never be
+  followed. The host (Claude, or any agent reading `AGENTS.md`) is told to verify
+  time-sensitive facts with its own retrieval and inline them with an as-of date and
+  source ("Time-sensitive questions" in `AGENTS.md`; every `/ask-*` command and `/consensus`;
+  the CONTEXT section of `rules/delegation-format.md`).
+- **The rule travels with the date.** A date alone still lets a model reject a name it
+  does not know; the no-denial clause is what turns that into `[unverified]`.
+- **Not in the personas.** `prompts/*.md` are unchanged. The note is short because it is
+  paid on every call, times panel size, times rounds.
+- **Multi-turn.** `*-reply` continuations reuse the first system turn, so the date is
+  the one from the start of the thread.
+- **Cache.** The in-session dedup cache keys on the request before a builder adds the
+  note; with its 10-minute TTL a cached answer can at most carry yesterday's date for a
+  few minutes after midnight UTC.
+- **Codex echo.** `codex exec` echoes the whole prompt on stderr; `classifyCodex` already
+  consumes the sent prompt, note included, before classifying an error line.
+- No config key and no opt-out.
 
 ## Session persistence
 
