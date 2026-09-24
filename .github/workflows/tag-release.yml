@@ -24,6 +24,7 @@ on:
 permissions:
   contents: write
   id-token: write # OIDC: npm trusted publishing (provenance) + MCP registry login
+  pull-requests: write # "shipped in vX.Y.Z" comment on each released PR
 
 concurrency:
   group: tag-release
@@ -192,3 +193,59 @@ jobs:
             exit 0
           fi
           gh workflow run update-external-plugins.yml -R antonbabenko/agent-plugins
+
+      # Tell every PR that shipped in this tag which version carries it and how
+      # to update - same idea as semantic-release's successComment. Last step, so
+      # it runs only after the tag, GitHub Release, and npm publish succeeded.
+      # Best-effort (never reds a release) and idempotent: a hidden marker per
+      # tag skips PRs already commented, so a retry dispatch posts nothing twice.
+      - name: Comment on released PRs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ steps.ver.outputs.tag }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -uo pipefail
+          PREV="$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)"
+          if [ -z "$PREV" ]; then
+            echo "No tag before ${TAG}; nothing to comment on."; exit 0
+          fi
+          # Squash-merge subjects end in "(#N)"; the release PR's own subject is
+          # set without it, and is filtered out anyway.
+          PRS="$(git log "${PREV}..${TAG}" --format=%s \
+            | grep -v '^chore(release):' \
+            | grep -oE '\(#[0-9]+\)$' | tr -d '(#)' | sort -un)"
+          if [ -z "$PRS" ]; then
+            echo "No PRs between ${PREV} and ${TAG}."; exit 0
+          fi
+          MARKER="<!-- release-comment:${TAG} -->"
+          cat > /tmp/comment.md <<'EOF'
+          @MARKER@
+          This PR is included in [@TAG@](https://github.com/@REPO@/releases/tag/@TAG@) :tada:
+
+          **Claude Code**
+
+          ```
+          /plugin marketplace update antonbabenko
+          /reload-plugins
+          ```
+
+          If the update still shows the old version, the marketplace re-pin is a few minutes behind; run it again shortly.
+
+          **Codex, Kiro, Cursor, OpenCode plugins:** update deliberation from your host's plugin manager.
+
+          **MCP server (any host):** [`@antonbabenko/deliberation-mcp@@VERSION@`](https://www.npmjs.com/package/@antonbabenko/deliberation-mcp/v/@VERSION@) is published. Restart your host to pick it up.
+          EOF
+          sed -i -e "s|@MARKER@|${MARKER}|" -e "s|@TAG@|${TAG}|g" \
+            -e "s|@REPO@|${REPO}|g" -e "s|@VERSION@|${VERSION}|g" /tmp/comment.md
+          for PR in $PRS; do
+            if gh api "repos/${REPO}/issues/${PR}/comments" --paginate --jq '.[].body' 2>/dev/null \
+                | grep -qF "$MARKER"; then
+              echo "#${PR}: already commented for ${TAG}; skipping."
+              continue
+            fi
+            gh api "repos/${REPO}/issues/${PR}/comments" -F body=@/tmp/comment.md >/dev/null \
+              && echo "#${PR}: commented." \
+              || echo "::warning::could not comment on #${PR}"
+          done

@@ -291,7 +291,8 @@ version in `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`,
 `package.json`, `server.json`, `server/mcp/package.json`, the Codex host manifest, and the
 `serverInfo.version` literal in `server/mcp/index.js` (what every MCP host displays).
 After the release PR merges, `tag-release.yml` tags `vX.Y.Z`, publishes the
-GitHub Release, and nudges the `antonbabenko/agent-plugins` marketplace to re-pin. The
+GitHub Release, nudges the `antonbabenko/agent-plugins` marketplace to re-pin, and
+comments on every PR that shipped in the tag (version + how to update). The
 `validate` check fails if any of those version fields drift from `version.json`. See
 CONTRIBUTING.md for the full flow.
 
