@@ -1,3 +1,10 @@
+## [3.17.0](https://github.com/antonbabenko/deliberation/compare/v3.16.1...v3.17.0) (2026-09-24)
+
+
+### Features
+
+* stamp the current UTC date and a no-denial rule into every delegate prompt ([#205](https://github.com/antonbabenko/deliberation/issues/205)) ([7e9262a](https://github.com/antonbabenko/deliberation/commit/7e9262abfbef2cd117bbd9dc81e20098a6dc3b59)), closes [#204](https://github.com/antonbabenko/deliberation/issues/204)
+
 ## [3.16.1](https://github.com/antonbabenko/deliberation/compare/v3.16.0...v3.16.1) (2026-09-20)
 
 
@@ -25,11 +32,4 @@
 ### Bug Fixes
 
 * **codex:** prefer the ChatGPT login and never use OPENAI_API_KEY ([#196](https://github.com/antonbabenko/deliberation/issues/196)) ([0b57922](https://github.com/antonbabenko/deliberation/commit/0b5792248c09fed0d022f112cf9ce6f44e70a3db))
-
-## [3.14.10](https://github.com/antonbabenko/deliberation/compare/v3.14.9...v3.14.10) (2026-09-16)
-
-
-### Bug Fixes
-
-* **plugin:** declare a 30-min per-server tool-call timeout so capped hosts stop killing calls at 60s ([#194](https://github.com/antonbabenko/deliberation/issues/194)) ([9cf2d8a](https://github.com/antonbabenko/deliberation/commit/9cf2d8a0387913e60600447f7d96788519eb6272))
 
