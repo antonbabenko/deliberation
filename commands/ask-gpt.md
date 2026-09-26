@@ -1,7 +1,7 @@
 ---
 name: ask-gpt
 description: Get GPT (Codex) second opinion on a question or current work. Single-shot, advisory, no contamination.
-allowed-tools: mcp__deliberation__ask-gpt, Read, Bash
+allowed-tools: mcp__deliberation__panel, mcp__deliberation__codex-login, AskUserQuestion, mcp__deliberation__ask-gpt, Read, Bash
 timeout: 660000
 ---
 
@@ -34,7 +34,29 @@ User question or topic: $ARGUMENTS
    - Any specific constraints user has mentioned this session
    - Time-sensitive facts: when the question turns on latest or current versions, pricing, a roadmap, or whether a model or tool exists, verify it with your own tools first and add the facts with as-of date and source (the delegate gets today's date from the server but cannot look anything up)
 
-4. **Call GPT** - single-shot, advisory:
+4. **Log GPT in first.** Call `mcp__deliberation__panel({ cwd: "[cwd]" })` and read only its
+   `needsLogin`. If it contains `codex`, GPT has no ChatGPT login on this machine yet:
+   1. Call `mcp__deliberation__codex-login({})` and print its `message` as-is EVERY time you
+      call it (the link and the code each stay on their own line). Then act on `status`:
+      - `authenticated`: keep codex and go on.
+      - `starting` (no code yet; each call already waits up to ~20s for one): call again.
+        Three `starting` results in a row count as `failed`.
+      - `pending`: go to step 2.
+      - `failed`, `unavailable`, a call that errors, or anything else: stop and show the user why GPT cannot answer (no call is made), and name it once with that message.
+   2. Ask the user with `AskUserQuestion` ("Approve the GPT login in the browser with the code
+      above, then pick one"), options `Done - include GPT` and `Skip GPT this run`. A host
+      without `AskUserQuestion` asks the same in one plain line and ends the turn; treat the
+      user's reply as that choice.
+   3. `Skip`: stop and show the user why GPT cannot answer (no call is made). `Done`: call `codex-login` again, print its `message`, and act on `status`
+      as in step 1, except `pending`: ask step 2 once more; if after that second `Done` it is
+      still `pending`, stop and show the user why GPT cannot answer (no call is made) and say GPT answers from the next run once the login lands.
+   Caps for the whole gate: at most 3 `starting` results in a row and at most 2 questions;
+   past either, stop and show the user why GPT cannot answer (no call is made).
+   `panel` only reads a flag; the login starts here, after the user asked for GPT, so the
+   15-minute code is spent on this run. Never drop codex silently because it looks logged
+   out.
+
+5. **Call GPT** - single-shot, advisory:
    ```
    mcp__deliberation__ask-gpt({
      prompt: "[7-section delegation prompt]",
@@ -43,20 +65,20 @@ User question or topic: $ARGUMENTS
    })
    ```
 
-5. **Never pre-empt the call.** Do not skip step 4 because GPT looks logged out (no
-   `auth.json`, `codex doctor` says so, a session-start hook said so): the call itself
-   starts the device login and returns the link and code, and a skipped call means the user
-   never gets one. Do not pre-check credentials at all. (`/deliberation:codex-login` does only the
-   login, when the user wants it without a question.)
+6. **Never pre-empt the call.** Do not skip step 5 because GPT looks logged out (no
+   `auth.json`, `codex doctor` says so, a session-start hook said so): step 4 is the only
+   credential check, and the call itself starts the device login when needed. Do not read
+   credential files yourself. (`/deliberation:codex-login` does only the login, when the user
+   wants it without a question.)
 
-6. **Login link first.** If the result is `errorKind: "auth"` and its `message` carries a link
+7. **Login link (fallback).** If the result is `errorKind: "auth"` and its `message` carries a link
    and a one-time code, GPT has no ChatGPT login on this machine yet and deliberation has
    started `codex login --device-auth`. Show that message to the user as-is (it is the
    user's action, not an expert answer), say GPT answers after they approve, and stop.
    Re-run the command once they confirm. A host that supports MCP elicitation shows the
    same link and code in a dialog during the call instead.
 
-7. **Synthesize response** - never paste raw output. Extract:
+8. **Synthesize response** - never paste raw output. Extract:
    - Bottom-line recommendation
    - Key reasoning points
    - Where GPT diverges from your prior analysis (if applicable)

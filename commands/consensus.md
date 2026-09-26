@@ -1,7 +1,7 @@
 ---
 name: consensus
 description: Arbiter-mediated consensus - GPT + Gemini + Grok (plus any configured OpenRouter delegates) review while Claude commits a blind verdict, adjudicates, and synthesizes. Converges only with cross-model agreement. Driven by the consensus-step engine.
-allowed-tools: mcp__deliberation__consensus-step
+allowed-tools: mcp__deliberation__consensus-step, mcp__deliberation__panel, mcp__deliberation__codex-login, AskUserQuestion
 timeout: 900000
 ---
 
@@ -76,7 +76,32 @@ label. Do NOT re-implement any of that here.
 2. **Set cwd**: use `process.cwd()` as the MCP `cwd` on `init` AND on `dispatch_peers`
    (that is where peers actually run; the server reads `cwd` from the `dispatch_peers`
    call, not from `init`). The other actions do not need it.
-3. Print:
+3. **Log GPT in first.** Call `mcp__deliberation__panel({ for: "consensus", expert: "[expert]", cwd: "[cwd]" })`
+   and read only its `needsLogin`. If it contains `codex`, GPT has no ChatGPT login on this
+   machine yet. Log it in now, before `init`, so GPT votes from round 1 (a codex voice that
+   errors every round is dropped by the circuit breaker):
+   1. Call `mcp__deliberation__codex-login({})` and print its `message` as-is EVERY time you
+      call it (the link and the code each stay on their own line). Then act on `status`:
+      - `authenticated`: keep codex and go on.
+      - `starting` (no code yet; each call already waits up to ~20s for one): call again.
+        Three `starting` results in a row count as `failed`.
+      - `pending`: go to step 2.
+      - `failed`, `unavailable`, a call that errors, or anything else: continue without waiting for GPT, and name it once with that message.
+   2. Ask the user with `AskUserQuestion` ("Approve the GPT login in the browser with the code
+      above, then pick one"), options `Done - include GPT` and `Skip GPT this run`. A host
+      without `AskUserQuestion` asks the same in one plain line and ends the turn; treat the
+      user's reply as that choice.
+   3. `Skip`: continue without waiting for GPT. `Done`: call `codex-login` again, print its `message`, and act on `status`
+      as in step 1, except `pending`: ask step 2 once more; if after that second `Done` it is
+      still `pending`, continue without waiting for GPT and say GPT answers from the next run once the login lands.
+   Caps for the whole gate: at most 3 `starting` results in a row and at most 2 questions;
+   past either, continue without waiting for GPT.
+   Without GPT, the server still dispatches codex (`consensus-step` has no per-run exclude),
+   so its voice errors with the same code. That is harmless: an errored voice does not count
+   toward convergence, costs about a second, and the circuit breaker drops it after 2 failed
+   rounds. `panel` only reads a flag; the login starts here, after the user asked for a
+   consensus run, so the 15-minute code is spent on this run.
+4. Print:
    ```
    /consensus: starting consensus loop (engine-driven, expert=[expert])
    ```
@@ -165,6 +190,7 @@ in-memory `LoopState` for that `sessionId` may be gone, so recover by re-running
      An ERRORED codex voice whose `message` carries a login link and one-time code has no
      ChatGPT login yet; deliberation started `codex login --device-auth`. Print that message
      in full under its status line: once the user approves, GPT joins from the next round.
+     This is the fallback for a login that Setup step 3 cannot see (a spent `auth.json`).
      Never skip or work around the codex voice because it looks logged out; the dispatch is
      what starts the login and returns the code (`/deliberation:codex-login` does only the login).
    - After the per-voice lines, print a one-line round time footer from the voices' `ms`
