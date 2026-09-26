@@ -4,7 +4,7 @@
 /** @typedef {import("../../core/types.js").Provider} Provider */
 /** @typedef {import("../../core/types.js").DelegationRequest} DelegationRequest */
 
-const { makeRegistry, pinAlias } = require("../../core/registry.js");
+const { makeRegistry, pinAlias, pinGoogleAlias, formatDelegateName } = require("../../core/registry.js");
 const { askAll, askOne, consensus, runToConvergence } = require("../../core/orchestrate.js");
 const { orientationFilesFor } = require("../../core/orientation.js");
 const { PROMPTS } = require("../../core/prompts/index.js");
@@ -260,7 +260,7 @@ async function resolveArbiter(spec, selected, registry, getConfig) {
     );
     const healthy = checked.filter((c) => c.ok).map((c) => c.p);
     const pool = healthy.length ? healthy : selected;
-    const preferred = pool.find((p) => p.name.startsWith("openrouter:")) || pool[0] || null;
+    const preferred = pool.find((p) => p.name.startsWith("openrouter:") || p.name.startsWith("ollama:") || p.name.startsWith("lmstudio:")) || pool[0] || null;
     const base = `auto-selected arbiter '${preferred ? preferred.name : "none"}'; set consensus.arbiter to choose`;
     return { mode: "server", provider: preferred, warning: warning ? `${warning}; ${base}` : base };
   }
@@ -275,9 +275,9 @@ async function resolveArbiter(spec, selected, registry, getConfig) {
     const orProvider = registry.get("openrouter");
     const models = (cfg.openrouter && cfg.openrouter.models) || [];
     const model = models.find((/** @type {any} */ m) => m && m.alias === id);
-    // OpenRouter must be enabled both as a provider and as the openrouter block.
-    const orEnabled = providerEnabled(cfg, "openrouter") && !(cfg.openrouter && cfg.openrouter.enabled === false);
-    if (orProvider && model && orEnabled) return { mode: "server", provider: pinAlias(orProvider, model) };
+    const prov = (model && model.provider) || "openrouter";
+    const isProvEnabled = providerEnabled(cfg, prov) && !(prov === "openrouter" && cfg.openrouter && cfg.openrouter.enabled === false);
+    if (orProvider && model && isProvEnabled) return { mode: "server", provider: pinAlias(orProvider, model, cfg) };
     return auto(`configured arbiter model '${id}' is not available`);
   }
 
@@ -1401,10 +1401,32 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       // Resolve ONE provider by name from the SAME selection set (so a pinned
       // openrouter:<alias> resolves and a disabled/over-cap one is rejected).
       const want = typeof args.provider === "string" ? args.provider : "";
-      const { providers: selected, unavailable } = registry.selectForAskAll({ config: getConfig(), expert: expert || "", unhealthy: await unhealthyMap(providers) });
-      const p = selected.find((x) => x.name === want);
+      const cfg = getConfig();
+      const { providers: selected, unavailable } = registry.selectForAskAll({ config: cfg, expert: expert || "", unhealthy: await unhealthyMap(providers) });
+      let p = selected.find((x) =>
+        x.name === want ||
+        (want === "gemini" && (x.name.startsWith("google:") || x.name === "gemini")) ||
+        (want === "google" && (x.name.startsWith("google:") || x.name === "gemini")) ||
+        (x.alias && (want === x.alias || want === `${x.provider}:${x.alias}` || want === `${x.provider}:${x.model}`))
+      );
       if (!p) {
-        const dead = (unavailable || []).find((u) => u.name === want);
+        const models = (cfg.openrouter && cfg.openrouter.models) || [];
+        const matchModel = models.find((/** @type {any} */ m) =>
+          m && (want === m.alias || (formatDelegateName && want === formatDelegateName(m)) || want === `${m.provider}:${m.alias}` || want === `${m.provider}:${m.model}` || (m.model && want === m.model))
+        );
+        if (matchModel) {
+          const prov = matchModel.provider || "openrouter";
+          if (prov === "google" || prov === "gemini") {
+            const gProv = registry.get("google") || registry.get("gemini");
+            if (gProv) p = pinGoogleAlias(gProv, matchModel, cfg);
+          } else {
+            const orProv = registry.get("openrouter");
+            if (orProv) p = pinAlias(orProv, matchModel, cfg);
+          }
+        }
+      }
+      if (!p) {
+        const dead = (unavailable || []).find((u) => u.name === want || (want === "gemini" && (u.name.startsWith("google:") || u.name === "gemini")));
         return jsonResult({
           error: dead ? `provider "${want}" is unavailable: ${dead.reason}` : `provider "${want}" is not in the active panel`,
           panel: selected.map((x) => x.name),
@@ -1646,6 +1668,7 @@ function startStdio() {
     // Codex is excluded from the MODEL wiring on purpose: it resolves its model from
     // ~/.codex/config.toml.
     makeAntigravityProvider({
+      name: geminiCfg.model ? `google:${geminiCfg.model}` : "gemini",
       bridge: require("../gemini/index.js"),
       model: geminiCfg.model,
       timeoutMs: providerTimeout("gemini"),

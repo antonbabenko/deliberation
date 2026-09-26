@@ -16,7 +16,8 @@ and the Gemini recovery paths.
 - [Multi-turn and retry](#multi-turn-and-retry)
 - [Gemini timeout recovery](#gemini-timeout-recovery)
 - [Grok files and cleanup](#grok-files-and-cleanup)
-- [OpenRouter bridge](#openrouter-bridge)
+- [OpenAI-compatible bridge (OpenRouter, Ollama, LM Studio)](#openai-compatible-bridge-openrouter-ollama-lm-studio)
+- [Temporal grounding & live RAG verification](#temporal-grounding--live-rag-verification)
 - [Orientation auto-attach](#orientation-auto-attach)
 - [Date grounding](#date-grounding)
 - [Session persistence](#session-persistence)
@@ -39,6 +40,11 @@ delegates to a provider over MCP. Each provider reaches Claude Code differently:
 - **Grok (xAI)** - a bundled zero-dependency Node bridge (`server/grok/index.js`)
   talks to the xAI Responses API (`/v1/responses`) over HTTP. Advisory-only: it
   cannot edit files, but it can read attached files.
+- **Ollama / LM Studio** - zero-dependency HTTP bridge connecting to local
+  OpenAI-compatible runtimes (`http://localhost:11434/v1` for Ollama and
+  `http://localhost:1234/v1` for LM Studio). Advisory-only and keyless.
+- **OpenRouter** - zero-dependency HTTP bridge connecting to 400+ remote models
+  via `https://openrouter.ai/api/v1`. Advisory-only.
 
 Responses are synthesized by Claude, never passed through verbatim.
 
@@ -866,34 +872,42 @@ The bundled `server/grok/files-admin.js` supports three subcommands:
 the local cache aligned with remote state. The `deliberation-` filename prefix
 is a hard safety invariant on both paths - your own xAI files are never touched.
 
-## OpenRouter bridge
+## OpenAI-compatible bridge (OpenRouter, Ollama, LM Studio)
 
-The OpenRouter bridge (`server/openrouter/index.js`) is a zero-dependency Node MCP server
-that calls any OpenAI-compatible `POST {apiBase}/chat/completions` endpoint.
-It is **advisory-only** - it cannot edit files or run shell commands.
+The OpenAI-compatible bridge (`server/openrouter/index.js`) is a
+zero-dependency Node MCP server that calls any OpenAI-compatible
+`POST {apiBase}/chat/completions` endpoint. It powers OpenRouter, Ollama,
+LM Studio, and generic OpenAI-compatible runtimes. It is **advisory-only** -
+it cannot edit files or run shell commands.
 
 ### Configuration file
 
 The bridge and the fan-out commands (`/ask-all`, `/consensus`) read
-`~/.config/deliberation/config.json` at call time - the canonical XDG path (Windows:
-`%APPDATA%\deliberation\config.json`). Override the path with `DELIBERATION_CONFIG`. The file is stat-gated: the bridge re-reads it only when
-the mtime changes, so edits to `models`, `routing`, or the `providers.openrouter` block
-take effect immediately without restarting Claude Code or re-running `/setup`. Toggling a
-**built-in** provider (codex / gemini / grok) still requires `/setup` to re-register
-or de-register the MCP server.
+`~/.config/deliberation/config.json` at call time - the canonical XDG path
+(Windows: `%APPDATA%\deliberation\config.json`). Override the path with
+`DELIBERATION_CONFIG`. The file is stat-gated: the bridge re-reads it only when
+the mtime changes, so edits to `models`, `routing`, or provider blocks
+(`openrouter`, `ollama`, `lmstudio`) take effect immediately without restarting
+Claude Code or re-running `/setup`. Toggling a **built-in** provider
+(codex / gemini / grok) still requires `/setup` to re-register or de-register
+the MCP server.
 
 ### Concepts
 
 The config has four top-level sections, each with one job:
 
-- **`providers`** - transport / connection only. Per provider: `enabled` (default true)
-  plus auth/endpoint keys. `providers.openrouter` also carries the OpenRouter-specific
-  connection keys (`apiBase`, `allowRawModel`, `defaultModel`, per-call `defaults`).
-- **`models`** - named model records, keyed by id. Each record names its `provider` and
-  `model` slug and sets routing flags. This is where you declare the models the panel uses.
+- **`providers`** - transport / connection only. Per provider: `enabled`
+  (default true) plus auth/endpoint keys. Carries provider blocks for `codex`,
+  `gemini`, `grok`, `ollama` (`apiBase` default `http://localhost:11434/v1`),
+  `lmstudio` (`apiBase` default `http://localhost:1234/v1`), and `openrouter`
+  (`apiBase`, `allowRawModel`, `defaultModel`, per-call `defaults`).
+- **`models`** - named model records, keyed by id. Each record names its
+  `provider` (`openrouter`, `ollama`, `lmstudio`, `google`) and `model`
+  slug/tag, and sets routing flags. This is where you declare the models the
+  panel uses.
 - **`routing`** - global fan-out policy (`maxFanout`).
-- **`consensus`** - `arbiter` (who synthesizes the consensus verdict) and `blindVote`
-  (optional blind arbiter pre-vote; boolean, default `false`).
+- **`consensus`** - `arbiter` (who synthesizes the consensus verdict) and
+  `blindVote` (optional blind arbiter pre-vote; boolean, default `false`).
 
 Config file schema (strict JSON, `version` must be `1`):
 
@@ -903,8 +917,10 @@ Config file schema (strict JSON, `version` must be `1`):
   "version": 1,
   "providers": {
     "codex":  { "enabled": true },
-    "gemini": { "enabled": true },
+    "gemini": { "enabled": true, "model": "gemini-3.8-flash-high" },
     "grok":   { "enabled": true, "apiKeyEnv": "XAI_API_KEY" },
+    "ollama": { "enabled": true, "apiBase": "http://localhost:11434/v1" },
+    "lmstudio": { "enabled": true, "apiBase": "http://localhost:1234/v1" },
     "openrouter": {
       "enabled": true,
       "apiKeyEnv": "OPENROUTER_API_KEY",
@@ -915,6 +931,24 @@ Config file schema (strict JSON, `version` must be `1`):
     }
   },
   "models": {
+    "gemini-flash": {
+      "provider": "google",
+      "model": "gemini-3.8-flash-high",
+      "askAll": true,
+      "consensus": true
+    },
+    "nemotron-local": {
+      "provider": "ollama",
+      "model": "nemotron-3-ultra:cloud",
+      "askAll": true,
+      "consensus": false
+    },
+    "deepseek-local": {
+      "provider": "lmstudio",
+      "model": "deepseek-r1-distill-qwen-14b",
+      "askAll": true,
+      "consensus": false
+    },
     "claude-arb": {
       "provider": "openrouter",
       "model": "anthropic/claude-3.7-sonnet",
@@ -948,15 +982,31 @@ the reserved `openrouter-default`):
 
 | Field | Type | Default | Notes |
 |-------|------|---------|-------|
-| `provider` | string | required | Must be `"openrouter"` in v1 (codex/gemini/grok are CLI-managed / singleton built-ins, out of scope) |
-| `model` | string | required | Provider model slug (e.g. `openai/gpt-4.1`) |
+| `provider` | string | required | `"openrouter"`, `"ollama"`, `"lmstudio"` (or `"llmstudio"`), or `"google"` (or `"gemini"`) |
+| `model` | string | required | Provider model slug or tag (e.g. `openai/gpt-4.1`, `nemotron-3-ultra:cloud`, `llama3.3:70b`, `gemini-3.8-flash-high`). Supports colons, dots, slashes |
 | `experts` | array or absent | absent = all 7 | `[]` = none / explicit-only; array = subset of the 7 expert keys |
 | `askAll` | boolean | `true` | Include this record in `/ask-all` fan-out when eligible |
 | `consensus` | boolean | `false` | Include this record in `/consensus` voting |
 | `reasoningEffort` | string | from `defaults` | Per-record override (maps to the wire `reasoning_effort`) |
 | `timeout` | number (ms) | from `defaults` | Per-record override |
 | `temperature` | number | from `defaults` | Per-record override |
-| `apiBase` | string | from `providers.openrouter.apiBase` | Per-record override (use for mixing endpoints) |
+| `apiBase` | string | from `providers.<prov>.apiBase` | Per-record override (defaults: Ollama `http://localhost:11434/v1`, LM Studio `http://localhost:1234/v1`, OpenRouter `https://openrouter.ai/api/v1`) |
+
+### Transparent delegate naming
+
+When delegates are dispatched via `panel`, `ask-all`, `consensus`, or `ask-one`,
+the server labels each delegate using `formatDelegateName(m)` in
+`core/registry.js`:
+
+- OpenRouter records: `openrouter:<alias>`
+- Google/Gemini records: `google:<model || alias>`
+- Ollama records: `ollama:<model || alias>`
+- LM Studio records: `lmstudio:<model || alias>`
+- Other providers: `<provider>:<model || alias>`
+
+This ensures explicit attribution in every verdict, opinion, and progress
+notification, guaranteeing the operator and primary agent can verify the exact
+model identity without ambiguity.
 
 **On `temperature`:** most deliberation work is analytical - code review, debugging,
 security audits, architecture and plan verdicts - where you want focused, repeatable
@@ -1108,12 +1158,13 @@ to the record id, so selection and the wire stay stable):
   `config.json`, drop the unrepairable, re-list), **Run valid only**, or **Skip all
   OpenRouter**.
 
-### Authentication (optional)
+### Authentication (optional & keyless)
 
-The Authorization header is sent **only** when the key env var resolves to a non-empty
-string. Keyless local endpoints (Ollama, vLLM, LM Studio) work without a dummy key.
-`openrouter.ai` returns HTTP 401 if the key is absent; local endpoints accept no-auth
-requests.
+The Authorization header is sent **only** when the key env var resolves to a
+non-empty string. Keyless local endpoints (Ollama, LM Studio, vLLM) work without
+an API key by default (or with `apiKeyEnv: "NONE"`). The bridge automatically
+skips the Authorization header for keyless local calls while preserving standard
+Bearer authentication for OpenRouter and authenticated endpoints.
 
 ### apiBase override matrix
 
@@ -1437,6 +1488,50 @@ standalone `grok` tool and the unified server share them:
 - `runGrok` rejects the answer with `.code = "empty"` when `stubReason` says so (above). An
   empty message body (`""`), which used to return as a silent success, is caught by the
   default floor of 1.
+
+## Temporal grounding & live RAG verification
+
+### The knowledge cutoff gap
+
+AI coding agents and expert subagents operate with fixed pre-training knowledge
+cutoffs. When an operator asks questions or conducts architectural reviews
+involving recently released tools, libraries, cloud offerings, or foundation
+models (e.g. Claude 3.7+, Gemini 3+, GPT-4.5/5, AWS services), static weights
+lack authoritative information.
+
+Without grounding, subagent delegates frequently fall into a failure mode: they
+assert with high confidence that real, published tools or model IDs are
+"fictional", "non-existent", or "hallucinated". In `/consensus` or `/ask-all`
+debates, this produces false-negative verdicts and derails plan reviews.
+
+### The temporal grounding protocol
+
+To eliminate knowledge cutoff discrepancies and ensure reliable reviews,
+deliberation specifies the temporal grounding protocol (accessible via
+`/deliberation:temporal-grounding` or `/temporal-grounding`):
+
+1. **Date Anchor**: Always establish the current UTC date via tool execution
+   (`date -u` or system environment metadata).
+2. **Delta Evaluation**: If `current_date - training_cutoff >= 3 months`, static
+   training weights must be treated as non-authoritative for tool versions,
+   cloud services, and model lineups.
+3. **Prohibition of Unverified Negative Claims**: Agents and subagents are
+   strictly forbidden from asserting that a model, tool, API, or feature is
+   "hallucinated", "fictional", or "non-existent" without live verification.
+4. **Live RAG Retrieval**:
+   - **AWS & Bedrock**: Use AWS MCP tools (`call_aws`, `suggest_aws_commands`,
+     `search_cdk_documentation`, `search_cloudformation_documentation`) or
+     AWS CLI to inspect active services, regions, and foundation model IDs.
+   - **Terraform / IaC**: Use Terraform MCP tools (`search_providers`,
+     `get_latest_provider_version`, `get_provider_details`) to verify current
+     provider schemas and resource arguments.
+   - **Documentation & Web Search**: Use `search_web` and `read_url_content`
+     to pull official release notes, changelogs, or documentation pages.
+5. **Inlining Ground Truth for Delegates**: Because external deliberation
+   delegates (`ask-all`, `consensus`, `ask-one`) may be file-blind or
+   cutoff-bound, the primary agent must inline the retrieved live facts directly
+   into the prompt. Grounding delegates at prompt time ensures consensus rounds
+   evaluate actual technical merits rather than debating cutoff boundaries.
 
 ## Orientation auto-attach
 

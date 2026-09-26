@@ -15,19 +15,21 @@ this file is for everyone else.
 ## What deliberation is
 
 A single MCP server that exposes GPT (via the Codex CLI), Gemini 3 (via the
-Antigravity CLI), Grok (via the xAI API), and OpenRouter models (400+, advisory)
-as expert subagents. You stay the primary agent. When a task benefits from a
-second opinion or cross-model review, call one of the tools below, read the
-result, and apply your own judgment. Every tool here is ADVISORY: this server
-reads and reasons, it never edits your files. (Implementation exists only in the
-Claude Code plugin's standalone Gemini bridge, which this server does not expose.)
+Antigravity CLI), Grok (via the xAI API), local models (via Ollama and LM
+Studio), and OpenRouter models (400+, advisory) as expert subagents. You stay
+the primary agent. When a task benefits from a second opinion or cross-model
+review, call one of the tools below, read the result, and apply your own
+judgment. Every tool here is ADVISORY: this server reads and reasons, it never
+edits your files. (Implementation exists only in the Claude Code plugin's
+standalone Gemini bridge, which this server does not expose.)
 
 ## Tools
 
 Fan-out and single-provider:
 
-- `ask-all` - send one question to GPT, Gemini, Grok, and configured OpenRouter
-  models in parallel, get every answer back independently (no cross-talk).
+- `ask-all` - send one question to GPT, Gemini, Grok, local models (Ollama,
+  LM Studio), and configured OpenRouter models in parallel, get every answer
+  back independently (no cross-talk).
 - `consensus` - run the FULL multi-round convergence loop server-side with a provider
   arbiter (blind pass + peer fan-out -> adjudicate -> revise) and get the converged
   verdict in one call. Depth is `consensus.maxRounds` (config, default 5); pass
@@ -66,11 +68,12 @@ Fan-out and single-provider:
   skip a GPT call because GPT looks logged out: with no login, `ask-gpt` / `ask-one codex`
   start the same login and return the same code.
 - `ask-one { provider, prompt }` - one question to ONE provider named by `panel`
-  (e.g. `codex`, `grok`, `openrouter:<alias>`). The progress pattern: call `panel`, then
-  issue one `ask-one` per name **in a single turn** so they run concurrently and each
-  result lands independently as it finishes - visible per-provider progress with parallel
-  wall-time, instead of the one opaque `ask-all` call. (The single-call `ask-all` still
-  works; `ask-one` is the progressive alternative.)
+  (e.g. `codex`, `google:<model>`, `ollama:<model>`, `lmstudio:<model>`, `grok`,
+  `openrouter:<alias>`). The progress pattern: call `panel`, then issue one
+  `ask-one` per name **in a single turn** so they run concurrently and each
+  result lands independently as it finishes - visible per-provider progress
+  with parallel wall-time, instead of the one opaque `ask-all` call. (The
+  single-call `ask-all` still works; `ask-one` is the progressive alternative.)
 - `analyze` - read-only run analytics. Reads the opt-in debug log (per-model p50/p95/max
   latency over SUCCESSFUL calls, mean tokens, error rate, reasoning effort) and the session
   store (verdict agreement rate), then returns advisory tuning suggestions (disable a
@@ -178,3 +181,31 @@ packages, so if you keep getting an old build, clear the cache
 (`rm -rf ~/.npm/_npx`) or pin/refresh the version in your host's MCP config.
 (The Claude Code plugin manifest is a separate mechanism and does not affect
 non-Claude hosts.)
+
+## Mandatory Temporal Grounding & Live RAG Verification
+
+Whenever queries, evaluations, reviews, or plans involve current dates, modern
+versions, tools, foundation models, cloud offerings, or recent releases:
+
+1. **Current Date Lookup**: Always establish the real-world date using a tool
+   call (e.g., `date -u` via `run_command` or checking system metadata).
+2. **Knowledge Cutoff Delta Check**: If the current date is 3+ months after the
+   model's pre-training cutoff date, static weights MUST NOT be trusted as
+   authoritative for model lineups, tool versions, or feature availability.
+3. **Strict Prohibition on Unverified Negative Claims**: You are strictly
+   FORBIDDEN from claiming or asserting that a model, tool, API, feature, or
+   version is "hallucinated", "fictional", or "non-existent" without first
+   performing live verification.
+4. **Mandatory Live Tool Retrieval (RAG)**:
+   - **AWS & Bedrock**: Use AWS MCP tools (`call_aws`, `suggest_aws_commands`,
+     `search_cdk_documentation`, `search_cloudformation_documentation`) or
+     AWS CLI to verify live service availability and model IDs.
+   - **Web Search & Documentation**: Use `search_web` and `read_url_content`
+     to retrieve official provider documentation, release notes, or pricing
+     tables.
+   - **Terraform / IaC**: Use Terraform MCP tools (`search_providers`,
+     `get_latest_provider_version`, `get_provider_details`).
+5. **Ground Deliberation Delegates**: When dispatching questions to
+   deliberation subagents (`consensus`, `ask-all`, `ask-one`), inline the
+   retrieved live facts directly into the delegation prompt so file-blind or
+   cutoff-bound delegates do not fall victim to knowledge cutoff errors.

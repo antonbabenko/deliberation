@@ -37,6 +37,7 @@ function makeOpenAICompatibleProvider(opts) {
     /** Test-only: current number of cached sessions. */
     get __sessionCount() { return sessions.size; },
     async health() {
+      if (!apiKeyEnv || apiKeyEnv === "NONE") return { ok: true };
       return process.env[apiKeyEnv] ? { ok: true } : { ok: false, reason: `${apiKeyEnv} unset` };
     },
     async ask(/** @type {import("../types.js").DelegationRequest} */ req) {
@@ -59,8 +60,12 @@ function makeOpenAICompatibleProvider(opts) {
         ? [...prior, { role: "user", text: req.prompt, inlineBlocks: blocks }]
         : bridge.buildInitialTurns(req.developerInstructions, req.prompt, blocks);
       try {
+        const targetApiBase = (req && req.apiBase) || apiBase;
+        const targetApiKey = (req && req.apiKey !== undefined)
+          ? req.apiKey
+          : ((req && req.apiKeyEnv) ? process.env[req.apiKeyEnv] : (apiKeyEnv ? process.env[apiKeyEnv] : undefined));
         const { text, usage } = await bridge.callOpenRouter({
-          apiBase, apiKey: (req && req.apiKey) || process.env[apiKeyEnv], model,
+          apiBase: targetApiBase, apiKey: targetApiKey, model,
           messages: bridge.buildMessages(turns),
           reasoningEffort: req.reasoningEffort, temperature: req.temperature,
           timeoutMs: typeof req.timeoutMs === "number" && req.timeoutMs > 0 ? req.timeoutMs : defaultTimeoutMs,

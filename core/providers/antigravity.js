@@ -5,6 +5,7 @@ const { toErrorResult } = require("../provider.js");
 /**
  * @param {Object} [opts]
  * @param {Object} [opts.bridge]
+ * @param {string} [opts.name]
  * @param {string} [opts.model]
  * @param {boolean} [opts.allowImplement]  construction-time lock (first of two AND-ed locks).
  *   When false/absent, this provider is read-only no matter what `req.mode` says. Set ONLY in a
@@ -30,9 +31,10 @@ function makeAntigravityProvider(opts = {}) {
   // Construction-time ceiling. Undefined (not 0) when unset, so the bridge applies its
   // own default rather than being handed a falsy value it would treat as "no timeout".
   const defaultTimeoutMs = typeof opts.timeoutMs === "number" && opts.timeoutMs > 0 ? opts.timeoutMs : undefined;
+  const providerName = opts.name || "gemini";
 
   return {
-    name: "gemini",
+    name: providerName,
     // canImplement reflects the construction lock so discovery (panel) is honest about THIS process.
     capabilities: { canImplement: allowImplement, fileUpload: false, multiTurn: true, walksFilesystem: true },
     async health() {
@@ -55,9 +57,10 @@ function makeAntigravityProvider(opts = {}) {
       // prompt when present (no system channel in agy print mode).
       const implement = allowImplement && req.mode === "implement";
       const includeDirs = (req.files || []).filter((f) => f.dir).map((f) => f.dir);
+      const effectiveRequestModel = req.model || model;
       const args = bridge.buildAgyArgs({
         prompt: req.prompt,
-        model,
+        model: effectiveRequestModel,
         sandbox: implement ? "workspace-write" : "read-only",
         developerInstructions: req.developerInstructions,
         includeDirs,
@@ -72,13 +75,13 @@ function makeAntigravityProvider(opts = {}) {
         // workspaceMutated (advisory taint signal) is surfaced when the run changed the workspace.
         // pinDropped: agy rejected the shipped alias and the bridge re-ran on agy's own
         // settings.json default, so the pinned id would be a lie - report the effective source.
-        const effectiveModel = out.pinDropped ? "agy-settings-default" : model;
-        return { provider: "gemini", model: effectiveModel, text: out.response || "", threadId: out.threadId, isError: false, ms: Date.now() - started, reasoningEffort: null, ...(out.workspaceMutated ? { workspaceMutated: true } : {}) };
+        const effectiveModel = out.pinDropped ? "agy-settings-default" : effectiveRequestModel;
+        return { provider: providerName, model: effectiveModel, text: out.response || "", threadId: out.threadId, isError: false, ms: Date.now() - started, reasoningEffort: null, ...(out.workspaceMutated ? { workspaceMutated: true } : {}) };
       } catch (e) {
         // classifyGeminiError(errMsg, errCode): the missing-cli and upstream-abort
         // branches key off the message, so pass the real caught message - not "".
         const err = /** @type {any} */ (e);
-        return toErrorResult("gemini", model, started, err, (_status, code) =>
+        return toErrorResult(providerName, effectiveRequestModel, started, err, (_status, code) =>
           bridge.classifyGeminiError((err && err.message) || "", code), { reasoningEffort: null }
         );
       }
