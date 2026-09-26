@@ -1,3 +1,10 @@
+## [3.18.0](https://github.com/antonbabenko/deliberation/compare/v3.17.1...v3.18.0) (2026-09-26)
+
+
+### Features
+
+* log GPT in before /ask-all, /consensus and /ask-gpt dispatch ([#209](https://github.com/antonbabenko/deliberation/issues/209)) ([0de7f40](https://github.com/antonbabenko/deliberation/commit/0de7f40cea64d38f798b9d849f681d52b91c38b6))
+
 ## [3.17.1](https://github.com/antonbabenko/deliberation/compare/v3.17.0...v3.17.1) (2026-09-24)
 
 
@@ -25,11 +32,4 @@
 ### Features
 
 * **codex:** add a codex-login tool and /deliberation:codex-login so a login never depends on a GPT call ([#200](https://github.com/antonbabenko/deliberation/issues/200)) ([1062b1f](https://github.com/antonbabenko/deliberation/commit/1062b1fe3cb38bd5fa3d950bbc0284dd7f2d774a))
-
-## [3.15.0](https://github.com/antonbabenko/deliberation/compare/v3.14.11...v3.15.0) (2026-09-19)
-
-
-### Features
-
-* **codex:** log in on first use via device auth; recognize CODEX_ACCESS_TOKEN and rotated ChatGPT logins ([#198](https://github.com/antonbabenko/deliberation/issues/198)) ([b914dae](https://github.com/antonbabenko/deliberation/commit/b914dae1527cdff1590405625be6955a918a5e2b))
 
