@@ -1,7 +1,7 @@
 ---
 name: ask-all
 description: Ask GPT, Gemini, Grok, and any configured OpenRouter models in parallel for independent second opinions, then synthesize and compare. Zero cross-contamination.
-allowed-tools: mcp__deliberation__panel, mcp__deliberation__ask-one, mcp__deliberation__ask-all, mcp__deliberation-openrouter__openrouter-list, Read, Bash
+allowed-tools: mcp__deliberation__panel, mcp__deliberation__codex-login, mcp__deliberation__ask-one, mcp__deliberation__ask-all, mcp__deliberation-openrouter__openrouter-list, Read, Bash
 timeout: 660000
 ---
 
@@ -79,12 +79,27 @@ User question or topic: $ARGUMENTS
    ```
    mcp__deliberation__panel({ expert: "[chosen expert]", cwd: "[cwd]" })
    ```
-   It returns `{ providers: ["codex","gemini","grok","openrouter:<alias>", ...], omitted: [...], unavailable: [{name, reason}] }`.
+   It returns `{ providers: ["codex","gemini","grok","openrouter:<alias>", ...], omitted: [...], unavailable: [{name, reason}], needsLogin: [...] }`.
    `unavailable` lists built-ins that cannot answer right now (CLI not on PATH, no credential) -
    mention each once with its reason and do not call `ask-one` for it.
    `omitted` lists aliases dropped for the fanout cap - report it as the cap note in the
    synthesis, never silent truncation. Dispatch EXACTLY `providers` (no more, no fewer): the
    server owns selection, so a disabled/over-cap alias can never appear here.
+
+4c. **Log GPT in first.** If `needsLogin` contains `codex`, GPT has no ChatGPT login on this
+   machine yet. Log it in BEFORE the fan-out, so GPT answers in this run:
+   1. Call `mcp__deliberation__codex-login({})` and print its `message` as-is (the link and
+      the code each stay on their own line). `authenticated`: keep codex. `failed` or
+      `unavailable`: drop `codex` from the dispatch, and name it once with that message.
+   2. `pending` or `starting`: ask the user with `AskUserQuestion` ("Approve the GPT login in
+      the browser with the code above, then pick one"), options `Done - include GPT` and
+      `Skip GPT this run`. A host without `AskUserQuestion` asks in one plain line and stops.
+   3. `Done`: call `codex-login` again. `authenticated`: keep codex. Still `pending`: print
+      the message again and ask once more; a second `pending` means drop `codex` from the dispatch and say GPT
+      joins once the login lands. `Skip`: drop `codex` from the dispatch.
+   `panel` only reads a flag; the login starts here, after the user asked for GPT, so the
+   15-minute code is spent on this run. Never drop codex silently because it looks logged
+   out.
 
 5. **Dispatch per-provider, IN PARALLEL.** Print one expectation line, then in ONE assistant
    message issue ONE `mcp__deliberation__ask-one` call PER name in `providers` (all in the same
@@ -134,8 +149,9 @@ User question or topic: $ARGUMENTS
    and continue with the surviving delegates. Exception: a codex `auth` result whose message
    carries a login link and one-time code is printed in full, untruncated - it is how GPT asks
    the user to approve a `codex login --device-auth`; GPT answers on the next run after that.
-   Never drop `codex` from the dispatch because it looks logged out: that call is what starts
-   the login and returns the code. Common cases: Grok `missing-auth` (no
+   This is the fallback for a login that step 4c cannot see (a spent `auth.json`). Never
+   drop `codex` from the dispatch because it looks logged out: that call is what starts the
+   login and returns the code. Common cases: Grok `missing-auth` (no
    `XAI_API_KEY`), `rate-limit`, `timeout`, Gemini `timeout`. Require **at least one** result
    with `isError: false`. If EVERY result is an error, skip the verdict comparison and emit
    exactly:

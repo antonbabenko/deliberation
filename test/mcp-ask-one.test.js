@@ -58,3 +58,40 @@ test("P4: panel + ask-one are advertised in tools/list", async () => {
   const askOne = res.result.tools.find((/** @type {any} */ t) => t.name === "ask-one");
   assert.equal(askOne.annotations.readOnlyHint, true);
 });
+
+function needsLoginProvider(/** @type {string} */ name) {
+  const p = fakeProvider(name);
+  p.health = async () => ({ ok: true, needsLogin: true });
+  return p;
+}
+
+test("P5: panel reports needsLogin for a panel member that has no login yet, and still lists it", async () => {
+  const codex = needsLoginProvider("codex");
+  const srv = buildServer({ providers: [codex, fakeProvider("grok")], getConfig: () => config });
+  const res = await srv.handle({ jsonrpc: "2.0", id: 5, method: "tools/call", params: { name: "panel", arguments: {} } });
+  const payload = JSON.parse(res.result.content[0].text);
+  assert.deepEqual(payload.providers.sort(), ["codex", "grok"]);
+  assert.deepEqual(payload.needsLogin, ["codex"]);
+  assert.equal(codex.__calls, 0, "panel must NOT start a login or call the provider");
+});
+
+test("P6: panel needsLogin is empty with a login, and never names a provider outside the panel", async () => {
+  const srv = buildServer({ providers: [fakeProvider("codex"), fakeProvider("grok")], getConfig: () => config });
+  const res = await srv.handle({ jsonrpc: "2.0", id: 6, method: "tools/call", params: { name: "panel", arguments: {} } });
+  assert.deepEqual(JSON.parse(res.result.content[0].text).needsLogin, []);
+  const off = { ...config, providers: { codex: { enabled: false } } };
+  const srv2 = buildServer({ providers: [needsLoginProvider("codex"), fakeProvider("grok")], getConfig: () => off });
+  const res2 = await srv2.handle({ jsonrpc: "2.0", id: 7, method: "tools/call", params: { name: "panel", arguments: {} } });
+  const p2 = JSON.parse(res2.result.content[0].text);
+  assert.deepEqual(p2.providers, ["grok"]);
+  assert.deepEqual(p2.needsLogin, []);
+});
+
+test("P7: panel for:consensus returns the consensus panel (uncapped delegates) with needsLogin", async () => {
+  const srv = buildServer({ providers: [needsLoginProvider("codex"), fakeProvider("grok")], getConfig: () => config });
+  const res = await srv.handle({ jsonrpc: "2.0", id: 8, method: "tools/call", params: { name: "panel", arguments: { for: "consensus" } } });
+  const payload = JSON.parse(res.result.content[0].text);
+  assert.deepEqual(payload.providers.sort(), ["codex", "grok"]);
+  assert.deepEqual(payload.needsLogin, ["codex"]);
+  assert.deepEqual(payload.omitted, [], "consensus is uncapped: nothing is omitted");
+});

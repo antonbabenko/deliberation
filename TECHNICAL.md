@@ -418,6 +418,18 @@ because GPT looks logged out; `/deliberation:doctor` and the session-hook text p
 `/deliberation:codex-login`. `panel` and health stay side-effect-free: a login is never started by
 a probe.
 
+**Login before the fan-out (`panel.needsLogin`).** Login on first use still cost the first
+run: `/ask-all` synthesized without GPT, and in `/consensus` a codex voice that errors every
+round is dropped by the circuit breaker, so the user had to remember `/deliberation:codex-login`
+before every web session. `codex.health()` now returns `{ ok: true, needsLogin: true }` in
+that case, and `panel` reports the panel members that carry the flag as `needsLogin[]`
+(`for: "consensus"` echoes the consensus panel). `/ask-all`, `/consensus` and `/ask-gpt` read it
+first: they call `codex-login`, print the link and code, ask the user to approve
+(`AskUserQuestion`), call `codex-login` again to confirm `authenticated`, and only then
+dispatch. The login still starts in a command the user ran, never in the probe, so the
+15-minute code is spent on the run that asked for GPT (the reason a SessionStart login was
+rejected). `stat` cannot see a spent `auth.json`, so the in-call login stays as the fallback.
+
 Health treats "no credential" as `ok` while `deviceLogin` is on: that is the one gap `ask()`
 closes itself, so GPT stays on the panel and delivers the code. `consensus-step`'s
 `dispatch_peers` now includes an errored voice's `message` (bounded plain text, `plainMessage`)
@@ -508,7 +520,7 @@ have no per-call knob); HTTP providers (Grok, OpenRouter) also include token `us
 `ask-all` is one tool call that fans out to N providers server-side - opaque until all
 finish. The alternative, for hosts where that opacity hurts:
 
-- **`panel { expert?, cwd? }`** returns `{ providers: string[], omitted: string[], unavailable: {name, reason}[] }` - the
+- **`panel { expert?, for?, cwd? }`** returns `{ providers: string[], omitted: string[], unavailable: {name, reason}[], needsLogin: string[] }` - the
   EXACT set `selectForAskAll` would dispatch (enabled, HEALTHY built-ins + eligible OpenRouter
   aliases, fanout cap applied), WITHOUT calling any provider. `omitted` is the fanout-cap
   drop list; `unavailable` names enabled built-ins whose stat-only `health()` failed (codex

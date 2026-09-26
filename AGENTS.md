@@ -49,11 +49,16 @@ Fan-out and single-provider:
   config + expert (enabled, healthy built-ins + eligible OpenRouter aliases, fanout cap
   applied), WITHOUT calling them. `unavailable[]` names enabled built-ins that cannot answer
   right now (CLI not on PATH, no credential) with the reason - they are skipped by every
-  fan-out, so report them once rather than treating them as errors. Read-only.
+  fan-out, so report them once rather than treating them as errors. `needsLogin[]` names
+  panel members that have no login yet but stay on the panel (codex on a fresh machine):
+  run `codex-login` and let the user approve BEFORE dispatching, so GPT answers from the first
+  call. Pass `for: "consensus"` for the consensus panel. Read-only; never starts a login.
 - `codex-login` - start (or join) the ChatGPT device login for GPT and return its link and
   one-time code, without asking GPT anything. Show the returned `message` to the user as-is;
-  GPT answers once they approve. Never skip a GPT call because GPT looks logged out: with no
-  login, `ask-gpt` / `ask-one codex` start the same login and return the same code.
+  GPT answers once they approve. Call it before a fan-out when `panel.needsLogin` contains
+  `codex`, then ask the user to approve and call it again to confirm `authenticated`. Never
+  skip a GPT call because GPT looks logged out: with no login, `ask-gpt` / `ask-one codex`
+  start the same login and return the same code.
 - `ask-one { provider, prompt }` - one question to ONE provider named by `panel`
   (e.g. `codex`, `grok`, `openrouter:<alias>`). The progress pattern: call `panel`, then
   issue one `ask-one` per name **in a single turn** so they run concurrently and each

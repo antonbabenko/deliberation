@@ -157,7 +157,9 @@ Three things differ in a web container, and the plugin now handles each:
   - **ChatGPT Plus / Pro:** nothing to set up beyond turning on device code login in
     ChatGPT's security settings. The first GPT call in a session that has no working login
     starts `codex login --device-auth` and shows its link and one-time code within a second or
-    two (`errorKind: "auth"`), each on its own line to copy. Approve in the browser and re-run;
+    two (`errorKind: "auth"`), each on its own line to copy. `/ask-all`, `/consensus` and
+    `/ask-gpt` do this BEFORE they dispatch: they show the link and code, ask you to approve,
+    and then run with GPT on the panel. On any other GPT call, approve in the browser and re-run;
     GPT answers from the next call (in `/consensus`, from the next round). A host that shows
     MCP dialogs also gets one, but nothing waits for it - decline there if you did not ask for
     GPT and that login ends at once. The login belongs to that container alone, so it never conflicts with your

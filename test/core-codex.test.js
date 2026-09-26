@@ -451,7 +451,8 @@ test("CX-login-health: with login on first use, a missing credential does not ke
   const off = mkCx({ env, run: async () => ({ code: 0, stdout: "", stderr: "" }) });
   assert.equal((await off.health()).ok, false, "and so is the provider without deviceLogin");
   const p = mkCx({ env, deviceLogin: true, login: makeDeviceLogin({ spawnLogin: fakeLoginCli().spawnLogin }), run: async () => ({ code: 0, stdout: "", stderr: "" }) });
-  assert.deepEqual(await p.health(), { ok: true });
+  // ok keeps GPT on the panel; needsLogin lets a command log in BEFORE the fan-out.
+  assert.deepEqual(await p.health(), { ok: true, needsLogin: true });
 });
 
 test("CX-login-dismissed: no answer from the dialog keeps the code valid; approving later makes the next call work", async () => {

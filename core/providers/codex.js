@@ -661,7 +661,8 @@ function makeCodexProvider(opts = {}) {
     async health() {
       const h = codexHealth({ env });
       // No credential is the one gap ask() can close itself, so it must not keep GPT off the panel.
-      return deviceLogin && h.needsLogin ? { ok: true } : h;
+      // needsLogin rides along so `panel` can tell a command to log in BEFORE the fan-out.
+      return deviceLogin && h.needsLogin ? { ok: true, needsLogin: true } : h;
     },
     async ask(req) {
       const started = Date.now();
