@@ -99,6 +99,9 @@
  * @property {ProviderCapabilities} capabilities
  * @property {() => Promise<{ok:boolean, reason?:string}>} health
  * @property {(req: DelegationRequest) => Promise<DelegationResult>} ask
+ * @property {string} [alias]
+ * @property {string} [provider]
+ * @property {string} [model]
  */
 
 module.exports = {};

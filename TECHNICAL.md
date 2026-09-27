@@ -16,7 +16,8 @@ and the Gemini recovery paths.
 - [Multi-turn and retry](#multi-turn-and-retry)
 - [Gemini timeout recovery](#gemini-timeout-recovery)
 - [Grok files and cleanup](#grok-files-and-cleanup)
-- [OpenRouter bridge](#openrouter-bridge)
+- [OpenAI-compatible bridge (OpenRouter, Ollama, LM Studio)](#openai-compatible-bridge-openrouter-ollama-lm-studio)
+- [Temporal grounding & live RAG verification](#temporal-grounding--live-rag-verification)
 - [Orientation auto-attach](#orientation-auto-attach)
 - [Date grounding](#date-grounding)
 - [Session persistence](#session-persistence)
@@ -39,6 +40,11 @@ delegates to a provider over MCP. Each provider reaches Claude Code differently:
 - **Grok (xAI)** - a bundled zero-dependency Node bridge (`server/grok/index.js`)
   talks to the xAI Responses API (`/v1/responses`) over HTTP. Advisory-only: it
   cannot edit files, but it can read attached files.
+- **Ollama / LM Studio** - zero-dependency HTTP bridge connecting to local
+  OpenAI-compatible runtimes (`http://localhost:11434/v1` for Ollama and
+  `http://localhost:1234/v1` for LM Studio). Advisory-only and keyless.
+- **OpenRouter** - zero-dependency HTTP bridge connecting to 400+ remote models
+  via `https://openrouter.ai/api/v1`. Advisory-only.
 
 Responses are synthesized by Claude, never passed through verbatim.
 
@@ -866,34 +872,41 @@ The bundled `server/grok/files-admin.js` supports three subcommands:
 the local cache aligned with remote state. The `deliberation-` filename prefix
 is a hard safety invariant on both paths - your own xAI files are never touched.
 
-## OpenRouter bridge
+## OpenAI-compatible bridge (OpenRouter, Ollama, LM Studio)
 
-The OpenRouter bridge (`server/openrouter/index.js`) is a zero-dependency Node MCP server
-that calls any OpenAI-compatible `POST {apiBase}/chat/completions` endpoint.
-It is **advisory-only** - it cannot edit files or run shell commands.
+The OpenAI-compatible bridge (`server/openrouter/index.js`) is a
+zero-dependency Node MCP server that calls any OpenAI-compatible
+`POST {apiBase}/chat/completions` endpoint. It powers OpenRouter, Ollama,
+LM Studio, and generic OpenAI-compatible runtimes. It is **advisory-only** -
+it cannot edit files or run shell commands.
 
 ### Configuration file
 
 The bridge and the fan-out commands (`/ask-all`, `/consensus`) read
-`~/.config/deliberation/config.json` at call time - the canonical XDG path (Windows:
-`%APPDATA%\deliberation\config.json`). Override the path with `DELIBERATION_CONFIG`. The file is stat-gated: the bridge re-reads it only when
-the mtime changes, so edits to `models`, `routing`, or the `providers.openrouter` block
-take effect immediately without restarting Claude Code or re-running `/setup`. Toggling a
-**built-in** provider (codex / gemini / grok) still requires `/setup` to re-register
-or de-register the MCP server.
+`~/.config/deliberation/config.json` at call time - the canonical XDG path
+(Windows: `%APPDATA%\deliberation\config.json`). Override the path with
+`DELIBERATION_CONFIG`. The file is stat-gated: the bridge re-reads it only when
+the mtime changes, so edits to `models`, `routing`, or provider blocks
+(`openrouter`, `ollama`, `lmstudio`) take effect immediately without restarting
+Claude Code or re-running `/setup`. Toggling a **built-in** provider
+(codex / gemini / grok) still requires `/setup` to re-register or de-register
+the MCP server.
 
 ### Concepts
 
 The config has four top-level sections, each with one job:
 
-- **`providers`** - transport / connection only. Per provider: `enabled` (default true)
-  plus auth/endpoint keys. `providers.openrouter` also carries the OpenRouter-specific
-  connection keys (`apiBase`, `allowRawModel`, `defaultModel`, per-call `defaults`).
-- **`models`** - named model records, keyed by id. Each record names its `provider` and
-  `model` slug and sets routing flags. This is where you declare the models the panel uses.
+- **`providers`** - transport / connection only. Per provider: `enabled`
+  (default true) plus auth/endpoint keys. Carries provider blocks for `codex`,
+  `gemini`, `grok`, `ollama` (`apiBase` default `http://localhost:11434/v1`),
+  `lmstudio` (`apiBase` default `http://localhost:1234/v1`), and `openrouter`
+  (`apiBase`, `allowRawModel`, `defaultModel`, per-call `defaults`).
+- **`models`** - named model records, keyed by id. Each record names its
+  `provider` (`openrouter`, `ollama`, `lmstudio`) and `model` slug/tag, and
+  sets routing flags. This is where you declare the models the panel uses.
 - **`routing`** - global fan-out policy (`maxFanout`).
-- **`consensus`** - `arbiter` (who synthesizes the consensus verdict) and `blindVote`
-  (optional blind arbiter pre-vote; boolean, default `false`).
+- **`consensus`** - `arbiter` (who synthesizes the consensus verdict) and
+  `blindVote` (optional blind arbiter pre-vote; boolean, default `false`).
 
 Config file schema (strict JSON, `version` must be `1`):
 
@@ -903,8 +916,10 @@ Config file schema (strict JSON, `version` must be `1`):
   "version": 1,
   "providers": {
     "codex":  { "enabled": true },
-    "gemini": { "enabled": true },
+    "gemini": { "enabled": true, "model": "gemini-3.8-flash-high" },
     "grok":   { "enabled": true, "apiKeyEnv": "XAI_API_KEY" },
+    "ollama": { "enabled": true, "apiBase": "http://localhost:11434/v1" },
+    "lmstudio": { "enabled": true, "apiBase": "http://localhost:1234/v1" },
     "openrouter": {
       "enabled": true,
       "apiKeyEnv": "OPENROUTER_API_KEY",
@@ -915,6 +930,18 @@ Config file schema (strict JSON, `version` must be `1`):
     }
   },
   "models": {
+    "nemotron-local": {
+      "provider": "ollama",
+      "model": "nemotron-3-ultra:cloud",
+      "askAll": true,
+      "consensus": false
+    },
+    "deepseek-local": {
+      "provider": "lmstudio",
+      "model": "deepseek-r1-distill-qwen-14b",
+      "askAll": true,
+      "consensus": false
+    },
     "claude-arb": {
       "provider": "openrouter",
       "model": "anthropic/claude-3.7-sonnet",
@@ -948,15 +975,31 @@ the reserved `openrouter-default`):
 
 | Field | Type | Default | Notes |
 |-------|------|---------|-------|
-| `provider` | string | required | Must be `"openrouter"` in v1 (codex/gemini/grok are CLI-managed / singleton built-ins, out of scope) |
-| `model` | string | required | Provider model slug (e.g. `openai/gpt-4.1`) |
+| `provider` | string | required | `"openrouter"`, `"ollama"`, or `"lmstudio"` |
+| `model` | string | required | Provider model slug or tag (e.g. `openai/gpt-4.1`, `nemotron-3-ultra:cloud`, `llama3.3:70b`). Supports colons, dots, slashes |
 | `experts` | array or absent | absent = all 7 | `[]` = none / explicit-only; array = subset of the 7 expert keys |
 | `askAll` | boolean | `true` | Include this record in `/ask-all` fan-out when eligible |
 | `consensus` | boolean | `false` | Include this record in `/consensus` voting |
 | `reasoningEffort` | string | from `defaults` | Per-record override (maps to the wire `reasoning_effort`) |
 | `timeout` | number (ms) | from `defaults` | Per-record override |
 | `temperature` | number | from `defaults` | Per-record override |
-| `apiBase` | string | from `providers.openrouter.apiBase` | Per-record override (use for mixing endpoints) |
+| `apiBase` | string | from `providers.<prov>.apiBase` | Per-record override (defaults: Ollama `http://localhost:11434/v1`, LM Studio `http://localhost:1234/v1`, OpenRouter `https://openrouter.ai/api/v1`) |
+
+### Transparent delegate naming
+
+When delegates are dispatched via `panel`, `ask-all`, `consensus`, or `ask-one`,
+the server labels each configured model record using `formatDelegateName(m)` in
+`core/registry.js` as `<provider>:<alias>` (the unique config id):
+
+- OpenRouter records: `openrouter:<alias>`
+- Ollama records: `ollama:<alias>`
+- LM Studio records: `lmstudio:<alias>`
+- Built-in providers keep their canonical names: `codex`, `gemini`, `grok`
+  (Gemini reports its runtime model in the `model` property).
+
+This ensures explicit attribution in every verdict, opinion, and progress
+notification, guaranteeing the operator and primary agent can verify the exact
+model identity without ambiguity.
 
 **On `temperature`:** most deliberation work is analytical - code review, debugging,
 security audits, architecture and plan verdicts - where you want focused, repeatable
@@ -1108,12 +1151,13 @@ to the record id, so selection and the wire stay stable):
   `config.json`, drop the unrepairable, re-list), **Run valid only**, or **Skip all
   OpenRouter**.
 
-### Authentication (optional)
+### Authentication (optional & keyless)
 
-The Authorization header is sent **only** when the key env var resolves to a non-empty
-string. Keyless local endpoints (Ollama, vLLM, LM Studio) work without a dummy key.
-`openrouter.ai` returns HTTP 401 if the key is absent; local endpoints accept no-auth
-requests.
+The Authorization header is sent **only** when the key env var resolves to a
+non-empty string. Keyless local endpoints (Ollama, LM Studio, vLLM) work without
+an API key by default (or with `apiKeyEnv: "NONE"`). The bridge automatically
+skips the Authorization header for keyless local calls while preserving standard
+Bearer authentication for OpenRouter and authenticated endpoints.
 
 ### apiBase override matrix
 

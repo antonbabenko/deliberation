@@ -13,14 +13,15 @@ Every expert supports two modes, chosen automatically from your request:
 | Advisory | `read-only` | Analysis, recommendations, reviews |
 | Implementation | `workspace-write` | Making changes, fixing issues |
 
-## OpenRouter config
+## Provider & Model config (OpenRouter, Ollama, LM Studio)
 
-OpenRouter models are declared in `~/.config/deliberation/config.json` - the canonical
-XDG path (Windows: `%APPDATA%\deliberation\config.json`). You can override the path
-with `DELIBERATION_CONFIG`. The file is the live single source of
-truth: changes to `models`, `routing`, or the `providers.openrouter` block hot-reload
-without restarting Claude Code. Toggling a built-in provider (codex / gemini / grok)
-still requires `/setup`.
+OpenRouter and local models (Ollama, LM Studio) are declared in
+`~/.config/deliberation/config.json` - the canonical XDG path (Windows:
+`%APPDATA%\deliberation\config.json`). You can override the path with
+`DELIBERATION_CONFIG`. The file is the live single source of truth: changes to
+`models`, `routing`, or provider blocks (`openrouter`, `ollama`, `lmstudio`)
+hot-reload without restarting Claude Code. Toggling built-in CLI providers
+(codex / gemini / grok) still requires `/setup`.
 
 The config has six sections: `providers` (transport / connection per provider),
 `models` (named model records keyed by id), `routing` (fan-out policy),
@@ -29,7 +30,7 @@ arbiter pre-vote), `sessions` (opt-in run persistence; default off - see
 [Session persistence](#session-persistence)), and `debug` (opt-in debug log; default off).
 The `$schema` key gives editors validation and autocomplete - VS Code needs no extension.
 
-Minimal example:
+Example configuration:
 
 ```json
 {
@@ -38,8 +39,10 @@ Minimal example:
   "providers": {
     "defaults": { "timeout": 600000 },
     "codex":  { "enabled": true },
-    "gemini": { "enabled": true, "model": "auto-gemini-3" },
+    "gemini": { "enabled": true, "model": "gemini-3.8-flash-high" },
     "grok":   { "enabled": true, "apiKeyEnv": "XAI_API_KEY", "model": "grok-4.6", "reasoningEffort": "high" },
+    "ollama": { "enabled": true, "apiBase": "http://localhost:11434/v1" },
+    "lmstudio": { "enabled": true, "apiBase": "http://localhost:1234/v1" },
     "openrouter": {
       "enabled": true,
       "apiKeyEnv": "OPENROUTER_API_KEY",
@@ -49,9 +52,15 @@ Minimal example:
     }
   },
   "models": {
-    "gpt-4-or": {
-      "provider": "openrouter",
-      "model": "openai/gpt-4.1",
+    "nemotron-local": {
+      "provider": "ollama",
+      "model": "nemotron-3-ultra:cloud",
+      "askAll": true,
+      "consensus": false
+    },
+    "deepseek-local": {
+      "provider": "lmstudio",
+      "model": "deepseek-r1-distill-qwen-14b",
       "askAll": true,
       "consensus": false
     },
@@ -75,9 +84,32 @@ round to `<XDG cache>/deliberation/debug.jsonl` (override with `debug.path` or
 `DELIBERATION_DEBUG_LOG`): latency, reasoning effort, HTTP token usage, and voting/approval
 outcomes - never prompts, responses, or issue text. Useful for debugging slow runs.
 
-Browse model slugs at [openrouter.ai/models](https://openrouter.ai/models?input_modalities=text);
-the `model` field takes any slug listed there. Each record's `provider` must be
-`"openrouter"` in v1 (codex / gemini / grok are managed by their own CLI / API).
+### Supported model providers
+
+Each record in `models` requires a `provider` and a `model` slug:
+
+- `"openrouter"`: routes through OpenRouter API (requires `OPENROUTER_API_KEY`).
+  Browse model slugs at [openrouter.ai/models](https://openrouter.ai/models).
+- `"ollama"`: routes to local Ollama. Defaults to `http://localhost:11434/v1`,
+  keyless (no API key required). Supports model tags with colons, dots, and
+  slashes (e.g. `nemotron-3-ultra:cloud`, `llama3.3:70b`, `glm-5.3:cloud`).
+- `"lmstudio"`: routes to local LM Studio. Defaults to `http://localhost:1234/v1`,
+  keyless (no API key required).
+
+### Explicit provider attribution
+
+All models participating in `panel`, `ask-all`, `consensus`, and `ask-one` are
+transparently attributed in responses:
+- `gemini` (built-in Gemini adapter; reports runtime model in `model`)
+- `codex` (built-in GPT adapter)
+- `grok` (built-in Grok adapter)
+- `ollama:<alias>` (e.g., `ollama:nemotron-local`)
+- `lmstudio:<alias>` (e.g., `lmstudio:deepseek-local`)
+- `openrouter:<alias>` (e.g., `openrouter:claude-arb`)
+
+This guarantees that both the operator and primary agent always know which
+exact runtime and model provided each critique or verdict, avoiding accidental
+model shadowing or loss of multi-model independence.
 
 `providers.gemini.model` and `providers.grok.model` pin those two providers without
 touching their own config files. Precedence for both: per-call `model` argument, then
@@ -236,7 +268,7 @@ in-flight call. Implementation tasks always route to Gemini - GPT, Grok, and Ope
 For the full schema, the `$schema` / VS Code validation story, apiBase override matrix
 (Ollama, vLLM, LM Studio, HuggingFace), file-attachment caps, session model persistence,
 consensus cost model, and error kinds, see
-[TECHNICAL.md - OpenRouter bridge](TECHNICAL.md#openrouter-bridge).
+[TECHNICAL.md - OpenAI-compatible bridge (OpenRouter, Ollama, LM Studio)](TECHNICAL.md#openai-compatible-bridge-openrouter-ollama-lm-studio).
 
 ## Session persistence
 

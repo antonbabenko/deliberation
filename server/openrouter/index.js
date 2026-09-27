@@ -176,13 +176,17 @@ function buildInitialTurns(developerInstructions, prompt, blocks) {
 // Resolve args -> delegate {model, ...overrides} or { _error: 'model-not-allowed' }.
 function resolveDelegate(or, args) {
   if (isNonEmptyString(args.alias)) {
-    return resolveAlias(or, args.alias) || { _error: "model-not-allowed" };
+    const d = resolveAlias(or, args.alias);
+    if (!d || (d.provider && d.provider !== "openrouter")) return { _error: "model-not-allowed" };
+    return d;
   }
   if (isNonEmptyString(args.model)) {
     if (!or.allowRawModel) return { _error: "model-not-allowed" };
     return { model: args.model.trim() };
   }
-  return resolveAlias(or, RESERVED_ALIAS) || { _error: "model-not-allowed" };
+  const def = resolveAlias(or, RESERVED_ALIAS);
+  if (!def || (def.provider && def.provider !== "openrouter")) return { _error: "model-not-allowed" };
+  return def;
 }
 
 const TOOL_PROPS = {
@@ -242,6 +246,9 @@ const handlers = {
 
     if (name === "openrouter-list") {
       if (!respond) return;
+      // Filter out non-OpenRouter models (e.g. ollama/lmstudio) from the standalone OpenRouter bridge.
+      const orModels = (or.models || []).filter((m) => (m.provider || "openrouter") === "openrouter");
+      const orFiltered = { ...or, models: orModels };
       // Shape a resolved model into the wire form (matches `delegates` entries below).
       const shape = (m) => ({
         alias: m.alias, model: m.model, experts: m.experts, askAll: m.askAll, consensus: m.consensus,
@@ -249,7 +256,7 @@ const handlers = {
         reasoning_effort: pick(undefined, m.reasoning_effort, or.defaults.reasoning_effort) ?? null,
       });
       const payload = {
-        delegates: or.models.map(shape),
+        delegates: orModels.map(shape),
         defaultModelSet: !!or.defaultModel, maxFanout: or.maxFanout, maxFanoutHigh: or.maxFanout > 10,
         // Per-entry validation failures (kept-valid delegates above; these were skipped).
         // Each: { index, alias, reason, suggestedAlias? }. Empty when the config is clean.
@@ -265,11 +272,11 @@ const handlers = {
         payload.mode = mode;
         if (expert !== undefined) payload.expert = expert;
         if (mode === "ask-all") {
-          const out = askAllDelegates(or, expert);
+          const out = askAllDelegates(orFiltered, expert);
           payload.selected = out.selected.map(shape);
           payload.omitted = out.omitted.map(shape);
         } else {
-          payload.selected = consensusDelegates(or, expert).map(shape);
+          payload.selected = consensusDelegates(orFiltered, expert).map(shape);
         }
       }
       sendResponse(id, { content: [{ type: "text", text: JSON.stringify(payload) }] });
@@ -317,7 +324,16 @@ const handlers = {
     const cfgProviderTimeout = (resolvedProviders.openrouter && resolvedProviders.openrouter.timeout) || undefined;
     const timeoutMs = pick(args.timeout, delegate.timeout, or.defaults.timeout !== undefined ? or.defaults.timeout : cfgProviderTimeout);
     const apiBase = delegate.apiBase || or.apiBase;
-    const apiKey = process.env[or.apiKeyEnv] || "";
+    let apiKey;
+    if (delegate.apiKey !== undefined) {
+      apiKey = delegate.apiKey;
+    } else if (delegate.apiKeyEnv) {
+      apiKey = process.env[delegate.apiKeyEnv] || "";
+    } else if (!delegate.apiBase || delegate.apiBase === or.apiBase) {
+      apiKey = process.env[or.apiKeyEnv] || "";
+    } else {
+      apiKey = "";
+    }
 
     const turns = priorSession
       ? [...priorSession.turns, { role: "user", text: args.prompt, inlineBlocks: blocks }]

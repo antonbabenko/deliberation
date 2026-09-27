@@ -4,7 +4,7 @@
 /** @typedef {import("../../core/types.js").Provider} Provider */
 /** @typedef {import("../../core/types.js").DelegationRequest} DelegationRequest */
 
-const { makeRegistry, pinAlias } = require("../../core/registry.js");
+const { makeRegistry, pinAlias, formatDelegateName } = require("../../core/registry.js");
 const { askAll, askOne, consensus, runToConvergence } = require("../../core/orchestrate.js");
 const { orientationFilesFor } = require("../../core/orientation.js");
 const { PROMPTS } = require("../../core/prompts/index.js");
@@ -272,12 +272,12 @@ async function resolveArbiter(spec, selected, registry, getConfig) {
   // Object form { model: "<id>" }: pin that models entry as the arbiter.
   if (spec && typeof spec === "object") {
     const id = spec.model;
-    const orProvider = registry.get("openrouter");
     const models = (cfg.openrouter && cfg.openrouter.models) || [];
     const model = models.find((/** @type {any} */ m) => m && m.alias === id);
-    // OpenRouter must be enabled both as a provider and as the openrouter block.
-    const orEnabled = providerEnabled(cfg, "openrouter") && !(cfg.openrouter && cfg.openrouter.enabled === false);
-    if (orProvider && model && orEnabled) return { mode: "server", provider: pinAlias(orProvider, model) };
+    const prov = (model && model.provider) || "openrouter";
+    const targetProvider = registry.get(prov) || registry.get("openrouter");
+    const isProvEnabled = providerEnabled(cfg, prov) && !(prov === "openrouter" && cfg.openrouter && cfg.openrouter.enabled === false);
+    if (targetProvider && model && isProvEnabled) return { mode: "server", provider: pinAlias(targetProvider, model, cfg) };
     return auto(`configured arbiter model '${id}' is not available`);
   }
 
@@ -1663,6 +1663,22 @@ function startStdio() {
       resolveModel: (req) => req.model || (getConfig().openrouter && getConfig().openrouter.defaultModel) || "",
       bridge: require("../openrouter/index.js"),
       timeoutMs: providerTimeout("openrouter"),
+    }),
+    makeOpenAICompatibleProvider({
+      name: "ollama",
+      apiBase: (initialProviders.ollama && initialProviders.ollama.apiBase) || "http://localhost:11434/v1",
+      apiKeyEnv: (initialProviders.ollama && initialProviders.ollama.apiKeyEnv) || "",
+      resolveModel: (req) => req.model || "",
+      bridge: require("../openrouter/index.js"),
+      timeoutMs: providerTimeout("ollama"),
+    }),
+    makeOpenAICompatibleProvider({
+      name: "lmstudio",
+      apiBase: (initialProviders.lmstudio && initialProviders.lmstudio.apiBase) || "http://localhost:1234/v1",
+      apiKeyEnv: (initialProviders.lmstudio && initialProviders.lmstudio.apiKeyEnv) || "",
+      resolveModel: (req) => req.model || "",
+      bridge: require("../openrouter/index.js"),
+      timeoutMs: providerTimeout("lmstudio"),
     }),
   ];
   const sessionsDir = require("../../core/paths.js").resolveSessionsDir();
