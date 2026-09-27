@@ -412,7 +412,7 @@ function rowKey(/** @type {string} */ provider, /** @type {any} */ model) {
 /**
  * Map a debug-log provider name to where its tuning lever lives.
  * @param {string} provider
- * @returns {{kind:"openrouter"|"external"|"grok"|"unknown", alias?:string}}
+ * @returns {{kind:"openrouter"|"local"|"external"|"grok"|"unknown", alias?:string}}
  */
 function leverFor(provider) {
   // Guard the prefix before slicing: a bare "openrouter" provider string would otherwise
@@ -421,15 +421,12 @@ function leverFor(provider) {
     return { kind: "openrouter", alias: provider.slice(OR_PREFIX.length) };
   }
   if (provider.startsWith("ollama:") && provider.length > "ollama:".length) {
-    return { kind: "openrouter", alias: provider.slice("ollama:".length) };
+    return { kind: "local", alias: provider.slice("ollama:".length) };
   }
   if (provider.startsWith("lmstudio:") && provider.length > "lmstudio:".length) {
-    return { kind: "openrouter", alias: provider.slice("lmstudio:".length) };
+    return { kind: "local", alias: provider.slice("lmstudio:".length) };
   }
-  if (provider.startsWith("llmstudio:") && provider.length > "llmstudio:".length) {
-    return { kind: "openrouter", alias: provider.slice("llmstudio:".length) };
-  }
-  if (provider === "codex" || provider === "gemini" || provider.startsWith("google:") || provider.startsWith("gemini:")) return { kind: "external" };
+  if (provider === "codex" || provider === "gemini") return { kind: "external" };
   if (provider === "grok") return { kind: "grok" };
   return { kind: "unknown" };
 }
@@ -448,7 +445,6 @@ function configLevers(config) {
   const byAlias = new Map();
   for (const m of Array.isArray(or.models) ? or.models : []) {
     if (m && typeof m.alias === "string" && m.alias) byAlias.set(m.alias, m);
-    if (m && typeof m.model === "string" && m.model) byAlias.set(m.model, m);
   }
   /** @type {Set<string>} */
   const invalidAliases = new Set();
@@ -489,7 +485,7 @@ function configLevers(config) {
  */
 function excludeReason(provider, levers, model) {
   const lever = leverFor(provider);
-  if (lever.kind === "openrouter") {
+  if (lever.kind === "openrouter" || lever.kind === "local") {
     const alias = typeof lever.alias === "string" ? lever.alias : "";
     const entry = levers.byAlias.get(alias);
     if (entry) {
@@ -499,7 +495,12 @@ function excludeReason(provider, levers, model) {
     }
     // `models` is forced to [] when the provider is disabled, so membership alone cannot
     // tell "retired alias" from "openrouter turned off" from "record rejected".
-    if (!levers.orEnabled) return "openrouter provider disabled";
+    if (lever.kind === "openrouter" && !levers.orEnabled) return "openrouter provider disabled";
+    if (lever.kind === "local") {
+      const provName = provider.startsWith("ollama:") ? "ollama" : "lmstudio";
+      const pBlock = levers.providers[provName];
+      if (pBlock && pBlock.enabled === false) return `${provName} provider disabled`;
+    }
     if (levers.invalidAliases.has(alias)) return "rejected by config validation";
     return "not in config";
   }
@@ -536,11 +537,12 @@ function recommend(stats, agreement, config) {
   for (const o of outliers) {
     if (o.kind === "high-error") {
       const lever = leverFor(o.provider);
+      const isConfigModel = lever.kind === "openrouter" || lever.kind === "local";
       out.push({
-        target: lever.kind === "openrouter" ? "deliberation" : "external",
+        target: isConfigModel ? "deliberation" : "external",
         subject: o.provider,
-        configKey: lever.kind === "openrouter" ? `models.${lever.alias}.askAll` : null,
-        action: lever.kind === "openrouter" ? `set models.${lever.alias}.askAll=false until it stabilizes` : `check the ${o.provider} credentials/CLI session`,
+        configKey: isConfigModel ? `models.${lever.alias}.askAll` : null,
+        action: isConfigModel ? `set models.${lever.alias}.askAll=false until it stabilizes` : `check the ${o.provider} credentials/CLI session`,
         rationale: o.detail,
       });
       continue;
@@ -553,8 +555,8 @@ function recommend(stats, agreement, config) {
       ? ` It also agreed with the final verdict ${agree ? Math.round((agree.agreementRate || 0) * 100) : 0}% of ${agree ? agree.votes : 0} votes (rarely adds dissent), so it is the strongest cut candidate.`
       : "";
 
-    if (lever.kind === "openrouter") {
-      slowOpenRouterCount += 1;
+    if (lever.kind === "openrouter" || lever.kind === "local") {
+      if (lever.kind === "openrouter") slowOpenRouterCount += 1;
       const alias = typeof lever.alias === "string" ? lever.alias : "";
       const entry = levers.byAlias.get(alias) || null;
       // Resolved records carry snake_case `reasoning_effort`; the on-disk `reasoningEffort`
@@ -949,6 +951,7 @@ module.exports = {
   aggregateAgreement,
   detectOutliers,
   detectModelVariants,
+  leverFor,
   configLevers,
   excludeReason,
   buildCompare,

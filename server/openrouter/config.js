@@ -100,7 +100,7 @@ function validateConfig(raw) {
     return !pBlock || pBlock.enabled !== false;
   };
   const models = parsed.models.filter(isModelEnabled);
-  const invalidModels = enabled ? parsed.invalidModels : [];
+  const invalidModels = parsed.invalidModels;
 
   const { consensus, warnings } = resolveConsensus(raw.consensus, models);
   const { sessions, warnings: sessionsWarnings } = resolveSessions(raw.sessions);
@@ -233,7 +233,7 @@ function resolveDefaults(raw) {
 // request itself. `defaults` is a shared block, NOT a provider: it never becomes an
 // entry in the resolved map.
 const PINNABLE_KEYS = ["model", "reasoningEffort", "apiBase", "apiKeyEnv"];
-const KNOWN_PROVIDERS = ["codex", "gemini", "grok", "openrouter", "ollama", "lmstudio", "llmstudio"];
+const KNOWN_PROVIDERS = ["codex", "gemini", "grok", "openrouter", "ollama", "lmstudio"];
 const positiveInt = (/** @type {any} */ v) => (Number.isInteger(v) && v > 0 ? v : undefined);
 function resolveProviders(providersRaw) {
   const out = {};
@@ -316,7 +316,11 @@ function resolveModels(modelsRaw) {
       continue;
     }
     if (id === RESERVED_ALIAS) { addInvalid(i, id, `id "${RESERVED_ALIAS}" is reserved`); continue; }
-    const ALLOWED_MODEL_PROVIDERS = new Set(["openrouter", "ollama", "lmstudio", "llmstudio", "google"]);
+    if (!isObject(m)) {
+      addInvalid(i, id, `models["${id}"] must be an object (got ${JSON.stringify(m)})`);
+      continue;
+    }
+    const ALLOWED_MODEL_PROVIDERS = new Set(["openrouter", "ollama", "lmstudio"]);
     if (typeof m.provider !== "string" || !m.provider.trim()) {
       addInvalid(i, id, `models["${id}"] needs a provider (must be one of: ${[...ALLOWED_MODEL_PROVIDERS].join(", ")})`); continue;
     }

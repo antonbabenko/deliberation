@@ -902,9 +902,8 @@ The config has four top-level sections, each with one job:
   `lmstudio` (`apiBase` default `http://localhost:1234/v1`), and `openrouter`
   (`apiBase`, `allowRawModel`, `defaultModel`, per-call `defaults`).
 - **`models`** - named model records, keyed by id. Each record names its
-  `provider` (`openrouter`, `ollama`, `lmstudio`, `google`) and `model`
-  slug/tag, and sets routing flags. This is where you declare the models the
-  panel uses.
+  `provider` (`openrouter`, `ollama`, `lmstudio`) and `model` slug/tag, and
+  sets routing flags. This is where you declare the models the panel uses.
 - **`routing`** - global fan-out policy (`maxFanout`).
 - **`consensus`** - `arbiter` (who synthesizes the consensus verdict) and
   `blindVote` (optional blind arbiter pre-vote; boolean, default `false`).
@@ -931,12 +930,6 @@ Config file schema (strict JSON, `version` must be `1`):
     }
   },
   "models": {
-    "gemini-flash": {
-      "provider": "google",
-      "model": "gemini-3.8-flash-high",
-      "askAll": true,
-      "consensus": true
-    },
     "nemotron-local": {
       "provider": "ollama",
       "model": "nemotron-3-ultra:cloud",
@@ -982,8 +975,8 @@ the reserved `openrouter-default`):
 
 | Field | Type | Default | Notes |
 |-------|------|---------|-------|
-| `provider` | string | required | `"openrouter"`, `"ollama"`, `"lmstudio"` (or `"llmstudio"`), or `"google"` (or `"gemini"`) |
-| `model` | string | required | Provider model slug or tag (e.g. `openai/gpt-4.1`, `nemotron-3-ultra:cloud`, `llama3.3:70b`, `gemini-3.8-flash-high`). Supports colons, dots, slashes |
+| `provider` | string | required | `"openrouter"`, `"ollama"`, or `"lmstudio"` |
+| `model` | string | required | Provider model slug or tag (e.g. `openai/gpt-4.1`, `nemotron-3-ultra:cloud`, `llama3.3:70b`). Supports colons, dots, slashes |
 | `experts` | array or absent | absent = all 7 | `[]` = none / explicit-only; array = subset of the 7 expert keys |
 | `askAll` | boolean | `true` | Include this record in `/ask-all` fan-out when eligible |
 | `consensus` | boolean | `false` | Include this record in `/consensus` voting |
@@ -995,14 +988,14 @@ the reserved `openrouter-default`):
 ### Transparent delegate naming
 
 When delegates are dispatched via `panel`, `ask-all`, `consensus`, or `ask-one`,
-the server labels each delegate using `formatDelegateName(m)` in
-`core/registry.js`:
+the server labels each configured model record using `formatDelegateName(m)` in
+`core/registry.js` as `<provider>:<alias>` (the unique config id):
 
 - OpenRouter records: `openrouter:<alias>`
-- Google/Gemini records: `google:<model || alias>`
-- Ollama records: `ollama:<model || alias>`
-- LM Studio records: `lmstudio:<model || alias>`
-- Other providers: `<provider>:<model || alias>`
+- Ollama records: `ollama:<alias>`
+- LM Studio records: `lmstudio:<alias>`
+- Built-in providers keep their canonical names: `codex`, `gemini`, `grok`
+  (Gemini reports its runtime model in the `model` property).
 
 This ensures explicit attribution in every verdict, opinion, and progress
 notification, guaranteeing the operator and primary agent can verify the exact
@@ -1488,50 +1481,6 @@ standalone `grok` tool and the unified server share them:
 - `runGrok` rejects the answer with `.code = "empty"` when `stubReason` says so (above). An
   empty message body (`""`), which used to return as a silent success, is caught by the
   default floor of 1.
-
-## Temporal grounding & live RAG verification
-
-### The knowledge cutoff gap
-
-AI coding agents and expert subagents operate with fixed pre-training knowledge
-cutoffs. When an operator asks questions or conducts architectural reviews
-involving recently released tools, libraries, cloud offerings, or foundation
-models (e.g. Claude 3.7+, Gemini 3+, GPT-4.5/5, AWS services), static weights
-lack authoritative information.
-
-Without grounding, subagent delegates frequently fall into a failure mode: they
-assert with high confidence that real, published tools or model IDs are
-"fictional", "non-existent", or "hallucinated". In `/consensus` or `/ask-all`
-debates, this produces false-negative verdicts and derails plan reviews.
-
-### The temporal grounding protocol
-
-To eliminate knowledge cutoff discrepancies and ensure reliable reviews,
-deliberation specifies the temporal grounding protocol (accessible via
-`/deliberation:temporal-grounding` or `/temporal-grounding`):
-
-1. **Date Anchor**: Always establish the current UTC date via tool execution
-   (`date -u` or system environment metadata).
-2. **Delta Evaluation**: If `current_date - training_cutoff >= 3 months`, static
-   training weights must be treated as non-authoritative for tool versions,
-   cloud services, and model lineups.
-3. **Prohibition of Unverified Negative Claims**: Agents and subagents are
-   strictly forbidden from asserting that a model, tool, API, or feature is
-   "hallucinated", "fictional", or "non-existent" without live verification.
-4. **Live RAG Retrieval**:
-   - **AWS & Bedrock**: Use AWS MCP tools (`call_aws`, `suggest_aws_commands`,
-     `search_cdk_documentation`, `search_cloudformation_documentation`) or
-     AWS CLI to inspect active services, regions, and foundation model IDs.
-   - **Terraform / IaC**: Use Terraform MCP tools (`search_providers`,
-     `get_latest_provider_version`, `get_provider_details`) to verify current
-     provider schemas and resource arguments.
-   - **Documentation & Web Search**: Use `search_web` and `read_url_content`
-     to pull official release notes, changelogs, or documentation pages.
-5. **Inlining Ground Truth for Delegates**: Because external deliberation
-   delegates (`ask-all`, `consensus`, `ask-one`) may be file-blind or
-   cutoff-bound, the primary agent must inline the retrieved live facts directly
-   into the prompt. Grounding delegates at prompt time ensures consensus rounds
-   evaluate actual technical merits rather than debating cutoff boundaries.
 
 ## Orientation auto-attach
 

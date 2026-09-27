@@ -33,8 +33,7 @@
         "grok": { "$ref": "#/$defs/grokProvider" },
         "openrouter": { "$ref": "#/$defs/openrouterProvider" },
         "ollama": { "$ref": "#/$defs/ollamaProvider" },
-        "lmstudio": { "$ref": "#/$defs/lmstudioProvider" },
-        "llmstudio": { "$ref": "#/$defs/lmstudioProvider" }
+        "lmstudio": { "$ref": "#/$defs/lmstudioProvider" }
       }
     },
     "models": {
@@ -269,8 +268,8 @@
       "properties": {
         "provider": {
           "type": "string",
-          "enum": ["openrouter", "ollama", "lmstudio", "llmstudio", "google"],
-          "description": "Transport for this record (supported: openrouter, ollama, lmstudio, llmstudio, google)."
+          "enum": ["openrouter", "ollama", "lmstudio"],
+          "description": "Transport for this record (supported: openrouter, ollama, lmstudio)."
         },
         "model": { "type": "string", "minLength": 1, "description": "Model slug.", "examples": ["anthropic/claude-3.7-sonnet"] },
         "askAll": { "type": "boolean", "default": true, "description": "Participate in /ask-all fan-out." },

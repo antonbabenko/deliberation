@@ -60,12 +60,8 @@ function makeOpenAICompatibleProvider(opts) {
         ? [...prior, { role: "user", text: req.prompt, inlineBlocks: blocks }]
         : bridge.buildInitialTurns(req.developerInstructions, req.prompt, blocks);
       try {
-        const targetApiBase = (req && req.apiBase) || apiBase;
-        const targetApiKey = (req && req.apiKey !== undefined)
-          ? req.apiKey
-          : ((req && req.apiKeyEnv) ? process.env[req.apiKeyEnv] : (apiKeyEnv ? process.env[apiKeyEnv] : undefined));
         const { text, usage } = await bridge.callOpenRouter({
-          apiBase: targetApiBase, apiKey: targetApiKey, model,
+          apiBase, apiKey: (req && req.apiKey) || (apiKeyEnv ? process.env[apiKeyEnv] : undefined), model,
           messages: bridge.buildMessages(turns),
           reasoningEffort: req.reasoningEffort, temperature: req.temperature,
           timeoutMs: typeof req.timeoutMs === "number" && req.timeoutMs > 0 ? req.timeoutMs : defaultTimeoutMs,

@@ -280,40 +280,21 @@ When `orientation.enabled` is true, the server auto-attaches a small bundle of h
 
 16. **Ground the date in code, leave the lookup to the host** - external PR #204 proposed a standalone "mandatory temporal grounding" skill (run `date -u`, query AWS/Terraform MCP tools, search the web) pasted into AGENTS.md and the host rules. The problem is real - a delegate trained months ago calls a newer model or tool "hallucinated" and files a false critical issue that blocks a consensus round - but prose aimed at the delegates cannot fix it: Grok and OpenRouter run with `tools: []`, the vendor tool names exist only on some hosts, and persona text is paid on every call times panel size times rounds. `/ask-all` (5/5) split it by who can act. The date is a FACT only code can supply, so `core/grounding.js groundingNote()` stamps it, with a one-sentence no-denial rule (unrecognized = `[unverified]`, never "non-existent"), into every prompt builder (Codex `runOnce`, Gemini `buildAgyArgs`, Grok and OpenRouter `buildInitialTurns`) - the builders, not `orchestrate.js`, because they are the one place every path meets, standalone `/ask-*` bridges included. The rule ships WITH the date because a date alone still lets a model deny a name it does not know. Retrieval is the host's job: `AGENTS.md` "Time-sensitive questions", every `/ask-*` command, `/consensus`, and the CONTEXT section of `rules/delegation-format.md` tell the orchestrator to verify and inline facts with an as-of date and source. Personas are unchanged, no skill, no config key. Details in [TECHNICAL.md § Date grounding](TECHNICAL.md#date-grounding).
 
-15. **Local Providers & Explicit Provider Attribution in `models`** - operators
+17. **Local Providers & Explicit Provider Attribution in `models`** - operators
     frequently run local inference runtimes (Ollama, LM Studio) alongside
-    remote APIs, or configure multiple alternative Google/Gemini models (e.g.
-    `gemini-3.8-flash-high`, `gpt-oss-120b-medium`). Previously, `models` was
-    hardcoded to `"provider": "openrouter"`. In v1.1+, `models` records accept
-    `"provider": "openrouter" | "ollama" | "lmstudio" | "google"`. Keyless
-    local endpoints (`http://localhost:11434/v1` for Ollama and
-    `http://localhost:1234/v1` for LM Studio) execute without an API key.
-    To eliminate model ambiguity, shadowing, or silent model substitutions,
-    `core/registry.js formatDelegateName` explicitly attributes every delegate
-    in `panel`, `ask-all`, `consensus`, and `ask-one`: `google:<model>`,
-    `ollama:<model>`, `lmstudio:<model>`, and `openrouter:<alias>`. Model
-    slugs in `model` accept colons, dots, and slashes (e.g.
-    `nemotron-3-ultra:cloud`), while record IDs remain restricted to
-    `^[a-z0-9-]+$`.
+    remote APIs. `models` records accept `"provider": "openrouter" | "ollama" |
+    "lmstudio"`. Dedicated local transports ensure keyless local endpoints
+    (`http://localhost:11434/v1` for Ollama and `http://localhost:1234/v1` for
+    LM Studio) execute without sending `OPENROUTER_API_KEY`. To eliminate model
+    ambiguity, shadowing, or silent model substitutions, `core/registry.js
+    formatDelegateName` explicitly attributes every configured model delegate
+    in `panel`, `ask-all`, `consensus`, and `ask-one` as `<provider>:<alias>`
+    (`ollama:<alias>`, `lmstudio:<alias>`, `openrouter:<alias>`), while the
+    built-in Gemini adapter retains its canonical name `gemini` and reports
+    its runtime model in the `model` property. Model slugs in `model` accept
+    colons, dots, and slashes (e.g. `nemotron-3-ultra:cloud`), while record IDs
+    remain restricted to `^[a-z0-9-]+$`.
 
-16. **Mandatory Temporal Grounding & Live RAG Verification** - all LLM models
-    suffer from training cutoff boundaries. When assessing plans or queries
-    involving modern tools, library versions, cloud offerings, or foundation
-    models released after a delegate's pre-training cutoff, ungrounded
-    delegates consistently commit false-negative errors, asserting that real
-    technologies are "hallucinated" or "fictional". To solve this, deliberation
-    implements the `/temporal-grounding` protocol: (a) determine current UTC
-    date (`date -u` or system metadata); (b) delta check: if current date is
-    3+ months past cutoff, static weights cannot be trusted as authoritative
-    for versioning or offerings; (c) strict prohibition on unverified negative
-    claims; (d) mandatory live RAG retrieval via AWS MCP (`call_aws`,
-    `suggest_aws_commands`), Terraform MCP (`search_providers`), and web
-    search (`search_web`, `read_url_content`); (e) inlining retrieved facts
-    into delegation prompts for `/ask-all` and `/consensus` so file-blind or
-    cutoff-bound subagents debate technical merits rather than false cutoff
-    objections. First-class slash commands (`/ask-all`, `/consensus`,
-    `/temporal-grounding`) are supported across Claude Code, Antigravity CLI,
-    and Codex CLI.
 
 ## Commit Conventions & Releases
 

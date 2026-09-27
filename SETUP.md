@@ -13,9 +13,9 @@ Every expert supports two modes, chosen automatically from your request:
 | Advisory | `read-only` | Analysis, recommendations, reviews |
 | Implementation | `workspace-write` | Making changes, fixing issues |
 
-## Provider & Model config (OpenRouter, Ollama, LM Studio, Google)
+## Provider & Model config (OpenRouter, Ollama, LM Studio)
 
-OpenRouter, local models (Ollama, LM Studio), and Google models are declared in
+OpenRouter and local models (Ollama, LM Studio) are declared in
 `~/.config/deliberation/config.json` - the canonical XDG path (Windows:
 `%APPDATA%\deliberation\config.json`). You can override the path with
 `DELIBERATION_CONFIG`. The file is the live single source of truth: changes to
@@ -52,12 +52,6 @@ Example configuration:
     }
   },
   "models": {
-    "gemini-flash": {
-      "provider": "google",
-      "model": "gemini-3.8-flash-high",
-      "askAll": true,
-      "consensus": true
-    },
     "nemotron-local": {
       "provider": "ollama",
       "model": "nemotron-3-ultra:cloud",
@@ -99,20 +93,19 @@ Each record in `models` requires a `provider` and a `model` slug:
 - `"ollama"`: routes to local Ollama. Defaults to `http://localhost:11434/v1`,
   keyless (no API key required). Supports model tags with colons, dots, and
   slashes (e.g. `nemotron-3-ultra:cloud`, `llama3.3:70b`, `glm-5.3:cloud`).
-- `"lmstudio"` (or `"llmstudio"`): routes to local LM Studio. Defaults to
-  `http://localhost:1234/v1`, keyless (no API key required).
-- `"google"` (or `"gemini"`): routes through the Antigravity CLI (`agy`) with
-  explicit model pinning (e.g. `gemini-3.8-flash-high`, `gpt-oss-120b-medium`),
-  bypassing default model drift.
+- `"lmstudio"`: routes to local LM Studio. Defaults to `http://localhost:1234/v1`,
+  keyless (no API key required).
 
 ### Explicit provider attribution
 
 All models participating in `panel`, `ask-all`, `consensus`, and `ask-one` are
 transparently attributed in responses:
-- `google:<model>` (e.g., `google: gemini-3.8-flash-high`)
-- `ollama:<model>` (e.g., `ollama: nemotron-3-ultra:cloud`)
-- `lmstudio:<model>` (e.g., `lmstudio: deepseek-r1-distill-qwen-14b`)
-- `openrouter:<alias>` (e.g., `openrouter: claude-arb`)
+- `gemini` (built-in Gemini adapter; reports runtime model in `model`)
+- `codex` (built-in GPT adapter)
+- `grok` (built-in Grok adapter)
+- `ollama:<alias>` (e.g., `ollama:nemotron-local`)
+- `lmstudio:<alias>` (e.g., `lmstudio:deepseek-local`)
+- `openrouter:<alias>` (e.g., `openrouter:claude-arb`)
 
 This guarantees that both the operator and primary agent always know which
 exact runtime and model provided each critique or verdict, avoiding accidental
@@ -276,39 +269,6 @@ For the full schema, the `$schema` / VS Code validation story, apiBase override 
 (Ollama, vLLM, LM Studio, HuggingFace), file-attachment caps, session model persistence,
 consensus cost model, and error kinds, see
 [TECHNICAL.md - OpenAI-compatible bridge (OpenRouter, Ollama, LM Studio)](TECHNICAL.md#openai-compatible-bridge-openrouter-ollama-lm-studio).
-
-## Temporal Grounding & Live RAG Protocol
-
-When evaluating modern tools, library versions, cloud features, or recent model
-releases, models relying exclusively on static training weights are prone to
-knowledge cutoff errors - frequently asserting that modern tools or models are
-"hallucinated" or "fictional".
-
-To prevent knowledge-cutoff discrepancies, deliberation provides the
-`/deliberation:temporal-grounding` slash command (or `/temporal-grounding` alias
-on supported hosts):
-
-1. **Current Date Lookup**: Always establish the real-world date using a tool
-   call (e.g. `date -u` or system environment metadata).
-2. **Knowledge Cutoff Delta Check**: If the current date is 3+ months after the
-   model's pre-training cutoff date, static weights MUST NOT be trusted as
-   authoritative for model lineups, tool versions, or feature availability.
-3. **Strict Prohibition on Unverified Negative Claims**: Agents are strictly
-   FORBIDDEN from claiming or asserting that a model, tool, API, feature, or
-   version is "hallucinated", "fictional", or "non-existent" without first
-   performing live verification.
-4. **Mandatory Live Tool Retrieval (RAG)**:
-   - **AWS & Bedrock**: Use AWS MCP tools (`call_aws`, `suggest_aws_commands`,
-     `search_cdk_documentation`, `search_cloudformation_documentation`) or
-     AWS CLI to verify live service availability and model IDs.
-   - **Terraform / IaC**: Use Terraform MCP tools (`search_providers`,
-     `get_latest_provider_version`, `get_provider_details`).
-   - **Web Search & Documentation**: Use `search_web` and `read_url_content`
-     to retrieve official provider documentation, release notes, or pricing.
-5. **Ground Deliberation Delegates**: When dispatching questions to
-   deliberation subagents (`/ask-all`, `/consensus`, `ask-one`), inline the
-   retrieved live facts directly into the delegation prompt so file-blind or
-   cutoff-bound delegates do not fall victim to knowledge cutoff errors.
 
 ## Session persistence
 

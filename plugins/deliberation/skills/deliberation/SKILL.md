@@ -68,7 +68,7 @@ Fan-out and single-provider:
   skip a GPT call because GPT looks logged out: with no login, `ask-gpt` / `ask-one codex`
   start the same login and return the same code.
 - `ask-one { provider, prompt }` - one question to ONE provider named by `panel`
-  (e.g. `codex`, `google:<model>`, `ollama:<model>`, `lmstudio:<model>`, `grok`,
+  (e.g. `codex`, `gemini`, `grok`, `ollama:<alias>`, `lmstudio:<alias>`,
   `openrouter:<alias>`). The progress pattern: call `panel`, then issue one
   `ask-one` per name **in a single turn** so they run concurrently and each
   result lands independently as it finishes - visible per-provider progress
@@ -181,31 +181,3 @@ packages, so if you keep getting an old build, clear the cache
 (`rm -rf ~/.npm/_npx`) or pin/refresh the version in your host's MCP config.
 (The Claude Code plugin manifest is a separate mechanism and does not affect
 non-Claude hosts.)
-
-## Mandatory Temporal Grounding & Live RAG Verification
-
-Whenever queries, evaluations, reviews, or plans involve current dates, modern
-versions, tools, foundation models, cloud offerings, or recent releases:
-
-1. **Current Date Lookup**: Always establish the real-world date using a tool
-   call (e.g., `date -u` via `run_command` or checking system metadata).
-2. **Knowledge Cutoff Delta Check**: If the current date is 3+ months after the
-   model's pre-training cutoff date, static weights MUST NOT be trusted as
-   authoritative for model lineups, tool versions, or feature availability.
-3. **Strict Prohibition on Unverified Negative Claims**: You are strictly
-   FORBIDDEN from claiming or asserting that a model, tool, API, feature, or
-   version is "hallucinated", "fictional", or "non-existent" without first
-   performing live verification.
-4. **Mandatory Live Tool Retrieval (RAG)**:
-   - **AWS & Bedrock**: Use AWS MCP tools (`call_aws`, `suggest_aws_commands`,
-     `search_cdk_documentation`, `search_cloudformation_documentation`) or
-     AWS CLI to verify live service availability and model IDs.
-   - **Web Search & Documentation**: Use `search_web` and `read_url_content`
-     to retrieve official provider documentation, release notes, or pricing
-     tables.
-   - **Terraform / IaC**: Use Terraform MCP tools (`search_providers`,
-     `get_latest_provider_version`, `get_provider_details`).
-5. **Ground Deliberation Delegates**: When dispatching questions to
-   deliberation subagents (`consensus`, `ask-all`, `ask-one`), inline the
-   retrieved live facts directly into the delegation prompt so file-blind or
-   cutoff-bound delegates do not fall victim to knowledge cutoff errors.
