@@ -104,10 +104,15 @@ function isAlive(pid, procStartedAt) {
  * (default 0). Stops before a trailing line with no `\n` (returned via `offset`
  * so a caller can resume from there once more bytes land) and silently skips
  * lines that are not valid JSON objects. Never throws: a missing file yields
- * `{events: [], offset: fromOffset}`.
+ * `{events: [], offset: fromOffset, offsets: []}`.
+ *
+ * `offsets[i]` is the absolute byte offset just past the line that produced
+ * `events[i]` - one per event, in order - so a caller that needs a resume
+ * point per event (the dashboard's SSE tailer) doesn't have to re-parse lines
+ * itself.
  * @param {string} file
  * @param {number} [fromOffset]
- * @returns {{events: Record<string, unknown>[], offset: number}}
+ * @returns {{events: Record<string, unknown>[], offset: number, offsets: number[]}}
  */
 function readEvents(file, fromOffset) {
   const start = typeof fromOffset === "number" && fromOffset > 0 ? fromOffset : 0;
@@ -115,12 +120,14 @@ function readEvents(file, fromOffset) {
   try {
     buf = fs.readFileSync(file);
   } catch {
-    return { events: [], offset: start };
+    return { events: [], offset: start, offsets: [] };
   }
-  if (start >= buf.length) return { events: [], offset: start };
+  if (start >= buf.length) return { events: [], offset: start, offsets: [] };
   const slice = buf.subarray(start);
   /** @type {Record<string, unknown>[]} */
   const events = [];
+  /** @type {number[]} */
+  const offsets = [];
   let consumed = 0; // bytes of `slice` consumed by complete lines
   let lineStart = 0;
   for (let i = 0; i < slice.length; i++) {
@@ -129,7 +136,10 @@ function readEvents(file, fromOffset) {
     if (line) {
       try {
         const obj = JSON.parse(line);
-        if (obj && typeof obj === "object") events.push(obj);
+        if (obj && typeof obj === "object") {
+          events.push(obj);
+          offsets.push(start + i + 1);
+        }
       } catch {
         // skip non-JSON line
       }
@@ -137,7 +147,7 @@ function readEvents(file, fromOffset) {
     lineStart = i + 1;
     consumed = lineStart;
   }
-  return { events, offset: start + consumed };
+  return { events, offset: start + consumed, offsets };
 }
 
 /**
