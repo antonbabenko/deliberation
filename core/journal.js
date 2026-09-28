@@ -168,7 +168,7 @@ function listRunFiles(dir) {
 
 /**
  * Build the field object for one event, per the JOURNAL_KEYS whitelist for
- * `kind`. Unknown keys on `fields` are dropped. String content values are
+ * `kind`. Unknown keys on `fields` are dropped. Content values are strings only (a non-string content value is dropped), and are
  * scrubbed + capped before being written.
  * @param {JournalKind} kind
  * @param {Record<string, unknown>} fields
@@ -187,10 +187,10 @@ function buildFields(kind, fields, isContent) {
   if (isContent) {
     for (const key of spec.content) {
       if (key.indexOf("[]") !== -1) continue; // criticalIssues[].description - handled below
-      if (Object.prototype.hasOwnProperty.call(src, key)) {
-        const v = src[key];
-        out[key] = typeof v === "string" ? capText(scrubSecrets(v)) : v;
-      }
+      // Content is text or nothing: a non-string (object, number) would skip the scrub and
+      // the cap, so it is dropped. criticalIssues has its own handling below.
+      const v = src[key];
+      if (typeof v === "string") out[key] = capText(scrubSecrets(v));
     }
   }
   if (spec.meta.indexOf("criticalIssues[].category") !== -1 && Array.isArray(src.criticalIssues)) {

@@ -229,3 +229,13 @@ test("emit rejects an unsafe runId (no file written, no throw)", () => {
   assert.doesNotThrow(() => j.emit("../evil", "state", { state: "init" }));
   assert.equal(fs.readdirSync(dir).length, 0);
 });
+
+test("J-nonstring: a non-string content value is dropped under capture=content", () => {
+  const dir = tmpDir();
+  const j = createJournal({ dir, getSettings: () => settings({ capture: "content" }) });
+  j.emit("r1", "run_start", { tool: "t", prompt: { secret: "sk-live-abc" } });
+  j.emit("r1", "arbiter", { action: "record_blind", text: 42 });
+  const [start, arb] = readLines(dir, "r1");
+  assert.ok(!("prompt" in start));
+  assert.ok(!("text" in arb));
+});

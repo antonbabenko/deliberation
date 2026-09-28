@@ -181,3 +181,40 @@ test("MJ10: consensus-step stopped by the wall budget ends with stopReason", asy
   assert.equal(end.status, "unresolved");
   assert.equal(end.stopReason, "budget-exhausted");
 });
+
+test("MJ11: ask-one with a safe runId that panel never opened gets its own run", async () => {
+  const { journal, events } = setup();
+  const srv = buildServer({ providers: [fakeProvider("codex")], getConfig: () => config, journal });
+  await callTool(srv, "ask-one", { provider: "codex", prompt: "q", runId: "made-up-run-1" });
+  const evs = events();
+  assert.deepEqual(evs.map((e) => e.kind), ["run_start", "call_start", "call_end", "run_end"]);
+  assert.notEqual(evs[0].runId, "made-up-run-1");
+  assert.equal(evs[0].workflow, "single");
+});
+
+test("MJ12: a consensus-step loop started with the journal off stays unjournaled after enabling it", async () => {
+  const settings = { enabled: false, capture: "metadata", maxRuns: -1, maxAgeDays: -1 };
+  const { journal, files } = setup(settings);
+  const approve = (/** @type {string} */ n) => fakeProvider(n, () => "**Verdict**: APPROVE");
+  const srv = buildServer({ providers: [approve("codex"), approve("grok")], getConfig: () => config, journal });
+  const sid = (await callTool(srv, "consensus-step", { action: "init", prompt: "ship it" })).sessionId;
+  settings.enabled = true;
+  await callTool(srv, "consensus-step", { action: "record_blind", sessionId: sid, blindVerdict: "APPROVE" });
+  await callTool(srv, "consensus-step", { action: "dispatch_peers", sessionId: sid });
+  const adj = await callTool(srv, "consensus-step", { action: "submit_adjudication", sessionId: sid, verdict: "APPROVE", decisions: [] });
+  assert.equal(adj.converged, true);
+  assert.ok(!files().includes(`${sid}.jsonl`));
+  assert.equal(files().length, 0);
+});
+
+test("MJ13: panel with a non-string prompt writes no prompt, even under capture=content", async () => {
+  const { journal, events } = setup({ enabled: true, capture: "content", maxRuns: -1, maxAgeDays: -1 });
+  const srv = buildServer({ providers: [fakeProvider("codex")], getConfig: () => config, journal });
+  await callTool(srv, "panel", { prompt: 42 });
+  await callTool(srv, "panel", { prompt: { token: "sk-live-abc" }, expert: { x: 1 } });
+  await callTool(srv, "panel", { prompt: "real question" });
+  const starts = events().filter((e) => e.kind === "run_start");
+  assert.equal(starts.length, 3);
+  assert.equal(starts.filter((e) => "prompt" in e).length, 1);
+  assert.ok(starts.every((e) => !("expert" in e) || typeof e.expert === "string"));
+});

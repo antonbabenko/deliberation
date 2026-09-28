@@ -67,7 +67,7 @@ const PROP_DESC = {
   developerInstructions: "Optional system/developer instructions injected verbatim; overrides the built-in persona for `expert`.",
   cwd: "Working directory the provider runs in (used to resolve relative file refs). Defaults to the server process directory.",
   reasoningEffort: "Reasoning depth where the provider supports it (Grok, OpenRouter): low, medium, high, or none. CLI providers (Codex, Gemini) ignore it.",
-  runId: "Optional run id from `panel`; groups parallel calls into one dashboard run. Letters, digits and hyphens only; anything else is ignored.",
+  runId: "Optional run id from `panel`; groups parallel calls into one dashboard run. An id this server's `panel` did not open is ignored.",
 };
 
 /** The shared `files[]` array schema (identical across ask-*, ask-one, consensus). */
@@ -127,7 +127,7 @@ function askOneInputSchema() {
       cwd: { type: "string", description: PROP_DESC.cwd },
       reasoningEffort: { type: "string", enum: ["low", "medium", "high", "none"], description: PROP_DESC.reasoningEffort },
       files: fileItems(),
-      runId: { type: "string", pattern: "^[A-Za-z0-9-]+$", description: PROP_DESC.runId },
+      runId: { type: "string", description: PROP_DESC.runId },
     },
   };
 }
@@ -135,7 +135,7 @@ function askOneInputSchema() {
 /** Schema for the single-provider `ask-*` tools: the shared fields plus the panel `runId`. */
 function askInputSchema() {
   const s = inputSchema();
-  return { ...s, properties: { ...s.properties, runId: { type: "string", pattern: "^[A-Za-z0-9-]+$", description: PROP_DESC.runId } } };
+  return { ...s, properties: { ...s.properties, runId: { type: "string", description: PROP_DESC.runId } } };
 }
 
 function inputSchema() {
@@ -398,8 +398,23 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
   function beginRun(tool, workflow, expert, providerNames, prompt, runId) {
     if (!journal.enabled()) return undefined;
     const id = runId || journal.newRunId();
-    journal.emit(id, "run_start", { tool, workflow, expert, providers: providerNames, prompt });
+    journal.emit(id, "run_start", {
+      tool, workflow, providers: providerNames,
+      // Untrusted tool args: only strings reach the journal (a non-string would skip the scrub).
+      ...(typeof expert === "string" ? { expert } : {}),
+      ...(typeof prompt === "string" ? { prompt } : {}),
+    });
     return { journal, runId: id };
+  }
+  // The fan-out runs `panel` opened in this process. Only these can be joined by `runId`: a
+  // stale, made-up or recycled id would append after that run's run_end, or recreate a pruned
+  // file with no run_start. Insertion-ordered Set, oldest evicted first.
+  const PANEL_RUNS_MAX = 1000;
+  /** @type {Set<string>} */ const panelRuns = new Set();
+  /** @param {string} id */
+  function rememberPanelRun(id) {
+    panelRuns.add(id);
+    if (panelRuns.size > PANEL_RUNS_MAX) panelRuns.delete(/** @type {string} */ (panelRuns.values().next().value));
   }
   /**
    * Close a run (no-op without a trace), then prune: a run end is one of the two prune points.
@@ -417,8 +432,8 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
    */
   const fanoutStatus = (results) => (Array.isArray(results) && results.some((r) => r && !r.isError) ? "done" : "error");
   /**
-   * Trace for a single-provider call: join the caller's `runId` (from `panel`) when it is a
-   * safe id, else open a `single` run of its own. `own` says whether this call must end it.
+   * Trace for a single-provider call: join the caller's `runId` when this process's `panel`
+   * opened it, else open a `single` run of its own. `own` says whether this call must end it.
    * @param {string} tool
    * @param {any} args
    * @param {(string|undefined)} expert
@@ -426,7 +441,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
    * @returns {{trace:(Trace|undefined), own:boolean}}
    */
   function singleTrace(tool, args, expert, providerName) {
-    if (isSafeId(args.runId)) return { trace: { journal, runId: args.runId, role: "peer" }, own: false };
+    if (isSafeId(args.runId) && panelRuns.has(args.runId)) return { trace: { journal, runId: args.runId, role: "peer" }, own: false };
     const t = beginRun(tool, "single", expert, [providerName], args.prompt);
     return { trace: t && { ...t, role: "single" }, own: true };
   }
@@ -1141,7 +1156,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
     const { id, persisted, errorCode } = taken
       ? persistConsensusStep(terminal, sid, confidence)
       : { id: null, persisted: false, errorCode: null };
-    if (taken) endStepRun(sid, terminal, { status: "unresolved", stopReason, finalReport, droppedProviders: dropped });
+    if (taken && state.journaled) endStepRun(sid, terminal, { status: "unresolved", stopReason, finalReport, droppedProviders: dropped });
     return {
       sessionId: id || undefined, loopSessionId: sid, persisted,
       ...(errorCode ? { persistError: errorCode } : {}),
@@ -1152,7 +1167,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
   /**
    * Journal a consensus-step terminal transition: the final `state`, then `run_end`. The run
    * id is the loop sessionId. Callers invoke it only after a successful loopStore.take, so a
-   * loop ends at most once in the journal too.
+   * loop ends at most once in the journal too, and only for a loop journaled since init.
    * @param {string} sid
    * @param {any} state  the terminal LoopState
    * @param {{status:string, stopReason?:string, finalReport?:string, droppedProviders?:string[]}} f
@@ -1194,8 +1209,12 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         // Wall-clock origin for the maxWallMs budget. The host-driven loop is a series
         // of stateless calls, so unlike runToConvergence there is no enclosing scope to
         // hold it - it rides the stored state like peerPrompt/originalPrompt.
-        loopStore.put(sid, { ...entered.state, originalPrompt, startedAt: Date.now() });
-        if (journal.enabled()) {
+        // A loop is journaled whole or not at all: decided here, carried on the state, and every
+        // later step checks it, so flipping dashboard.enabled mid-loop cannot leave a run with
+        // no run_start or no run_end.
+        const journaled = journal.enabled();
+        loopStore.put(sid, { ...entered.state, originalPrompt, startedAt: Date.now(), journaled });
+        if (journaled) {
           // The panel as config sees it (no health probe): dispatch_peers re-selects each round.
           /** @type {string[]} */ let names = [];
           try { names = registry.selectForConsensus({ config: cfg, expert: args.expert || expert || "" }).providers.map((p) => p.name); } catch { /* journaling never breaks init */ }
@@ -1209,6 +1228,8 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       if (!sid) return { error: "missing-sessionId", note: "sessionId is required for every action except init" };
       const cur = loopStore.get(sid);
       if (!cur) return { error: "session-expired", note: "no live session for that id (server restart or TTL); restart with action:init" };
+      /** Journal a step event, only for a loop journaled since init. @param {import("../../core/journal.js").JournalKind} kind @param {Record<string, unknown>} fields */
+      const jemit = (kind, fields) => { if (cur.journaled) journal.emit(sid, kind, fields); };
 
       if (action === "record_blind") {
         const next = loop.recordBlindVerdict(cur, String(args.blindVerdict == null ? "" : args.blindVerdict));
@@ -1217,8 +1238,8 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         if (cur.peerPrompt && !next.peerPrompt) next.peerPrompt = cur.peerPrompt;
         loopStore.put(sid, next);
         const blindText = String(args.blindVerdict == null ? "" : args.blindVerdict);
-        journal.emit(sid, "state", { state: "blind", round: cur.round, status: next.status });
-        journal.emit(sid, "arbiter", { action: "record_blind", round: cur.round, verdict: parseReview(blindText).verdict, text: blindText });
+        jemit("state", { state: "blind", round: cur.round, status: next.status });
+        jemit("arbiter", { action: "record_blind", round: cur.round, verdict: parseReview(blindText).verdict, text: blindText });
         return { sessionId: sid, status: next.status, round: next.round, note: "call dispatch_peers to fan out to the providers" };
       }
 
@@ -1263,8 +1284,8 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         const peerReq = { prompt: peerPrompt, expert: ex, cwd: typeof args.cwd === "string" ? args.cwd : undefined };
         const lg = currentLogger();
         try { lg.logEvent({ event: "dispatch_start", at: Date.now(), tool: "consensus", round: cur.round, voices: selected.length }); } catch { /* never break */ }
-        journal.emit(sid, "state", { state: "peers", round: cur.round, status: cur.status });
-        const peerResults = await askAll(selected, withPersona(peerReq, ex), { logger: lg, tool: "consensus", orientationFiles: orient(peerReq), startedAt: toolStartedAt, trace: { journal, runId: sid, role: "peer", round: cur.round } });
+        jemit("state", { state: "peers", round: cur.round, status: cur.status });
+        const peerResults = await askAll(selected, withPersona(peerReq, ex), { logger: lg, tool: "consensus", orientationFiles: orient(peerReq), startedAt: toolStartedAt, trace: cur.journaled ? { journal, runId: sid, role: "peer", round: cur.round } : undefined });
         const results = peerResults.map((r) =>
           r.isError
             ? { source: r.provider, isError: true, errorKind: r.errorKind, message: plainMessage(r.message), verdict: null, criticalIssues: [], model: r.model, reasoningEffort: r.reasoningEffort ?? null, ms: r.ms }
@@ -1275,7 +1296,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         );
         const next = loop.addOpinions(cur, results);
         loopStore.put(sid, { ...next, announcedDropped: announced.concat(newlyDropped) });
-        journal.emit(sid, "state", {
+        jemit("state", {
           state: "adjudicate", round: cur.round, status: next.status,
           verdicts: results.map((r) => ({ provider: r.source, verdict: r.verdict, categories: (r.criticalIssues || []).map((/** @type {any} */ ci) => ci.category) })),
         });
@@ -1309,7 +1330,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
             voices: Array.isArray(cur.results) ? cur.results.length : undefined,
           });
         } catch { /* logging must never break the step */ }
-        journal.emit(sid, "arbiter", { action: "submit_adjudication", round: cur.round, verdict: typeof args.verdict === "string" ? args.verdict : null, text: JSON.stringify(decisions) });
+        jemit("arbiter", { action: "submit_adjudication", round: cur.round, verdict: typeof args.verdict === "string" ? args.verdict : null, text: JSON.stringify(decisions) });
         if (next.status === "converged") {
           const { finalReport, confidence } = loop.finalize(next);
           // Atomic take: remove-and-return in ONE synchronous step so a concurrent/
@@ -1317,30 +1338,30 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
           // double-persist. take==null => already finalized; return non-durable.
           const taken = loopStore.take(sid);
           const { id, persisted, errorCode } = taken ? persistConsensusStep(next, sid, confidence) : { id: null, persisted: false, errorCode: null };
-          if (taken) endStepRun(sid, next, { status: "converged", finalReport });
+          if (taken && cur.journaled) endStepRun(sid, next, { status: "converged", finalReport });
           // persistError (content-free) lets the host tell "write failed" from "persistence off" (both persisted:false).
           return { sessionId: id || undefined, loopSessionId: sid, persisted, ...(errorCode ? { persistError: errorCode } : {}), status: "converged", converged: true, verdict: next.hostVerdict ? next.hostVerdict.verdict : null, confidence, finalReport };
         }
         loopStore.put(sid, next);
-        journal.emit(sid, "state", { state: "revise", round: cur.round, status: next.status });
+        jemit("state", { state: "revise", round: cur.round, status: next.status });
         return { sessionId: sid, status: next.status, round: next.round, note: "not converged - revise the plan, then call submit_revision" };
       }
 
       if (action === "submit_revision") {
         const advanced = loop.submitRevision(cur, typeof args.revisedPlan === "string" ? args.revisedPlan : cur.currentPlan, args.diffSummary);
-        journal.emit(sid, "arbiter", { action: "submit_revision", round: cur.round, text: typeof args.revisedPlan === "string" ? args.revisedPlan : undefined });
+        jemit("arbiter", { action: "submit_revision", round: cur.round, text: typeof args.revisedPlan === "string" ? args.revisedPlan : undefined });
         if (advanced.status === "unresolved") {
           const { finalReport, confidence } = loop.finalize(advanced);
           const taken = loopStore.take(sid);
           const { id, persisted, errorCode } = taken ? persistConsensusStep(advanced, sid, confidence) : { id: null, persisted: false, errorCode: null };
-          if (taken) endStepRun(sid, advanced, { status: "unresolved", finalReport });
+          if (taken && cur.journaled) endStepRun(sid, advanced, { status: "unresolved", finalReport });
           return { sessionId: id || undefined, loopSessionId: sid, persisted, ...(errorCode ? { persistError: errorCode } : {}), status: "unresolved", converged: false, confidence, finalReport };
         }
         const entered = enterBlind(advanced);
         // Re-stash originalPrompt EXPLICITLY across the revision loop-back (defensive,
         // mirrors the peerPrompt pin in record_blind) so a future pure-machine refactor
         // can't silently drop it and persist a revised plan as `question`.
-        loopStore.put(sid, { ...entered.state, originalPrompt: cur.originalPrompt, startedAt: cur.startedAt });
+        loopStore.put(sid, { ...entered.state, originalPrompt: cur.originalPrompt, startedAt: cur.startedAt, journaled: cur.journaled });
         return { sessionId: sid, status: entered.state.status, round: entered.state.round, blindPrompt: entered.blindPrompt, note: "next round - write your blind verdict, then call record_blind" };
       }
 
@@ -1521,6 +1542,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       // this runId. A local journal write only - no provider call, no login. The consensus
       // panel opens nothing (consensus-step init opens that run).
       const run = forConsensus ? undefined : beginRun("ask-all", "fanout", expert, names, args.prompt);
+      if (run) rememberPanelRun(run.runId);
       return jsonResult({
         ...(run ? { runId: run.runId } : {}),
         providers: names,
