@@ -546,6 +546,76 @@ test("HBX6: a later consensus round runs on the SAME cap clock as round one - th
   });
 });
 
+// --- Journal tracing (Task 4: core/orchestrate.js instrumentation) --------------
+
+/** A recording journal matching the Journal interface's shape. @returns {{journal:any, events:any[]}} */
+function recordingJournal() {
+  /** @type {any[]} */
+  const events = [];
+  const journal = {
+    enabled: () => true,
+    newRunId: () => "run-1",
+    emit: (/** @type {string} */ id, /** @type {string} */ k, /** @type {any} */ f) => events.push({ id, k, f }),
+    prune: () => {},
+  };
+  return { journal, events };
+}
+
+test("OT1: askAll emits call_start/call_end per provider, same runId, role from trace", async () => {
+  const { journal, events } = recordingJournal();
+  const trace = /** @type {any} */ ({ journal, runId: "run-1", role: "peer" });
+  await askAll([fakeProvider("a"), fakeProvider("b")], { prompt: "hi" }, { trace });
+  const starts = events.filter((e) => e.k === "call_start");
+  const ends = events.filter((e) => e.k === "call_end");
+  assert.equal(starts.length, 2);
+  assert.equal(ends.length, 2);
+  assert.ok(events.every((e) => e.id === "run-1"));
+  assert.ok(starts.every((e) => e.f.role === "peer"));
+  assert.notEqual(starts[0].f.callId, starts[1].f.callId);
+});
+
+test("OT2: a retried call emits two call_start/call_end pairs with distinct callIds", async () => {
+  const { journal, events } = recordingJournal();
+  const trace = /** @type {any} */ ({ journal, runId: "run-1", role: "single" });
+  const p = countingProvider([errResult({ errorKind: "network" }), okResult]);
+  await askOne(p, { prompt: "x" }, { trace });
+  const starts = events.filter((e) => e.k === "call_start");
+  const ends = events.filter((e) => e.k === "call_end");
+  assert.equal(starts.length, 2);
+  assert.equal(ends.length, 2);
+  assert.notEqual(starts[0].f.callId, starts[1].f.callId);
+  assert.equal(ends[0].f.callId, starts[0].f.callId);
+  assert.equal(ends[1].f.callId, starts[1].f.callId);
+  assert.equal(ends[0].f.isError, true);
+  assert.equal(ends[1].f.isError, false);
+});
+
+test("OT3: no trace -> no emits, and behavior is unchanged", async () => {
+  const out = await askAll([fakeProvider("a"), fakeProvider("b")], { prompt: "hi" });
+  assert.deepEqual(out.map((r) => r.provider), ["a", "b"]);
+  const out2 = await askOne(fakeProvider("a"), { prompt: "hi" });
+  assert.equal(/** @type {any} */ (out2).text, "a:hi");
+});
+
+test("OT4: runToConvergence converging in round 1 emits state sequence [blind, peers, adjudicate, converged]", async () => {
+  const { journal, events } = recordingJournal();
+  const trace = { journal, runId: "run-1" };
+  const peer = /** @type {any} */ ({ name: "p", capabilities: {}, async health() { return { ok: true }; },
+    async ask() { return { provider: "p", model: "m", text: "**Verdict**: APPROVE", isError: false, ms: 1 }; } });
+  const arbiter = /** @type {any} */ ({ name: "arb", capabilities: {}, async health() { return { ok: true }; },
+    async ask() { return { provider: "arb", model: "m", text: "**Verdict**: APPROVE", isError: false, ms: 1 }; } });
+  await runToConvergence([peer], { prompt: "plan" }, { arbiter, trace });
+  const states = events.filter((e) => e.k === "state").map((e) => e.f.state);
+  assert.deepEqual(states, ["blind", "peers", "adjudicate", "converged"]);
+  assert.ok(events.filter((e) => e.k === "state").every((e) => e.f.round === 1));
+});
+
+test("OT5: a journal whose emit() throws does not fail askOne", async () => {
+  const trace = /** @type {any} */ ({ journal: { enabled: () => true, newRunId: () => "run-1", emit: () => { throw new Error("boom"); }, prune: () => {} }, runId: "run-1", role: "single" });
+  const r = await askOne(fakeProvider("a"), { prompt: "hi" }, { trace });
+  assert.equal(/** @type {any} */ (r).text, "a:hi");
+});
+
 test("HBX7: with the host budget already spent, runToConvergence stops with budget-exhausted before any leg starts", async () => {
   await withHostCap("6000", async () => { // 6000 - 5000 = the floor: nothing usable from the first round on
     let calls = 0;

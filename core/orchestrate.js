@@ -31,6 +31,142 @@ const RATE_LIMIT_MAX_DELAY_MS = 30000;
 const sleep = (/** @type {number} */ ms) => new Promise((res) => setTimeout(res, ms));
 
 /**
+ * Journal context threaded through a delegation so provider calls and loop
+ * transitions can be drawn on the dashboard. Optional everywhere - a missing
+ * `trace` (or a missing `trace.journal`) makes every trace* helper below a
+ * complete no-op, so behavior with no trace is unchanged (see core/journal.js
+ * for the Journal contract itself).
+ * @typedef {Object} Trace
+ * @property {import("./journal.js").Journal} journal
+ * @property {string} runId
+ * @property {("peer"|"arbiter"|"blind"|"single")} [role]
+ * @property {number} [round]
+ */
+
+// callId = `${provider.name}-${n}`, n from this module-level counter - unique per
+// process, cheap, and readable in a raw journal file without a UUID library.
+let callSeq = 0;
+/** @param {string} providerName @returns {string} */
+function nextCallId(providerName) {
+  return `${providerName}-${++callSeq}`;
+}
+
+/**
+ * Emit `call_start` for one provider call. Returns the callId to pair with
+ * traceCallEnd, or null when there is no trace (or the emit itself failed) -
+ * the caller does not need to branch on that, traceCallEnd is a no-op for a
+ * null callId too. Never throws.
+ * @param {(Trace|undefined)} trace
+ * @param {string} providerName
+ * @param {DelegationRequest} req
+ * @returns {(string|null)}
+ */
+function traceCallStart(trace, providerName, req) {
+  if (!trace || !trace.journal) return null;
+  try {
+    const callId = nextCallId(providerName);
+    trace.journal.emit(trace.runId, "call_start", {
+      callId,
+      provider: providerName,
+      model: null, // not known until the call settles
+      role: trace.role,
+      round: trace.round,
+      timeoutMs: req.timeoutMs,
+      reasoningEffort: req.reasoningEffort,
+      request: req.prompt,
+    });
+    return callId;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Emit `call_end` for a callId from traceCallStart. No-op when callId is null
+ * (no trace, or traceCallStart itself failed). Never throws.
+ * @param {(Trace|undefined)} trace
+ * @param {(string|null)} callId
+ * @param {DelegationResult} r
+ * @returns {void}
+ */
+function traceCallEnd(trace, callId, r) {
+  if (!trace || !trace.journal || !callId) return;
+  try {
+    trace.journal.emit(trace.runId, "call_end", {
+      callId,
+      model: r.model,
+      ms: r.ms,
+      usage: /** @type {any} */ (r).usage,
+      isError: r.isError,
+      errorKind: r.isError ? /** @type {any} */ (r).errorKind : undefined,
+      errorCode: r.isError ? /** @type {any} */ (r).transportCode : undefined,
+      response: r.isError ? undefined : /** @type {any} */ (r).text,
+    });
+  } catch {
+    // Journaling must never throw into a delegation.
+  }
+}
+
+/**
+ * Emit a `state` transition event. Never throws.
+ * @param {(Trace|undefined)} trace
+ * @param {{state:string, round?:number, status?:string}} fields
+ * @returns {void}
+ */
+function traceState(trace, fields) {
+  if (!trace || !trace.journal) return;
+  try {
+    trace.journal.emit(trace.runId, "state", fields);
+  } catch {
+    // Journaling must never throw into a delegation.
+  }
+}
+
+/**
+ * Derive a Trace with a specific role (and, in a loop, round) for one call site,
+ * or undefined when there is no base trace. Centralizes the cast so a role string
+ * built inline (`{...trace, role:"peer"}`) doesn't widen to `string` under strict
+ * checkJs.
+ * @param {(Trace|undefined)} trace
+ * @param {("peer"|"arbiter"|"blind"|"single")} role
+ * @param {number} [round]
+ * @returns {(Trace|undefined)}
+ */
+function withRole(trace, role, round) {
+  if (!trace) return undefined;
+  return { ...trace, role, round: round !== undefined ? round : trace.round };
+}
+
+/**
+ * One traced direct arbiter call (the blind/adjudicate/revise/verdict legs, which
+ * bypass callProvider - no cache, no retry). Always emits call_start/call_end.
+ * `onError:"null"` swallows a failure to null (the isolated-leg pattern already
+ * used by these call sites); `onError:"throw"` re-throws after tracing, for the
+ * one call site (consensus()'s verdict pass) whose own try/catch must still see it.
+ * @param {(Trace|undefined)} trace
+ * @param {Provider} provider
+ * @param {DelegationRequest} req
+ * @param {("null"|"throw")} onError
+ * @returns {Promise<(DelegationResult|null)>}
+ */
+async function tracedAsk(trace, provider, req, onError) {
+  const callId = traceCallStart(trace, provider.name, req);
+  try {
+    const v = await provider.ask(req);
+    traceCallEnd(trace, callId, v);
+    return v;
+  } catch (e) {
+    const err = /** @type {DelegationResult} */ ({
+      provider: provider.name, model: "unknown", isError: true, errorKind: "unknown",
+      retryable: false, message: String((e && /** @type {any} */ (e).message) || e), ms: 0,
+    });
+    traceCallEnd(trace, callId, err);
+    if (onError === "throw") throw e;
+    return null;
+  }
+}
+
+/**
  * Pause before a rate-limit retry: the upstream's Retry-After when it sent one,
  * else a flat default. Always clamped so one hostile hint cannot stall a fan-out.
  * @param {import("./types.js").DelegationError} r
@@ -101,9 +237,10 @@ function withOrientation(provider, req, orientationFiles) {
  * @param {(import("./result-cache.js").ResultCache|undefined)} cache
  * @param {(import("./types.js").FileRef[]|undefined)} [orientationFiles]  bundle auto-attached to file-blind providers
  * @param {number} [startedAt]  the tool call's entry time - the clock the host's cap (MCP_TOOL_TIMEOUT) runs on across sequential legs; defaults to this call's own
+ * @param {Trace} [trace]  optional journal context; a retry gets its own callId, a cache hit still emits both events (with `ms` from the hit)
  * @returns {Promise<DelegationResult>}
  */
-async function callProvider(provider, req, logger, tool, cache, orientationFiles, startedAt) {
+async function callProvider(provider, req, logger, tool, cache, orientationFiles, startedAt, trace) {
   // Auto-attach orientation to file-blind providers BEFORE the cache key is computed,
   // so the now-file-bearing request correctly bypasses the cwd-agnostic dedup cache
   // (keyFor excludes cwd; caching an oriented result would risk a cross-repo false hit).
@@ -113,7 +250,11 @@ async function callProvider(provider, req, logger, tool, cache, orientationFiles
   const useCache = cache && !(Array.isArray(req.files) && req.files.length);
   if (useCache) {
     const hit = cache.get(provider.name, req);
-    if (hit) { logProviderResult(logger, tool, hit); return hit; }
+    if (hit) {
+      logProviderResult(logger, tool, hit);
+      traceCallEnd(trace, traceCallStart(trace, provider.name, req), hit);
+      return hit;
+    }
   }
   const started = Date.now();
   // The clock the host's cap runs on: the TOOL call's entry when the caller passes it
@@ -125,41 +266,52 @@ async function callProvider(provider, req, logger, tool, cache, orientationFiles
   // attempt is stamped with what is LEFT of the host's cap (MCP_TOOL_TIMEOUT): a retry
   // after a 20s failure must not be handed the whole cap again.
   const askOnce = () => provider.ask(fitToHostBudget({ ...req, files: req.files ? req.files.map((f) => ({ ...f })) : undefined }, capStartedAt));
-  try {
-    r = await askOnce();
-    // Consume `retryable` for the cases that actually self-heal, each exactly ONCE:
-    //   network    - pre-response transport failure (connect/DNS/socket, no bytes sent).
-    //   rate-limit - a 429; the upstream told us to come back, so honor Retry-After.
-    //   empty      - the provider exited clean but returned a stub, not an answer
-    //                (e.g. agy printing only a preamble); cheap to redo.
-    //   upstream   - a 5xx, or a generation the provider itself aborted mid-stream.
-    //                The request was fine; the other side failed.
-    // NEVER retry timeout (may have burned tokens / risks the slow-but-good case) or
-    // auth/config (won't self-heal). One extra attempt, no exponential backoff.
-    if (r.isError && RETRY_ONCE_KINDS.has(r.errorKind)) {
-      // Log the FAILED first attempt before retrying. Only the final result is logged
-      // below, so without this a retry that succeeds erases every trace of the
-      // rate-limit / stub - and the debug log is exactly how provider health is
-      // diagnosed. A retried call therefore emits two provider_result rows.
-      logProviderResult(logger, tool, r);
-      const delay = r.errorKind === "rate-limit" ? retryDelayMs(r) : r.errorKind === "network" ? NETWORK_RETRY_DELAY_MS : 0;
-      // Under a host cap, a retry with no budget left AFTER its backoff is a guaranteed
-      // second failure the host would kill first - and a 30s Retry-After at 40s into a
-      // 60s cap must not even sleep. Keep the honest first result instead.
-      const remaining = remainingHostBudgetMs(capStartedAt);
-      if (remaining === null || remaining - delay > HOST_BUDGET_MIN_MS) {
-        if (delay) await sleep(delay);
-        r = await askOnce();
-      }
+  // One traced attempt: call_start, the ask (or a synthesized error on a reject),
+  // call_end. A retry below calls this again, getting its own callId pair - the
+  // same per-attempt granularity as logProviderResult's own retry logging.
+  const attempt = async () => {
+    const callId = traceCallStart(trace, provider.name, req);
+    /** @type {DelegationResult} */
+    let res;
+    try {
+      res = await askOnce();
+    } catch (e) {
+      // A provider that REJECTS (rather than returning an error envelope) must not
+      // break the call OR vanish from the log. Synthesize + log a uniform error -
+      // `unknown` matches askAll's existing allSettled-rejection fallback vocabulary.
+      res = {
+        provider: provider.name, model: "unknown", isError: true, errorKind: "unknown",
+        retryable: false, message: String((e && /** @type {any} */ (e).message) || e), ms: Date.now() - started,
+      };
     }
-  } catch (e) {
-    // A provider that REJECTS (rather than returning an error envelope) must not
-    // break the call OR vanish from the log. Synthesize + log a uniform error -
-    // `unknown` matches askAll's existing allSettled-rejection fallback vocabulary.
-    r = {
-      provider: provider.name, model: "unknown", isError: true, errorKind: "unknown",
-      retryable: false, message: String((e && /** @type {any} */ (e).message) || e), ms: Date.now() - started,
-    };
+    traceCallEnd(trace, callId, res);
+    return res;
+  };
+  r = await attempt();
+  // Consume `retryable` for the cases that actually self-heal, each exactly ONCE:
+  //   network    - pre-response transport failure (connect/DNS/socket, no bytes sent).
+  //   rate-limit - a 429; the upstream told us to come back, so honor Retry-After.
+  //   empty      - the provider exited clean but returned a stub, not an answer
+  //                (e.g. agy printing only a preamble); cheap to redo.
+  //   upstream   - a 5xx, or a generation the provider itself aborted mid-stream.
+  //                The request was fine; the other side failed.
+  // NEVER retry timeout (may have burned tokens / risks the slow-but-good case) or
+  // auth/config (won't self-heal). One extra attempt, no exponential backoff.
+  if (r.isError && RETRY_ONCE_KINDS.has(r.errorKind)) {
+    // Log the FAILED first attempt before retrying. Only the final result is logged
+    // below, so without this a retry that succeeds erases every trace of the
+    // rate-limit / stub - and the debug log is exactly how provider health is
+    // diagnosed. A retried call therefore emits two provider_result rows.
+    logProviderResult(logger, tool, r);
+    const delay = r.errorKind === "rate-limit" ? retryDelayMs(r) : r.errorKind === "network" ? NETWORK_RETRY_DELAY_MS : 0;
+    // Under a host cap, a retry with no budget left AFTER its backoff is a guaranteed
+    // second failure the host would kill first - and a 30s Retry-After at 40s into a
+    // 60s cap must not even sleep. Keep the honest first result instead.
+    const remaining = remainingHostBudgetMs(capStartedAt);
+    if (remaining === null || remaining - delay > HOST_BUDGET_MIN_MS) {
+      if (delay) await sleep(delay);
+      r = await attempt();
+    }
   }
   logProviderResult(logger, tool, r);
   if (useCache) cache.set(provider.name, req, r);
@@ -174,14 +326,14 @@ async function callProvider(provider, req, logger, tool, cache, orientationFiles
  * MCP-notification sink - reports per-provider progress during the one call.
  * @param {Provider[]} providers
  * @param {DelegationRequest} req
- * @param {{logger?:Logger, tool?:string, cache?:import("./result-cache.js").ResultCache, orientationFiles?:import("./types.js").FileRef[], startedAt?:number}} [opts]
+ * @param {{logger?:Logger, tool?:string, cache?:import("./result-cache.js").ResultCache, orientationFiles?:import("./types.js").FileRef[], startedAt?:number, trace?:Trace}} [opts]
  * @returns {Promise<DelegationResult[]>}
  */
 async function askAll(providers, req, opts = {}) {
   const logger = opts.logger || NULL_LOGGER;
   const tool = opts.tool || "ask-all";
   const settled = await Promise.allSettled(
-    providers.map((/** @type {Provider} */ p) => callProvider(p, req, logger, tool, opts.cache, opts.orientationFiles, opts.startedAt))
+    providers.map((/** @type {Provider} */ p) => callProvider(p, req, logger, tool, opts.cache, opts.orientationFiles, opts.startedAt, opts.trace))
   );
   return settled.map((s, i) =>
     s.status === "fulfilled"
@@ -202,11 +354,11 @@ async function askAll(providers, req, opts = {}) {
  * Single-provider call (advisory one-shot). Shared entrypoint for ask-* tools.
  * @param {Provider} provider
  * @param {DelegationRequest} req
- * @param {{logger?:Logger, tool?:string, cache?:import("./result-cache.js").ResultCache, orientationFiles?:import("./types.js").FileRef[], startedAt?:number}} [opts]
+ * @param {{logger?:Logger, tool?:string, cache?:import("./result-cache.js").ResultCache, orientationFiles?:import("./types.js").FileRef[], startedAt?:number, trace?:Trace}} [opts]
  * @returns {Promise<DelegationResult>}
  */
 async function askOne(provider, req, opts = {}) {
-  return callProvider(provider, req, opts.logger || NULL_LOGGER, opts.tool || "ask-one", opts.cache, opts.orientationFiles, opts.startedAt);
+  return callProvider(provider, req, opts.logger || NULL_LOGGER, opts.tool || "ask-one", opts.cache, opts.orientationFiles, opts.startedAt, opts.trace);
 }
 
 // Per-opinion cap for the arbiter prompt. The arbiter inlines every peer opinion
@@ -262,48 +414,50 @@ function buildArbiterPrompt(question, opinions) {
  * the run. `blindVerdict` is `null` when `blindVote` is off or no arbiter exists.
  * @param {Provider[]} providers
  * @param {DelegationRequest} req
- * @param {{arbiter?:Provider, arbiterInstructions?:string, blindVote?:boolean, logger?:Logger, orientationFiles?:import("./types.js").FileRef[], startedAt?:number}} [opts]
+ * @param {{arbiter?:Provider, arbiterInstructions?:string, blindVote?:boolean, logger?:Logger, orientationFiles?:import("./types.js").FileRef[], startedAt?:number, trace?:Trace}} [opts]
  * @returns {Promise<{opinions:DelegationResult[], blindVerdict:(DelegationResult|null), verdict:(DelegationResult|null), error?:string}>}
  */
 async function consensus(providers, req, opts = {}) {
   const arbiter = opts.arbiter || providers[0];
+  const trace = opts.trace;
   // The host-cap clock: the tool call's entry when the server passes it, else now.
   const startedAt = typeof opts.startedAt === "number" ? opts.startedAt : Date.now();
   // Blind pre-vote runs concurrently with the peer fan-out. It uses the ORIGINAL
-  // prompt (no opinions) + the arbiter persona. `.then(v, () => null)` isolates a
-  // blind-pass failure so it can never reject the batch.
+  // prompt (no opinions) + the arbiter persona. tracedAsk("null") isolates a
+  // blind-pass failure (incl. a synchronous throw) so it can never reject the batch.
   const blindPromise = opts.blindVote && arbiter
-    ? // Promise.resolve().then(...) so even a SYNCHRONOUS throw in ask() is caught
-      // by the rejection handler (a bare arbiter.ask() could throw before awaiting).
-      Promise.resolve()
-        .then(() =>
-          arbiter.ask(withOrientation(arbiter, {
-            ...req,
-            files: req.files ? req.files.map((f) => ({ ...f })) : undefined,
-            developerInstructions: opts.arbiterInstructions || req.developerInstructions,
-          }, opts.orientationFiles))
-        )
-        .then((v) => v, () => null)
+    ? (() => {
+        traceState(trace, { state: "blind" });
+        const blindReq = withOrientation(arbiter, {
+          ...req,
+          files: req.files ? req.files.map((f) => ({ ...f })) : undefined,
+          developerInstructions: opts.arbiterInstructions || req.developerInstructions,
+        }, opts.orientationFiles);
+        return tracedAsk(withRole(trace, "blind"), arbiter, blindReq, "null");
+      })()
     : Promise.resolve(/** @type {DelegationResult|null} */ (null));
 
-  const [opinions, blindVerdict] = await Promise.all([askAll(providers, req, { logger: opts.logger, tool: "consensus", orientationFiles: opts.orientationFiles, startedAt }), blindPromise]);
+  traceState(trace, { state: "peers" });
+  const peerTrace = withRole(trace, "peer");
+  const [opinions, blindVerdict] = await Promise.all([askAll(providers, req, { logger: opts.logger, tool: "consensus", orientationFiles: opts.orientationFiles, startedAt, trace: peerTrace }), blindPromise]);
   // The union guarantees `text` on the success branch, so `!o.isError` alone
   // narrows each survivor to DelegationSuccess - no `&& o.text` guard needed.
   const ok = /** @type {DelegationSuccess[]} */ (opinions.filter((o) => !o.isError));
   if (!ok.length) return { opinions, blindVerdict, verdict: null, error: "all-providers-failed" };
   if (!arbiter) return { opinions, blindVerdict, verdict: null, error: "no-arbiter" };
   try {
+    traceState(trace, { state: "synthesize" });
     // The verdict pass is NOT oriented (unlike the blind pass above): by this
     // point every peer opinion is inlined into buildArbiterPrompt, so a file-blind
     // arbiter is reasoning over peer text, not the cold repo - orientation files
     // would be redundant context. Keep this asymmetry intentional.
     // A second sequential leg: fitted into what the fan-out left of the host's cap.
-    const verdict = await arbiter.ask(fitToHostBudget({
+    const verdict = await tracedAsk(withRole(trace, "arbiter"), arbiter, fitToHostBudget({
       ...req,
       files: req.files ? req.files.map((f) => ({ ...f })) : undefined,
       prompt: buildArbiterPrompt(req.prompt, ok),
       developerInstructions: opts.arbiterInstructions || req.developerInstructions,
-    }, startedAt));
+    }, startedAt), "throw");
     return { opinions, blindVerdict, verdict };
   } catch {
     return { opinions, blindVerdict, verdict: null, error: "arbiter-failed" };
@@ -368,11 +522,12 @@ function okText(/** @type {any} */ res) {
  * revision keeps the current plan.
  * @param {Provider[]} providers  peer panel
  * @param {DelegationRequest} req  `prompt` is the initial plan
- * @param {{arbiter?:Provider, maxRounds?:number, maxWallMs?:number, now?:()=>number, logger?:Logger, orientationFiles?:import("./types.js").FileRef[], startedAt?:number}} [opts]
+ * @param {{arbiter?:Provider, maxRounds?:number, maxWallMs?:number, now?:()=>number, logger?:Logger, orientationFiles?:import("./types.js").FileRef[], startedAt?:number, trace?:Trace}} [opts]
  * @returns {Promise<{converged:boolean, verdict:(string|null), confidence:string, finalReport?:string, rounds:any[], opinions:any[], error?:string, stopReason?:string}>}
  */
 async function runToConvergence(providers, req, opts = {}) {
   const arbiter = opts.arbiter;
+  const trace = opts.trace;
   const logger = opts.logger || NULL_LOGGER;
   const now = typeof opts.now === "function" ? opts.now : Date.now;
   const maxWallMs = typeof opts.maxWallMs === "number" && opts.maxWallMs > 0 ? opts.maxWallMs : null;
@@ -412,13 +567,16 @@ async function runToConvergence(providers, req, opts = {}) {
       const { peerPrompt, blindPrompt } = loop.prepareRound(state);
       // Blind pass runs concurrently with the peer fan-out; isolate its failure.
       const roundNo = state.round;
+      const blindTrace = withRole(trace, "blind", roundNo);
+      const peerTrace = withRole(trace, "peer", roundNo);
       const [blindRes, peerResults] = await Promise.all([
-        Promise.resolve().then(() => arbiter.ask(fitToHostBudget(withOrientation(arbiter, { ...req, prompt: blindPrompt }, opts.orientationFiles), capStartedAt))).then((r) => r, () => null),
+        tracedAsk(blindTrace, arbiter, fitToHostBudget(withOrientation(arbiter, { ...req, prompt: blindPrompt }, opts.orientationFiles), capStartedAt), "null"),
         // Later rounds run on the SAME cap clock as round one - a fresh clock per fan-out
         // would hand round two the whole cap again.
-        askAll(activeProviders, { ...req, prompt: peerPrompt }, { logger, tool: "consensus", orientationFiles: opts.orientationFiles, startedAt: capStartedAt }),
+        askAll(activeProviders, { ...req, prompt: peerPrompt }, { logger, tool: "consensus", orientationFiles: opts.orientationFiles, startedAt: capStartedAt, trace: peerTrace }),
       ]);
       state = loop.recordBlindVerdict(state, okText(blindRes) || "(blind pass unavailable)");
+      traceState(trace, { state: "blind", round: roundNo, status: state.status });
 
       lastResults = peerResults.map((r) =>
         r.isError
@@ -427,6 +585,7 @@ async function runToConvergence(providers, req, opts = {}) {
           : { ...parseReview(typeof r.text === "string" ? r.text : ""), source: r.provider, isError: false, ms: r.ms }
       );
       state = loop.addOpinions(state, lastResults);
+      traceState(trace, { state: "peers", round: roundNo, status: state.status });
 
       // Trim the panel for the next round. `addOpinions` already folded this round's
       // results into state.errorStreak, so the breaker reads the same state the
@@ -452,8 +611,9 @@ async function runToConvergence(providers, req, opts = {}) {
       // adjudication/revision passes are intentionally NOT oriented (unlike the blind
       // pass): the arbiter reasons over inlined peer text, not the cold repo.
       // Every arbiter leg after the fan-out is fitted into what is left of the host's cap.
+      const arbiterTrace = withRole(trace, "arbiter", roundNo);
       const askIsolated = (/** @type {string} */ prompt) =>
-        Promise.resolve().then(() => arbiter.ask(fitToHostBudget({ ...req, prompt }, capStartedAt))).then((r) => r, () => null);
+        tracedAsk(arbiterTrace, arbiter, fitToHostBudget({ ...req, prompt }, capStartedAt), "null");
       /** @param {(DelegationResult|null)} res @returns {"APPROVE"|"REQUEST_CHANGES"|"REJECT"} */
       const verdictFrom = (res) => {
         const t = okText(res);
@@ -477,6 +637,8 @@ async function runToConvergence(providers, req, opts = {}) {
         verdict = verdictFrom(await askIsolated(buildAdjudicationPrompt(state, lastResults)));
       }
       state = loop.submitAdjudication(state, { verdict, decisions: [] });
+      traceState(trace, { state: "adjudicate", round: roundNo, status: state.status });
+      if (state.status === "converged") traceState(trace, { state: "converged", round: roundNo, status: state.status });
       try {
         logger.logEvent({
           event: "round", at: Date.now(), tool: "consensus", round: roundNo,
@@ -493,6 +655,8 @@ async function runToConvergence(providers, req, opts = {}) {
         revised = okText(await askIsolated(buildRevisionPrompt(state, lastResults))) || state.currentPlan;
       }
       state = loop.submitRevision(state, revised, "arbiter revision");
+      traceState(trace, { state: "revise", round: roundNo, status: state.status });
+      if (state.status === "unresolved") traceState(trace, { state: "unresolved", round: roundNo, status: state.status });
     }
   } catch (e) {
     return {

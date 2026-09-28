@@ -247,6 +247,47 @@ test("RC-breaker-2: a NON-timeout failure trips the breaker too", async () => {
   assert.equal(dead.calls, 4);
 });
 
+// --- Journal tracing (Task 4) ---------------------------------------------------
+
+/** @returns {{journal:any, events:any[]}} */
+function recordingJournal() {
+  /** @type {any[]} */
+  const events = [];
+  const journal = {
+    enabled: () => true,
+    newRunId: () => "run-1",
+    emit: (/** @type {string} */ id, /** @type {string} */ k, /** @type {any} */ f) => events.push({ id, k, f }),
+    prune: () => {},
+  };
+  return { journal, events };
+}
+
+test("OT4b: a dissent-then-converge run emits state sequence per round, ending unresolved when it never converges", async () => {
+  const { journal, events } = recordingJournal();
+  const trace = { journal, runId: "run-1" };
+  const peers = [stub("gpt", () => "**Verdict**: REQUEST_CHANGES\n- [ops] x")];
+  const arb = stub("arb", (p) => (p.includes("ADJUDICATE") ? "**Verdict**: REQUEST_CHANGES" : p.includes("REVISE") ? "still not enough" : "**Verdict**: REQUEST_CHANGES"));
+  await runToConvergence(peers, REQ, { arbiter: arb, maxRounds: 2, trace });
+  const states = events.filter((e) => e.k === "state").map((e) => e.f.state);
+  assert.deepEqual(states, ["blind", "peers", "adjudicate", "revise", "blind", "peers", "adjudicate", "revise", "unresolved"]);
+  const rounds = events.filter((e) => e.k === "state").map((e) => e.f.round);
+  assert.deepEqual(rounds, [1, 1, 1, 1, 2, 2, 2, 2, 2]);
+});
+
+test("OT4c: peer and arbiter calls carry role and round in call_start", async () => {
+  const { journal, events } = recordingJournal();
+  const trace = { journal, runId: "run-1" };
+  const peers = [stub("gpt", () => "**Verdict**: APPROVE")];
+  await runToConvergence(peers, REQ, { arbiter: smartArbiter(), trace });
+  const starts = events.filter((e) => e.k === "call_start");
+  const peerStart = starts.find((e) => e.f.provider === "gpt");
+  const blindStart = starts.find((e) => e.f.role === "blind");
+  assert.equal(peerStart.f.role, "peer");
+  assert.equal(peerStart.f.round, 1);
+  assert.ok(blindStart, "blind arbiter call is traced");
+  assert.equal(blindStart.f.round, 1);
+});
+
 test("RC-breaker-3: an empty panel from the start is `no-providers`, not a circuit break", async () => {
   // The host-driven driver already distinguished these two. Reporting a breaker that
   // never tripped made the drivers disagree on identical input.
