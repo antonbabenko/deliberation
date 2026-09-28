@@ -3,7 +3,7 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
 
-const { resolveConfigPath, resolveGrokCachePath, resolveSessionsDir } = require("../core/paths.js");
+const { resolveConfigPath, resolveGrokCachePath, resolveSessionsDir, resolveRunsDir } = require("../core/paths.js");
 
 // --- helpers -----------------------------------------------------------------
 //
@@ -20,6 +20,9 @@ function canonicalCache(/** @type {string} */ home) {
 }
 function canonicalSessions(/** @type {string} */ home) {
   return path.join(home, ".cache", "deliberation", "sessions");
+}
+function canonicalRuns(/** @type {string} */ home) {
+  return path.join(home, ".cache", "deliberation", "runs");
 }
 
 // --- config: env override ----------------------------------------------------
@@ -225,4 +228,18 @@ test("CS5: empty DELIBERATION_SESSIONS falls through to canonical", () => {
     platform: "linux",
   });
   assert.equal(got, canonicalSessions(HOME));
+});
+
+// --- runs dir: env override + canonical default -------------------------------
+
+test("PATHS-runs: DELIBERATION_RUNS wins, else <cache>/runs", () => {
+  const override = "/somewhere/custom/runs";
+  const withOverride = resolveRunsDir({ home: HOME, env: { DELIBERATION_RUNS: override }, platform: "linux" });
+  assert.equal(withOverride, override);
+
+  const withoutOverride = resolveRunsDir({ home: HOME, env: {}, platform: "linux" });
+  assert.equal(withoutOverride, canonicalRuns(HOME));
+
+  const emptyOverride = resolveRunsDir({ home: HOME, env: { DELIBERATION_RUNS: "" }, platform: "linux" });
+  assert.equal(emptyOverride, canonicalRuns(HOME));
 });

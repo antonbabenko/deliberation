@@ -1,7 +1,7 @@
 "use strict";
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { validateConfig, makeConfigReader, resolveSessions } = require("../server/openrouter/config.js");
+const { validateConfig, makeConfigReader, resolveSessions, resolveDashboard } = require("../server/openrouter/config.js");
 
 // Unified v1 on-disk shape: providers carry connection config; models is a named-record
 // map keyed by id; routing holds fan-out; consensus.arbiter is a shorthand string or
@@ -574,6 +574,31 @@ test("SESS8: captureText defaults OFF; boolean honored; non-boolean -> false + w
   const { sessions, warnings } = resolveSessions({ captureText: "yes" });
   assert.equal(sessions.captureText, false);
   assert.ok(warnings.some((w) => /captureText must be a boolean/.test(w)));
+});
+
+// --- dashboard block ----------------------------------------------------------
+
+test("DB1: dashboard block absent -> defaults", () => {
+  const { resolved } = validateConfig(base());
+  assert.deepEqual(resolved.dashboard, {
+    enabled: false, capture: "metadata", showPII: false, port: 7717, maxRuns: 200, maxAgeDays: 30,
+  });
+});
+
+test("DB2: invalid values fall back with warnings", () => {
+  const { dashboard, warnings } = resolveDashboard({ capture: "all", port: 70000, maxRuns: 0 });
+  assert.deepEqual(dashboard, {
+    enabled: false, capture: "metadata", showPII: false, port: 7717, maxRuns: 200, maxAgeDays: 30,
+  });
+  assert.equal(warnings.length, 3);
+  assert.ok(warnings.every((w) => /dashboard\./.test(w)));
+});
+
+test("DB3: valid values pass through", () => {
+  const raw = { enabled: true, capture: "content", showPII: true, port: 8123, maxRuns: -1, maxAgeDays: 7 };
+  const { dashboard, warnings } = resolveDashboard(raw);
+  assert.deepEqual(dashboard, raw);
+  assert.equal(warnings.length, 0);
 });
 
 // --- providers.<name>.model pin (gemini / grok) ---

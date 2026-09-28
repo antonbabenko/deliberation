@@ -15,6 +15,8 @@
  *   - resolveConfigPath(opts?)    -> DELIBERATION_CONFIG override else canonical config.json
  *   - resolveGrokCachePath(opts?) -> DELIBERATION_CACHE override else canonical grok-files.json
  *   - resolveSessionsDir(opts?)   -> DELIBERATION_SESSIONS override else canonical sessions/ dir
+ *   - resolveRunsDir(opts?)       -> DELIBERATION_RUNS override else canonical runs/ dir
+ *   - resolveDashboardStatePath(opts?) -> canonical dashboard.json (no env override)
  *
  * Both accept an optional `{ home, env, platform }` injection so callers (and
  * tests) can point at a temp HOME, a fake env, and a fixed platform without
@@ -201,9 +203,50 @@ function resolveDebugLogPath(opts) {
   return path.join(canonicalCacheDir(home, env, platform), "debug.jsonl");
 }
 
+/**
+ * Resolve the absolute path to the run journal DIR the dashboard/journal
+ * writer should use (core/journal.js, per-run <runId>.jsonl files).
+ *
+ * Precedence:
+ *   1. DELIBERATION_RUNS if non-empty -> return it verbatim.
+ *   2. Else `<canonicalCacheDir>/runs`.
+ *
+ * Pure path logic - no FS access, no side effects.
+ *
+ * @param {ResolveOptions} [opts]
+ * @returns {string} absolute path to the runs directory to use
+ */
+function resolveRunsDir(opts) {
+  const { home, env, platform } = resolveInjection(opts);
+
+  const override = env.DELIBERATION_RUNS;
+  if (typeof override === "string" && override.length > 0) {
+    return override;
+  }
+
+  return path.join(canonicalCacheDir(home, env, platform), "runs");
+}
+
+/**
+ * Resolve the absolute path to the dashboard's small persisted state file
+ * (last-read offsets, prefs mirrored server-side, etc). Always the canonical
+ * cache-dir location - no env override, unlike the other resolvers here.
+ *
+ * Pure path logic - no FS access, no side effects.
+ *
+ * @param {ResolveOptions} [opts]
+ * @returns {string} absolute path to dashboard.json
+ */
+function resolveDashboardStatePath(opts) {
+  const { home, env, platform } = resolveInjection(opts);
+  return path.join(canonicalCacheDir(home, env, platform), "dashboard.json");
+}
+
 module.exports = {
   resolveConfigPath,
   resolveGrokCachePath,
   resolveSessionsDir,
   resolveDebugLogPath,
+  resolveRunsDir,
+  resolveDashboardStatePath,
 };

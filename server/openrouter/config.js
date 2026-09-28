@@ -27,6 +27,11 @@ const DEFAULT_CONSENSUS_MAX_WALL_MS = 1800000;
 // sessions block defaults (opt-in store; default OFF).
 const DEFAULT_SESSIONS_MAX_RECORDS = 200;
 const DEFAULT_SESSIONS_MAX_AGE_DAYS = 30;
+// dashboard block defaults (opt-in local read-only server; default OFF).
+const DEFAULT_DASHBOARD_CAPTURE = "metadata";
+const DEFAULT_DASHBOARD_PORT = 7717;
+const DEFAULT_DASHBOARD_MAX_RUNS = 200;
+const DEFAULT_DASHBOARD_MAX_AGE_DAYS = 30;
 const BUILTIN_ARBITERS = new Set(["codex", "gemini", "grok"]);
 // The only provider a `models` entry may target in v1. codex/gemini/grok are
 // CLI-managed or singleton built-ins and are out of scope for named model records.
@@ -104,6 +109,7 @@ function validateConfig(raw) {
   const { consensus, warnings } = resolveConsensus(raw.consensus, models);
   const { sessions, warnings: sessionsWarnings } = resolveSessions(raw.sessions);
   const { debug, warnings: debugWarnings } = resolveDebug(raw.debug);
+  const { dashboard, warnings: dashboardWarnings } = resolveDashboard(raw.dashboard);
 
   return {
     ok: true,
@@ -115,10 +121,11 @@ function validateConfig(raw) {
       consensus,
       sessions,
       debug,
-      // Defaults-, sessions-, and debug-validation warnings ride the same
+      dashboard,
+      // Defaults-, sessions-, debug-, and dashboard-validation warnings ride the same
       // consensusWarnings channel the bridge already surfaces, so a dropped/degraded
       // value is visible, not silent.
-      consensusWarnings: [...defaultsWarnings, ...warnings, ...sessionsWarnings, ...debugWarnings],
+      consensusWarnings: [...defaultsWarnings, ...warnings, ...sessionsWarnings, ...debugWarnings, ...dashboardWarnings],
     },
   };
 }
@@ -186,6 +193,64 @@ function resolveSessions(raw) {
     else warnings.push(`sessions.maxAgeDays must be -1 (unlimited) or a positive integer (got ${JSON.stringify(raw.maxAgeDays)}); using ${DEFAULT_SESSIONS_MAX_AGE_DAYS}`);
   }
   return { sessions: out, warnings };
+}
+
+// Resolve the optional `dashboard` block (opt-in local read-only run viewer) with
+// soft-degrade semantics, mirroring resolveSessions: an invalid value NEVER rejects
+// the config; it degrades to the default and records a warning.
+//   - enabled: boolean (non-bool -> false + warning); default false (dashboard OFF).
+//   - capture: "metadata" | "content" (invalid -> "metadata" + warning). Threat model:
+//     "content" journals prompt/response bodies (scrubbed + capped) to local disk;
+//     "metadata" never does.
+//   - showPII: boolean (non-bool -> false + warning). Threat model: the dashboard UI
+//     redacts likely-PII substrings from journaled content by default; true disables
+//     that redaction for local display only (the journal on disk is unaffected).
+//   - port: integer 1..65535 (invalid -> 7717 + warning).
+//   - maxRuns / maxAgeDays: -1 (unlimited) or positive ints (invalid -> default + warning).
+// @param {*} raw  the raw dashboard block (untrusted)
+// @returns {{dashboard:{enabled:boolean, capture:("metadata"|"content"), showPII:boolean, port:number, maxRuns:number, maxAgeDays:number}, warnings:string[]}}
+function resolveDashboard(raw) {
+  const warnings = [];
+  const out = {
+    enabled: false,
+    capture: DEFAULT_DASHBOARD_CAPTURE,
+    showPII: false,
+    port: DEFAULT_DASHBOARD_PORT,
+    maxRuns: DEFAULT_DASHBOARD_MAX_RUNS,
+    maxAgeDays: DEFAULT_DASHBOARD_MAX_AGE_DAYS,
+  };
+  if (raw === undefined) return { dashboard: out, warnings };
+  if (!isObject(raw)) {
+    warnings.push(`dashboard must be an object (got ${JSON.stringify(raw)}); dashboard disabled`);
+    return { dashboard: out, warnings };
+  }
+  if (raw.enabled !== undefined) {
+    if (typeof raw.enabled === "boolean") out.enabled = raw.enabled;
+    else warnings.push(`dashboard.enabled must be a boolean (got ${JSON.stringify(raw.enabled)}); using false`);
+  }
+  if (raw.capture !== undefined) {
+    if (raw.capture === "metadata" || raw.capture === "content") out.capture = raw.capture;
+    else warnings.push(`dashboard.capture must be "metadata" or "content" (got ${JSON.stringify(raw.capture)}); using ${DEFAULT_DASHBOARD_CAPTURE}`);
+  }
+  if (raw.showPII !== undefined) {
+    if (typeof raw.showPII === "boolean") out.showPII = raw.showPII;
+    else warnings.push(`dashboard.showPII must be a boolean (got ${JSON.stringify(raw.showPII)}); using false`);
+  }
+  if (raw.port !== undefined) {
+    if (Number.isInteger(raw.port) && raw.port >= 1 && raw.port <= 65535) out.port = raw.port;
+    else warnings.push(`dashboard.port must be an integer 1-65535 (got ${JSON.stringify(raw.port)}); using ${DEFAULT_DASHBOARD_PORT}`);
+  }
+  // -1 means UNLIMITED (keep forever / no count cap); otherwise a positive integer.
+  // 0 and other values are invalid -> default + warning.
+  if (raw.maxRuns !== undefined) {
+    if (Number.isInteger(raw.maxRuns) && (raw.maxRuns === -1 || raw.maxRuns > 0)) out.maxRuns = raw.maxRuns;
+    else warnings.push(`dashboard.maxRuns must be -1 (unlimited) or a positive integer (got ${JSON.stringify(raw.maxRuns)}); using ${DEFAULT_DASHBOARD_MAX_RUNS}`);
+  }
+  if (raw.maxAgeDays !== undefined) {
+    if (Number.isInteger(raw.maxAgeDays) && (raw.maxAgeDays === -1 || raw.maxAgeDays > 0)) out.maxAgeDays = raw.maxAgeDays;
+    else warnings.push(`dashboard.maxAgeDays must be -1 (unlimited) or a positive integer (got ${JSON.stringify(raw.maxAgeDays)}); using ${DEFAULT_DASHBOARD_MAX_AGE_DAYS}`);
+  }
+  return { dashboard: out, warnings };
 }
 
 // Resolve providers.openrouter.defaults. camelCase -> wire mapping happens HERE
@@ -495,7 +560,7 @@ function makeConfigReader(filePath) {
     try {
       text = fs.readFileSync(filePath, "utf8");
     } catch (_) {
-      return { ok: true, error: null, resolved: { version: 1, providers: {}, openrouter: disabledOpenRouter(), consensus: { arbiter: DEFAULT_ARBITER, arbiterDefaulted: true, blindVote: false, maxWallMs: DEFAULT_CONSENSUS_MAX_WALL_MS }, sessions: { persist: false, maxRecords: DEFAULT_SESSIONS_MAX_RECORDS, maxAgeDays: DEFAULT_SESSIONS_MAX_AGE_DAYS, captureText: false }, consensusWarnings: [] } };
+      return { ok: true, error: null, resolved: { version: 1, providers: {}, openrouter: disabledOpenRouter(), consensus: { arbiter: DEFAULT_ARBITER, arbiterDefaulted: true, blindVote: false, maxWallMs: DEFAULT_CONSENSUS_MAX_WALL_MS }, sessions: { persist: false, maxRecords: DEFAULT_SESSIONS_MAX_RECORDS, maxAgeDays: DEFAULT_SESSIONS_MAX_AGE_DAYS, captureText: false }, dashboard: { enabled: false, capture: DEFAULT_DASHBOARD_CAPTURE, showPII: false, port: DEFAULT_DASHBOARD_PORT, maxRuns: DEFAULT_DASHBOARD_MAX_RUNS, maxAgeDays: DEFAULT_DASHBOARD_MAX_AGE_DAYS }, consensusWarnings: [] } };
     }
     let parsed;
     try {
@@ -520,6 +585,6 @@ function makeConfigReader(filePath) {
 }
 
 module.exports = {
-  validateConfig, makeConfigReader, resolveSessions, EXPERT_KEYS, RESERVED_ALIAS,
+  validateConfig, makeConfigReader, resolveSessions, resolveDashboard, EXPERT_KEYS, RESERVED_ALIAS,
   DEFAULT_API_BASE, DEFAULT_API_KEY_ENV,
 };

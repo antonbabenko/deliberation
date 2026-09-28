@@ -155,6 +155,48 @@
         }
       }
     },
+    "dashboard": {
+      "type": "object",
+      "description": "Opt-in local read-only dashboard that serves the run journal (core/journal.js) over HTTP, bound to 127.0.0.1 only. Default OFF; nothing is served unless enabled is true.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Serve the dashboard on the configured port, bound to 127.0.0.1 only. Default OFF."
+        },
+        "capture": {
+          "type": "string",
+          "enum": ["metadata", "content"],
+          "default": "metadata",
+          "description": "Threat model: \"metadata\" (default) journals run/verdict metadata only, never prompt or response bodies. \"content\" additionally journals prompt/response text (secret-scrubbed then capped at 100 KB per field) to local disk at <cache>/deliberation/runs/<runId>.jsonl (mode 0600) - only set this on a machine where that is acceptable."
+        },
+        "showPII": {
+          "type": "boolean",
+          "default": false,
+          "description": "Threat model: the dashboard UI redacts likely-PII substrings from displayed content by default. true disables that redaction for local display only; it does not change what is written to the journal on disk."
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "default": 7717,
+          "description": "TCP port the dashboard listens on, bound to 127.0.0.1 only."
+        },
+        "maxRuns": {
+          "type": "integer",
+          "anyOf": [{ "const": -1 }, { "minimum": 1 }],
+          "default": 200,
+          "description": "Keep at most this many newest run journals; older ones are trimmed. Use -1 for unlimited (never trim by count)."
+        },
+        "maxAgeDays": {
+          "type": "integer",
+          "anyOf": [{ "const": -1 }, { "minimum": 1 }],
+          "default": 30,
+          "description": "Delete run journals older than this many days. Use -1 for unlimited (never delete by age)."
+        }
+      }
+    },
     "debug": {
       "type": "object",
       "description": "Opt-in debug log for performance debugging (per-provider latency, token counts, voting/approval outcomes). Default OFF. Never records prompts, responses, or issue descriptions.",

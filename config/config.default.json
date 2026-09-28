@@ -61,5 +61,13 @@
   "orientation": {
     "enabled": false,
     "maxFiles": 6
+  },
+  "dashboard": {
+    "enabled": false,
+    "capture": "metadata",
+    "showPII": false,
+    "port": 7717,
+    "maxRuns": 200,
+    "maxAgeDays": 30
   }
 }
