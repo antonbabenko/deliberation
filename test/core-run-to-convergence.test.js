@@ -268,10 +268,17 @@ test("OT4b: a dissent-then-converge run emits state sequence per round, ending u
   const peers = [stub("gpt", () => "**Verdict**: REQUEST_CHANGES\n- [ops] x")];
   const arb = stub("arb", (p) => (p.includes("ADJUDICATE") ? "**Verdict**: REQUEST_CHANGES" : p.includes("REVISE") ? "still not enough" : "**Verdict**: REQUEST_CHANGES"));
   await runToConvergence(peers, REQ, { arbiter: arb, maxRounds: 2, trace });
-  const states = events.filter((e) => e.k === "state").map((e) => e.f.state);
-  assert.deepEqual(states, ["blind", "peers", "adjudicate", "revise", "blind", "peers", "adjudicate", "revise", "unresolved"]);
-  const rounds = events.filter((e) => e.k === "state").map((e) => e.f.round);
-  assert.deepEqual(rounds, [1, 1, 1, 1, 2, 2, 2, 2, 2]);
+  const stateEvents = events.filter((e) => e.k === "state");
+  assert.deepEqual(stateEvents.map((e) => e.f.state), ["blind", "peers", "adjudicate", "revise", "blind", "peers", "adjudicate", "revise", "unresolved"]);
+  assert.deepEqual(stateEvents.map((e) => e.f.round), [1, 1, 1, 1, 2, 2, 2, 2, 2]);
+  // Round-1 dissent: verdicts ride the "adjudicate" entry, categories only.
+  const round1Adjudicate = stateEvents.find((e) => e.f.state === "adjudicate" && e.f.round === 1);
+  assert.deepEqual(round1Adjudicate.f.verdicts, [{ provider: "gpt", verdict: "REQUEST_CHANGES", categories: ["ops"] }]);
+  // "revise" fires on ENTRY too - before the adjudication+revision legs that dissent
+  // dispatches in parallel, not after the round settles.
+  const revise1Idx = events.findIndex((e) => e.k === "state" && e.f.state === "revise" && e.f.round === 1);
+  const adjudicationCallIdx = events.findIndex((e) => e.k === "call_start" && e.f.role === "arbiter" && e.f.round === 1);
+  assert.ok(revise1Idx < adjudicationCallIdx, "revise entry fires before the round's arbiter legs start");
 });
 
 test("OT4c: peer and arbiter calls carry role and round in call_start", async () => {

@@ -94,6 +94,7 @@ function traceCallEnd(trace, callId, r) {
   try {
     trace.journal.emit(trace.runId, "call_end", {
       callId,
+      provider: r.provider,
       model: r.model,
       ms: r.ms,
       usage: /** @type {any} */ (r).usage,
@@ -110,7 +111,7 @@ function traceCallEnd(trace, callId, r) {
 /**
  * Emit a `state` transition event. Never throws.
  * @param {(Trace|undefined)} trace
- * @param {{state:string, round?:number, status?:string}} fields
+ * @param {{state:string, round?:number, status?:string, verdicts?:{provider:string, verdict:(string|null), categories:string[]}[]}} fields
  * @returns {void}
  */
 function traceState(trace, fields) {
@@ -150,6 +151,7 @@ function withRole(trace, role, round) {
  * @returns {Promise<(DelegationResult|null)>}
  */
 async function tracedAsk(trace, provider, req, onError) {
+  const started = Date.now();
   const callId = traceCallStart(trace, provider.name, req);
   try {
     const v = await provider.ask(req);
@@ -158,7 +160,7 @@ async function tracedAsk(trace, provider, req, onError) {
   } catch (e) {
     const err = /** @type {DelegationResult} */ ({
       provider: provider.name, model: "unknown", isError: true, errorKind: "unknown",
-      retryable: false, message: String((e && /** @type {any} */ (e).message) || e), ms: 0,
+      retryable: false, message: String((e && /** @type {any} */ (e).message) || e), ms: Date.now() - started,
     });
     traceCallEnd(trace, callId, err);
     if (onError === "throw") throw e;
@@ -569,6 +571,11 @@ async function runToConvergence(providers, req, opts = {}) {
       const roundNo = state.round;
       const blindTrace = withRole(trace, "blind", roundNo);
       const peerTrace = withRole(trace, "peer", roundNo);
+      // Phase states fire on ENTRY (before the legs they describe run), matching
+      // consensus()'s style, so a live UI shows the running phase during a
+      // multi-minute fan-out rather than only after it settles.
+      traceState(trace, { state: "blind", round: roundNo, status: state.status });
+      traceState(trace, { state: "peers", round: roundNo, status: state.status });
       const [blindRes, peerResults] = await Promise.all([
         tracedAsk(blindTrace, arbiter, fitToHostBudget(withOrientation(arbiter, { ...req, prompt: blindPrompt }, opts.orientationFiles), capStartedAt), "null"),
         // Later rounds run on the SAME cap clock as round one - a fresh clock per fan-out
@@ -576,7 +583,6 @@ async function runToConvergence(providers, req, opts = {}) {
         askAll(activeProviders, { ...req, prompt: peerPrompt }, { logger, tool: "consensus", orientationFiles: opts.orientationFiles, startedAt: capStartedAt, trace: peerTrace }),
       ]);
       state = loop.recordBlindVerdict(state, okText(blindRes) || "(blind pass unavailable)");
-      traceState(trace, { state: "blind", round: roundNo, status: state.status });
 
       lastResults = peerResults.map((r) =>
         r.isError
@@ -585,7 +591,13 @@ async function runToConvergence(providers, req, opts = {}) {
           : { ...parseReview(typeof r.text === "string" ? r.text : ""), source: r.provider, isError: false, ms: r.ms }
       );
       state = loop.addOpinions(state, lastResults);
-      traceState(trace, { state: "peers", round: roundNo, status: state.status });
+      // Per-peer verdicts, attached to the "adjudicate" entry below (categories only -
+      // never issue descriptions, which are content).
+      const verdicts = lastResults.map((r) => ({
+        provider: r.source,
+        verdict: r.verdict,
+        categories: (r.criticalIssues || []).map((/** @type {any} */ ci) => ci.category),
+      }));
 
       // Trim the panel for the next round. `addOpinions` already folded this round's
       // results into state.errorStreak, so the breaker reads the same state the
@@ -625,7 +637,10 @@ async function runToConvergence(providers, req, opts = {}) {
       let verdict = "REQUEST_CHANGES";
       let revised = state.currentPlan;
       if (peerDissent) {
-        // Guaranteed non-final: adjudication || revision, both used (no waste).
+        // Guaranteed non-final: adjudication || revision, both used (no waste). Both
+        // entry states fire before the parallel legs they describe.
+        traceState(trace, { state: "adjudicate", round: roundNo, status: state.status, verdicts });
+        traceState(trace, { state: "revise", round: roundNo, status: state.status });
         const [adjRes, revRes] = await Promise.all([
           askIsolated(buildAdjudicationPrompt(state, lastResults)),
           askIsolated(buildRevisionPrompt(state, lastResults)),
@@ -634,10 +649,10 @@ async function runToConvergence(providers, req, opts = {}) {
         revised = okText(revRes) || state.currentPlan;
       } else {
         // May converge: adjudication only - do not burn a revision call we might discard.
+        traceState(trace, { state: "adjudicate", round: roundNo, status: state.status, verdicts });
         verdict = verdictFrom(await askIsolated(buildAdjudicationPrompt(state, lastResults)));
       }
       state = loop.submitAdjudication(state, { verdict, decisions: [] });
-      traceState(trace, { state: "adjudicate", round: roundNo, status: state.status });
       if (state.status === "converged") traceState(trace, { state: "converged", round: roundNo, status: state.status });
       try {
         logger.logEvent({
@@ -652,10 +667,12 @@ async function runToConvergence(providers, req, opts = {}) {
       if (!peerDissent) {
         // Rare: all peers APPROVED but the arbiter blocked -> revise now (serial; there
         // was nothing to overlap, since convergence was still possible at fan-out time).
+        // The peerDissent branch above already emitted "revise" on entry; this is the
+        // other path into a revision leg, so it gets its own entry here.
+        traceState(trace, { state: "revise", round: roundNo, status: state.status });
         revised = okText(await askIsolated(buildRevisionPrompt(state, lastResults))) || state.currentPlan;
       }
       state = loop.submitRevision(state, revised, "arbiter revision");
-      traceState(trace, { state: "revise", round: roundNo, status: state.status });
       if (state.status === "unresolved") traceState(trace, { state: "unresolved", round: roundNo, status: state.status });
     }
   } catch (e) {

@@ -67,7 +67,7 @@ const JOURNAL_KEYS = Object.freeze({
     content: Object.freeze(["prompt"]),
   }),
   state: Object.freeze({
-    meta: Object.freeze(["state", "round", "status"]),
+    meta: Object.freeze(["state", "round", "status", "verdicts"]),
     content: Object.freeze([]),
   }),
   call_start: Object.freeze({
@@ -75,7 +75,7 @@ const JOURNAL_KEYS = Object.freeze({
     content: Object.freeze(["request"]),
   }),
   call_end: Object.freeze({
-    meta: Object.freeze(["callId", "ms", "usage", "isError", "errorKind", "errorCode", "verdict", "criticalIssues[].category"]),
+    meta: Object.freeze(["callId", "provider", "model", "ms", "usage", "isError", "errorKind", "errorCode", "verdict", "criticalIssues[].category"]),
     content: Object.freeze(["response", "criticalIssues[].description"]),
   }),
   arbiter: Object.freeze({

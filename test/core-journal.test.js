@@ -39,9 +39,11 @@ test("J1: disabled settings -> emit creates no file", () => {
 test("J2: metadata capture keeps whitelisted meta fields, drops content", () => {
   const dir = tmpDir();
   const j = createJournal({ dir, getSettings: () => settings({ capture: "metadata" }) });
-  j.emit("run-2", "call_end", { ms: 5, response: "hi", verdict: "APPROVE" });
+  j.emit("run-2", "call_end", { ms: 5, provider: "gpt", model: "gpt-5", response: "hi", verdict: "APPROVE" });
   const [line] = readLines(dir, "run-2");
   assert.equal(line.ms, 5);
+  assert.equal(line.provider, "gpt");
+  assert.equal(line.model, "gpt-5");
   assert.equal(line.verdict, "APPROVE");
   assert.ok(!("response" in line), "content field must be absent under metadata capture");
 });
@@ -182,15 +184,24 @@ test("call_end: criticalIssues keeps category under metadata, adds description o
   assert.equal(content.criticalIssues[0].description, "off-by-one SECRET");
 });
 
+test("state: verdicts (per-peer, categories only) round-trips under metadata capture", () => {
+  const dir = tmpDir();
+  const j = createJournal({ dir, getSettings: () => settings({ capture: "metadata" }) });
+  const verdicts = [{ provider: "gpt", verdict: "REQUEST_CHANGES", categories: ["ops", "scope"] }];
+  j.emit("run-verdicts", "state", { state: "adjudicate", round: 1, status: "await_revision", verdicts });
+  const [line] = readLines(dir, "run-verdicts");
+  assert.deepEqual(line.verdicts, verdicts);
+});
+
 test("JOURNAL_KEYS matches the spec table for all six kinds", () => {
   assert.deepEqual(Object.keys(JOURNAL_KEYS).sort(), ["arbiter", "call_end", "call_start", "run_end", "run_start", "state"].sort());
   assert.deepEqual(JOURNAL_KEYS.run_start.meta, ["tool", "pid", "procStartedAt", "expert", "workflow", "providers"]);
   assert.deepEqual(JOURNAL_KEYS.run_start.content, ["prompt"]);
-  assert.deepEqual(JOURNAL_KEYS.state.meta, ["state", "round", "status"]);
+  assert.deepEqual(JOURNAL_KEYS.state.meta, ["state", "round", "status", "verdicts"]);
   assert.deepEqual(JOURNAL_KEYS.state.content, []);
   assert.deepEqual(JOURNAL_KEYS.call_start.meta, ["callId", "provider", "model", "role", "round", "timeoutMs", "reasoningEffort"]);
   assert.deepEqual(JOURNAL_KEYS.call_start.content, ["request"]);
-  assert.deepEqual(JOURNAL_KEYS.call_end.meta, ["callId", "ms", "usage", "isError", "errorKind", "errorCode", "verdict", "criticalIssues[].category"]);
+  assert.deepEqual(JOURNAL_KEYS.call_end.meta, ["callId", "provider", "model", "ms", "usage", "isError", "errorKind", "errorCode", "verdict", "criticalIssues[].category"]);
   assert.deepEqual(JOURNAL_KEYS.call_end.content, ["response", "criticalIssues[].description"]);
   assert.deepEqual(JOURNAL_KEYS.arbiter.meta, ["action", "round", "verdict"]);
   assert.deepEqual(JOURNAL_KEYS.arbiter.content, ["text"]);

@@ -4,6 +4,7 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { askAll, askOne, consensus, buildArbiterPrompt, buildAdjudicationPrompt, runToConvergence } = require("../core/orchestrate.js");
 const { askOne: askOneT } = require("../core/orchestrate.js");
+const { makeResultCache } = require("../core/result-cache.js");
 /** @typedef {import("../core/types.js").Provider} Provider */
 
 /** @param {string} name @param {string} [behavior] @returns {Provider} */
@@ -572,6 +573,11 @@ test("OT1: askAll emits call_start/call_end per provider, same runId, role from 
   assert.ok(events.every((e) => e.id === "run-1"));
   assert.ok(starts.every((e) => e.f.role === "peer"));
   assert.notEqual(starts[0].f.callId, starts[1].f.callId);
+  // call_start doesn't know the model yet; call_end carries both provider and model
+  // (Task 4 fix round 1: model was dropped by the whitelist, provider was missing).
+  assert.ok(starts.every((e) => e.f.model === null));
+  const endA = ends.find((e) => e.f.provider === "a");
+  assert.equal(endA.f.model, "m");
 });
 
 test("OT2: a retried call emits two call_start/call_end pairs with distinct callIds", async () => {
@@ -605,15 +611,81 @@ test("OT4: runToConvergence converging in round 1 emits state sequence [blind, p
   const arbiter = /** @type {any} */ ({ name: "arb", capabilities: {}, async health() { return { ok: true }; },
     async ask() { return { provider: "arb", model: "m", text: "**Verdict**: APPROVE", isError: false, ms: 1 }; } });
   await runToConvergence([peer], { prompt: "plan" }, { arbiter, trace });
-  const states = events.filter((e) => e.k === "state").map((e) => e.f.state);
-  assert.deepEqual(states, ["blind", "peers", "adjudicate", "converged"]);
-  assert.ok(events.filter((e) => e.k === "state").every((e) => e.f.round === 1));
+  const stateEvents = events.filter((e) => e.k === "state");
+  assert.deepEqual(stateEvents.map((e) => e.f.state), ["blind", "peers", "adjudicate", "converged"]);
+  assert.ok(stateEvents.every((e) => e.f.round === 1));
+  // Non-terminal phase states fire on ENTRY, before the calls they describe -
+  // so a live UI can show "now doing X" while a multi-minute fan-out is in flight.
+  const peersIdx = events.findIndex((e) => e.k === "state" && e.f.state === "peers");
+  const firstCallStartIdx = events.findIndex((e) => e.k === "call_start");
+  assert.ok(peersIdx < firstCallStartIdx, "peers phase state fires before the peer/blind calls start, not after");
+  const adjudicateIdx = events.findIndex((e) => e.k === "state" && e.f.state === "adjudicate");
+  const adjudicationCallStartIdx = events.findIndex((e) => e.k === "call_start" && e.f.role === "arbiter");
+  assert.ok(adjudicateIdx < adjudicationCallStartIdx, "adjudicate phase state fires before the adjudication call starts");
+  // Per-peer verdicts ride the "adjudicate" event, categories only (no descriptions).
+  const adjudicate = stateEvents.find((e) => e.f.state === "adjudicate");
+  assert.deepEqual(adjudicate.f.verdicts, [{ provider: "p", verdict: "APPROVE", categories: [] }]);
 });
 
 test("OT5: a journal whose emit() throws does not fail askOne", async () => {
   const trace = /** @type {any} */ ({ journal: { enabled: () => true, newRunId: () => "run-1", emit: () => { throw new Error("boom"); }, prune: () => {} }, runId: "run-1", role: "single" });
   const r = await askOne(fakeProvider("a"), { prompt: "hi" }, { trace });
   assert.equal(/** @type {any} */ (r).text, "a:hi");
+});
+
+test("OT6: a traced cache hit emits call_start + call_end (ms from the hit); an untraced hit emits nothing", async () => {
+  const cache = makeResultCache();
+  const p = fakeProvider("a");
+  await askOne(p, { prompt: "hi" }, { cache }); // primes the cache
+
+  const { journal, events } = recordingJournal();
+  // Untraced cache hit: no trace passed -> zero journal activity, even against
+  // the same journal instance a traced call below WILL write to.
+  const untracedHit = await askOne(p, { prompt: "hi" }, { cache });
+  assert.equal(/** @type {any} */ (untracedHit).cached, true);
+  assert.equal(events.length, 0);
+
+  // Traced cache hit: call_start + call_end, ms taken from the hit (stamped 0 by
+  // the cache itself - core/result-cache.js `set`).
+  const trace = /** @type {any} */ ({ journal, runId: "run-1", role: "single" });
+  const tracedHit = await askOne(p, { prompt: "hi" }, { cache, trace });
+  assert.equal(/** @type {any} */ (tracedHit).cached, true);
+  assert.equal(events.filter((e) => e.k === "call_start").length, 1);
+  const end = events.find((e) => e.k === "call_end");
+  assert.equal(end.f.ms, 0);
+  assert.equal(end.f.provider, "a");
+  assert.equal(end.f.isError, false);
+});
+
+test("OT7: consensus emits blind (when blindVote runs), peers, and synthesize state events, in order", async () => {
+  const { journal, events } = recordingJournal();
+  const trace = /** @type {any} */ ({ journal, runId: "run-1" });
+  const { provider: arbiter } = blindAwareArbiter();
+  await consensus([fakeProvider("a"), fakeProvider("b")], { prompt: "hi" }, { arbiter, blindVote: true, trace });
+  const states = events.filter((e) => e.k === "state").map((e) => e.f.state);
+  assert.deepEqual(states, ["blind", "peers", "synthesize"]);
+});
+
+test("OT7b: consensus without blindVote emits only peers and synthesize (no blind state)", async () => {
+  const { journal, events } = recordingJournal();
+  const trace = /** @type {any} */ ({ journal, runId: "run-1" });
+  await consensus([fakeProvider("a"), fakeProvider("b")], { prompt: "hi" }, { trace });
+  const states = events.filter((e) => e.k === "state").map((e) => e.f.state);
+  assert.deepEqual(states, ["peers", "synthesize"]);
+});
+
+test("OT8: consensus with a trace still reports arbiter-failed when the arbiter throws (tracedAsk('throw') rethrows after tracing)", async () => {
+  const { journal, events } = recordingJournal();
+  const trace = /** @type {any} */ ({ journal, runId: "run-1" });
+  const badArbiter = /** @type {any} */ ({ name: "arb", capabilities: {}, async health() { return { ok: true }; },
+    async ask() { throw new Error("arbiter boom"); } });
+  const out = await consensus([fakeProvider("a"), fakeProvider("b")], { prompt: "hi" }, { arbiter: badArbiter, trace });
+  assert.equal(out.verdict, null);
+  assert.equal(out.error, "arbiter-failed");
+  // The failed verdict call is still traced: call_start + a call_end reporting the error.
+  assert.equal(events.filter((e) => e.k === "call_start" && e.f.role === "arbiter").length, 1);
+  const end = events.find((e) => e.k === "call_end" && e.f.provider === "arb");
+  assert.equal(end.f.isError, true);
 });
 
 test("HBX7: with the host budget already spent, runToConvergence stops with budget-exhausted before any leg starts", async () => {
