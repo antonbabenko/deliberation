@@ -22,9 +22,16 @@ fs.writeFileSync(
   path.join(runsDir, "run-1.jsonl"),
   JSON.stringify({ v: 1, kind: "run_start", runId: "run-1", at: 1_700_000_000_000, seq: 0, tool: "ask-all", workflow: "single", pid: 999999, procStartedAt: 1, providers: ["grok"], prompt: "mail x@y.io please" }) + "\n",
 );
-const uiDir = tmpDir();
+// uiDir has real files just outside it, so a traversal test fails if a check is removed.
+const uiBase = tmpDir();
+const uiDir = path.join(uiBase, "ui");
+fs.mkdirSync(uiDir);
 fs.writeFileSync(path.join(uiDir, "index.html"), "<!doctype html><title>stub</title>");
 fs.writeFileSync(path.join(uiDir, "app.js"), "export {};");
+fs.writeFileSync(path.join(uiBase, "secret.js"), "SECRET_OUTSIDE");
+fs.mkdirSync(path.join(uiBase, "ui-evil"));
+fs.writeFileSync(path.join(uiBase, "ui-evil", "p.js"), "SECRET_SIBLING");
+if (process.platform !== "win32") fs.symlinkSync("../secret.js", path.join(uiDir, "link.js"));
 
 /** @type {any} */
 const cfg = { dashboard: { enabled: true, showPII: false }, providers: { grok: { enabled: true } }, openrouter: { apiKeyEnv: "OPENROUTER_API_KEY" } };
@@ -117,6 +124,14 @@ test("S4: /assets traversal rejected; in-dir asset served", async () => {
   assert.equal((await req("/assets/%2e%2e/%2e%2e/package.json", { cookie: true })).status, 404);
   assert.equal((await req("/assets/..%5c..%5cpackage.json", { cookie: true })).status, 404);
   assert.equal((await req("/assets/%E0%A4%A", { cookie: true })).status, 404);
+  // Each of these targets an EXISTING file outside uiDir.
+  const outside = ["/assets/..%2fsecret.js", "/assets/..%2fui-evil%2fp.js", "/assets/%2e%2e%2fsecret.js"];
+  if (process.platform !== "win32") outside.push("/assets/link.js");
+  for (const p of outside) {
+    const r = await req(p, { cookie: true });
+    assert.equal(r.status, 404, p);
+    assert.ok(!r.body.includes("SECRET_"), p);
+  }
   const js = await req("/assets/app.js", { cookie: true });
   assert.equal(js.status, 200);
   assert.equal(js.headers["content-type"], "text/javascript; charset=utf-8");
@@ -192,6 +207,74 @@ test("S8: SSE stream carries id + data, passes Last-Event-ID, unsubscribes on cl
   assert.match(g.buf, /\[email\]/);
   for (let i = 0; i < 50 && !tail.unsubscribed; i++) await new Promise((r) => setTimeout(r, 10));
   assert.equal(tail.unsubscribed, true);
+});
+
+test("S12: /api/config strips URL credentials", async () => {
+  cfg.openrouter.apiBase = "https://user:pass@host.example/v1";
+  try {
+    const r = await req("/api/config", { cookie: true });
+    assert.ok(!r.body.includes("user:pass"));
+    assert.ok(!r.body.includes("pass@"));
+    assert.equal(JSON.parse(r.body).openrouter.apiBase, "https://host.example/v1");
+  } finally {
+    delete cfg.openrouter.apiBase;
+  }
+});
+
+/**
+ * A second server with its own tailer, listening on a random port.
+ * @param {any} t
+ */
+async function startWith(t) {
+  const s = createDashboardServer({ port: 0, token: TOKEN, uiDir, index: createRunIndex({ runsDir }), tailer: t, getConfig: () => cfg, health: async () => ({}), stats: () => ({}) });
+  await new Promise((r) => s.listen(0, "127.0.0.1", () => r(undefined)));
+  return { s, p: /** @type {any} */ (s.address()).port };
+}
+
+test("S13: SSE drops a client whose buffer never drains", async () => {
+  const st = { unsubscribed: false };
+  const big = "z".repeat(256 * 1024);
+  const { s, p } = await startWith({
+    subscribe(/** @type {Function} */ fn) {
+      // Far more than the kernel socket buffer plus the 1 MiB cap, written in one tick.
+      setImmediate(() => { for (let i = 0; i < 200; i++) fn({ id: `run-1:${i}`, event: { big } }); });
+      return () => { st.unsubscribed = true; };
+    },
+    close() {},
+  });
+  try {
+    const ended = await new Promise((resolve) => {
+      const r = http.get({ host: "127.0.0.1", port: p, path: "/api/events", headers: { Host: `127.0.0.1:${p}`, Cookie: `dlb_dash=${TOKEN}` } }, (res) => {
+        res.pause(); // never read: the server-side buffer only grows
+        res.on("close", () => resolve(true));
+        res.on("error", () => resolve(true));
+      });
+      r.on("error", () => resolve(true));
+      setTimeout(() => resolve(false), 5000);
+    });
+    assert.equal(ended, true);
+    for (let i = 0; i < 50 && !st.unsubscribed; i++) await new Promise((r) => setTimeout(r, 10));
+    assert.equal(st.unsubscribed, true);
+  } finally {
+    s.closeAllConnections();
+    s.close();
+  }
+});
+
+test("S14: close() ends open SSE streams and closes the tailer", async () => {
+  const st = { closed: false };
+  const { s, p } = await startWith({ subscribe: () => () => {}, close() { st.closed = true; } });
+  const streamEnded = new Promise((resolve) => {
+    http.get({ host: "127.0.0.1", port: p, path: "/api/events", headers: { Host: `127.0.0.1:${p}`, Cookie: `dlb_dash=${TOKEN}` } }, (res) => {
+      res.resume();
+      res.on("end", () => resolve(true));
+      setImmediate(() => s.close());
+    });
+  });
+  const closed = new Promise((resolve) => s.on("close", () => resolve(true)));
+  const timeout = new Promise((resolve) => setTimeout(() => resolve(false), 3000));
+  assert.equal(await Promise.race([Promise.all([streamEnded, closed]).then(() => true), timeout]), true);
+  assert.equal(st.closed, true);
 });
 
 test("S9: unsafe run id -> 400; unknown route -> 404", async () => {

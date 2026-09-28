@@ -7,6 +7,8 @@
  */
 
 const fs = require("node:fs");
+const http = require("node:http");
+const { pathToFileURL } = require("node:url");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { spawn } = require("node:child_process");
@@ -61,17 +63,69 @@ function readState(file) {
 /** @param {number} port @param {string} token */
 const urlLine = (port, token) => `Deliberation dashboard: http://127.0.0.1:${port}/?t=${token}\n`;
 
-/** Best effort; the URL line is already printed. @param {string} url */
-function openBrowser(url) {
-  const [cmd, args] = process.platform === "darwin" ? ["open", [url]]
-    : process.platform === "win32" ? ["cmd", ["/c", "start", "", url]]
-    : ["xdg-open", [url]];
+/** @param {string} statePath */
+const openerPath = (statePath) => path.join(path.dirname(statePath), "dashboard-open.html");
+
+/**
+ * Best effort; the URL line is already printed. The tokenized URL never goes on a child's
+ * argv (readable by other local users through ps or /proc): it goes into a 0600 redirect
+ * page next to the pidfile, and the opener gets that file's path.
+ * @param {string} url  built from an integer port and a hex token, so it needs no escaping
+ * @param {{statePath: string, spawn?: typeof spawn, platform?: NodeJS.Platform}} opts
+ */
+function openBrowser(url, opts) {
+  const spawnFn = opts.spawn || spawn;
+  const platform = opts.platform || process.platform;
+  const file = openerPath(opts.statePath);
   try {
-    const child = spawn(cmd, args, { detached: true, stdio: "ignore" });
+    fs.writeFileSync(file, `<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=${url}"><title>Deliberation dashboard</title><a href="${url}">Open the dashboard</a>\n`, { mode: 0o600 });
+    fs.chmodSync(file, 0o600);
+  } catch {
+    return;
+  }
+  const target = pathToFileURL(file).href;
+  const [cmd, args] = platform === "darwin" ? ["open", [target]]
+    : platform === "win32" ? ["cmd", ["/c", "start", "", target]]
+    : ["xdg-open", [target]];
+  try {
+    const child = spawnFn(cmd, args, { detached: true, stdio: "ignore" });
     child.on("error", () => {});
     child.unref();
   } catch {
     // no opener on this machine
+  }
+}
+
+/**
+ * True only when a dashboard answers the token on `port` with its 302: a live pid alone
+ * may be an unrelated process that reused it.
+ * @param {number} port @param {string} token @param {number} [timeoutMs]
+ * @returns {Promise<boolean>}
+ */
+function probeInstance(port, token, timeoutMs = 500) {
+  return new Promise((resolve) => {
+    const req = http.get({ host: "127.0.0.1", port, path: `/?t=${token}`, headers: { Host: `127.0.0.1:${port}` }, timeout: timeoutMs }, (res) => {
+      res.resume();
+      resolve(res.statusCode === 302);
+    });
+    req.on("timeout", () => req.destroy());
+    req.on("error", () => resolve(false));
+  });
+}
+
+/**
+ * The `analyze` tool's result as an object; an error result surfaces its own text.
+ * @param {any} r  JSON-RPC response from the in-process MCP server
+ * @returns {Record<string, unknown>}
+ */
+function analysisOf(r) {
+  const text = r && r.result && Array.isArray(r.result.content) && r.result.content[0] && r.result.content[0].text;
+  if (typeof text !== "string") return { error: (r && r.error && r.error.message) || "analyze returned no result" };
+  try {
+    const parsed = JSON.parse(text);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : { error: text };
+  } catch {
+    return { error: text };
   }
 }
 
@@ -167,7 +221,7 @@ async function main(argv, io = {}) {
 
   const statePath = resolveDashboardStatePath();
   const existing = readState(statePath);
-  if (existing && pidAlive(existing.pid) && Number.isInteger(existing.port) && typeof existing.token === "string") {
+  if (existing && pidAlive(existing.pid) && Number.isInteger(existing.port) && typeof existing.token === "string" && await probeInstance(existing.port, existing.token)) {
     out.write(urlLine(existing.port, existing.token));
     return 0;
   }
@@ -182,14 +236,8 @@ async function main(argv, io = {}) {
   // an in-process server with no-op transport, never a provider call.
   const mcp = buildServer({ ...rt, notify: () => {}, write: () => {} });
   const stats = async () => {
-    const r = /** @type {any} */ (await mcp.handle({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "analyze", arguments: {} } }));
-    let analysis = {};
-    try {
-      analysis = JSON.parse(r.result.content[0].text);
-    } catch {
-      analysis = { error: (r && r.error && r.error.message) || "analyze failed" };
-    }
-    return { ...analysis, daily: dailyStats(index.list()) };
+    const r = await mcp.handle({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "analyze", arguments: {} } });
+    return { ...analysisOf(r), daily: dailyStats(index.list()) };
   };
 
   const token = crypto.randomBytes(32).toString("hex");
@@ -207,6 +255,7 @@ async function main(argv, io = {}) {
     return 1;
   }
   const bound = /** @type {import("node:net").AddressInfo} */ (server.address()).port;
+  server.on("error", (e) => err.write(`dashboard server error: ${String((e && e.message) || e)}\n`));
 
   fs.mkdirSync(path.dirname(statePath), { recursive: true, mode: 0o700 });
   fs.writeFileSync(statePath, JSON.stringify({ pid: process.pid, port: bound, token, startedAt: Date.now() }), { mode: 0o600 });
@@ -214,9 +263,10 @@ async function main(argv, io = {}) {
   const removeState = () => {
     const s = readState(statePath);
     if (s && s.pid === process.pid) fs.rmSync(statePath, { force: true });
+    fs.rmSync(openerPath(statePath), { force: true });
   };
   process.once("exit", removeState);
-  for (const sig of /** @type {const} */ (["SIGINT", "SIGTERM"])) {
+  for (const sig of /** @type {const} */ (["SIGINT", "SIGTERM", "SIGHUP"])) {
     process.once(sig, () => {
       removeState();
       process.exit(0);
@@ -225,8 +275,8 @@ async function main(argv, io = {}) {
 
   const url = `http://127.0.0.1:${bound}/?t=${token}`;
   out.write(urlLine(bound, token));
-  if (args.open) openBrowser(url);
+  if (args.open) openBrowser(url, { statePath });
   return 0;
 }
 
-module.exports = { main, dailyStats, healthReport };
+module.exports = { main, dailyStats, healthReport, openBrowser, analysisOf };

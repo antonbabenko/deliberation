@@ -17,7 +17,7 @@ process.env.DELIBERATION_RUNS = path.join(root, "runs");
 process.env.DELIBERATION_SESSIONS = path.join(root, "sessions");
 const statePath = path.join(root, "cache", "deliberation", "dashboard.json");
 
-const { main, dailyStats, healthReport } = require("../server/dashboard/index.js");
+const { main, dailyStats, healthReport, openBrowser, analysisOf } = require("../server/dashboard/index.js");
 
 /** @param {object} dashboard */
 function writeConfig(dashboard) {
@@ -63,45 +63,103 @@ test("C2: port in use -> exit 1 with hint", async () => {
   }
 });
 
-test("C3: live pidfile -> prints the existing URL, exit 0, no listener", async () => {
-  writeConfig({ enabled: true });
-  fs.mkdirSync(path.dirname(statePath), { recursive: true });
-  fs.writeFileSync(statePath, JSON.stringify({ pid: process.pid, port: 45678, token: "f".repeat(64), startedAt: 1 }));
-  try {
-    const out = sink();
-    assert.equal(await main(["--no-open"], { stdout: out, stderr: sink() }), 0);
-    assert.equal(out.text, `Deliberation dashboard: http://127.0.0.1:45678/?t=${"f".repeat(64)}\n`);
-  } finally {
-    fs.rmSync(statePath, { force: true });
-  }
-});
-
-test("C4: `index.js dashboard --no-open` prints the URL line, writes a 0600 pidfile, removes it on SIGTERM", async () => {
-  writeConfig({ enabled: true });
+/**
+ * Spawn `index.js dashboard --no-open --port 0` and resolve with its URL line.
+ * @returns {Promise<{child: import("node:child_process").ChildProcess, port: number, token: string}>}
+ */
+function spawnDashboard() {
   const child = spawn(process.execPath, [path.join(__dirname, "..", "server", "mcp", "index.js"), "dashboard", "--no-open", "--port", "0"], { env: process.env, stdio: ["ignore", "pipe", "pipe"] });
   let out = "";
   let err = "";
-  child.stderr.on("data", (c) => { err += c; });
-  const line = await new Promise((resolve, reject) => {
+  /** @type {any} */ (child.stderr).on("data", (/** @type {any} */ c) => { err += c; });
+  return new Promise((resolve, reject) => {
     const t = setTimeout(() => reject(new Error(`no URL line; stderr: ${err}`)), 10000);
-    child.stdout.on("data", (c) => {
+    const onExit = (/** @type {any} */ code) => { clearTimeout(t); reject(new Error(`exited ${code}; stderr: ${err}`)); };
+    child.on("exit", onExit);
+    /** @type {any} */ (child.stdout).on("data", (/** @type {any} */ c) => {
       out += c;
-      if (out.includes("\n")) { clearTimeout(t); resolve(out); }
+      if (!out.includes("\n")) return;
+      clearTimeout(t);
+      child.removeListener("exit", onExit);
+      const m = /^Deliberation dashboard: http:\/\/127\.0\.0\.1:(\d+)\/\?t=([0-9a-f]{64})\n$/.exec(out);
+      if (!m) return reject(new Error(`unexpected line: ${out}`));
+      resolve({ child, port: Number(m[1]), token: m[2] });
     });
-    child.on("exit", (code) => { clearTimeout(t); reject(new Error(`exited ${code}; stderr: ${err}`)); });
   });
-  child.removeAllListeners("exit");
-  const m = /^Deliberation dashboard: http:\/\/127\.0\.0\.1:(\d+)\/\?t=([0-9a-f]{64})\n$/.exec(String(line));
-  assert.ok(m, `unexpected line: ${line}`);
-  const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
-  assert.equal(state.pid, child.pid);
-  assert.equal(state.port, Number(m[1]));
-  assert.equal(state.token, m[2]);
-  if (process.platform !== "win32") assert.equal(fs.statSync(statePath).mode & 0o777, 0o600);
+}
+
+/** @param {import("node:child_process").ChildProcess} child @param {NodeJS.Signals} sig */
+async function stop(child, sig) {
   const exited = new Promise((r) => child.on("exit", r));
-  child.kill("SIGTERM");
+  child.kill(sig);
   await exited;
+}
+
+test("C4: `index.js dashboard --no-open` prints the URL line, writes a 0600 pidfile, removes it on SIGTERM", async () => {
+  writeConfig({ enabled: true });
+  const { child, port, token } = await spawnDashboard();
+  try {
+    const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+    assert.equal(state.pid, child.pid);
+    assert.equal(state.port, port);
+    assert.equal(state.token, token);
+    if (process.platform !== "win32") assert.equal(fs.statSync(statePath).mode & 0o777, 0o600);
+
+    // C3: a live instance -> a second launch prints ITS url, exit 0, no new listener.
+    const out = sink();
+    assert.equal(await main(["--no-open"], { stdout: out, stderr: sink() }), 0);
+    assert.equal(out.text, `Deliberation dashboard: http://127.0.0.1:${port}/?t=${token}\n`);
+  } finally {
+    await stop(child, "SIGTERM");
+  }
   assert.ok(!fs.existsSync(statePath));
+});
+
+test("C5: a pidfile whose live pid is not our dashboard is stale -> a new server starts; SIGHUP cleans up", async () => {
+  writeConfig({ enabled: true });
+  const probe = net.createServer();
+  await new Promise((r) => probe.listen(0, "127.0.0.1", () => r(undefined)));
+  const deadPort = /** @type {any} */ (probe.address()).port;
+  await new Promise((r) => probe.close(() => r(undefined)));
+  fs.mkdirSync(path.dirname(statePath), { recursive: true });
+  fs.writeFileSync(statePath, JSON.stringify({ pid: process.pid, port: deadPort, token: "e".repeat(64), startedAt: 1 }));
+  const { child, token } = await spawnDashboard();
+  try {
+    assert.notEqual(token, "e".repeat(64));
+    assert.equal(JSON.parse(fs.readFileSync(statePath, "utf8")).pid, child.pid);
+  } finally {
+    await stop(child, "SIGHUP");
+  }
+  assert.ok(!fs.existsSync(statePath));
+});
+
+test("openBrowser never puts the token on argv; the redirect page is 0600 and carries the URL", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "delib-dashopen-"));
+  const token = "c".repeat(64);
+  const url = `http://127.0.0.1:7717/?t=${token}`;
+  for (const platform of /** @type {const} */ (["linux", "darwin", "win32"])) {
+    /** @type {any[]} */ const calls = [];
+    const fake = (/** @type {string} */ cmd, /** @type {string[]} */ args) => {
+      calls.push([cmd, ...args]);
+      return { on() {}, unref() {} };
+    };
+    openBrowser(url, { statePath: path.join(dir, "dashboard.json"), spawn: /** @type {any} */ (fake), platform });
+    assert.equal(calls.length, 1);
+    for (const a of calls[0]) assert.ok(!String(a).includes(token), `${platform}: ${a}`);
+    assert.ok(calls[0].some((/** @type {string} */ a) => a.startsWith("file://")), platform);
+  }
+  const page = path.join(dir, "dashboard-open.html");
+  if (process.platform !== "win32") assert.equal(fs.statSync(page).mode & 0o777, 0o600);
+  const html = fs.readFileSync(page, "utf8");
+  assert.ok(html.includes(`content="0;url=${url}"`));
+  assert.ok(html.includes(`href="${url}"`));
+});
+
+test("analysisOf surfaces an analyze error result's own text", () => {
+  assert.deepEqual(analysisOf({ result: { content: [{ type: "text", text: JSON.stringify({ error: "invalid-since", detail: "bad" }) }] } }), { error: "invalid-since", detail: "bad" });
+  assert.deepEqual(analysisOf({ result: { content: [{ type: "text", text: "boom: not json" }] } }), { error: "boom: not json" });
+  assert.deepEqual(analysisOf({ error: { code: -32603, message: "analyze exploded" } }), { error: "analyze exploded" });
+  assert.deepEqual(analysisOf({ result: { content: [{ type: "text", text: "{\"stats\":[]}" }] } }), { stats: [] });
 });
 
 test("dailyStats groups run summaries by UTC day", () => {

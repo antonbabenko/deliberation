@@ -20,6 +20,8 @@ const { isSafeId } = require("../../core/journal.js");
 
 const COOKIE = "dlb_dash";
 const KEEPALIVE_MS = 15000;
+// A client this far behind is dropped; it reconnects with Last-Event-ID and resumes.
+const SSE_MAX_BUFFERED = 1 << 20;
 const BASE_HEADERS = Object.freeze({
   "Content-Security-Policy": "default-src 'self'; frame-ancestors 'none'",
   "X-Content-Type-Options": "nosniff",
@@ -59,13 +61,32 @@ function readCookie(header) {
 }
 
 /**
- * The effective config with every `apiKeyEnv` replaced by `{env, set}`; never a value.
+ * An http(s) URL string with its userinfo removed; any other string unchanged.
+ * @param {string} s
+ */
+function stripUserinfo(s) {
+  if (!/^https?:\/\//i.test(s)) return s;
+  try {
+    const u = new URL(s);
+    if (!u.username && !u.password) return s;
+    u.username = "";
+    u.password = "";
+    return u.href;
+  } catch {
+    return s;
+  }
+}
+
+/**
+ * The effective config with every `apiKeyEnv` replaced by `{env, set}` and URL
+ * credentials stripped; never a key value.
  * @param {any} cfg
  * @param {NodeJS.ProcessEnv} env
  */
 function publicConfig(cfg, env) {
   /** @param {any} v @returns {any} */
   const walk = (v) => {
+    if (typeof v === "string") return stripUserinfo(v);
     if (Array.isArray(v)) return v.map(walk);
     if (!v || typeof v !== "object") return v;
     /** @type {Record<string, any>} */ const out = {};
@@ -88,7 +109,7 @@ function publicConfig(cfg, env) {
  * @param {{
  *   port: number, token: string, uiDir: string,
  *   index: {list: (f?: any) => any[], get: (id: string) => any},
- *   tailer: {subscribe: (fn: (m: {id: string, event: object}) => void, since?: string) => () => void},
+ *   tailer: {subscribe: (fn: (m: {id: string, event: object}) => void, since?: string) => () => void, close?: () => void},
  *   getConfig: () => any,
  *   health: () => (object|Promise<object>),
  *   stats: () => (object|Promise<object>),
@@ -98,11 +119,24 @@ function publicConfig(cfg, env) {
 function createDashboardServer(opts) {
   const { token, uiDir, index, tailer, getConfig, health, stats } = opts;
   const expected = Buffer.from(token, "utf8");
+  /** @type {Set<http.ServerResponse>} */
+  const streams = new Set();
   const server = http.createServer((req, res) => {
     handle(req, res).catch(() => {
       if (!res.headersSent) sendJson(req, res, 500, { error: "internal error" });
       else res.destroy();
     });
+  });
+  // server.close() waits for every open connection, and an SSE stream never ends on its
+  // own, so end the streams first; 'close' then fires and releases the tailer.
+  const baseClose = server.close.bind(server);
+  server.close = (/** @type {any} */ cb) => {
+    for (const r of streams) r.end();
+    streams.clear();
+    return baseClose(cb);
+  };
+  server.on("close", () => {
+    if (tailer && typeof tailer.close === "function") tailer.close();
   });
 
   const boundPort = () => {
@@ -199,12 +233,20 @@ function createDashboardServer(opts) {
     res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store", Connection: "keep-alive" });
     if (req.method === "HEAD") return res.end();
     res.flushHeaders();
+    streams.add(res);
+    /** @param {string} chunk */
+    const send = (chunk) => {
+      if (res.destroyed) return;
+      res.write(chunk);
+      if (res.writableLength > SSE_MAX_BUFFERED) res.destroy();
+    };
     const since = req.headers["last-event-id"];
     const unsubscribe = tailer.subscribe(({ id, event }) => {
-      res.write(`id: ${id}\ndata: ${JSON.stringify(outward(event))}\n\n`);
+      send(`id: ${id}\ndata: ${JSON.stringify(outward(event))}\n\n`);
     }, typeof since === "string" ? since : undefined);
-    const ka = setInterval(() => res.write(": ka\n\n"), KEEPALIVE_MS);
-    req.on("close", () => {
+    const ka = setInterval(() => send(": ka\n\n"), KEEPALIVE_MS);
+    res.on("close", () => {
+      streams.delete(res);
       clearInterval(ka);
       unsubscribe();
     });
