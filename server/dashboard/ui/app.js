@@ -155,8 +155,8 @@ export function summaryOf(r) {
 }
 
 /**
- * Bound the in-memory run map to the server index. Runs the index no longer lists are
- * dropped (unless kept); finished runs that are not kept go back to summary only, and
+ * Bound the in-memory run map to the server index. Running and kept runs stay as they
+ * are; other runs the index does not list are dropped; finished runs that are not kept go back to summary only, and
  * ensureLoaded fetches them again when they are shown. Pure.
  * @param {Record<string, any>} runs
  * @param {{runId: string}[]} index
@@ -167,8 +167,10 @@ export function compactRuns(runs, index, keep) {
   const listed = new Set(index.map((x) => x.runId));
   const out = {};
   for (const [id, r] of Object.entries(runs)) {
-    if (!listed.has(id) && !keep.has(id)) continue;
-    if (r.status === "running" || keep.has(id) || !r.loaded) out[id] = r;
+    // A live run may reach us over SSE before the index lists it: never drop or reset one.
+    if (r.status === "running" || keep.has(id)) out[id] = r;
+    else if (!listed.has(id)) continue;
+    else if (!r.loaded) out[id] = r;
     else out[id] = { ...r, events: [], calls: {}, callOrder: [], arbiter: [], states: [], seq: -1, loaded: false, prompt: undefined, finalReport: undefined, legacy: null };
   }
   return out;

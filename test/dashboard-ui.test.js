@@ -113,6 +113,12 @@ test("UI3: compactRuns drops unlisted runs and returns idle ones to summary only
   const again = reduce(out, e("done-1", 0, { kind: "run_start", tool: "ask-gpt", workflow: "single", providers: ["codex"] }));
   assert.equal(/** @type {any} */ (again)["done-1"].events.length, 1);
   assert.ok(compactRuns(runs, [], new Set())["done-1"] === undefined);
+
+  // A run SSE created before the index poll lists it is live: kept whole, whatever the view.
+  const fresh = reduce({}, e("new-1", 0, { kind: "run_start", tool: "panel", workflow: "fanout", providers: ["codex"] }));
+  const kept = /** @type {any} */ (compactRuns(fresh, [], new Set()));
+  assert.equal(kept["new-1"], /** @type {any} */ (fresh)["new-1"], "an unlisted running run survives unchanged");
+  assert.equal(kept["new-1"].events.length, 1);
 });
 
 test("UI4: coincident triggers merge into one cluster with the worst state", async () => {
