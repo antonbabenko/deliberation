@@ -165,3 +165,67 @@ test("RR7: legacy session appears with legacy:true; get() returns it and rejects
   assert.equal(index.get("../x"), null);
   assert.equal(index.get("no-such-run"), null);
 });
+
+test("RR8: run_start with a pid but no procStartedAt is reported running (0 must not look like a valid epoch)", () => {
+  // No injected isAlive: exercises the real default, so process.pid (this test
+  // process, definitely alive) must come back "running" even though procStartedAt
+  // is entirely absent from the event.
+  const summary = summarize([{ kind: "run_start", tool: "ask-all", workflow: "single", pid: process.pid, providers: ["gpt"] }]);
+  assert.equal(summary.status, "running");
+});
+
+test("RR9: get() falls back to the legacy store when a .jsonl with the same id has no valid summary", () => {
+  const runsDir = tmpDir();
+  const sessionsDir = tmpDir("delib-dashruns-sessions-");
+  const id = newSessionId();
+  fs.mkdirSync(runsDir, { recursive: true });
+  fs.writeFileSync(path.join(runsDir, `${id}.jsonl`), "not json\n");
+  writeSession({
+    id, parentId: null, schemaVersion: SCHEMA_VERSION, createdAt: new Date(1_700_000_000_000).toISOString(),
+    tool: "ask-all", question: "q", opinions: [{ provider: "gpt" }],
+  }, { dir: sessionsDir });
+
+  const index = createRunIndex({ runsDir, sessionsDir });
+  const got = index.get(id);
+  assert.ok(got && "legacy" in got, "must fall back to the legacy record, not return null");
+  assert.equal(got.summary.legacy, true);
+  assert.equal(got.legacy.id, id);
+});
+
+test("RR10: list() evicts cache entries for run files removed from disk", () => {
+  const runsDir = tmpDir();
+  writeRun(runsDir, "run-a", [runStart({}), runEnd({ status: "done" })]);
+  writeRun(runsDir, "run-b", [runStart({}), runEnd({ status: "done" })]);
+  const index = createRunIndex({ runsDir });
+
+  index.list();
+  const before = index.cacheSize();
+  assert.equal(before, 2);
+
+  fs.rmSync(path.join(runsDir, "run-a.jsonl"));
+  index.list();
+  assert.equal(index.cacheSize(), 1, "the deleted run's cache entry must be dropped, not kept forever");
+});
+
+test("RR11: a multi-byte UTF-8 character right at a line boundary keeps byte offsets correct", () => {
+  const dir = tmpDir();
+  const file = path.join(dir, "utf8.jsonl");
+  // "cafe" + e-acute (2-byte in UTF-8) + a rocket emoji (4-byte in UTF-8, a
+  // surrogate pair in JS strings), both right at the end of the line, before the
+  // newline - a char-count (rather than byte-count) offset would land mid-codepoint.
+  const line1 = JSON.stringify({ v: 1, runId: "u1", at: 1, seq: 0, kind: "state", state: "cafeé 🚀" });
+  fs.writeFileSync(file, `${line1}\n`);
+
+  const first = readEvents(file);
+  assert.equal(first.events.length, 1);
+  assert.equal(first.events[0].state, "cafeé 🚀");
+  const offsetAfterLine1 = first.offset;
+  assert.equal(offsetAfterLine1, Buffer.byteLength(line1 + "\n", "utf8"), "offset must be a byte offset, not a UTF-16 code-unit count");
+
+  const line2 = JSON.stringify({ v: 1, runId: "u1", at: 2, seq: 1, kind: "state", state: "next" });
+  fs.appendFileSync(file, `${line2}\n`);
+
+  const resumed = readEvents(file, offsetAfterLine1);
+  assert.equal(resumed.events.length, 1);
+  assert.equal(resumed.events[0].state, "next", "resuming from the reported offset must land exactly on the next line");
+});

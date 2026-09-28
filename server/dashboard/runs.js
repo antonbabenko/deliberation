@@ -242,7 +242,12 @@ function summarize(events, isAliveFn) {
     status = "done";
     endedAt = lastCallEndAt;
   } else {
-    status = pid !== null && aliveCheck(pid, procStartedAtVal === null ? 0 : procStartedAtVal) ? "running" : "abandoned";
+    // NaN, not 0: procStartedAtVal === null means run_start carried no procStartedAt
+    // (or is absent entirely). 0 is a finite number and would pass isAlive's
+    // Number.isFinite guard, wrongly enabling the pid-reuse check against epoch 0 and
+    // reporting a live pid as abandoned. NaN fails that guard, so isAlive falls back
+    // to pid-only liveness, same as when /proc can't be read.
+    status = pid !== null && aliveCheck(pid, procStartedAtVal === null ? NaN : procStartedAtVal) ? "running" : "abandoned";
   }
 
   return {
@@ -367,7 +372,15 @@ function createRunIndex(opts) {
   function loadLegacyEntries() {
     if (!sessionsDir) return [];
     const out = [];
-    for (const e of listSessions({ dir: sessionsDir })) {
+    const sessions = listSessions({ dir: sessionsDir });
+    // Evict cache entries for ids no longer in the sessions dir before reading it -
+    // a long-running dashboard process must not accumulate one entry per record it
+    // has ever seen (deleted/pruned legacy records leak forever otherwise).
+    const currentIds = new Set(sessions.map((e) => e.id));
+    for (const id of legacyCache.keys()) {
+      if (!currentIds.has(id)) legacyCache.delete(id);
+    }
+    for (const e of sessions) {
       const cached = legacyCache.get(e.id);
       if (cached && cached.mtimeMs === e.mtimeMs) {
         out.push(cached);
@@ -422,15 +435,23 @@ function createRunIndex(opts) {
     const entries = [];
     /** @type {Set<string>} */
     const seenIds = new Set();
+    /** @type {Set<string>} */
+    const currentJournalIds = new Set();
     for (const name of names) {
       if (!name.endsWith(".jsonl")) continue;
       const id = name.slice(0, -".jsonl".length);
       if (!isSafeId(id)) continue;
+      currentJournalIds.add(id);
       const entry = loadJournalEntry(id, path.join(runsDir, name));
       if (entry && entry.summary) {
         entries.push({ summary: entry.summary, searchText: entry.searchText });
         seenIds.add(id);
       }
+    }
+    // Evict cache entries for run files no longer on disk - see loadLegacyEntries
+    // for the same rule on the legacy side.
+    for (const id of journalCache.keys()) {
+      if (!currentJournalIds.has(id)) journalCache.delete(id);
     }
     for (const entry of loadLegacyEntries()) {
       if (seenIds.has(entry.summary.runId)) continue; // a live journal file wins on id collision
@@ -449,14 +470,26 @@ function createRunIndex(opts) {
   function get(id) {
     if (!isSafeId(id)) return null;
     const entry = loadJournalEntry(id, path.join(runsDir, `${id}.jsonl`));
-    if (entry) return entry.summary ? { summary: entry.summary, events: entry.events } : null;
+    // A journal entry with a summary wins outright. One with no summary (the file
+    // exists but is empty/corrupt - see loadJournalEntry) is NOT a valid run, but the
+    // id may still name a legacy session record, exactly as list() already falls
+    // back to the legacy store for ids the journal doesn't have - so fall through
+    // instead of returning null here.
+    if (entry && entry.summary) return { summary: entry.summary, events: entry.events };
     if (!sessionsDir) return null;
     const record = readSession(id, { dir: sessionsDir });
     if (!record) return null;
     return { summary: legacySummary(id, record), legacy: record };
   }
 
-  return { list, get };
+  /** Combined journal + legacy cache entry count. Test/debug only - not part of
+   * the documented interface, exposed so a leak test can assert it shrinks.
+   * @returns {number} */
+  function cacheSize() {
+    return journalCache.size + legacyCache.size;
+  }
+
+  return { list, get, cacheSize };
 }
 
 module.exports = { readEvents, summarize, legacySummary, createRunIndex, isAlive };
