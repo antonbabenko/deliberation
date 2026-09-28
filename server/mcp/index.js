@@ -1868,6 +1868,14 @@ function startStdio() {
   }
 }
 
-if (require.main === module) startStdio();
+module.exports = { buildServer, toolList, makeLineReader, makeRuntime, probeHealth };
 
-module.exports = { buildServer, toolList, makeLineReader, makeRuntime };
+// After module.exports: the dashboard requires this module back, and must see its exports.
+if (require.main === module) {
+  if (process.argv[2] === "dashboard") {
+    require("../dashboard/index.js").main(process.argv.slice(3)).then(
+      (/** @type {number} */ code) => { if (code !== 0) process.exit(code); },
+      (/** @type {any} */ e) => { console.error(String((e && e.stack) || e)); process.exit(1); },
+    );
+  } else startStdio();
+}

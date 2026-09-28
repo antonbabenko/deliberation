@@ -359,7 +359,7 @@ function legacySummary(id, record) {
  * cached per file by `(size, mtimeMs)`, so a `list()`/`get()` call re-reads a
  * file only when it changed on disk.
  * @param {{runsDir: string, sessionsDir?: string, isAlive?: IsAliveFn}} opts
- * @returns {{list: (filter?: RunFilter) => RunSummary[], get: (id: string) => (RunDetail|null)}}
+ * @returns {{list: (filter?: RunFilter) => RunSummary[], get: (id: string) => (RunDetail|null), cacheSize: () => number}}
  */
 function createRunIndex(opts) {
   const runsDir = opts.runsDir;
