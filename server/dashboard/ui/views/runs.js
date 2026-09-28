@@ -2,7 +2,7 @@
 // the run's duration. Filters go to the server; live runs update in place.
 
 import { api, store } from "../api.js";
-import { h, put, fmtMs, fmtK, fmtTime, shortId } from "../dom.js";
+import { h, put, fmtMs, fmtK, fmtTime, midId } from "../dom.js";
 import { statusMark } from "./run.js";
 
 const STATUSES = ["running", "done", "converged", "unresolved", "error", "abandoned"];
@@ -101,7 +101,7 @@ export function create(ctx) {
           h("span", { class: "c-time num" }, fmtTime(s.startedAt)),
           h("span", { class: "c-tool" }, s.tool || "-", s.legacy ? h("span", { class: "flag" }, "summary only") : null),
           h("span", { class: "c-wf" }, s.workflow || "-"),
-          h("span", { class: "c-id" }, shortId(s.runId)),
+          h("span", { class: "c-id", title: s.runId }, midId(s.runId, 16)),
           h("span", { class: "c-prov" }, (s.providers || []).join(" ") || "-"),
           h("span", { class: "c-num num", title: "rounds" }, s.rounds ? `R${s.rounds}` : ""),
           h("span", { class: "c-num num", title: "tokens" }, s.tokens ? `${fmtK(s.tokens)} tok` : ""),

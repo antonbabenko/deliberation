@@ -3,7 +3,9 @@
 
 import { api } from "../api.js";
 import { h, put, s, fmtMs, fmtK, fmtInt, num } from "../dom.js";
+import { inkOf } from "../graph.js";
 
+/** The one rounding for every rate on this page (matches core/analyze.js). */
 const pct = (v) => (num(v) === null ? "-" : `${Math.round(v * 100)}%`);
 
 function latencyTable(stats) {
@@ -13,33 +15,37 @@ function latencyTable(stats) {
     h("tbody", {}, stats.map((m) => {
       const p50 = num(m.ms && m.ms.p50);
       const p95 = num(m.ms && m.ms.p95);
-      const range = h("span", { class: "range" });
-      const tickEl = h("span", { class: "range-p50" });
-      if (p95 !== null) range.style.width = `${(p95 / max) * 100}%`;
-      if (p50 !== null) tickEl.style.left = `${(p50 / max) * 100}%`;
+      // A 10-division scale, the p95 bar in the provider's ink, and a p50 tick, as SVG geometry.
+      const scale = s("svg", { class: "range-scale", viewBox: "0 0 100 14", preserveAspectRatio: "none", "aria-hidden": "true" },
+        Array.from({ length: 11 }, (_, i) => s("line", { x1: i * 10, x2: i * 10, y1: i % 5 ? 3 : 0, y2: i % 5 ? 11 : 14, class: "range-div" })),
+        p95 !== null ? s("rect", { x: 0, y: 4, width: (p95 / max) * 100, height: 6, class: `range ink-${inkOf(m.provider)}` }) : null,
+        p50 !== null ? s("line", { x1: (p50 / max) * 100, x2: (p50 / max) * 100, y1: 1, y2: 13, class: "range-p50" }) : null);
       return h("tr", {},
         h("td", { class: "strong" }, `${m.provider} `, h("span", { class: "muted" }, m.model)),
         h("td", { class: "num" }, fmtInt(m.calls)),
         h("td", { class: `num${m.errors ? " has-errors" : ""}` }, m.errors ? `${m.errors} (${pct(m.errorRate)})` : "0"),
         h("td", { class: "num" }, fmtMs(p50)),
         h("td", { class: "num" }, fmtMs(p95)),
-        h("td", { class: "range-cell", "aria-hidden": "true" }, h("span", { class: "range-track" }, range, p50 !== null ? tickEl : null)),
+        h("td", { class: "range-cell", "aria-hidden": "true" }, scale),
         h("td", { class: "num" }, fmtK(m.meanTokens)),
         h("td", {}, (m.reasoningEfforts || []).join(" ") || "-"));
     }))));
 }
 
 function dailyChart(daily) {
-  const W = 720;
+  // Drawn at the width it is shown at, so its labels keep their size on a phone.
+  const W = typeof window !== "undefined" && window.innerWidth < 760 ? Math.max(300, window.innerWidth - 32) : 720;
   const H = 150;
   const days = daily.slice(-30);
-  const maxRuns = Math.max(1, ...days.map((d) => d.runs));
+  // Gridlines sit on whole runs: an integer step, and the top of the axis is 4 steps.
+  const step = Math.max(1, Math.ceil(Math.max(1, ...days.map((d) => d.runs)) / 4));
+  const maxRuns = step * 4;
   const bw = Math.max(4, Math.min(28, (W - 40) / days.length - 4));
   const kids = [];
   for (let i = 0; i <= 4; i++) {
     const y = 10 + ((H - 40) * i) / 4;
     kids.push(s("line", { x1: 32, x2: W, y1: y, y2: y, class: "grat" }));
-    kids.push(s("text", { x: 28, y: y + 3, class: "tick-label", "text-anchor": "end" }, String(Math.round(maxRuns * (1 - i / 4)))));
+    kids.push(s("text", { x: 28, y: y + 4, class: "tick-label", "text-anchor": "end" }, String(step * (4 - i))));
   }
   days.forEach((d, i) => {
     const x = 40 + i * (bw + 4);

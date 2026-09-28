@@ -145,3 +145,32 @@ test("UI4: coincident triggers merge into one cluster with the worst state", asy
   assert.equal(many[0].label, "start +3");
   assert.equal(many[0].state, "failed");
 });
+
+test("UI5: trigger layout merges a cluster whose label has no free row; labels never overlap", async () => {
+  const { layoutTriggers } = await load("graph.js");
+  const node = (/** @type {string} */ id) => ({ id, label: id, state: "succeeded" });
+  const out = layoutTriggers([{ x: 0, node: node("adjudicate") }, { x: 25, node: node("converged") }, { x: 50, node: node("revise") }], { x1: 1000, charW: 6.7 });
+  assert.equal(out.length, 2);
+  assert.deepEqual(out[1].nodes.map((n) => n.id), ["converged", "revise"]);
+  for (const row of [0, 1]) {
+    const inRow = out.filter((c) => c.row === row).sort((a, b) => a.lx - b.lx);
+    for (let i = 1; i < inRow.length; i++) assert.ok(inRow[i].lx >= inRow[i - 1].lx + inRow[i - 1].w, "labels in one row do not overlap");
+  }
+  // Markers closer than 18 px share one, whatever their timestamps.
+  assert.equal(layoutTriggers([{ x: 100, node: node("start") }, { x: 114, node: node("openrouter:deepseek") }], { x1: 1000 }).length, 1);
+});
+
+test("UI6: gutter text, decodes and run ids are shortened without going blank or cutting a word", async () => {
+  const { wrap2, ellipsize, shortDecode } = await load("graph.js");
+  const { midId } = await load("dom.js");
+  assert.deepEqual(wrap2("arbiter (host)", 12), ["arbiter", "(host)"]);
+  assert.deepEqual(wrap2("openrouter:deepseek", 12), ["openrouter:", "deepseek"]);
+  assert.equal(ellipsize("gemini-3.1-pro high", 12), "gemini...");
+  assert.equal(shortDecode("RATE-LIMIT"), "RL");
+  assert.equal(shortDecode("SOMETHING"), "SOM");
+  const a = "3f2a91c4-0000-4000-8000-00009e0b1d77";
+  const b = "3f2a91c4-0000-4000-8000-00001c2d3e44";
+  assert.notEqual(midId(a, 20), midId(b, 20), "two ids with a shared head stay distinct");
+  assert.ok(midId(a, 20).endsWith("9e0b1d77") && midId(a, 20).length === 20);
+  assert.equal(midId("cs-synth-live", 20), "cs-synth-live");
+});

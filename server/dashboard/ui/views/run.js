@@ -1,7 +1,7 @@
 // views/run.js - one run as a capture (header strip, trigger sequence, waveform, event
 // table), the inspector drawer, and the run detail route (#/runs/<id>).
 
-import { h, put, fmtMs, fmtClock, fmtInt, fmtK, fmtTime, shortId, verdictLabel, num } from "../dom.js";
+import { h, put, fmtMs, fmtClock, fmtInt, fmtK, fmtTime, midId, verdictLabel, num } from "../dom.js";
 import { graphModel, renderGraph } from "../graph.js";
 
 const ENDED = new Set(["done", "converged", "unresolved", "error"]);
@@ -53,8 +53,8 @@ function eventDetail(e) {
 
 const channelOf = (e) => (e.kind === "arbiter" ? "arbiter (host)" : e.provider || "");
 
-function eventTable(ctx, run) {
-  const rows = run.events.map((e) => {
+function eventTable(ctx, run, events = run.events) {
+  const rows = events.map((e) => {
     const key = e.callId || null;
     const selected = key && ctx.S.selection && ctx.S.selection.key === key;
     const open = () => key && ctx.select(run.runId, key);
@@ -95,10 +95,20 @@ export function createCapture(ctx, runId, opts = {}) {
   let lastRun = null;
   let clock = null;
   el.append(strip, seq, scope, note);
+  // Redraw when the scope's width settles or changes (layout, scrollbar, drawer), not only on data.
+  let drawnWidth = 0;
+  if (typeof ResizeObserver !== "undefined") {
+    new ResizeObserver(() => {
+      const w = scope.clientWidth;
+      if (w && w !== drawnWidth && lastRun) update(lastRun);
+    }).observe(scope);
+  }
+  // Full captures get the whole collapsible table; stacked live captures the latest 8 rows.
+  const recent = h("div", { class: "events-recent" });
   if (opts.full) {
     events.open = ctx.panel("events");
     el.append(events);
-  }
+  } else el.append(recent);
 
   function draw(run, now) {
     const model = graphModel(run, { now, round: ctx.roundFor(runId), health: ctx.S.health });
@@ -125,7 +135,7 @@ export function createCapture(ctx, runId, opts = {}) {
     put(strip,
       readout("tool", run.tool || "-"),
       readout("workflow", run.workflow || "-"),
-      readout("run", h("a", { href: `#/runs/${encodeURIComponent(run.runId)}`, title: run.runId }, shortId(run.runId))),
+      readout("run", h("a", { href: `#/runs/${encodeURIComponent(run.runId)}`, title: run.runId }, midId(run.runId, 22))),
       clock = readout("elapsed", el2 === null ? "-" : fmtClock(el2), "is-clock"),
       readout("status", statusMark(run.status)),
       model && model.rounds.length ? readout("round", `${model.round}/${model.rounds.length}`) : null,
@@ -135,20 +145,18 @@ export function createCapture(ctx, runId, opts = {}) {
     );
   }
 
-  function drawSeq(model) {
-    const items = [];
-    const nodes = model.nodes;
-    const forkAt = nodes.findIndex((n) => n.id === "adjudicate" || n.id === "synthesize");
-    const key = (n) => h("li", {}, h("button", {
+  // One flat line of trigger keys: mark, name, time into the run, then a detail if any.
+  function drawSeq(run, model) {
+    put(seq, ...model.nodes.map((n) => h("li", {}, h("button", {
       type: "button", class: `seq-key st-${n.state}`, "data-node": n.id, "data-state": n.state,
       "aria-pressed": ctx.S.selection && ctx.S.selection.key === n.key ? "true" : "false",
       onclick: () => ctx.select(runId, n.key),
-    }, h("span", { class: "seq-mark", "aria-hidden": "true" }), h("span", { class: "seq-label" }, n.label), n.sub ? h("span", { class: "seq-sub" }, n.sub) : null, h("span", { class: "visually-hidden" }, `, ${n.state}`)));
-    if (forkAt !== -1 && nodes.length > forkAt + 2) {
-      items.push(...nodes.slice(0, forkAt + 1).map(key));
-      items.push(h("li", { class: "fork" }, h("ol", { class: "fork-keys" }, nodes.slice(forkAt + 1).map(key))));
-    } else items.push(...nodes.map(key));
-    put(seq, ...items);
+    },
+    h("span", { class: "seq-mark", "aria-hidden": "true" }),
+    h("span", { class: "seq-label" }, n.label),
+    h("span", { class: "seq-time" }, num(n.at) !== null && run.startedAt ? `+${fmtMs(n.at - run.startedAt)}` : n.state === "pending" ? "--" : ""),
+    n.sub ? h("span", { class: "seq-sub" }, n.sub) : null,
+    h("span", { class: "visually-hidden" }, `, ${n.state}`)))));
   }
 
   function update(run, now = Date.now()) {
@@ -171,16 +179,18 @@ export function createCapture(ctx, runId, opts = {}) {
     }
     if (!scope.contains(svg)) put(scope, svg);
     const model = draw(run, now);
+    drawnWidth = scope.clientWidth;
     drawStrip(run, model, now);
-    drawSeq(model);
+    drawSeq(run, model);
     const facts = [];
     if (run.dropped.length) facts.push(`dropped by the circuit breaker: ${run.dropped.join(", ")}`);
     if (run.stopReason) facts.push(`stop reason: ${run.stopReason}`);
     note.textContent = facts.join(". ");
     const sig = `${run.events.length}|${ctx.S.selection ? ctx.S.selection.key : ""}`;
-    if (opts.full && sig !== eventsLen) {
+    if (sig !== eventsLen) {
       eventsLen = sig;
-      put(events, h("summary", {}, `Event table `, h("span", { class: "count" }, `${run.events.length} events`)), eventTable(ctx, run));
+      if (opts.full) put(events, h("summary", {}, `Event table `, h("span", { class: "count" }, `${run.events.length} events`)), eventTable(ctx, run));
+      else put(recent, h("p", { class: "recent-head" }, `Latest ${Math.min(8, run.events.length)} of ${run.events.length} events`), eventTable(ctx, run, run.events.slice(-8)));
     }
   }
 
@@ -316,7 +326,7 @@ export function renderInspector(drawer, ctx, run, key) {
   }
   document.body.classList.toggle("is-wide", /^phase:(peers|start|join):/.test(key));
   put(drawer,
-    h("div", { class: "insp-bar" }, h("span", { class: "insp-run" }, `${run.tool || "run"} ${shortId(run.runId)}`),
+    h("div", { class: "insp-bar" }, h("span", { class: "insp-run" }, `${run.tool || "run"} ${midId(run.runId, 22)}`),
       h("button", { type: "button", class: "key", onclick: () => ctx.select(null, null), "aria-keyshortcuts": "Escape" }, "Close")),
     h("div", { class: "insp-body" }, body),
   );

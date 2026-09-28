@@ -289,10 +289,11 @@ export function graphModel(run, opts = {}) {
 
 // ---------------------------------------------------------------------------- render
 
-const CHAR = 6.1; // advance of the 10px monospace face, px
-const TRACE_H = 26;
-const DECODE_H = 16;
-const LANE = TRACE_H + DECODE_H + 10;
+const CHAR = 6.7; // advance of the 11px monospace face, px
+const TRACE_H = 28;
+const DECODE_H = 18;
+const LANE = 64; // trace + decode + room for four 13px gutter rows
+const ROW = 13;
 const PAD = 12; // inner left margin of the scope face
 let uid = 0;
 
@@ -317,19 +318,82 @@ export function worstState(states) {
  * @param {number} [gap]
  * @returns {{x: number, nodes: any[], state: string, label: string}[]}
  */
-export function clusterTriggers(points, gap = 12) {
+export function clusterTriggers(points, gap = 18) {
   const out = [];
   for (const p of points) {
     const last = out[out.length - 1];
-    if (last && p.x - last.x0 < gap) last.nodes.push(p.node);
-    else out.push({ x0: p.x, x: p.x, nodes: [p.node] });
+    if (last && p.x - last.xEnd < gap) {
+      last.nodes.push(p.node);
+      last.xEnd = p.x;
+    } else out.push({ x: p.x, xEnd: p.x, nodes: [p.node] });
   }
-  return out.map((c) => {
-    const names = c.nodes.map((n) => n.label);
-    const joined = names.join(", ");
-    return { x: c.x, nodes: c.nodes, state: worstState(c.nodes.map((n) => n.state)), label: names.length > 1 && joined.length > 22 ? `${names[0]} +${names.length - 1}` : joined };
-  });
+  return out.map((c) => ({ x: c.x, nodes: c.nodes, ...clusterFace(c.nodes) }));
 }
+
+function clusterFace(nodes) {
+  const names = nodes.map((n) => n.label);
+  const joined = names.join(", ");
+  return { state: worstState(nodes.map((n) => n.state)), label: names.length > 1 && joined.length > 22 ? `${names[0]} +${names.length - 1}` : joined };
+}
+
+/**
+ * Lay trigger clusters out on two label rows at the current pixel width. A cluster
+ * whose label fits in neither row joins the cluster before it, so no label overlaps.
+ * @param {{x: number, node: any}[]} points  sorted by x
+ * @param {{x1: number, charW?: number, gap?: number}} opts  x1: right edge of the plot
+ * @returns {{x: number, nodes: any[], state: string, label: string, row: number, lx: number, w: number}[]}
+ */
+export function layoutTriggers(points, opts) {
+  const charW = opts.charW || CHAR;
+  const rows = [-Infinity, -Infinity];
+  const out = [];
+  const place = (c) => {
+    const w = c.label.length * charW + 6;
+    const lx = c.x - 4 + w > opts.x1 + 8 ? c.x + 4 - w : c.x - 4;
+    return { w, lx };
+  };
+  for (const c of clusterTriggers(points, opts.gap)) {
+    const { w, lx } = place(c);
+    const row = rows[0] <= lx - 4 ? 0 : rows[1] <= lx - 4 ? 1 : -1;
+    const prev = out[out.length - 1];
+    if (row === -1 && prev) {
+      prev.nodes.push(...c.nodes);
+      Object.assign(prev, clusterFace(prev.nodes));
+      Object.assign(prev, place(prev));
+      rows[prev.row] = prev.lx + prev.w;
+      continue;
+    }
+    const at = Math.max(row, 0);
+    rows[at] = lx + w;
+    out.push({ ...c, row: at, lx, w });
+  }
+  return out;
+}
+
+const BOUNDARY = /[\s:(\-]/;
+
+/** Cut `text` to `max` chars at a word boundary, marking the cut with "...". */
+export function ellipsize(text, max) {
+  if (text.length <= max) return text;
+  let cut = max - 3;
+  while (cut > 3 && !BOUNDARY.test(text[cut])) cut--;
+  if (cut <= 3) cut = max - 3;
+  return `${text.slice(0, cut).replace(/[\s:(\-]+$/, "")}...`;
+}
+
+/** Split `text` into at most two lines of `max` chars at word boundaries. */
+export function wrap2(text, max) {
+  if (text.length <= max) return [text];
+  let cut = max;
+  while (cut > 3 && !BOUNDARY.test(text[cut])) cut--;
+  if (cut <= 3) return [ellipsize(text, max)];
+  const head = text.slice(0, text[cut] === " " ? cut : cut + (text[cut] === "(" ? 0 : 1)).trimEnd();
+  return [head, ellipsize(text.slice(head.length).trimStart(), max)];
+}
+
+const SHORT = { APPROVE: "APV", REQ_CHANGES: "REQ", REJECT: "REJ", TIMEOUT: "TMO", "RATE-LIMIT": "RL", NETWORK: "NET", ERROR: "ERR", EMPTY: "EMP", ADJUDICATED: "ADJ", REVISED: "REV", BLIND: "BLD" };
+/** The short form of a decode label, for segments too narrow for the full one. */
+export const shortDecode = (label) => SHORT[label] || label.slice(0, 3);
 
 function hexagon(xa, xb, y, hgt) {
   const n = Math.min(4, (xb - xa) / 2);
@@ -369,7 +433,7 @@ export function renderGraph(svg, workflow, model) {
   const id = svg.dataset.uid || (svg.dataset.uid = `g${++uid}`);
   const W = Math.max(300, Math.floor((svg.parentElement && svg.parentElement.clientWidth) || 960));
   const narrow = W < 640;
-  const G = narrow ? 100 : 204;
+  const G = narrow ? 118 : 212;
   const x0 = G;
   const x1 = W - (narrow ? 10 : 18);
   const span = Math.max(1, model.t1 - model.t0);
@@ -415,7 +479,7 @@ export function renderGraph(svg, workflow, model) {
 
   // Time ruler: 10 divisions, run-relative labels, one trigger per phase entry.
   const rulerTop = y;
-  const base = y + 40;
+  const base = y + 46;
   kids.push(s("text", { x: PAD, y: base - 4, class: "gutter-label" }, "TRIG"));
   const divs = Math.max(4, Math.min(10, Math.floor((x1 - x0) / 72)));
   for (let i = 0; i <= divs; i++) {
@@ -429,33 +493,34 @@ export function renderGraph(svg, workflow, model) {
     }
     const label = tick(rel(model.t0 + (span * i) / divs));
     const anchor = i === 0 ? "start" : i === divs ? "end" : "middle";
-    kids.push(s("text", { x, y: base + 12, class: "tick-label", "text-anchor": anchor }, label));
+    kids.push(s("text", { x, y: base + 13, class: "tick-label", "text-anchor": anchor }, label));
   }
   kids.push(s("line", { x1: x0, x2: x1, y1: base, y2: base, class: "ruler" }));
-  const rows = [x0 - 99, x0 - 99];
   const timed = model.nodes.filter((n) => num(n.at) !== null && inWin(n.at)).sort((a, b) => a.at - b.at);
   // Triggers within a few px of each other would stack unreadably: one marker per cluster,
   // coloured by its worst member, with an empty element per member for tests and assistive tech.
-  for (const c of clusterTriggers(timed.map((n) => ({ x: tx(n.at), node: n })))) {
+  // Run start (T) and, on a live capture, the now line are drawn distinct from phase triggers.
+  if (inWin(model.runStart) && model.runStart > model.t0 - 1) {
+    const xt = tx(model.runStart);
+    kids.push(s("rect", { x: xt - 6, y: base + 2, width: 12, height: 12, class: "t-tag" }));
+    kids.push(s("text", { x: xt, y: base + 11.5, class: "t-tag-text", "text-anchor": "middle" }, "T"));
+  }
+  for (const c of layoutTriggers(timed.map((n) => ({ x: tx(n.at), node: n })), { x1 })) {
     const n = c.nodes[0];
     const x = c.x;
-    const w = c.label.length * CHAR + 6;
-    const flip = x - 4 + w > x1 + 8; // near the right edge the label reads leftward
-    const lx = flip ? x + 4 - w : x - 4;
-    const row = rows[0] <= lx - 2 ? 0 : rows[1] <= lx - 2 ? 1 : -1;
+    const { lx, row } = c;
     const single = c.nodes.length === 1;
     const g = s("g", { class: `trig st-${c.state}`, "data-key": `trig:${n.key}`, role: "button", ...(single ? { "data-node": n.id, "data-state": n.state } : { "data-cluster": c.nodes.length }) },
       s("rect", { x: x - 7, y: rulerTop + 2, width: 14, height: base - rulerTop - 2, class: "trig-hit" }),
       s("path", { d: `M${x - 5},${base - 18} L${x + 5},${base - 18} L${x},${base - 10} Z`, class: "trig-mark" }),
       single ? null : s("path", { d: `M${x - 5},${base - 21} L${x + 5},${base - 21}`, class: "trig-stack" }),
-      row >= 0 ? s("text", { x: lx, y: rulerTop + 9 + row * 11, class: "trig-label" }, c.label) : null,
+      s("text", { x: lx, y: rulerTop + 11 + row * 13, class: "trig-label" }, c.label),
       single ? null : c.nodes.map((m) => s("g", { class: "trig-member", "data-node": m.id, "data-state": m.state })));
-    if (row >= 0) rows[row] = lx + w;
     const said = c.nodes.map((m) => `${m.label}${m.round && model.rounds.length ? ` round ${m.round}` : ""}: ${m.state}`).join("; ");
     control(g, `${said}, ${tick(rel(n.at))}${single ? "" : `. Opens ${n.label}; the sequence row lists each one.`}`, () => ui.onSelect && ui.onSelect(n.key));
     kids.push(g);
   }
-  y = base + 22;
+  y = base + 30;
 
   // Channels.
   const top = y;
@@ -486,24 +551,33 @@ export function renderGraph(svg, workflow, model) {
     const ly = top + i * LANE;
     const hi = ly + 4;
     const lo = ly + TRACE_H - 2;
-    const dropped = c.flags.includes("DROPPED");
-    const inkCls = dropped ? "ink-dropped" : `ink-${c.ink}`;
+    // A dropped or unavailable channel draws in the dimmed ink; its label says why.
+    const dimmed = c.flags.includes("DROPPED") || c.flags.includes("UNAVAILABLE");
+    const inkCls = dimmed ? "ink-dropped" : `ink-${c.ink}`;
     kids.push(s("line", { x1: x0, x2: x1, y1: lo, y2: lo, class: "lane-rule" }));
-    // Gutter: channel key, name, flags, model and effort.
-    const short = narrow && c.label.includes(":") ? c.label.split(":").pop() : c.label;
-    const name = narrow && short.length > 12 ? `${short.slice(0, 11)}.` : short;
-    kids.push(s("line", { x1: PAD, x2: PAD + 10, y1: hi + 7, y2: hi + 7, class: `ch-key ${inkCls}` }));
-    kids.push(s("text", { x: PAD + 15, y: hi + 11, class: `ch-name${dropped ? " is-dropped" : ""}` }, name));
-    const meta = [c.model, c.effort].filter(Boolean).join(" ") || (c.kind === "host" ? "Claude, in session" : "model pending");
-    const flags = c.flags.join(" ");
-    kids.push(s("text", { x: PAD + 15, y: hi + 25, class: narrow && flags ? "ch-flag" : "ch-meta" }, narrow ? flags || meta.slice(0, 12) : meta.length > 26 ? `${meta.slice(0, 25)}.` : meta));
-    if (flags && !narrow) kids.push(s("text", { x: PAD + 15, y: hi + 38, class: "ch-flag" }, flags));
-
-    // Trace: low baseline, high while a call runs. Faults and timeouts draw on top.
     const segs = c.segments
       .map((g) => ({ ...g, end: g.t1 ?? (g.state === "running" ? model.now : g.t0) }))
       .filter((g) => g.end > model.t0 && g.t0 < model.t1)
       .sort((a, b) => a.t0 - b.t0);
+
+    // Gutter: channel key, name (two lines at most), model and effort, then flags and the
+    // fault reasons in this window, so a failure is readable even where its decode is short.
+    const maxChars = Math.floor((G - PAD - 15 - 6) / CHAR);
+    const faults = [...new Set(segs.filter((g) => g.state === "failed" || g.state === "timeout").map((g) => g.decode).filter(Boolean))];
+    const flagText = [...c.flags, ...faults].join(" ");
+    const meta = [c.model, c.effort].filter(Boolean).join(" ") || (c.kind === "host" ? "Claude, in session" : "model pending");
+    // Four rows at most; flags come before model and effort so a failure is never the row cut.
+    const lines = [
+      ...wrap2(c.label, maxChars).map((t) => [t, `ch-name${dimmed ? " is-dropped" : ""}`]),
+      ...(flagText ? wrap2(flagText, maxChars).map((t) => [t, "ch-flag"]) : []),
+      [ellipsize(meta, maxChars), "ch-meta"],
+    ].slice(0, 4);
+    kids.push(s("line", { x1: PAD, x2: PAD + 10, y1: hi + 6, y2: hi + 6, class: `ch-key ${inkCls}` }));
+    const gutter = s("text", { class: "ch-gutter" }, s("title", { text: [c.label, meta, flagText].filter(Boolean).join(", ") }));
+    lines.forEach(([t, cls], k) => gutter.append(s("tspan", { x: PAD + 15, y: hi + 10 + k * ROW, class: cls }, t)));
+    kids.push(gutter);
+
+    // Trace: low baseline, high while a call runs. Faults and timeouts draw on top.
     const edge = model.live ? tx(model.now) : x1;
     let d = `M${x0},${lo}`;
     let high = false;
@@ -539,12 +613,14 @@ export function renderGraph(svg, workflow, model) {
       if (g.state === "running" && model.live) kids.push(s("rect", { x: xb - 1.5, y: hi - 1.5, width: 3, height: 3, class: `live-edge ${inkCls}` }));
       // Decode row.
       const dy = ly + TRACE_H + 3;
-      if (g.decode) {
+      // A segment that only begins in the right-edge headroom has no room for a decode.
+      if (g.decode && xa < x1 - 14) {
         const tone = /^(APPROVE|OK)$/.test(g.decode) ? "ok" : g.decode === "REQ_CHANGES" ? "warn" : g.decode === "REJECT" ? "bad" : g.kind === "host" ? "neutral" : "err";
-        const w = xb - xa;
-        kids.push(s("polygon", { points: hexagon(xa, Math.max(xa + 8, xb), dy, DECODE_H - 2), class: `decode tone-${tone}${dim}` }));
-        const text = g.decode.length * CHAR + 10 <= w ? g.decode : g.decode.length > 3 && 3 * CHAR + 10 <= w ? g.decode.slice(0, 3) : "";
-        if (text) kids.push(s("text", { x: (xa + xb) / 2, y: dy + 10.5, class: `decode-text tone-${tone}`, "text-anchor": "middle" }, text));
+        // Never a blank box: the full label, else its short form with the box widened to fit it.
+        const text = g.decode.length * CHAR + 10 <= xb - xa ? g.decode : shortDecode(g.decode);
+        const xe = Math.min(Math.max(xb, xa + text.length * CHAR + 10), W - 2);
+        kids.push(s("polygon", { points: hexagon(xa, xe, dy, DECODE_H - 2), class: `decode tone-${tone}${dim}` }));
+        kids.push(s("text", { x: (xa + xe) / 2, y: dy + 12, class: `decode-text tone-${tone}${dim}`, "text-anchor": "middle" }, text));
       }
       const hitW = Math.max(10, xb - xa);
       const hit = s("rect", {
@@ -557,6 +633,12 @@ export function renderGraph(svg, workflow, model) {
     }
   });
   kids.push(...hits);
+
+  if (model.live && inWin(model.now)) {
+    const xn = tx(model.now);
+    kids.push(s("line", { x1: xn, x2: xn, y1: base + 2, y2: bottom, class: "now-line" }));
+    kids.push(s("text", { x: xn - 4, y: bottom - 4, class: "now-label", "text-anchor": "end" }, "NOW"));
+  }
 
   // Cursors A and B with a delta readout.
   const cur = ui.cursors || {};

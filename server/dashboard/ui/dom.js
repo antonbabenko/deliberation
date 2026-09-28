@@ -75,7 +75,13 @@ export function fmtTime(epoch) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
-export const shortId = (id) => (typeof id === "string" && id.length > 12 ? id.slice(0, 8) : id || "-");
+/** A run id cut in the middle so the unique tail survives: 3f2a91c4...9e0b1d77. */
+export function midId(id, max = 20) {
+  if (typeof id !== "string" || !id) return "-";
+  if (id.length <= max) return id;
+  const tail = Math.ceil((max - 3) / 2);
+  return `${id.slice(0, max - 3 - tail)}...${id.slice(-tail)}`;
+}
 
 /** Verdict token as the decode row prints it. */
 export function verdictLabel(v) {
