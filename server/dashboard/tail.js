@@ -32,7 +32,9 @@ function parseSince(since) {
   if (i <= 0) return null;
   const runId = since.slice(0, i);
   if (!isSafeId(runId)) return null;
-  const offset = Number(since.slice(i + 1));
+  const offStr = since.slice(i + 1);
+  if (!/^\d+$/.test(offStr)) return null; // rejects "" (empty offset), non-digits, signs, floats
+  const offset = Number(offStr);
   if (!Number.isInteger(offset) || offset < 0) return null;
   return { runId, offset };
 }
@@ -127,8 +129,40 @@ function createTailer(opts) {
     }
   }
 
+  /**
+   * (Re)establish the fs.watch watcher, if there isn't one already. Never
+   * throws: `watchFn` throws synchronously when `runsDir` doesn't exist yet
+   * (or was deleted/renamed and hasn't reappeared), which is exactly when
+   * this should stay a no-op - the periodic sweep is what covers that case.
+   * An attached 'error' listener handles the *async* failure mode (the dir
+   * is deleted/renamed after the watch is already running): fs.watch has no
+   * other way to report that, and an unhandled 'error' on an FSWatcher
+   * crashes the process.
+   */
+  function startWatcher() {
+    if (closed || watcher) return;
+    let w;
+    try {
+      w = watchFn(runsDir, {}, scheduleSweep);
+    } catch {
+      return;
+    }
+    if (w && typeof w.on === "function") {
+      w.on("error", () => {
+        try {
+          w.close();
+        } catch {
+          // already closed
+        }
+        if (watcher === w) watcher = null; // sweep re-establishes it on its next tick
+      });
+    }
+    watcher = w;
+  }
+
   function sweepAll() {
     if (closed) return;
+    startWatcher(); // re-establish after an async watcher 'error' (dir deleted/renamed)
     for (const sub of subscribers) sweepOne(sub);
   }
 
@@ -141,14 +175,7 @@ function createTailer(opts) {
     if (debounceTimer.unref) debounceTimer.unref();
   }
 
-  // fs.watch throws synchronously if runsDir doesn't exist yet - fine, the
-  // periodic sweep below (TL4/T7 brief) covers a dashboard started before
-  // any run exists, no watcher needed for that case.
-  try {
-    watcher = watchFn(runsDir, {}, scheduleSweep);
-  } catch {
-    watcher = null;
-  }
+  startWatcher();
   sweepTimer = setInterval(sweepAll, sweepMs);
   if (sweepTimer.unref) sweepTimer.unref();
 

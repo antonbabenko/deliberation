@@ -5,6 +5,7 @@ const assert = require("node:assert/strict");
 const os = require("node:os");
 const fs = require("node:fs");
 const path = require("node:path");
+const { EventEmitter } = require("node:events");
 
 const { createTailer } = require("../server/dashboard/tail.js");
 
@@ -186,4 +187,54 @@ test("a pruned (deleted) run file drops its offset; recreated file starts at 0",
   tailer.close();
 
   assert.equal(received.length, 1, "recreated file is read from 0, not skipped as already-seen");
+});
+
+test("an async watcher 'error' (dir deleted/renamed after watch starts) does not crash; delivery continues via the sweep, and the watcher is re-created on a later sweep", async () => {
+  const dir = tmpDir();
+  const file = path.join(dir, "r1.jsonl");
+  fs.writeFileSync(file, "");
+  /** @type {EventEmitter[]} */
+  const watchers = [];
+  function flakyWatch() {
+    const w = new EventEmitter();
+    /** @type {any} */ (w).close = () => {};
+    watchers.push(w);
+    return w;
+  }
+  const tailer = createTailer({ runsDir: dir, sweepMs: 40, watch: flakyWatch });
+  /** @type {{id: string, event: object}[]} */
+  const received = [];
+  tailer.subscribe((msg) => received.push(msg));
+
+  assert.equal(watchers.length, 1);
+  assert.doesNotThrow(() => watchers[0].emit("error", new Error("dir deleted/renamed")));
+
+  // Delivery still works through the sweep even though the watcher just died.
+  fs.appendFileSync(file, line("r1", {}) + "\n");
+  await wait(150);
+  tailer.close();
+
+  assert.equal(received.length, 1);
+  assert.equal(watchers.length, 2, "a later sweep re-establishes the watcher");
+});
+
+test("parseSince: an empty offset (\"runId:\") is treated as absent, not offset 0", async () => {
+  const dir = tmpDir();
+  const file = path.join(dir, "r1.jsonl");
+  fs.writeFileSync(file, line("r1", { kind: "run_start" }) + "\n"); // pre-existing content
+  const tailer = createTailer({ runsDir: dir, sweepMs: 40, watch: neverFires });
+  /** @type {{id: string, event: object}[]} */
+  const received = [];
+  tailer.subscribe((msg) => received.push(msg), "r1:"); // malformed: empty offset
+
+  await wait(100);
+  assert.equal(received.length, 0, "treated as absent: no replay of pre-existing content from offset 0");
+
+  const l2 = line("r1", { kind: "run_end" }) + "\n";
+  fs.appendFileSync(file, l2);
+  await wait(120);
+  tailer.close();
+
+  assert.equal(received.length, 1);
+  assert.equal(/** @type {any} */ (received[0].event).kind, "run_end");
 });

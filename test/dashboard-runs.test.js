@@ -56,6 +56,30 @@ test("RR1: partial trailing line excluded; offset points at its start", () => {
   assert.equal(resumed.events[0].kind, "call");
 });
 
+test("RR1b: a large prefix plus one new line - read from its offset returns exactly that event, correct offsets, no whole-file re-read", () => {
+  const dir = tmpDir();
+  const file = path.join(dir, "big.jsonl");
+  // A large prefix (well past a single 64 KB read buffer) so a bug that read
+  // from byte 0 instead of `fromOffset` would show up as extra/garbled events.
+  const bigLine = JSON.stringify({ v: 1, runId: "big", at: 0, seq: 0, kind: "call_end", note: "x".repeat(200_000) }) + "\n";
+  fs.writeFileSync(file, bigLine);
+  const prefixOffset = Buffer.byteLength(bigLine, "utf8");
+
+  const newLine = JSON.stringify({ v: 1, runId: "big", at: 1, seq: 1, kind: "run_end", status: "done" }) + "\n";
+  fs.appendFileSync(file, newLine);
+
+  const { events, offset, offsets } = readEvents(file, prefixOffset);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].kind, "run_end");
+  assert.deepEqual(offsets, [prefixOffset + Buffer.byteLength(newLine, "utf8")]);
+  assert.equal(offset, prefixOffset + Buffer.byteLength(newLine, "utf8"));
+
+  // Resuming again from the new offset (nothing further appended) yields nothing.
+  const again = readEvents(file, offset);
+  assert.deepEqual(again.events, []);
+  assert.equal(again.offset, offset);
+});
+
 test("RR2: junk file, subdirectory, and non-JSON content are skipped without throwing", () => {
   const runsDir = tmpDir();
   writeRun(runsDir, "good-run", [runStart({ providers: ["gpt"] }), runEnd({ status: "done" })]);
@@ -106,11 +130,13 @@ test("RR5: list() twice without a file change reads each journal file once", (t)
   writeRun(runsDir, "run-b", [runStart({}), runEnd({ status: "done" })]);
   const index = createRunIndex({ runsDir });
 
-  const spy = t.mock.method(fs, "readFileSync");
+  // readEvents opens the file itself (fs.openSync) rather than fs.readFileSync -
+  // see RR1b / task-7 fix round 1, it reads only fromOffset..EOF, not the whole file.
+  const spy = t.mock.method(fs, "openSync");
   const first = index.list();
   assert.equal(first.length, 2);
   const afterFirst = spy.mock.callCount();
-  assert.equal(afterFirst, 2, "one readFileSync per run file on first list()");
+  assert.equal(afterFirst, 2, "one open per run file on first list()");
 
   const second = index.list();
   assert.equal(second.length, 2);

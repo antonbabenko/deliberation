@@ -110,20 +110,47 @@ function isAlive(pid, procStartedAt) {
  * `events[i]` - one per event, in order - so a caller that needs a resume
  * point per event (the dashboard's SSE tailer) doesn't have to re-parse lines
  * itself.
+ *
+ * Reads only the bytes from `fromOffset` to EOF (`fs.openSync` + `fstatSync` +
+ * `readSync`, not `readFileSync` of the whole file) - this is the SSE
+ * tailer's hot path, called once per subscriber on every sweep tick, so a
+ * multi-MB content-capture journal must not be re-read whole each time.
  * @param {string} file
  * @param {number} [fromOffset]
  * @returns {{events: Record<string, unknown>[], offset: number, offsets: number[]}}
  */
 function readEvents(file, fromOffset) {
   const start = typeof fromOffset === "number" && fromOffset > 0 ? fromOffset : 0;
-  let buf;
+  let fd;
   try {
-    buf = fs.readFileSync(file);
+    fd = fs.openSync(file, "r");
   } catch {
     return { events: [], offset: start, offsets: [] };
   }
-  if (start >= buf.length) return { events: [], offset: start, offsets: [] };
-  const slice = buf.subarray(start);
+  let slice;
+  try {
+    let size;
+    try {
+      size = fs.fstatSync(fd).size;
+    } catch {
+      return { events: [], offset: start, offsets: [] };
+    }
+    if (start >= size) return { events: [], offset: start, offsets: [] };
+    const buf = Buffer.allocUnsafe(size - start);
+    let bytesRead;
+    try {
+      bytesRead = fs.readSync(fd, buf, 0, buf.length, start);
+    } catch {
+      return { events: [], offset: start, offsets: [] };
+    }
+    slice = buf.subarray(0, bytesRead);
+  } finally {
+    try {
+      fs.closeSync(fd);
+    } catch {
+      // already closed
+    }
+  }
   /** @type {Record<string, unknown>[]} */
   const events = [];
   /** @type {number[]} */
