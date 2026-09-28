@@ -93,6 +93,7 @@ export function createCapture(ctx, runId, opts = {}) {
   const events = h("details", { class: "events-panel", ontoggle: () => ctx.panel("events", events.open) });
   let eventsLen = "";
   let lastRun = null;
+  let clock = null;
   el.append(strip, seq, scope, note);
   if (opts.full) {
     events.open = ctx.panel("events");
@@ -125,7 +126,7 @@ export function createCapture(ctx, runId, opts = {}) {
       readout("tool", run.tool || "-"),
       readout("workflow", run.workflow || "-"),
       readout("run", h("a", { href: `#/runs/${encodeURIComponent(run.runId)}`, title: run.runId }, shortId(run.runId))),
-      readout("elapsed", el2 === null ? "-" : fmtClock(el2), "is-clock"),
+      clock = readout("elapsed", el2 === null ? "-" : fmtClock(el2), "is-clock"),
       readout("status", statusMark(run.status)),
       model && model.rounds.length ? readout("round", `${model.round}/${model.rounds.length}`) : null,
       readout("tokens", fmtK(run.tokens)),
@@ -186,8 +187,12 @@ export function createCapture(ctx, runId, opts = {}) {
   return {
     el,
     update,
-    tick(now) {
-      if (lastRun && lastRun.status === "running") update(lastRun, now);
+    /** redraw false: advance only the elapsed readout (reduced motion). */
+    tick(now, redraw = true) {
+      if (!lastRun || lastRun.status !== "running") return;
+      if (redraw) return update(lastRun, now);
+      const el2 = elapsedOf(lastRun, now);
+      if (clock && el2 !== null) clock.querySelector("dd").textContent = fmtClock(el2);
     },
   };
 }
@@ -330,6 +335,7 @@ export function create(ctx, runId) {
     update() {
       cap.update(ctx.S.runs[runId]);
     },
-    tick: (now) => cap.tick(now),
+    tick: (now, redraw) => cap.tick(now, redraw),
+    runIds: () => [runId],
   };
 }

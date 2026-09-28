@@ -7,36 +7,24 @@ const assert = require("node:assert/strict");
 const os = require("node:os");
 const fs = require("node:fs");
 const path = require("node:path");
-const { execFileSync } = require("node:child_process");
+const { execSync } = require("node:child_process");
 
 const { createDashboardServer } = require("../server/dashboard/server.js");
 const { createRunIndex } = require("../server/dashboard/runs.js");
 const { createTailer } = require("../server/dashboard/tail.js");
 
-/** @returns {any} */
+/** Playwright from a local install, else the global npm root; null when neither has it. @returns {any} */
 function resolvePlaywright() {
-  const candidates = ["playwright", "/opt/node22/lib/node_modules/playwright"];
   try {
-    candidates.push(path.join(execFileSync("npm", ["root", "-g"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(), "playwright"));
+    return require("playwright");
   } catch {
-    // no npm on PATH
+    // not a repo dependency; try the global install
   }
-  for (const c of candidates) {
-    try {
-      return require(c);
-    } catch {
-      // try the next one
-    }
-  }
-  return null;
-}
-
-/** @param {any} chromium */
-async function launch(chromium) {
   try {
-    return await chromium.launch();
+    const root = execSync("npm root -g", { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    return require(path.join(root, "playwright"));
   } catch {
-    return chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
+    return null;
   }
 }
 
@@ -45,7 +33,8 @@ test("UI2: live graph node states follow journal appends", async (t) => {
   if (!pw) return t.skip("playwright not resolvable (local or global npm root); smoke test skipped");
   let browser;
   try {
-    browser = await launch(pw.chromium);
+    // Chromium comes from Playwright's own lookup (PLAYWRIGHT_BROWSERS_PATH when set).
+    browser = await pw.chromium.launch();
   } catch (e) {
     return t.skip(`chromium could not launch: ${String(/** @type {any} */ (e).message || e).split("\n")[0]}`);
   }

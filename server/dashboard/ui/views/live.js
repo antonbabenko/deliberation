@@ -48,8 +48,9 @@ export function create(ctx) {
   return {
     el,
     update,
-    tick(now) {
-      for (const cap of captures.values()) cap.tick(now);
+    tick(now, redraw) {
+      for (const cap of captures.values()) cap.tick(now, redraw);
     },
+    runIds: () => [...captures.keys()],
   };
 }

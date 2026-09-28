@@ -91,3 +91,51 @@ test("UI1b: consensus-step phases derive from state, call and arbiter events", a
   const codex = m.channels.find((/** @type {any} */ c) => c.id === "codex");
   assert.equal(codex.segments[0].decode, "APPROVE", "the adjudicate verdicts decode under the peer channel");
 });
+
+test("UI3: compactRuns drops unlisted runs and returns idle ones to summary only", async () => {
+  const { reduce, compactRuns } = await load("app.js");
+  const e = (/** @type {string} */ id, /** @type {number} */ seq, /** @type {Record<string, unknown>} */ f) => ({ v: 1, runId: id, at: 1000 + seq, seq, ...f });
+  let runs = {};
+  for (const id of ["done-1", "live-1", "gone-1", "shown-1"]) {
+    runs = reduce(runs, e(id, 0, { kind: "run_start", tool: "ask-gpt", workflow: "single", providers: ["codex"] }));
+    runs = reduce(runs, e(id, 1, { kind: "call_start", callId: "c", provider: "codex", role: "single" }));
+    if (id !== "live-1") runs = reduce(runs, e(id, 2, { kind: "run_end", status: "done" }));
+  }
+  const index = ["done-1", "live-1", "shown-1"].map((runId) => ({ runId }));
+  const out = /** @type {any} */ (compactRuns(runs, index, new Set(["shown-1"])));
+  assert.deepEqual(Object.keys(out).sort(), ["done-1", "live-1", "shown-1"], "a run the index no longer lists is dropped");
+  assert.equal(out["done-1"].loaded, false);
+  assert.deepEqual([out["done-1"].events, out["done-1"].calls, out["done-1"].arbiter], [[], {}, []]);
+  assert.equal(out["done-1"].status, "done", "the summary survives the reset");
+  assert.equal(out["live-1"], /** @type {any} */ (runs)["live-1"], "a running run keeps its events");
+  assert.equal(out["shown-1"], /** @type {any} */ (runs)["shown-1"], "an on-screen run keeps its events");
+  // A reset run can be refolded from its journal: seq starts over.
+  const again = reduce(out, e("done-1", 0, { kind: "run_start", tool: "ask-gpt", workflow: "single", providers: ["codex"] }));
+  assert.equal(/** @type {any} */ (again)["done-1"].events.length, 1);
+  assert.ok(compactRuns(runs, [], new Set())["done-1"] === undefined);
+});
+
+test("UI4: coincident triggers merge into one cluster with the worst state", async () => {
+  const { reduce } = await load("app.js");
+  const { graphModel, clusterTriggers } = await load("graph.js");
+  const e = (/** @type {number} */ seq, /** @type {number} */ at, /** @type {Record<string, unknown>} */ f) => ({ v: 1, runId: "cl", at, seq, ...f });
+  const runs = [
+    e(0, 0, { kind: "run_start", tool: "consensus-step", workflow: "consensus-step", providers: ["codex"] }),
+    e(1, 0, { kind: "state", state: "init", round: 1 }),
+    e(2, 18000, { kind: "state", state: "blind", round: 1 }),
+    e(3, 18400, { kind: "state", state: "peers", round: 1 }),
+    e(4, 18400, { kind: "call_start", callId: "p", provider: "codex", role: "peer", round: 1 }),
+  ].reduce((acc, x) => reduce(acc, x), {});
+  const m = graphModel(/** @type {any} */ (runs).cl, { now: 60000 });
+  const tx = (/** @type {number} */ t) => ((t - m.t0) / (m.t1 - m.t0)) * 1000;
+  const points = m.nodes.filter((n) => n.at !== null).sort((a, b) => a.at - b.at).map((n) => ({ x: tx(n.at), node: n }));
+  const clusters = clusterTriggers(points);
+  assert.equal(clusters.length, 2, "init stands alone; blind and peers, 400 ms apart, share one marker");
+  assert.deepEqual(clusters[1].nodes.map((n) => n.id), ["blind", "peers"]);
+  assert.equal(clusters[1].label, "blind, peers");
+  assert.equal(clusters[1].state, "running", "the cluster shows its worst member");
+  const many = clusterTriggers(["start", "codex", "gemini", "grok"].map((id, i) => ({ x: i, node: { id, label: id, state: i === 2 ? "failed" : "succeeded" } })));
+  assert.equal(many.length, 1);
+  assert.equal(many[0].label, "start +3");
+  assert.equal(many[0].state, "failed");
+});

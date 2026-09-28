@@ -149,8 +149,29 @@ export function applySummary(runs, sum) {
 export function summaryOf(r) {
   return {
     runId: r.runId, tool: r.tool, workflow: r.workflow, status: r.status, startedAt: r.startedAt, endedAt: r.endedAt,
-    providers: r.providers, rounds: r.rounds, errors: r.errors, tokens: r.tokens, legacy: !!r.isLegacy,
+    providers: r.providers, rounds: r.rounds, errors: r.errors, tokens: r.tokens,
+    legacy: !!(r.isLegacy !== undefined ? r.isLegacy : r.legacy),
   };
+}
+
+/**
+ * Bound the in-memory run map to the server index. Runs the index no longer lists are
+ * dropped (unless kept); finished runs that are not kept go back to summary only, and
+ * ensureLoaded fetches them again when they are shown. Pure.
+ * @param {Record<string, any>} runs
+ * @param {{runId: string}[]} index
+ * @param {Set<string>} keep  selected or on-screen run ids
+ * @returns {Record<string, any>}
+ */
+export function compactRuns(runs, index, keep) {
+  const listed = new Set(index.map((x) => x.runId));
+  const out = {};
+  for (const [id, r] of Object.entries(runs)) {
+    if (!listed.has(id) && !keep.has(id)) continue;
+    if (r.status === "running" || keep.has(id) || !r.loaded) out[id] = r;
+    else out[id] = { ...r, events: [], calls: {}, callOrder: [], arbiter: [], states: [], seq: -1, loaded: false, prompt: undefined, finalReport: undefined, legacy: null };
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------- browser
@@ -224,13 +245,32 @@ function boot() {
     invalidate,
   };
 
+  // Re-render the drawer only when what it shows changed, keeping scroll and focus.
+  let drawerSig = "";
   function renderDrawer() {
     const sel = S.selection;
     const run = sel && S.runs[sel.runId];
     drawer.hidden = !run;
     document.body.classList.toggle("has-inspector", !!run);
-    if (run) runView.renderInspector(drawer, ctx, run, sel.key);
-    else put(drawer);
+    if (!run) {
+      drawerSig = "";
+      put(drawer);
+      return;
+    }
+    const sig = `${run.runId}|${sel.key}|${run.seq}|${run.status}|${ctx.captureMode()}`;
+    if (sig === drawerSig) return;
+    drawerSig = sig;
+    const scrolls = [...drawer.querySelectorAll(".payload")].map((el) => el.scrollTop);
+    const top = drawer.scrollTop;
+    const focusables = () => [...drawer.querySelectorAll("button, [tabindex]")];
+    const focusIdx = drawer.contains(document.activeElement) ? focusables().indexOf(document.activeElement) : -1;
+    runView.renderInspector(drawer, ctx, run, sel.key);
+    drawer.querySelectorAll(".payload").forEach((el, i) => { if (scrolls[i]) el.scrollTop = scrolls[i]; });
+    drawer.scrollTop = top;
+    if (focusIdx !== -1) {
+      const el = focusables()[focusIdx];
+      if (el) el.focus({ preventScroll: true });
+    }
   }
 
   function invalidate() {
@@ -242,13 +282,22 @@ function boot() {
       link.dataset.link = S.authError ? "down" : S.link;
       if (view && view.update) view.update();
       if (S.selection) renderDrawer();
+      ensureTicker();
     });
   }
 
   function route() {
     const parts = (location.hash || "#/live").replace(/^#\/?/, "").split("/");
     const mode = VIEWS[parts[0]] && parts[0] !== "run" ? parts[0] : "live";
-    const key = mode === "runs" && parts[1] ? `run:${decodeURIComponent(parts[1])}` : mode;
+    let key = mode;
+    if (mode === "runs" && parts[1]) {
+      try {
+        key = `run:${decodeURIComponent(parts[1])}`;
+      } catch {
+        location.hash = "#/runs";
+        return;
+      }
+    }
     for (const k of keys) {
       if (k.dataset.mode === mode) k.setAttribute("aria-current", "page");
       else k.removeAttribute("aria-current");
@@ -265,9 +314,12 @@ function boot() {
 
   // Detail loading: fold the fetched journal, then replay any live events newer than it.
   const loading = new Map();
+  const RETRY_MS = 30000;
   function ensureLoaded(id) {
     const r = S.runs[id];
     if ((r && (r.loaded || r.legacy)) || loading.has(id)) return loading.get(id) || Promise.resolve();
+    // A failed fetch is retried at most once per RETRY_MS, not on every live event.
+    if (r && r.loadError && Date.now() - (r.loadErrorAt || 0) < RETRY_MS) return Promise.resolve();
     const p = api.run(id).then((body) => {
       const cur = S.runs[id] || emptyRun(id);
       if (body && Array.isArray(body.events)) {
@@ -276,11 +328,11 @@ function boot() {
         fresh = applySummary(fresh, body.summary);
         S.runs = { ...S.runs, [id]: { ...fresh[id], loaded: true } };
       } else if (body && body.legacy) {
-        S.runs = applySummary({ ...S.runs, [id]: { ...cur, legacy: body.legacy, loaded: true } }, body.summary);
+        S.runs = applySummary({ ...S.runs, [id]: { ...cur, legacy: body.legacy, loaded: true, loadError: undefined } }, body.summary);
       }
     }).catch((e) => {
       if (e && e.status === 401) S.authError = true;
-      S.runs = { ...S.runs, [id]: { ...(S.runs[id] || emptyRun(id)), loadError: String(e.message || e) } };
+      S.runs = { ...S.runs, [id]: { ...(S.runs[id] || emptyRun(id)), loadError: String(e.message || e), loadErrorAt: Date.now() } };
     }).finally(() => {
       loading.delete(id);
       invalidate();
@@ -291,8 +343,12 @@ function boot() {
 
   function setIndex(list) {
     S.index = list;
+    const keep = new Set(view && view.runIds ? view.runIds() : []);
+    if (S.selection) keep.add(S.selection.runId);
+    S.runs = compactRuns(S.runs, list, keep);
+    for (const m of [S.rounds, S.cursors]) for (const id of m.keys()) if (!S.runs[id]) m.delete(id);
     for (const sum of list) S.runs = applySummary(S.runs, sum);
-    store.set("index", list.slice(0, 200).map((x) => ({ ...x })));
+    store.set("index", list.slice(0, 200).map(summaryOf));
   }
 
   function onEvent(e) {
@@ -309,16 +365,36 @@ function boot() {
   }
 
   // Live link first, so nothing between the index fetch and the subscription is lost.
+  // A CLOSED EventSource (a 401 after a dashboard restart) never retries on its own: the
+  // index poll re-opens it, backing off from 15 s to 4 min, and the running runs are
+  // re-fetched because events sent while the link was down are gone.
   let ready = false;
   const early = [];
-  openEvents((e) => (ready ? onEvent(e) : early.push(e)), (state) => {
-    S.link = state;
-    invalidate();
-  });
+  let closeEvents = null;
+  let reopenDelay = 15000;
+  let reopenAt = 0;
+  function connect() {
+    if (closeEvents) closeEvents();
+    closeEvents = openEvents((e) => (ready ? onEvent(e) : early.push(e)), (state) => {
+      S.link = state;
+      if (state === "up") reopenDelay = 15000;
+      invalidate();
+    });
+  }
+  connect();
 
   const refreshIndex = () => api.runs().then((body) => {
     S.authError = false;
     setIndex(Array.isArray(body && body.runs) ? body.runs : []);
+    if (S.link === "down" && Date.now() >= reopenAt) {
+      reopenAt = Date.now() + reopenDelay;
+      reopenDelay = Math.min(reopenDelay * 2, 240000);
+      connect();
+      for (const r of Object.values(S.runs).filter((x) => x.status === "running")) {
+        S.runs = { ...S.runs, [r.runId]: { ...r, loaded: false } };
+        ensureLoaded(r.runId);
+      }
+    }
     invalidate();
   }).catch((e) => {
     if (e && e.status === 401) S.authError = true;
@@ -352,17 +428,28 @@ function boot() {
     resizeFrame = requestAnimationFrame(() => view && view.update && view.update());
   });
 
-  // The ticker: the elapsed clock and the growing live trace. Reduced motion steps once a second.
+  // The ticker runs only while some run is running. It redraws the growing trace every
+  // 100 ms; under reduced motion it only advances the elapsed readout once a second, and
+  // the graph redraws when events arrive.
+  let ticking = false;
   let last = 0;
-  const loop = (t) => {
-    const period = S.reducedMotion.matches ? 1000 : 100;
-    if (t - last >= period) {
+  function ensureTicker() {
+    if (ticking || !Object.values(S.runs).some((r) => r.status === "running")) return;
+    ticking = true;
+    requestAnimationFrame(loop);
+  }
+  function loop(t) {
+    const reduced = S.reducedMotion.matches;
+    if (t - last >= (reduced ? 1000 : 100)) {
       last = t;
-      if (view && view.tick && !document.hidden) view.tick(Date.now());
+      if (!Object.values(S.runs).some((r) => r.status === "running")) {
+        ticking = false;
+        return;
+      }
+      if (view && view.tick && !document.hidden) view.tick(Date.now(), !reduced);
     }
     requestAnimationFrame(loop);
-  };
-  requestAnimationFrame(loop);
+  }
 
   route();
 }

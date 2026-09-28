@@ -1,7 +1,6 @@
-// graph.js - a run as a logic-analyzer capture. Every model is a channel on one shared
-// time axis; calls are pulses whose length is their real duration; phase changes are
-// trigger markers on the ruler; verdicts decode in a boxed row under each channel.
-// `graphModel` is pure (node-testable); `renderGraph` draws it into an <svg>.
+// graph.js - the run timeline. `graphModel` (pure, node-testable) derives per-provider
+// lanes of calls, phase markers and verdicts from a reduced run; `renderGraph` draws it
+// into an <svg>.
 
 import { s, fmtMs, verdictLabel, num } from "./dom.js";
 
@@ -300,9 +299,37 @@ let uid = 0;
 const tick = (ms) => {
   const v = Math.abs(ms);
   if (v < 1000) return `+${Math.round(ms)}ms`;
-  if (v < 60000) return `+${(ms / 1000).toFixed(v < 10000 ? 1 : 0)}s`;
-  return `+${Math.floor(ms / 60000)}m${String(Math.round((ms % 60000) / 1000)).padStart(2, "0")}`;
+  if (v < 10000) return `+${(Math.floor(ms / 100) / 10).toFixed(1)}s`;
+  if (v < 60000) return `+${Math.floor(ms / 1000)}s`;
+  return `+${Math.floor(ms / 60000)}m${String(Math.floor((ms % 60000) / 1000)).padStart(2, "0")}`;
 };
+
+const SEVERITY = ["succeeded", "pending", "running", "abandoned", "broken", "timeout", "failed"];
+
+/** The state a merged marker shows: the most severe of its members. */
+export function worstState(states) {
+  return states.reduce((w, st) => (SEVERITY.indexOf(st) > SEVERITY.indexOf(w) ? st : w), "succeeded");
+}
+
+/**
+ * Merge trigger points closer than `gap` px into one cluster. Input sorted by x.
+ * @param {{x: number, node: any}[]} points
+ * @param {number} [gap]
+ * @returns {{x: number, nodes: any[], state: string, label: string}[]}
+ */
+export function clusterTriggers(points, gap = 12) {
+  const out = [];
+  for (const p of points) {
+    const last = out[out.length - 1];
+    if (last && p.x - last.x0 < gap) last.nodes.push(p.node);
+    else out.push({ x0: p.x, x: p.x, nodes: [p.node] });
+  }
+  return out.map((c) => {
+    const names = c.nodes.map((n) => n.label);
+    const joined = names.join(", ");
+    return { x: c.x, nodes: c.nodes, state: worstState(c.nodes.map((n) => n.state)), label: names.length > 1 && joined.length > 22 ? `${names[0]} +${names.length - 1}` : joined };
+  });
+}
 
 function hexagon(xa, xb, y, hgt) {
   const n = Math.min(4, (xb - xa) / 2);
@@ -362,6 +389,8 @@ export function renderGraph(svg, workflow, model) {
     const rx = (t) => x0 + ((t - r0) / rspan) * (x1 - x0);
     kids.push(s("text", { x: PAD, y: y + 17, class: "gutter-label" }, narrow ? "ROUND" : "ROUNDS"));
     kids.push(s("line", { x1: x0, x2: x1, y1: y + 13, y2: y + 13, class: "memory-track" }));
+    const tablist = s("g", { role: "tablist", "aria-label": "Rounds" });
+    kids.push(tablist);
     for (const r of model.rounds) {
       const xa = rx(r.t0);
       const xb = Math.max(xa + 18, rx(r.t1));
@@ -379,7 +408,7 @@ export function renderGraph(svg, workflow, model) {
           if (n >= 1 && n <= model.rounds.length && ui.onRound) ui.onRound(n, true);
         }
       });
-      kids.push(g);
+      tablist.append(g);
     }
     y += 32;
   }
@@ -405,18 +434,25 @@ export function renderGraph(svg, workflow, model) {
   kids.push(s("line", { x1: x0, x2: x1, y1: base, y2: base, class: "ruler" }));
   const rows = [x0 - 99, x0 - 99];
   const timed = model.nodes.filter((n) => num(n.at) !== null && inWin(n.at)).sort((a, b) => a.at - b.at);
-  for (const n of timed) {
-    const x = tx(n.at);
-    const w = n.label.length * CHAR + 6;
+  // Triggers within a few px of each other would stack unreadably: one marker per cluster,
+  // coloured by its worst member, with an empty element per member for tests and assistive tech.
+  for (const c of clusterTriggers(timed.map((n) => ({ x: tx(n.at), node: n })))) {
+    const n = c.nodes[0];
+    const x = c.x;
+    const w = c.label.length * CHAR + 6;
     const flip = x - 4 + w > x1 + 8; // near the right edge the label reads leftward
     const lx = flip ? x + 4 - w : x - 4;
     const row = rows[0] <= lx - 2 ? 0 : rows[1] <= lx - 2 ? 1 : -1;
-    const g = s("g", { class: `trig st-${n.state}`, "data-node": n.id, "data-state": n.state, "data-key": `trig:${n.key}`, role: "button" },
+    const single = c.nodes.length === 1;
+    const g = s("g", { class: `trig st-${c.state}`, "data-key": `trig:${n.key}`, role: "button", ...(single ? { "data-node": n.id, "data-state": n.state } : { "data-cluster": c.nodes.length }) },
       s("rect", { x: x - 7, y: rulerTop + 2, width: 14, height: base - rulerTop - 2, class: "trig-hit" }),
       s("path", { d: `M${x - 5},${base - 18} L${x + 5},${base - 18} L${x},${base - 10} Z`, class: "trig-mark" }),
-      row >= 0 ? s("text", { x: lx, y: rulerTop + 9 + row * 11, class: "trig-label" }, n.label) : null);
+      single ? null : s("path", { d: `M${x - 5},${base - 21} L${x + 5},${base - 21}`, class: "trig-stack" }),
+      row >= 0 ? s("text", { x: lx, y: rulerTop + 9 + row * 11, class: "trig-label" }, c.label) : null,
+      single ? null : c.nodes.map((m) => s("g", { class: "trig-member", "data-node": m.id, "data-state": m.state })));
     if (row >= 0) rows[row] = lx + w;
-    control(g, `${n.label}${n.round && model.rounds.length ? ` round ${n.round}` : ""}: ${n.state}, ${tick(rel(n.at))}`, () => ui.onSelect && ui.onSelect(n.key));
+    const said = c.nodes.map((m) => `${m.label}${m.round && model.rounds.length ? ` round ${m.round}` : ""}: ${m.state}`).join("; ");
+    control(g, `${said}, ${tick(rel(n.at))}${single ? "" : `. Opens ${n.label}; the sequence row lists each one.`}`, () => ui.onSelect && ui.onSelect(n.key));
     kids.push(g);
   }
   y = base + 22;

@@ -1,5 +1,4 @@
-/* Deliberation scope: a bench-instrument print. Light is off-white graticule paper,
-   dark is a graphite screen. Channel inks are flat; no glow, no gradients. */
+/* Dashboard styles: tokens, light and dark themes, components. */
 
 :root {
   --paper: oklch(0.974 0.007 95);
@@ -276,6 +275,7 @@ noscript { display: block; padding: 24px; font-family: var(--mono); }
 .trig-mark { fill: var(--st); stroke: var(--st); stroke-width: 1; stroke-linejoin: round; }
 .trig.st-pending .trig-mark { fill: var(--paper); }
 .trig-label { font-size: 9.5px; fill: var(--fg); }
+.trig-stack { stroke: var(--st); stroke-width: 1.5; }
 .trig:hover .trig-mark { stroke: var(--fg); }
 .trig:focus-visible { outline: none; }
 .trig:focus-visible .trig-mark { stroke: var(--fg); stroke-width: 2; }
