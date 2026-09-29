@@ -252,3 +252,54 @@ test("UI9: errors count a call's final attempt only", async () => {
     ev(4, { kind: "call_end", callId: "x-2", provider: "x", isError: false })]);
   assert.equal(concurrent.errors, 1, "an overlapping leg is not a retry");
 });
+
+test("UI10: a reconnect marks loaded non-terminal runs unloaded and names the on-screen ones", async () => {
+  const { reduce, staleAfterReconnect } = await load("app.js");
+  const e = (/** @type {string} */ id, /** @type {number} */ seq, /** @type {Record<string, unknown>} */ f) => ({ v: 1, runId: id, at: 1000 + seq, seq, ...f });
+  let runs = {};
+  for (const id of ["live-1", "shown-1", "done-1"]) {
+    runs = reduce(runs, e(id, 0, { kind: "run_start", tool: "consensus", workflow: "consensus", providers: ["codex"] }));
+    runs = reduce(runs, e(id, 1, { kind: "call_start", callId: "c", provider: "codex", role: "peer", round: 1 }));
+  }
+  runs = reduce(runs, e("done-1", 2, { kind: "run_end", status: "converged" }));
+  runs = reduce(runs, e("cold-1", 0, { kind: "run_start", tool: "consensus", workflow: "consensus", providers: ["codex"] }));
+  runs = { ...runs, "cold-1": { ...(/** @type {any} */ (runs))["cold-1"], loaded: false } };
+
+  const out = staleAfterReconnect(runs, ["shown-1", "done-1", "cold-1"]);
+  const r = /** @type {any} */ (out.runs);
+  assert.equal(r["live-1"].loaded, false, "an off-screen running run is marked, fetched lazily");
+  assert.equal(r["shown-1"].loaded, false);
+  assert.equal(r["done-1"].loaded, true, "a terminal run cannot have missed anything");
+  assert.deepEqual(out.refetch, ["shown-1"], "only on-screen runs that were loaded and live are refetched now");
+  assert.equal(/** @type {any} */ (runs)["live-1"].loaded, true, "the input map is not mutated");
+  // Once refetched (loaded again) the same reconnect does not mark it again: the caller
+  // runs this once per open, and an unloaded run is skipped, so a second pass is a no-op.
+  assert.deepEqual(staleAfterReconnect(out.runs, ["shown-1"]).refetch, []);
+});
+
+test("UI11: an index summary that differs from or is ahead of a loaded run marks it unloaded", async () => {
+  const { reduce, staleFromIndex } = await load("app.js");
+  const e = (/** @type {string} */ id, /** @type {number} */ seq, /** @type {Record<string, unknown>} */ f) => ({ v: 1, runId: id, at: 1000 + seq, seq, ...f });
+  let runs = {};
+  for (const id of ["a", "b", "c", "d"]) {
+    runs = reduce(runs, e(id, 0, { kind: "run_start", tool: "consensus", workflow: "consensus", providers: ["codex"] }));
+    runs = reduce(runs, e(id, 1, { kind: "state", state: "peers", round: 1 }));
+  }
+  runs = reduce(runs, e("d", 2, { kind: "run_end", status: "converged" }));
+  const same = { status: "running", endedAt: null, rounds: 1 };
+  const list = [
+    { runId: "a", ...same },
+    { runId: "b", status: "converged", endedAt: 5000, rounds: 1 },
+    { runId: "c", status: "running", endedAt: null, rounds: 2 },
+    { runId: "d", status: "abandoned", endedAt: null, rounds: 1 },
+    { runId: "unknown", status: "done" },
+  ];
+  const out = staleFromIndex(runs, list, ["b", "a"]);
+  const r = /** @type {any} */ (out.runs);
+  assert.equal(r.a.loaded, true, "matching status and nothing ahead: untouched");
+  assert.equal(r.b.loaded, false, "the status differs (its run_end was missed)");
+  assert.equal(r.c.loaded, false, "the summary is ahead by a round");
+  assert.equal(r.d.loaded, true, "a run that saw its own run_end is final");
+  assert.deepEqual(out.refetch, ["b"], "only the on-screen stale run is refetched now");
+  assert.equal(staleFromIndex(out.runs, list, ["b"]).refetch.length, 0, "an unloaded run is not flagged again");
+});

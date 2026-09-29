@@ -166,6 +166,53 @@ export function applySummary(runs, sum) {
   };
 }
 
+/**
+ * After an SSE reconnect, Last-Event-ID resumes only the run named in the id: events other
+ * runs wrote while the link was down are gone, and a run whose last events were among them
+ * never gets a later event to reveal the gap. Mark every loaded run that was not terminal
+ * as unloaded; `refetch` names the ones on screen, which the caller fetches now (the rest
+ * load lazily). Pure.
+ * @param {Record<string, any>} runs
+ * @param {Iterable<string>} onScreenIds
+ * @returns {{runs: Record<string, any>, refetch: string[]}}
+ */
+export function staleAfterReconnect(runs, onScreenIds) {
+  const shown = new Set(onScreenIds);
+  const out = { ...runs };
+  const refetch = [];
+  for (const [id, r] of Object.entries(runs)) {
+    if (!r.loaded || r.legacy || TERMINAL.has(r.status)) continue;
+    out[id] = { ...r, loaded: false };
+    if (shown.has(id)) refetch.push(id);
+  }
+  return { runs: out, refetch };
+}
+
+/**
+ * Compare the index poll with the loaded runs: a summary whose status differs from the
+ * local one, or that is ahead of it (a later end time or more rounds), means events were
+ * missed. A run that saw its own run_end is final and skipped. Call it BEFORE applySummary,
+ * which overwrites the local status. Pure.
+ * @param {Record<string, any>} runs
+ * @param {any[]} list  RunSummary[]
+ * @param {Iterable<string>} onScreenIds
+ * @returns {{runs: Record<string, any>, refetch: string[]}}
+ */
+export function staleFromIndex(runs, list, onScreenIds) {
+  const shown = new Set(onScreenIds);
+  const out = { ...runs };
+  const refetch = [];
+  for (const s of list) {
+    const r = s && runs[s.runId];
+    if (!r || !r.loaded || r.legacy || r.ended) continue;
+    const ahead = (num(s.endedAt) || 0) > r.lastAt || (num(s.rounds) || 0) > r.rounds;
+    if (s.status === r.status && !ahead) continue;
+    out[r.runId] = { ...r, loaded: false };
+    if (shown.has(r.runId)) refetch.push(r.runId);
+  }
+  return { runs: out, refetch };
+}
+
 /** The metadata-only summary of a run, as the runs index shows it. */
 export function summaryOf(r) {
   return {
@@ -364,14 +411,22 @@ function boot() {
     return p;
   }
 
+  const onScreen = () => {
+    const ids = new Set(view && view.runIds ? view.runIds() : []);
+    if (S.selection) ids.add(S.selection.runId);
+    return ids;
+  };
+
   function setIndex(list) {
     S.index = list;
-    const keep = new Set(view && view.runIds ? view.runIds() : []);
-    if (S.selection) keep.add(S.selection.runId);
+    const keep = onScreen();
     S.runs = compactRuns(S.runs, list, keep);
+    const stale = staleFromIndex(S.runs, list, keep);
+    S.runs = stale.runs;
     for (const m of [S.rounds, S.cursors]) for (const id of m.keys()) if (!S.runs[id]) m.delete(id);
     for (const sum of list) S.runs = applySummary(S.runs, sum);
     store.set("index", list.slice(0, 200).map(summaryOf));
+    stale.refetch.forEach(ensureLoaded);
   }
 
   // A fan-out's done status is the server's call (runs.js deriveStatus), so ask for it soon
@@ -398,18 +453,30 @@ function boot() {
 
   // Live link first, so nothing between the index fetch and the subscription is lost.
   // A CLOSED EventSource (a 401 after a dashboard restart) never retries on its own: the
-  // index poll re-opens it, backing off from 15 s to 4 min, and the running runs are
-  // re-fetched because events sent while the link was down are gone.
+  // index poll re-opens it, backing off from 15 s to 4 min. Every open after the first
+  // (this one or the browser's own retry) marks the non-terminal runs unloaded, because
+  // events sent while the link was down are gone.
   let ready = false;
   const early = [];
   let closeEvents = null;
   let reopenDelay = 15000;
   let reopenAt = 0;
+  let wasUp = false;
+  // Every open after the first, whether the browser re-opened it or connect() did.
+  function onReconnect() {
+    const stale = staleAfterReconnect(S.runs, onScreen());
+    S.runs = stale.runs;
+    stale.refetch.forEach(ensureLoaded);
+  }
   function connect() {
     if (closeEvents) closeEvents();
     closeEvents = openEvents((e) => (ready ? onEvent(e) : early.push(e)), (state) => {
       S.link = state;
-      if (state === "up") reopenDelay = 15000;
+      if (state === "up") {
+        reopenDelay = 15000;
+        if (wasUp) onReconnect();
+        wasUp = true;
+      }
       invalidate();
     });
   }
@@ -422,10 +489,6 @@ function boot() {
       reopenAt = Date.now() + reopenDelay;
       reopenDelay = Math.min(reopenDelay * 2, 240000);
       connect();
-      for (const r of Object.values(S.runs).filter((x) => x.status === "running")) {
-        S.runs = { ...S.runs, [r.runId]: { ...r, loaded: false } };
-        ensureLoaded(r.runId);
-      }
     }
     invalidate();
   }).catch((e) => {
