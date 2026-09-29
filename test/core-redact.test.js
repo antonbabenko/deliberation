@@ -8,10 +8,28 @@ test("RD1: email masked", () => {
   assert.equal(redactString("contact a.b@example.com now"), "contact [email] now");
 });
 
-test("RD2: home dir and bare username masked", () => {
+test("RD2: home dir and the username inside a home path masked", () => {
   const opts = { home: "/home/alice", username: "alice" };
   assert.equal(redactString("/home/alice/src/x.js", opts), "~/src/x.js");
-  assert.equal(redactString("C:\\Users\\alice\\x", opts), "C:\\Users\\[user]\\x");
+  assert.equal(redactString("C:\\Users\\alice\\x", opts), "~\\x");
+  assert.equal(redactString("C:/Users/alice/x", opts), "~/x");
+  assert.equal(redactString("/Users/alice", opts), "~");
+});
+
+test("RD7: the username is masked only in a home path, never as a bare word", () => {
+  const opts = { home: "/var/empty", username: "root" };
+  assert.equal(redactString("root cause analysis", opts), "root cause analysis");
+  assert.equal(redactString("see /home/root/x", opts), "see ~/x");
+  assert.equal(redactString("/home/rooted/x", opts), "/home/rooted/x", "a longer name is someone else");
+});
+
+test("RD8: values under id keys are never redacted", () => {
+  const runId = "0b9f3c1e-8d2a-4c5b-9e7f-123456789012"; // all-digit last group looks like an account id
+  const out = /** @type {any} */ (redact({ runId, callId: "gpt-123456789012", sessionId: runId, loopSessionId: runId, id: runId, nested: [{ runId }], note: "acct 123456789012" }));
+  for (const k of ["runId", "sessionId", "loopSessionId", "id"]) assert.equal(out[k], runId, k);
+  assert.equal(out.callId, "gpt-123456789012");
+  assert.equal(out.nested[0].runId, runId);
+  assert.equal(out.note, "acct [account-id]", "other strings are still masked");
 });
 
 test("RD3: IPv4 and IPv6 masked", () => {

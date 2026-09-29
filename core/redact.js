@@ -6,7 +6,7 @@
  *
  * Extends the email-only `stripPII` in core/sessions.js (same bounded email
  * pattern, so both stay ReDoS-safe on provider-controlled text) with path
- * (home dir / OS username), IPv4, IPv6, and 12-digit account-id masking.
+ * (home dir / home paths of the OS username), IPv4, IPv6, and 12-digit account-id masking.
  *
  * Every regex here is either a fixed-width lookaround or a flat sequence of
  * bounded quantifiers (no quantifier nests inside another quantifier), so
@@ -43,6 +43,10 @@ const IPV6_RE = new RegExp(`(?<![0-9A-Fa-f:])(?:${IPV6_ALTS})(?![0-9A-Fa-f:])`, 
 // and 10-digit phone numbers unchanged.
 const ACCOUNT_ID_RE = /(?<!\d)\d{12}(?!\d)/g;
 
+// Structural ids the UI routes and joins on. A UUID whose last group is all digits
+// would otherwise match ACCOUNT_ID_RE and break every lookup by that id.
+const ID_KEYS = new Set(["runId", "callId", "sessionId", "loopSessionId", "id"]);
+
 /** @param {string} s */
 function escapeRegExp(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -74,15 +78,16 @@ function redactString(s, opts) {
   const { home, username } = { ...resolveDefaults(), ...opts };
   let out = s;
 
-  // Home dir first (consumes the username inside it), then any bare
-  // remaining username elsewhere in the string.
+  // Home dir first, then any other home path for the same username (/home/<u>,
+  // /Users/<u>, C:\Users\<u>, either slash). The username alone is left as is:
+  // "root cause" must survive a user named root.
   if (home) {
     const homeRe = new RegExp(`${escapeRegExp(home)}(?=[\\\\/]|$)`, "g");
     out = out.replace(homeRe, "~");
   }
   if (username) {
-    const userRe = new RegExp(`\\b${escapeRegExp(username)}\\b`, "g");
-    out = out.replace(userRe, "[user]");
+    const userRe = new RegExp(`(?:[A-Za-z]:)?[\\\\/](?:home|[Uu]sers)[\\\\/]${escapeRegExp(username)}(?![A-Za-z0-9._-])`, "g");
+    out = out.replace(userRe, "~");
   }
 
   out = out.replace(EMAIL_RE, "[email]");
@@ -94,7 +99,8 @@ function redactString(s, opts) {
 }
 
 /**
- * Deep-copies `value`, masking every string it contains. Non-string,
+ * Deep-copies `value`, masking every string it contains except a string under
+ * an id key (ID_KEYS). Non-string,
  * non-container values (numbers, booleans, null, Date, etc.) pass through
  * unchanged. Never mutates the input.
  *
@@ -108,7 +114,7 @@ function redact(value, opts) {
   if (value !== null && typeof value === "object" && value.constructor === Object) {
     /** @type {Record<string, unknown>} */
     const out = {};
-    for (const [k, v] of Object.entries(value)) out[k] = redact(v, opts);
+    for (const [k, v] of Object.entries(value)) out[k] = ID_KEYS.has(k) && typeof v === "string" ? v : redact(v, opts);
     return out;
   }
   return value;

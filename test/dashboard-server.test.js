@@ -307,3 +307,51 @@ test("S11: missing UI dir -> 503", async () => {
     s.close();
   }
 });
+
+test("S15: a run id whose last UUID group is all digits survives redaction on every route", async () => {
+  const id = "0b9f3c1e-8d2a-4c5b-9e7f-123456789012";
+  const dir = tmpDir();
+  fs.writeFileSync(path.join(dir, `${id}.jsonl`), [
+    { v: 1, kind: "run_start", runId: id, at: 1_700_000_000_000, seq: 0, tool: "ask-gpt", workflow: "single", pid: 1, providers: ["codex"] },
+    { v: 1, kind: "call_end", runId: id, at: 1_700_000_000_100, seq: 1, callId: "codex-123456789012", provider: "codex", isError: false },
+    { v: 1, kind: "run_end", runId: id, at: 1_700_000_000_200, seq: 2, status: "done" },
+  ].map((e) => JSON.stringify(e)).join("\n") + "\n");
+  const s = createDashboardServer({
+    port: 0, token: TOKEN, uiDir, index: createRunIndex({ runsDir: dir }), getConfig: () => cfg, health: async () => ({}), stats: () => ({}),
+    tailer: { subscribe(/** @type {Function} */ fn) { setImmediate(() => fn({ id: `${id}:99`, event: { kind: "call_end", runId: id, callId: "codex-123456789012", seq: 1 } })); return () => {}; }, close() {} },
+  });
+  await new Promise((r) => s.listen(0, "127.0.0.1", () => r(undefined)));
+  const p = /** @type {any} */ (s.address()).port;
+  /** @param {string} u @returns {Promise<{status: number, body: string}>} */
+  const get = (u) => new Promise((resolve, reject) => {
+    const r = http.get({ host: "127.0.0.1", port: p, path: u, headers: { Host: `127.0.0.1:${p}`, Cookie: `dlb_dash=${TOKEN}` } }, (res) => {
+      let body = "";
+      res.setEncoding("utf8");
+      res.on("data", (c) => {
+        body += c;
+        if (u === "/api/events" && body.includes("\n\n")) { resolve({ status: /** @type {number} */ (res.statusCode), body }); r.destroy(); }
+      });
+      res.on("end", () => resolve({ status: /** @type {number} */ (res.statusCode), body }));
+    });
+    r.on("error", (e) => { if (/** @type {any} */ (e).code !== "ECONNRESET") reject(e); });
+  });
+  try {
+    cfg.dashboard.showPII = false;
+    const list = JSON.parse((await get("/api/runs")).body);
+    assert.equal(list.runs[0].runId, id);
+    const one = await get(`/api/runs/${id}`);
+    assert.equal(one.status, 200);
+    const detail = JSON.parse(one.body);
+    assert.equal(detail.summary.runId, id);
+    assert.ok(detail.events.every((/** @type {any} */ e) => e.runId === id));
+    assert.equal(detail.events[1].callId, "codex-123456789012");
+    const sse = await get("/api/events");
+    assert.match(sse.body, new RegExp(`^id: ${id}:99\\n`));
+    const data = JSON.parse(sse.body.split("\n").find((l) => l.startsWith("data: ")).slice(6));
+    assert.equal(data.runId, id);
+    assert.equal(data.callId, "codex-123456789012");
+  } finally {
+    s.closeAllConnections();
+    s.close();
+  }
+});
