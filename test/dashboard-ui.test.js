@@ -303,3 +303,47 @@ test("UI11: an index summary that differs from or is ahead of a loaded run marks
   assert.deepEqual(out.refetch, ["b"], "only the on-screen stale run is refetched now");
   assert.equal(staleFromIndex(out.runs, list, ["b"]).refetch.length, 0, "an unloaded run is not flagged again");
 });
+
+test("UI12: a detail fetch that started before a reconnect is discarded and refetched", async () => {
+  const { createLoader } = await load("app.js");
+  /** @type {Record<string, any>} */
+  const runs = { r1: { loaded: false } };
+  /** @type {Array<(body: any) => void>} */
+  const pending = [];
+  const applied = [];
+  const loader = createLoader({
+    fetchRun: () => new Promise((res) => pending.push(res)),
+    get: (id) => runs[id],
+    apply: (id, body) => { applied.push(body); runs[id] = { loaded: true }; },
+    fail: () => assert.fail("no fetch fails"),
+    settled: () => {},
+    shown: () => true,
+  });
+  const first = loader.ensure("r1");
+  assert.equal(pending.length, 1);
+  assert.equal(loader.ensure("r1"), first, "before a reconnect the in-flight fetch is shared");
+  loader.reconnected();
+  const second = loader.ensure("r1");
+  assert.equal(pending.length, 2, "after a reconnect a new fetch starts, not the stale promise");
+  assert.notEqual(second, first);
+  pending[0]({ snap: "before-reconnect" });
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(applied, [], "the stale result is discarded");
+  assert.equal(runs.r1.loaded, false, "and does not mark the run loaded");
+  assert.equal(pending.length, 2, "the fresh fetch already running is not duplicated");
+  pending[1]({ snap: "after-reconnect" });
+  await Promise.all([first, second]);
+  assert.deepEqual(applied, [{ snap: "after-reconnect" }]);
+  assert.equal(runs.r1.loaded, true);
+
+  // A stale fetch that resolves with nothing newer running starts exactly one fresh fetch.
+  runs.r2 = { loaded: false };
+  const stale = loader.ensure("r2");
+  loader.reconnected();
+  pending[2]({ snap: "stale" });
+  await new Promise((r) => setImmediate(r));
+  assert.equal(pending.length, 4, "one refetch for the run still on screen");
+  pending[3]({ snap: "fresh" });
+  await stale;
+  assert.deepEqual(applied.slice(1), [{ snap: "fresh" }], "only the fresh snapshot lands; no loop");
+});

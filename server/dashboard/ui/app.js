@@ -213,6 +213,47 @@ export function staleFromIndex(runs, list, onScreenIds) {
   return { runs: out, refetch };
 }
 
+/**
+ * Detail fetches, guarded by a reconnect epoch. A fetch that started before a reconnect
+ * may hold a snapshot that misses events the dropped link lost, so its result is discarded
+ * (never applied, never marks the run loaded) and, if the run is still wanted, fetched once
+ * more under the new epoch. A stale in-flight promise is never handed to a caller. Failures
+ * are retried at most once per `retryMs`, not on every live event. Injected I/O keeps it
+ * testable without a DOM.
+ * @param {{fetchRun: (id: string) => Promise<any>, get: (id: string) => any,
+ *   apply: (id: string, body: any) => void, fail: (id: string, e: any) => void,
+ *   settled: () => void, shown: (id: string) => boolean, now?: () => number, retryMs?: number}} io
+ */
+export function createLoader(io) {
+  const now = io.now || Date.now;
+  const retryMs = io.retryMs === undefined ? 30000 : io.retryMs;
+  let epoch = 0;
+  /** @type {Map<string, {epoch: number, p: Promise<void>}>} */
+  const loading = new Map();
+  function ensure(id) {
+    const r = io.get(id);
+    const cur = loading.get(id);
+    if (r && (r.loaded || r.legacy)) return cur ? cur.p : Promise.resolve();
+    if (cur && cur.epoch === epoch) return cur.p;
+    if (r && r.loadError && now() - (r.loadErrorAt || 0) < retryMs) return Promise.resolve();
+    const startEpoch = epoch;
+    const entry = { epoch: startEpoch, p: Promise.resolve() };
+    entry.p = io.fetchRun(id).then((body) => {
+      if (startEpoch === epoch) io.apply(id, body);
+    }).catch((e) => {
+      if (startEpoch === epoch) io.fail(id, e);
+    }).then(() => {
+      if (loading.get(id) === entry) loading.delete(id);
+      io.settled();
+      // Discarded: the reconnect's own refetch may already be running; otherwise start one.
+      if (startEpoch !== epoch && io.shown(id)) return ensure(id);
+    });
+    loading.set(id, entry);
+    return entry.p;
+  }
+  return { ensure, reconnected: () => { epoch += 1; } };
+}
+
 /** The metadata-only summary of a run, as the runs index shows it. */
 export function summaryOf(r) {
   return {
@@ -383,14 +424,10 @@ function boot() {
   }
 
   // Detail loading: fold the fetched journal, then replay any live events newer than it.
-  const loading = new Map();
-  const RETRY_MS = 30000;
-  function ensureLoaded(id) {
-    const r = S.runs[id];
-    if ((r && (r.loaded || r.legacy)) || loading.has(id)) return loading.get(id) || Promise.resolve();
-    // A failed fetch is retried at most once per RETRY_MS, not on every live event.
-    if (r && r.loadError && Date.now() - (r.loadErrorAt || 0) < RETRY_MS) return Promise.resolve();
-    const p = api.run(id).then((body) => {
+  const loader = createLoader({
+    fetchRun: (id) => api.run(id),
+    get: (id) => S.runs[id],
+    apply: (id, body) => {
       const cur = S.runs[id] || emptyRun(id);
       if (body && Array.isArray(body.events)) {
         let fresh = body.events.reduce((acc, e) => reduce(acc, e), { [id]: emptyRun(id) });
@@ -400,15 +437,16 @@ function boot() {
       } else if (body && body.legacy) {
         S.runs = applySummary({ ...S.runs, [id]: { ...cur, legacy: body.legacy, loaded: true, loadError: undefined } }, body.summary);
       }
-    }).catch((e) => {
+    },
+    fail: (id, e) => {
       if (e && e.status === 401) S.authError = true;
-      S.runs = { ...S.runs, [id]: { ...(S.runs[id] || emptyRun(id)), loadError: String(e.message || e), loadErrorAt: Date.now() } };
-    }).finally(() => {
-      loading.delete(id);
-      invalidate();
-    });
-    loading.set(id, p);
-    return p;
+      S.runs = { ...S.runs, [id]: { ...(S.runs[id] || emptyRun(id)), loadError: String((e && e.message) || e), loadErrorAt: Date.now() } };
+    },
+    settled: () => invalidate(),
+    shown: (id) => onScreen().has(id),
+  });
+  function ensureLoaded(id) {
+    return loader.ensure(id);
   }
 
   const onScreen = () => {
@@ -464,6 +502,7 @@ function boot() {
   let wasUp = false;
   // Every open after the first, whether the browser re-opened it or connect() did.
   function onReconnect() {
+    loader.reconnected();
     const stale = staleAfterReconnect(S.runs, onScreen());
     S.runs = stale.runs;
     stale.refetch.forEach(ensureLoaded);
