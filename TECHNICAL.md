@@ -1857,10 +1857,17 @@ defenses, in request order:
   in the `0600` pidfile `<XDG cache>/deliberation/dashboard.json`, which is how a second
   launch reprints the live URL. Restarting the dashboard issues a new token.
 - **The cookie reaches every local port.** Browsers scope cookies by host, not port, so
-  `dlb_dash` is also sent to any other service on `127.0.0.1`. Such a service could read
-  the token from its own request log, but it cannot read dashboard data from a browser
-  page: a cross-port fetch carries its own `Origin` and is refused, and
-  `X-Content-Type-Options: nosniff` stops a page from loading the JSON as a script.
+  `dlb_dash` is also sent to any other service on `127.0.0.1`. A web page cannot use that
+  to read dashboard data: a cross-port fetch carries its own `Origin` and is refused, and
+  `X-Content-Type-Options: nosniff` stops a page from loading the JSON as a script. The
+  local service itself can, though: it receives the cookie value, so it can replay the
+  token server-side (for example `curl -H "Host: 127.0.0.1:<port>"` with the cookie, or
+  with `?t=<token>`) and read everything the dashboard serves. This is accepted because
+  any process listening on the machine is already inside the same-machine trust boundary;
+  the design scope is a single-user laptop. The cookie is only issued after you open the
+  tokenized URL, and restarting the dashboard rotates the token, which invalidates it.
+  On a shared multi-user machine, do not enable the dashboard, and do not use
+  `capture: "content"`.
 - **Token off argv.** The browser is opened through a `0600` redirect file next to the
   pidfile (`dashboard-open.html`); the opener gets that file's path, so the token never
   appears in a process list.

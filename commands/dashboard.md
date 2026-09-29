@@ -24,6 +24,10 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/commands/dashboard.sh"
 If your host does not set `CLAUDE_PLUGIN_ROOT`, pass the plugin directory instead:
 `bash <plugin-root>/scripts/commands/dashboard.sh`.
 
+The script needs a POSIX shell (Git Bash on Windows). Without one, tell the user to run
+`deliberation-mcp dashboard` (or `node <plugin-root>/server/mcp/index.js dashboard`) in a
+terminal instead.
+
 The script starts `node server/mcp/index.js dashboard` detached, so the dashboard keeps
 running after this session ends, and waits for its first output line. A second run finds
 the live dashboard and prints the same URL.

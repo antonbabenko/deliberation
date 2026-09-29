@@ -304,7 +304,8 @@ same machine as the MCP server, so it does not work from Claude Code on the web.
    /deliberation:dashboard
    ```
 
-   Anywhere else (or from a terminal):
+   The command runs a bash script, so on Windows it needs Git Bash; without it, use the
+   terminal form below. Anywhere else (or from a terminal):
 
    ```bash
    deliberation-mcp dashboard            # npm package

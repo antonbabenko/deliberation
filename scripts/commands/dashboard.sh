@@ -18,7 +18,9 @@ fi
 root=$(resolve_plugin_root) || { echo "deliberation plugin root not found; set CLAUDE_PLUGIN_ROOT"; exit 1; }
 
 tmp=$(mktemp -d) || exit 1
-# The URL line carries the token: both files live in a private mktemp dir and are removed below.
+# The URL line carries the token: both files live in a private mktemp dir, removed on exit.
+trap 'rm -rf "$tmp" 2>/dev/null' EXIT
+trap 'exit 1' INT TERM
 nohup node "$root/server/mcp/index.js" dashboard "$@" >"$tmp/out" 2>"$tmp/err" </dev/null &
 pid=$!
 
@@ -26,20 +28,19 @@ i=0
 while [ "$i" -lt 100 ]; do
   if [ -s "$tmp/out" ]; then
     head -n 1 "$tmp/out"
-    rm -rf "$tmp" 2>/dev/null
     exit 0
   fi
   if ! kill -0 "$pid" 2>/dev/null; then
     # It exited: a live instance's URL (exit 0), or a refusal on stderr (exit 1).
-    if [ -s "$tmp/out" ]; then head -n 1 "$tmp/out"; rm -rf "$tmp" 2>/dev/null; exit 0; fi
+    if [ -s "$tmp/out" ]; then head -n 1 "$tmp/out"; exit 0; fi
     cat "$tmp/err"
-    rm -rf "$tmp" 2>/dev/null
     exit 1
   fi
   sleep 0.1
   i=$((i + 1))
 done
-echo "dashboard did not print its URL within 10s; output so far:"
+# Stopped rather than left running: a URL it printed later would land in a removed file.
+kill "$pid" 2>/dev/null
+echo "dashboard did not print its URL within 10s and was stopped; its stderr:"
 cat "$tmp/err"
-rm -rf "$tmp" 2>/dev/null
 exit 1

@@ -58,7 +58,8 @@ Fan-out and single-provider:
   fan-out, so report them once rather than treating them as errors. `needsLogin[]` names
   panel members that have no login yet but stay on the panel (codex on a fresh machine):
   run `codex-login` and let the user approve BEFORE dispatching, so GPT answers from the first
-  call. Pass `for: "consensus"` for the consensus panel. Read-only; never starts a login.
+  call. Pass `for: "consensus"` for the consensus panel. No provider calls and never starts
+  a login; the only write is one local dashboard journal line, and only when that journal is on.
   When the local dashboard journal is on (`dashboard.enabled`), it also returns a `runId`
   (the ask-all panel only): pass it to every `ask-one` of that fan-out so the dashboard
   draws them as one run. Optional `prompt` is recorded on that run, never sent to a provider.
