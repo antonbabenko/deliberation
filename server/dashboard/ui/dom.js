@@ -78,9 +78,10 @@ export function fmtTime(epoch) {
 /** A run id cut in the middle so the unique tail survives: 3f2a91c4...9e0b1d77. */
 export function midId(id, max = 20) {
   if (typeof id !== "string" || !id) return "-";
-  if (id.length <= max) return id;
+  const cp = Array.from(id);
+  if (cp.length <= max) return id;
   const tail = Math.ceil((max - 3) / 2);
-  return `${id.slice(0, max - 3 - tail)}...${id.slice(-tail)}`;
+  return `${cp.slice(0, max - 3 - tail).join("")}...${cp.slice(-tail).join("")}`;
 }
 
 /** Verdict token as the decode row prints it. */

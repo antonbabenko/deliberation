@@ -372,23 +372,41 @@ export function layoutTriggers(points, opts) {
 
 const BOUNDARY = /[\s:(\-]/;
 
-/** Cut `text` to `max` chars at a word boundary, marking the cut with "...". */
+/** Cut `text` to `max` code points at a word boundary, marking the cut with "...". */
 export function ellipsize(text, max) {
-  if (text.length <= max) return text;
+  const cp = Array.from(text);
+  if (cp.length <= max) return text;
   let cut = max - 3;
-  while (cut > 3 && !BOUNDARY.test(text[cut])) cut--;
+  while (cut > 3 && !BOUNDARY.test(cp[cut])) cut--;
   if (cut <= 3) cut = max - 3;
-  return `${text.slice(0, cut).replace(/[\s:(\-]+$/, "")}...`;
+  return `${cp.slice(0, cut).join("").replace(/[\s:(\-]+$/, "")}...`;
 }
 
-/** Split `text` into at most two lines of `max` chars at word boundaries. */
-export function wrap2(text, max) {
-  if (text.length <= max) return [text];
+/** Cut at exactly `max` code points, for ids where a word boundary would drop the useful part. */
+export function clip(text, max) {
+  const cp = Array.from(text);
+  return cp.length <= max ? text : `${cp.slice(0, Math.max(1, max - 3)).join("")}...`;
+}
+
+/** Split an id into at most two rows of `max` code points, after the last hyphen or space that fits. */
+export function splitId(text, max) {
+  const cp = Array.from(text);
+  if (cp.length <= max) return [text];
   let cut = max;
-  while (cut > 3 && !BOUNDARY.test(text[cut])) cut--;
+  while (cut > 3 && cp[cut - 1] !== "-" && cp[cut - 1] !== " ") cut--;
+  if (cut <= 3) cut = max;
+  return [cp.slice(0, cut).join("").trimEnd(), clip(cp.slice(cut).join("").trimStart(), max)];
+}
+
+/** Split `text` into at most two lines of `max` code points at word boundaries. */
+export function wrap2(text, max) {
+  const cp = Array.from(text);
+  if (cp.length <= max) return [text];
+  let cut = max;
+  while (cut > 3 && !BOUNDARY.test(cp[cut])) cut--;
   if (cut <= 3) return [ellipsize(text, max)];
-  const head = text.slice(0, text[cut] === " " ? cut : cut + (text[cut] === "(" ? 0 : 1)).trimEnd();
-  return [head, ellipsize(text.slice(head.length).trimStart(), max)];
+  const head = cp.slice(0, cp[cut] === " " ? cut : cut + (cp[cut] === "(" ? 0 : 1)).join("").trimEnd();
+  return [head, ellipsize(cp.slice(Array.from(head).length).join("").trimStart(), max)];
 }
 
 const SHORT = { APPROVE: "APV", REQ_CHANGES: "REQ", REJECT: "REJ", TIMEOUT: "TMO", "RATE-LIMIT": "RL", NETWORK: "NET", ERROR: "ERR", EMPTY: "EMP", ADJUDICATED: "ADJ", REVISED: "REV", BLIND: "BLD" };
@@ -482,6 +500,12 @@ export function renderGraph(svg, workflow, model) {
   const base = y + 46;
   kids.push(s("text", { x: PAD, y: base - 4, class: "gutter-label" }, "TRIG"));
   const divs = Math.max(4, Math.min(10, Math.floor((x1 - x0) / 72)));
+  // The T tag and cursor flags sit on the tick-label row; a tick label they would cover is left out.
+  const cur = ui.cursors || {};
+  const tagged = inWin(model.runStart) && model.runStart > model.t0 - 1;
+  const marks = [];
+  if (tagged) marks.push(tx(model.runStart));
+  for (const w of ["a", "b"]) if (num(cur[w]) !== null && inWin(cur[w])) marks.push(tx(cur[w]));
   for (let i = 0; i <= divs; i++) {
     const x = x0 + ((x1 - x0) * i) / divs;
     kids.push(s("line", { x1: x, x2: x, y1: base - 6, y2: base, class: "tick" }));
@@ -493,14 +517,16 @@ export function renderGraph(svg, workflow, model) {
     }
     const label = tick(rel(model.t0 + (span * i) / divs));
     const anchor = i === 0 ? "start" : i === divs ? "end" : "middle";
-    kids.push(s("text", { x, y: base + 13, class: "tick-label", "text-anchor": anchor }, label));
+    const lw = label.length * CHAR;
+    const la = anchor === "start" ? x : anchor === "end" ? x - lw : x - lw / 2;
+    if (!marks.some((m) => m + 8 > la && m - 8 < la + lw)) kids.push(s("text", { x, y: base + 13, class: "tick-label", "text-anchor": anchor }, label));
   }
   kids.push(s("line", { x1: x0, x2: x1, y1: base, y2: base, class: "ruler" }));
   const timed = model.nodes.filter((n) => num(n.at) !== null && inWin(n.at)).sort((a, b) => a.at - b.at);
   // Triggers within a few px of each other would stack unreadably: one marker per cluster,
   // coloured by its worst member, with an empty element per member for tests and assistive tech.
   // Run start (T) and, on a live capture, the now line are drawn distinct from phase triggers.
-  if (inWin(model.runStart) && model.runStart > model.t0 - 1) {
+  if (tagged) {
     const xt = tx(model.runStart);
     kids.push(s("rect", { x: xt - 6, y: base + 2, width: 12, height: 12, class: "t-tag" }));
     kids.push(s("text", { x: xt, y: base + 11.5, class: "t-tag-text", "text-anchor": "middle" }, "T"));
@@ -565,13 +591,24 @@ export function renderGraph(svg, workflow, model) {
     const maxChars = Math.floor((G - PAD - 15 - 6) / CHAR);
     const faults = [...new Set(segs.filter((g) => g.state === "failed" || g.state === "timeout").map((g) => g.decode).filter(Boolean))];
     const flagText = [...c.flags, ...faults].join(" ");
-    const meta = [c.model, c.effort].filter(Boolean).join(" ") || (c.kind === "host" ? "Claude, in session" : "model pending");
-    // Four rows at most; flags come before model and effort so a failure is never the row cut.
+    const modelId = c.model || (c.kind === "host" ? "Claude, in session" : "model pending");
+    const meta = [c.model, c.effort].filter(Boolean).join(" ") || modelId;
+    // Four rows. The model id always keeps its row(s), split after a hyphen or space so its
+    // distinguishing tail stays visible; flags take what is left, then the rest of the model, then effort.
+    const oneLine = Array.from(meta).length <= maxChars;
+    const nameRows = wrap2(c.label, maxChars);
+    const modelRows = oneLine ? [meta] : splitId(modelId, maxChars);
+    let free = 4 - nameRows.length - 1;
+    const flagRows = flagText && free > 0 ? (free === 1 ? [ellipsize(flagText, maxChars)] : wrap2(flagText, maxChars)) : [];
+    free -= flagRows.length;
+    const shownModel = modelRows.length > 1 && free <= 0 ? [clip(modelId, maxChars)] : modelRows;
+    free -= shownModel.length - 1;
     const lines = [
-      ...wrap2(c.label, maxChars).map((t) => [t, `ch-name${dimmed ? " is-dropped" : ""}`]),
-      ...(flagText ? wrap2(flagText, maxChars).map((t) => [t, "ch-flag"]) : []),
-      [ellipsize(meta, maxChars), "ch-meta"],
-    ].slice(0, 4);
+      ...nameRows.map((t) => [t, `ch-name${dimmed ? " is-dropped" : ""}`]),
+      ...flagRows.map((t) => [t, "ch-flag"]),
+      ...shownModel.map((t) => [t, "ch-meta"]),
+      ...(!oneLine && c.effort && free > 0 ? [[clip(c.effort, maxChars), "ch-meta"]] : []),
+    ];
     kids.push(s("line", { x1: PAD, x2: PAD + 10, y1: hi + 6, y2: hi + 6, class: `ch-key ${inkCls}` }));
     const gutter = s("text", { class: "ch-gutter" }, s("title", { text: [c.label, meta, flagText].filter(Boolean).join(", ") }));
     lines.forEach(([t, cls], k) => gutter.append(s("tspan", { x: PAD + 15, y: hi + 10 + k * ROW, class: cls }, t)));
@@ -641,7 +678,6 @@ export function renderGraph(svg, workflow, model) {
   }
 
   // Cursors A and B with a delta readout.
-  const cur = ui.cursors || {};
   for (const which of ["a", "b"]) {
     const t = num(cur[which]);
     if (t === null || !inWin(t)) continue;

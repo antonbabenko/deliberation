@@ -161,7 +161,7 @@ test("UI5: trigger layout merges a cluster whose label has no free row; labels n
 });
 
 test("UI6: gutter text, decodes and run ids are shortened without going blank or cutting a word", async () => {
-  const { wrap2, ellipsize, shortDecode } = await load("graph.js");
+  const { wrap2, ellipsize, clip, splitId, shortDecode } = await load("graph.js");
   const { midId } = await load("dom.js");
   assert.deepEqual(wrap2("arbiter (host)", 12), ["arbiter", "(host)"]);
   assert.deepEqual(wrap2("openrouter:deepseek", 12), ["openrouter:", "deepseek"]);
@@ -173,4 +173,13 @@ test("UI6: gutter text, decodes and run ids are shortened without going blank or
   assert.notEqual(midId(a, 20), midId(b, 20), "two ids with a shared head stay distinct");
   assert.ok(midId(a, 20).endsWith("9e0b1d77") && midId(a, 20).length === 20);
   assert.equal(midId("cs-synth-live", 20), "cs-synth-live");
+  // Cuts land on code points: an astral character is never split into a lone surrogate.
+  const astral = "\u{1F600}".repeat(10) + "-run-" + "\u{1F680}".repeat(10);
+  for (const t of [midId(astral, 12), clip(astral, 8), ellipsize(astral, 8), ...wrap2(astral, 8)]) {
+    assert.ok(!/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/.test(t), `no lone surrogate in ${JSON.stringify(t)}`);
+  }
+  assert.equal(midId(astral, 12), "\u{1F600}".repeat(4) + "..." + "\u{1F680}".repeat(5));
+  assert.deepEqual(splitId("gemini-3.1-pro-low", 12), ["gemini-3.1-", "pro-low"], "a long model id splits after a hyphen and keeps its tail");
+  assert.deepEqual(splitId("Claude, in session", 12), ["Claude, in", "session"]);
+  assert.equal(clip("gemini-3.1-pro-low", 12), "gemini-3....", "the model id is cut hard, not at a hyphen");
 });
