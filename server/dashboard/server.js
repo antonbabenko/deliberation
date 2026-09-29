@@ -16,7 +16,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { redact } = require("../../core/redact.js");
-const { isSafeId } = require("../../core/journal.js");
+const { isSafeId, JOURNAL_KEYS } = require("../../core/journal.js");
 
 const COOKIE = "dlb_dash";
 const KEEPALIVE_MS = 15000;
@@ -38,6 +38,41 @@ const CONTENT_TYPES = Object.freeze({
 });
 // Providers whose key env name is fixed in code rather than carried in the resolved config.
 const FIXED_KEY_ENVS = Object.freeze({ grok: "XAI_API_KEY" });
+
+// Free-text fields of the legacy core/sessions.js record that JOURNAL_KEYS does not name.
+const LEGACY_CONTENT_KEYS = ["question", "synthesis", "note"];
+/** Content field names, derived from the journal whitelist so there is no second list.
+ * `a[].b` entries (criticalIssues[].description) become a nested drop. */
+const CONTENT_KEYS = new Set(LEGACY_CONTENT_KEYS);
+/** @type {Map<string, Set<string>>} parent key -> element fields to drop */
+const NESTED_CONTENT_KEYS = new Map();
+for (const spec of Object.values(JOURNAL_KEYS)) {
+  for (const k of spec.content) {
+    const m = /^(\w+)\[\]\.(\w+)$/.exec(k);
+    if (!m) CONTENT_KEYS.add(k);
+    else NESTED_CONTENT_KEYS.set(m[1], (NESTED_CONTENT_KEYS.get(m[1]) || new Set()).add(m[2]));
+  }
+}
+
+/**
+ * A copy of `v` with every content field removed at any depth: journal events, and the
+ * legacy session record (question, synthesis, opinion text, critical-issue descriptions,
+ * annotation notes). Applied before redaction whenever `dashboard.capture` is not "content".
+ * @param {any} v @returns {any}
+ */
+function stripContent(v) {
+  if (Array.isArray(v)) return v.map(stripContent);
+  if (!v || typeof v !== "object") return v;
+  /** @type {Record<string, any>} */ const out = {};
+  for (const [k, x] of Object.entries(v)) {
+    if (CONTENT_KEYS.has(k)) continue;
+    const drop = NESTED_CONTENT_KEYS.get(k);
+    out[k] = drop && Array.isArray(x)
+      ? x.map((e) => (e && typeof e === "object" ? Object.fromEntries(Object.entries(e).filter(([f]) => !drop.has(f))) : e))
+      : stripContent(x);
+  }
+  return out;
+}
 
 /**
  * Constant-time token check. Length is not secret (always 64 hex chars).
@@ -153,6 +188,17 @@ function createDashboardServer(opts) {
   };
   /** @param {unknown} v */
   const outward = (v) => (showPII() ? v : redact(v));
+  // Read per request (hot reload). Anything but "content" serves no prompt/response text, whatever is on disk.
+  const capturesContent = () => {
+    try {
+      const d = (getConfig() || {}).dashboard;
+      return !!(d && d.capture === "content");
+    } catch {
+      return false;
+    }
+  };
+  /** @param {unknown} v */
+  const served = (v) => outward(capturesContent() ? v : stripContent(v));
 
   /**
    * @param {http.IncomingMessage} req @param {http.ServerResponse} res
@@ -242,7 +288,7 @@ function createDashboardServer(opts) {
     };
     const since = req.headers["last-event-id"];
     const unsubscribe = tailer.subscribe(({ id, event }) => {
-      send(`id: ${id}\ndata: ${JSON.stringify(outward(event))}\n\n`);
+      send(`id: ${id}\ndata: ${JSON.stringify(served(event))}\n\n`);
     }, typeof since === "string" ? since : undefined);
     const ka = setInterval(() => send(": ka\n\n"), KEEPALIVE_MS);
     res.on("close", () => {
@@ -275,6 +321,7 @@ function createDashboardServer(opts) {
         status: q.get("status") || undefined,
         since: sinceRaw && /^\d+$/.test(sinceRaw) ? Number(sinceRaw) : sinceRaw || undefined,
         redacted: !showPII(),
+        metadataOnly: !capturesContent(),
       };
       return sendJson(req, res, 200, outward({ runs: index.list(filter) }));
     }
@@ -283,7 +330,7 @@ function createDashboardServer(opts) {
       if (!isSafeId(id)) return sendJson(req, res, 400, { error: "invalid run id" });
       const run = index.get(id);
       if (!run) return sendJson(req, res, 404, { error: "run not found" });
-      return sendJson(req, res, 200, outward(run));
+      return sendJson(req, res, 200, served(run));
     }
     if (p === "/api/config") return sendJson(req, res, 200, outward(publicConfig(getConfig(), process.env)));
     if (p === "/api/health") return sendJson(req, res, 200, outward(await health()));

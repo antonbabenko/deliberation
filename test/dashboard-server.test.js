@@ -34,7 +34,7 @@ fs.writeFileSync(path.join(uiBase, "ui-evil", "p.js"), "SECRET_SIBLING");
 if (process.platform !== "win32") fs.symlinkSync("../secret.js", path.join(uiDir, "link.js"));
 
 /** @type {any} */
-const cfg = { dashboard: { enabled: true, showPII: false }, providers: { grok: { enabled: true } }, openrouter: { apiKeyEnv: "OPENROUTER_API_KEY" } };
+const cfg = { dashboard: { enabled: true, showPII: false, capture: "content" }, providers: { grok: { enabled: true } }, openrouter: { apiKeyEnv: "OPENROUTER_API_KEY" } };
 const tail = { since: /** @type {any} */ (undefined), unsubscribed: false };
 const tailer = {
   subscribe(/** @type {Function} */ fn, /** @type {string} */ since) {
@@ -365,5 +365,107 @@ test("S16: with showPII off, ?q= matches the redacted prompt, so a search cannot
     assert.equal(JSON.parse((await req("/api/runs?q=x%40y.io", { cookie: true })).body).runs.length, 1);
   } finally {
     cfg.dashboard.showPII = false;
+  }
+});
+
+/**
+ * A server over one content-bearing journal run and one legacy session record, with its own
+ * mutable config so a test can flip `capture` between requests.
+ * @param {string} capture
+ */
+async function captureFixture(capture) {
+  const runs = tmpDir();
+  const sessions = tmpDir();
+  const jid = "run-cap-1";
+  fs.writeFileSync(path.join(runs, `${jid}.jsonl`), [
+    { v: 1, kind: "run_start", runId: jid, at: 1_700_000_000_000, seq: 0, tool: "consensus", workflow: "consensus-step", pid: 1, providers: ["codex"], prompt: "SECRETPROMPT" },
+    { v: 1, kind: "call_start", runId: jid, at: 1_700_000_000_050, seq: 1, callId: "c1", provider: "codex", role: "peer", round: 1, request: "SECRETREQUEST" },
+    { v: 1, kind: "call_end", runId: jid, at: 1_700_000_000_100, seq: 2, callId: "c1", provider: "codex", isError: false, verdict: "REQUEST_CHANGES", response: "SECRETRESPONSE", criticalIssues: [{ category: "bug", description: "SECRETISSUE" }] },
+    { v: 1, kind: "arbiter", runId: jid, at: 1_700_000_000_150, seq: 3, action: "adjudicate", round: 1, text: "SECRETARBITER" },
+    { v: 1, kind: "run_end", runId: jid, at: 1_700_000_000_200, seq: 4, status: "done", finalReport: "SECRETREPORT" },
+  ].map((e) => JSON.stringify(e)).join("\n") + "\n");
+  const lid = "legacy-cap-1";
+  fs.writeFileSync(path.join(sessions, `${lid}.json`), JSON.stringify({
+    id: lid, parentId: null, schemaVersion: 1, createdAt: "2026-01-01T00:00:00.000Z", tool: "consensus",
+    question: "SECRETQUESTION", synthesis: "SECRETSYNTHESIS", converged: false, rounds: 1,
+    opinions: [{ provider: "grok", text: "SECRETOPINION", verdict: "REJECT", criticalIssues: [{ category: "bug", description: "SECRETLEGACYISSUE" }] }],
+  }));
+  /** @type {any} */
+  const c = { dashboard: { enabled: true, showPII: false, capture } };
+  const eventBody = { kind: "call_end", callId: "c1", response: "SECRETRESPONSE", criticalIssues: [{ category: "bug", description: "SECRETISSUE" }] };
+  const s = createDashboardServer({
+    port: 0, token: TOKEN, uiDir, index: createRunIndex({ runsDir: runs, sessionsDir: sessions, isAlive: () => false }), getConfig: () => c,
+    health: async () => ({}), stats: () => ({}),
+    tailer: { subscribe(/** @type {Function} */ fn) { setImmediate(() => fn({ id: `${jid}:9`, event: eventBody })); return () => {}; }, close() {} },
+  });
+  await new Promise((r) => s.listen(0, "127.0.0.1", () => r(undefined)));
+  const p = /** @type {any} */ (s.address()).port;
+  /** @param {string} u @returns {Promise<string>} */
+  const get = (u) => new Promise((resolve, reject) => {
+    const r = http.get({ host: "127.0.0.1", port: p, path: u, headers: { Host: `127.0.0.1:${p}`, Cookie: `dlb_dash=${TOKEN}` } }, (res) => {
+      let body = "";
+      res.setEncoding("utf8");
+      res.on("data", (d) => { body += d; if (u === "/api/events" && body.includes("\n\n")) { resolve(body); r.destroy(); } });
+      res.on("end", () => resolve(body));
+    });
+    r.on("error", (e) => { if (/** @type {any} */ (e).code !== "ECONNRESET") reject(e); });
+  });
+  return { jid, lid, cfg: c, get, close: () => { s.closeAllConnections(); s.close(); } };
+}
+
+test("S17: capture metadata serves no content on /api/runs/:id or SSE, for journal and legacy runs", async () => {
+  const f = await captureFixture("metadata");
+  try {
+    const journal = await f.get(`/api/runs/${f.jid}`);
+    const legacy = await f.get(`/api/runs/${f.lid}`);
+    const sse = await f.get("/api/events");
+    for (const body of [journal, legacy, sse]) assert.ok(!/SECRET/.test(body), body);
+    // Metadata survives.
+    const events = JSON.parse(journal).events;
+    assert.equal(events[2].verdict, "REQUEST_CHANGES");
+    assert.equal(events[2].criticalIssues[0].category, "bug");
+    const rec = JSON.parse(legacy).legacy;
+    assert.equal(rec.opinions[0].verdict, "REJECT");
+    assert.equal(rec.opinions[0].criticalIssues[0].category, "bug");
+    assert.match(sse, /"callId":"c1"/);
+    // Hot reload: the very next request serves it once capture is "content".
+    f.cfg.dashboard.capture = "content";
+    assert.match(await f.get(`/api/runs/${f.jid}`), /SECRETPROMPT/);
+    f.cfg.dashboard.capture = "metadata";
+    assert.ok(!/SECRET/.test(await f.get(`/api/runs/${f.jid}`)));
+  } finally {
+    f.close();
+  }
+});
+
+test("S18: capture content keeps content on /api/runs/:id and SSE, for journal and legacy runs", async () => {
+  const f = await captureFixture("content");
+  try {
+    const journal = await f.get(`/api/runs/${f.jid}`);
+    for (const w of ["SECRETPROMPT", "SECRETREQUEST", "SECRETRESPONSE", "SECRETISSUE", "SECRETARBITER", "SECRETREPORT"]) assert.match(journal, new RegExp(w));
+    const legacy = await f.get(`/api/runs/${f.lid}`);
+    for (const w of ["SECRETQUESTION", "SECRETSYNTHESIS", "SECRETOPINION", "SECRETLEGACYISSUE"]) assert.match(legacy, new RegExp(w));
+    const sse = await f.get("/api/events");
+    assert.match(sse, /SECRETRESPONSE/);
+    assert.match(sse, /SECRETISSUE/);
+  } finally {
+    f.close();
+  }
+});
+
+test("S19: with capture metadata, ?q= does not match stripped prompt or question text, only tool, provider and runId", async () => {
+  const f = await captureFixture("metadata");
+  /** @param {string} q */
+  const hits = async (q) => JSON.parse(await f.get(`/api/runs?q=${encodeURIComponent(q)}`)).runs.map((/** @type {any} */ r) => r.runId);
+  try {
+    assert.deepEqual(await hits("SECRETPROMPT"), []);
+    assert.deepEqual(await hits("SECRETQUESTION"), []);
+    assert.deepEqual(await hits("codex"), [f.jid]);
+    assert.deepEqual(await hits("grok"), [f.lid]);
+    assert.deepEqual((await hits("cap-1")).sort(), [f.jid, f.lid].sort());
+    f.cfg.dashboard.capture = "content";
+    assert.deepEqual(await hits("SECRETPROMPT"), [f.jid]);
+  } finally {
+    f.close();
   }
 });

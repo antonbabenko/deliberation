@@ -1857,6 +1857,14 @@ addresses, and 12-digit account ids. Values under `runId`, `callId`, `sessionId`
 reduces what a browser receives, and the journal on disk keeps the unredacted text for
 `capture: "content"`.
 
+### Capture gates what is served
+
+`dashboard.capture` is read on every request. Unless it is `"content"`, the server strips
+content fields (the `content` keys of `JOURNAL_KEYS`, plus the legacy session record's
+`question`, `synthesis`, opinion `text`, critical-issue descriptions and annotation notes)
+before redaction from `/api/runs/:id` and the SSE stream, and `?q=` matches only runId,
+tool and provider. Journal files written earlier under `content` keep their text on disk.
+
 ### Threat model
 
 The dashboard serves prompt and response text over HTTP on the local machine. The

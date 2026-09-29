@@ -454,6 +454,7 @@ function legacySummary(id, record) {
 /**
  * @typedef {Object} RunFilter
  * @property {string} [q]  matches run_start.prompt (journal) or question (legacy); case-insensitive substring
+ * @property {boolean} [metadataOnly]  match `q` against runId, tool and providers only, never prompt/question text
  * @property {boolean} [redacted]  match `q` against the PII-redacted text, so a search cannot confirm a masked value
  * @property {string} [tool]
  * @property {string} [provider]
@@ -590,7 +591,7 @@ function createRunIndex(opts) {
     }
     if (filter.q) {
       const needle = String(filter.q).toLowerCase();
-      const text = searchTextOf(entry, !!filter.redacted);
+      const text = filter.metadataOnly ? [s.runId, s.tool, ...s.providers].join(" ") : searchTextOf(entry, !!filter.redacted);
       if (!text || text.toLowerCase().indexOf(needle) === -1) return false;
     }
     return true;
