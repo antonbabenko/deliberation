@@ -40,7 +40,7 @@ const CONTENT_TYPES = Object.freeze({
 const FIXED_KEY_ENVS = Object.freeze({ grok: "XAI_API_KEY" });
 
 // Free-text fields of the legacy core/sessions.js record that JOURNAL_KEYS does not name.
-const LEGACY_CONTENT_KEYS = ["question", "synthesis", "note"];
+const LEGACY_CONTENT_KEYS = ["question", "synthesis", "note", "blindVerdict"];
 /** Content field names, derived from the journal whitelist so there is no second list.
  * `a[].b` entries (criticalIssues[].description) become a nested drop. */
 const CONTENT_KEYS = new Set(LEGACY_CONTENT_KEYS);

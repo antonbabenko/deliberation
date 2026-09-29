@@ -387,7 +387,7 @@ async function captureFixture(capture) {
   const lid = "legacy-cap-1";
   fs.writeFileSync(path.join(sessions, `${lid}.json`), JSON.stringify({
     id: lid, parentId: null, schemaVersion: 1, createdAt: "2026-01-01T00:00:00.000Z", tool: "consensus",
-    question: "SECRETQUESTION", synthesis: "SECRETSYNTHESIS", converged: false, rounds: 1,
+    question: "SECRETQUESTION", synthesis: "SECRETSYNTHESIS", blindVerdict: "BLIND_SECRET_TEXT", converged: false, rounds: 1,
     opinions: [{ provider: "grok", text: "SECRETOPINION", verdict: "REJECT", criticalIssues: [{ category: "bug", description: "SECRETLEGACYISSUE" }] }],
   }));
   /** @type {any} */
@@ -420,6 +420,8 @@ test("S17: capture metadata serves no content on /api/runs/:id or SSE, for journ
     const legacy = await f.get(`/api/runs/${f.lid}`);
     const sse = await f.get("/api/events");
     for (const body of [journal, legacy, sse]) assert.ok(!/SECRET/.test(body), body);
+    // Verify blindVerdict is stripped in metadata mode.
+    assert.ok(!/BLIND_SECRET_TEXT/.test(legacy), "blindVerdict should be stripped in metadata mode");
     // Metadata survives.
     const events = JSON.parse(journal).events;
     assert.equal(events[2].verdict, "REQUEST_CHANGES");
@@ -445,6 +447,8 @@ test("S18: capture content keeps content on /api/runs/:id and SSE, for journal a
     for (const w of ["SECRETPROMPT", "SECRETREQUEST", "SECRETRESPONSE", "SECRETISSUE", "SECRETARBITER", "SECRETREPORT"]) assert.match(journal, new RegExp(w));
     const legacy = await f.get(`/api/runs/${f.lid}`);
     for (const w of ["SECRETQUESTION", "SECRETSYNTHESIS", "SECRETOPINION", "SECRETLEGACYISSUE"]) assert.match(legacy, new RegExp(w));
+    // Verify blindVerdict is present in content mode.
+    assert.match(legacy, /BLIND_SECRET_TEXT/, "blindVerdict should be present in content mode");
     const sse = await f.get("/api/events");
     assert.match(sse, /SECRETRESPONSE/);
     assert.match(sse, /SECRETISSUE/);
