@@ -1800,12 +1800,29 @@ Where events come from:
 
 ### Run status and abandoned runs
 
-A run with a `run_end` takes its status. A `fanout` run has no explicit end call, so it
-counts as done once every listed provider has a `call_end`. Otherwise the run is live
-while the MCP process that wrote it is: `run_start` records `pid` and `procStartedAt`, and
-the run shows as `abandoned` when that pid is gone, or is alive with a different start
-time (pid reuse). An abandoned run keeps the last state it reached. Legacy session-store
-records are listed too, flagged `legacy` (summary only, no step graph).
+Status is derived when the index is read (`deriveStatus(events, now, isAlive)` in
+`server/dashboard/runs.js`), never cached: a run whose writer died never changes its file,
+so a cached status could not age. The index caches only the events and the fields that do
+not depend on time. The first rule that matches wins:
+
+| # | Run | Status |
+|---|-----|--------|
+| 1 | Has a `run_end` | Its `status` and `stopReason`. |
+| 2 | `fanout`, every provider `run_start` lists has a latest call with a `call_end` | `done`. Calls pair by `callId`, so a retry still in flight after an errored first attempt keeps the run open. |
+| 3 | `fanout`, at least one `call_start`, none still open, nothing written for 60 s | `done`, with the listed providers that were never called in `undispatched` (drawn as skipped branches, not failures). |
+| 4 | `fanout`, no `call_start` 20 minutes after it started | `abandoned`, `stopReason: "never-dispatched"`. |
+| 5 | `consensus-step`, last event older than the loop store TTL (30 minutes) | `abandoned`, `stopReason: "expired"`: the host stopped driving it and its loop state is gone. |
+| 6 | Anything else | `running` while the MCP process that wrote it is alive, else `abandoned`. |
+
+Rule 6 reads `pid` and `procStartedAt` from `run_start`: the run is abandoned when that pid
+is gone, or is alive with a different start time (pid reuse). The pid-reuse check reads
+`/proc/<pid>/stat`, so it runs on Linux only; elsewhere a reused pid still reads as alive.
+A late `ask-one` that joins a fan-out after rule 3 fired moves it back to `running`, and
+the UI follows the server's status for fan-outs rather than deciding on its own. An
+abandoned run keeps the last state it reached. `errors` counts a call's final attempt: an
+errored attempt followed by a retry for the same provider, role and round is not an
+error. Legacy session-store records are listed too, flagged `legacy` (summary only, no
+step graph).
 
 ### Routes and SSE
 
@@ -1815,7 +1832,7 @@ GET and HEAD only; any other method gets 405.
 |-------|---------|
 | `/` | The page. |
 | `/assets/*` | Static UI files, resolved inside the UI directory; a path that escapes it is rejected. |
-| `/api/runs` | Run index; filters `?q=`, `?tool=`, `?provider=`, `?status=`, `?since=`. |
+| `/api/runs` | Run index; filters `?q=`, `?tool=`, `?provider=`, `?status=`, `?since=`. While `showPII` is off, `?q=` matches the redacted prompt, so a search cannot confirm a masked value. |
 | `/api/runs/:id` | All events of one run (or the legacy record); `id` must match `^[A-Za-z0-9-]+$`. |
 | `/api/config` | Effective config. For every API key env var, only its name and whether it is set; credentials in URLs are stripped. |
 | `/api/health` | Provider health from the checks `panel` uses (`unavailable`, `needsLogin`), models, reasoning effort, `askAll` / `consensus` eligibility. |
@@ -1832,8 +1849,11 @@ more than 1 MB behind is dropped, then reconnects and resumes the same way.
 
 Secrets (API-key shapes) are scrubbed at write time at every capture level, so they never
 reach the journal. PII is redacted at serve time by `core/redact.js` while `showPII` is
-off: email addresses, the home directory and OS user name in paths, IPv4 and IPv6
-addresses, and 12-digit account ids. Redaction is pattern-based and best-effort; it
+off: email addresses, the home directory and the OS user's home paths (`/home/<user>`,
+`/Users/<user>`, `C:\Users\<user>`; the user name elsewhere is left alone), IPv4 and IPv6
+addresses, and 12-digit account ids. Values under `runId`, `callId`, `sessionId`,
+`loopSessionId` and `id` are never redacted, because a UUID can end in 12 digits. The SSE
+`id:` line is not redacted either. Redaction is pattern-based and best-effort; it
 reduces what a browser receives, and the journal on disk keeps the unredacted text for
 `capture: "content"`.
 
