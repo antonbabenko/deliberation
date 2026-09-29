@@ -1871,7 +1871,9 @@ function startStdio() {
 module.exports = { buildServer, toolList, makeLineReader, makeRuntime, probeHealth };
 
 // After module.exports: the dashboard requires this module back, and must see its exports.
-if (require.main === module) {
+// That circular require makes esbuild wrap this entry in the npm bundle, where `module` is the
+// wrapper's object and never `require.main`; the file name is the same in both layouts.
+if (require.main && require.main.filename === __filename) {
   if (process.argv[2] === "dashboard") {
     require("../dashboard/index.js").main(process.argv.slice(3)).then(
       (/** @type {number} */ code) => { if (code !== 0) process.exit(code); },
