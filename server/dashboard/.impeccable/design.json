@@ -1,0 +1,497 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-29T07:24:33Z",
+  "title": "Design System: Deliberation Scope",
+  "extensions": {
+    "colorMeta": {
+      "paper": {
+        "role": "neutral",
+        "displayName": "Graticule Paper",
+        "canonical": "oklch(0.974 0.007 95)",
+        "canonicalDark": "oklch(0.205 0.006 250)",
+        "tonalRamp": [
+          "oklch(0.15 0.007 95)",
+          "oklch(0.25 0.007 95)",
+          "oklch(0.35 0.007 95)",
+          "oklch(0.45 0.007 95)",
+          "oklch(0.55 0.007 95)",
+          "oklch(0.65 0.007 95)",
+          "oklch(0.80 0.007 95)",
+          "oklch(0.95 0.007 95)"
+        ]
+      },
+      "paper-2": {
+        "role": "neutral",
+        "displayName": "Instrument Panel",
+        "canonical": "oklch(0.948 0.009 95)",
+        "canonicalDark": "oklch(0.235 0.007 250)",
+        "tonalRamp": [
+          "oklch(0.15 0.009 95)",
+          "oklch(0.25 0.009 95)",
+          "oklch(0.35 0.009 95)",
+          "oklch(0.45 0.009 95)",
+          "oklch(0.55 0.009 95)",
+          "oklch(0.65 0.009 95)",
+          "oklch(0.80 0.009 95)",
+          "oklch(0.95 0.009 95)"
+        ]
+      },
+      "fg": {
+        "role": "neutral",
+        "displayName": "Bench Ink",
+        "canonical": "oklch(0.25 0.012 95)",
+        "canonicalDark": "oklch(0.925 0.008 95)",
+        "tonalRamp": [
+          "oklch(0.15 0.012 95)",
+          "oklch(0.25 0.012 95)",
+          "oklch(0.35 0.012 95)",
+          "oklch(0.45 0.012 95)",
+          "oklch(0.55 0.012 95)",
+          "oklch(0.65 0.012 95)",
+          "oklch(0.80 0.012 95)",
+          "oklch(0.95 0.012 95)"
+        ]
+      },
+      "fg-2": {
+        "role": "neutral",
+        "displayName": "Legend Grey",
+        "canonical": "oklch(0.45 0.014 95)",
+        "canonicalDark": "oklch(0.74 0.01 95)",
+        "tonalRamp": [
+          "oklch(0.15 0.014 95)",
+          "oklch(0.25 0.014 95)",
+          "oklch(0.35 0.014 95)",
+          "oklch(0.45 0.014 95)",
+          "oklch(0.55 0.014 95)",
+          "oklch(0.65 0.014 95)",
+          "oklch(0.80 0.014 95)",
+          "oklch(0.95 0.014 95)"
+        ]
+      },
+      "rule": {
+        "role": "neutral",
+        "displayName": "Fine Rule",
+        "canonical": "oklch(0.86 0.013 95)",
+        "canonicalDark": "oklch(0.34 0.008 250)",
+        "tonalRamp": [
+          "oklch(0.15 0.013 95)",
+          "oklch(0.25 0.013 95)",
+          "oklch(0.35 0.013 95)",
+          "oklch(0.45 0.013 95)",
+          "oklch(0.55 0.013 95)",
+          "oklch(0.65 0.013 95)",
+          "oklch(0.80 0.013 95)",
+          "oklch(0.95 0.013 95)"
+        ]
+      },
+      "rule-2": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "canonical": "oklch(0.915 0.011 95)",
+        "canonicalDark": "oklch(0.275 0.007 250)",
+        "tonalRamp": [
+          "oklch(0.15 0.011 95)",
+          "oklch(0.25 0.011 95)",
+          "oklch(0.35 0.011 95)",
+          "oklch(0.45 0.011 95)",
+          "oklch(0.55 0.011 95)",
+          "oklch(0.65 0.011 95)",
+          "oklch(0.80 0.011 95)",
+          "oklch(0.95 0.011 95)"
+        ]
+      },
+      "rule-strong": {
+        "role": "neutral",
+        "displayName": "Frame Rule",
+        "canonical": "oklch(0.72 0.014 95)",
+        "canonicalDark": "oklch(0.47 0.01 250)",
+        "tonalRamp": [
+          "oklch(0.15 0.014 95)",
+          "oklch(0.25 0.014 95)",
+          "oklch(0.35 0.014 95)",
+          "oklch(0.45 0.014 95)",
+          "oklch(0.55 0.014 95)",
+          "oklch(0.65 0.014 95)",
+          "oklch(0.80 0.014 95)",
+          "oklch(0.95 0.014 95)"
+        ]
+      },
+      "dim": {
+        "role": "neutral",
+        "displayName": "Dropped Grey",
+        "canonical": "oklch(0.66 0.012 95)",
+        "canonicalDark": "oklch(0.52 0.01 250)",
+        "tonalRamp": [
+          "oklch(0.15 0.012 95)",
+          "oklch(0.25 0.012 95)",
+          "oklch(0.35 0.012 95)",
+          "oklch(0.45 0.012 95)",
+          "oklch(0.55 0.012 95)",
+          "oklch(0.65 0.012 95)",
+          "oklch(0.80 0.012 95)",
+          "oklch(0.95 0.012 95)"
+        ]
+      },
+      "ok": {
+        "role": "status",
+        "displayName": "Settled Green",
+        "canonical": "oklch(0.52 0.12 150)",
+        "canonicalDark": "oklch(0.76 0.14 150)",
+        "tonalRamp": [
+          "oklch(0.15 0.12 150)",
+          "oklch(0.25 0.12 150)",
+          "oklch(0.35 0.12 150)",
+          "oklch(0.45 0.12 150)",
+          "oklch(0.55 0.12 150)",
+          "oklch(0.65 0.12 150)",
+          "oklch(0.80 0.12 150)",
+          "oklch(0.95 0.12 150)"
+        ]
+      },
+      "ok-text": {
+        "role": "status",
+        "displayName": "Settled Green Text",
+        "canonical": "oklch(0.44 0.11 150)",
+        "canonicalDark": "oklch(0.8 0.13 150)",
+        "tonalRamp": [
+          "oklch(0.15 0.11 150)",
+          "oklch(0.25 0.11 150)",
+          "oklch(0.35 0.11 150)",
+          "oklch(0.45 0.11 150)",
+          "oklch(0.55 0.11 150)",
+          "oklch(0.65 0.11 150)",
+          "oklch(0.80 0.11 150)",
+          "oklch(0.95 0.11 150)"
+        ]
+      },
+      "fault": {
+        "role": "status",
+        "displayName": "Fault Red",
+        "canonical": "oklch(0.55 0.19 28)",
+        "canonicalDark": "oklch(0.7 0.17 28)",
+        "tonalRamp": [
+          "oklch(0.15 0.19 28)",
+          "oklch(0.25 0.19 28)",
+          "oklch(0.35 0.19 28)",
+          "oklch(0.45 0.19 28)",
+          "oklch(0.55 0.19 28)",
+          "oklch(0.65 0.19 28)",
+          "oklch(0.80 0.19 28)",
+          "oklch(0.95 0.19 28)"
+        ]
+      },
+      "fault-text": {
+        "role": "status",
+        "displayName": "Fault Red Text",
+        "canonical": "oklch(0.48 0.18 28)",
+        "canonicalDark": "oklch(0.76 0.14 28)",
+        "tonalRamp": [
+          "oklch(0.15 0.18 28)",
+          "oklch(0.25 0.18 28)",
+          "oklch(0.35 0.18 28)",
+          "oklch(0.45 0.18 28)",
+          "oklch(0.55 0.18 28)",
+          "oklch(0.65 0.18 28)",
+          "oklch(0.80 0.18 28)",
+          "oklch(0.95 0.18 28)"
+        ]
+      },
+      "tmo": {
+        "role": "status",
+        "displayName": "Ceiling Amber",
+        "canonical": "oklch(0.62 0.14 72)",
+        "canonicalDark": "oklch(0.8 0.13 80)",
+        "tonalRamp": [
+          "oklch(0.15 0.14 72)",
+          "oklch(0.25 0.14 72)",
+          "oklch(0.35 0.14 72)",
+          "oklch(0.45 0.14 72)",
+          "oklch(0.55 0.14 72)",
+          "oklch(0.65 0.14 72)",
+          "oklch(0.80 0.14 72)",
+          "oklch(0.95 0.14 72)"
+        ]
+      },
+      "tmo-text": {
+        "role": "status",
+        "displayName": "Ceiling Amber Text",
+        "canonical": "oklch(0.47 0.11 65)",
+        "canonicalDark": "oklch(0.84 0.12 80)",
+        "tonalRamp": [
+          "oklch(0.15 0.11 65)",
+          "oklch(0.25 0.11 65)",
+          "oklch(0.35 0.11 65)",
+          "oklch(0.45 0.11 65)",
+          "oklch(0.55 0.11 65)",
+          "oklch(0.65 0.11 65)",
+          "oklch(0.80 0.11 65)",
+          "oklch(0.95 0.11 65)"
+        ]
+      },
+      "ink-1": {
+        "role": "channel",
+        "displayName": "Channel Blue",
+        "canonical": "oklch(0.49 0.15 258)",
+        "canonicalDark": "oklch(0.76 0.12 255)",
+        "tonalRamp": [
+          "oklch(0.15 0.15 258)",
+          "oklch(0.25 0.15 258)",
+          "oklch(0.35 0.15 258)",
+          "oklch(0.45 0.15 258)",
+          "oklch(0.55 0.15 258)",
+          "oklch(0.65 0.15 258)",
+          "oklch(0.80 0.15 258)",
+          "oklch(0.95 0.15 258)"
+        ]
+      },
+      "ink-2": {
+        "role": "channel",
+        "displayName": "Channel Violet",
+        "canonical": "oklch(0.49 0.13 305)",
+        "canonicalDark": "oklch(0.76 0.12 305)",
+        "tonalRamp": [
+          "oklch(0.15 0.13 305)",
+          "oklch(0.25 0.13 305)",
+          "oklch(0.35 0.13 305)",
+          "oklch(0.45 0.13 305)",
+          "oklch(0.55 0.13 305)",
+          "oklch(0.65 0.13 305)",
+          "oklch(0.80 0.13 305)",
+          "oklch(0.95 0.13 305)"
+        ]
+      },
+      "ink-3": {
+        "role": "channel",
+        "displayName": "Channel Teal",
+        "canonical": "oklch(0.49 0.09 200)",
+        "canonicalDark": "oklch(0.78 0.1 195)",
+        "tonalRamp": [
+          "oklch(0.15 0.09 200)",
+          "oklch(0.25 0.09 200)",
+          "oklch(0.35 0.09 200)",
+          "oklch(0.45 0.09 200)",
+          "oklch(0.55 0.09 200)",
+          "oklch(0.65 0.09 200)",
+          "oklch(0.80 0.09 200)",
+          "oklch(0.95 0.09 200)"
+        ]
+      },
+      "ink-4": {
+        "role": "channel",
+        "displayName": "Channel Magenta",
+        "canonical": "oklch(0.50 0.15 345)",
+        "canonicalDark": "oklch(0.76 0.13 345)",
+        "tonalRamp": [
+          "oklch(0.15 0.15 345)",
+          "oklch(0.25 0.15 345)",
+          "oklch(0.35 0.15 345)",
+          "oklch(0.45 0.15 345)",
+          "oklch(0.55 0.15 345)",
+          "oklch(0.65 0.15 345)",
+          "oklch(0.80 0.15 345)",
+          "oklch(0.95 0.15 345)"
+        ]
+      },
+      "ink-5": {
+        "role": "channel",
+        "displayName": "Channel Indigo",
+        "canonical": "oklch(0.47 0.10 280)",
+        "canonicalDark": "oklch(0.74 0.1 280)",
+        "tonalRamp": [
+          "oklch(0.15 0.10 280)",
+          "oklch(0.25 0.10 280)",
+          "oklch(0.35 0.10 280)",
+          "oklch(0.45 0.10 280)",
+          "oklch(0.55 0.10 280)",
+          "oklch(0.65 0.10 280)",
+          "oklch(0.80 0.10 280)",
+          "oklch(0.95 0.10 280)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "readout": {
+        "displayName": "Readout",
+        "purpose": "Header-strip figures and inspector titles."
+      },
+      "heading": {
+        "displayName": "Panel Heading",
+        "purpose": "Section lettering: monospace caps, tracked."
+      },
+      "body": {
+        "displayName": "Running Prose",
+        "purpose": "Hints, ledes and issue lists, in the system sans."
+      },
+      "data": {
+        "displayName": "Data",
+        "purpose": "Table rows, payloads and every numeral, in the system monospace."
+      },
+      "label": {
+        "displayName": "Instrument Label",
+        "purpose": "Tracked-caps legends over values and column heads."
+      }
+    },
+    "shadows": [
+      {
+        "name": "none-at-rest",
+        "value": "none",
+        "purpose": "Every surface is flat; depth is tonal (paper, instrument panel) and by 1px rules."
+      },
+      {
+        "name": "narrow-sheet",
+        "value": "0 -10px 28px color-mix(in oklch, black 18%, transparent)",
+        "purpose": "Only shadow in the build: the inspector as a bottom sheet under 760px. Not canonized."
+      }
+    ],
+    "motion": [
+      {
+        "name": "state-fade",
+        "value": "150ms ease-out",
+        "purpose": "Background, color and border-color on keys, and underline color on trigger keys. All transitions are off under prefers-reduced-motion."
+      },
+      {
+        "name": "live-edge",
+        "value": "stroke grows at the right edge of a running trace; elapsed clock ticks",
+        "purpose": "The only continuous motion in the product."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "narrow",
+        "value": "760px"
+      },
+      {
+        "name": "scope-narrow",
+        "value": "640px (gutter 212px to 118px)"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Mode Key",
+      "kind": "nav",
+      "refersTo": "mode-key",
+      "description": "Top-bar mode switch (Live, Runs, Config, Stats); the current mode inverts.",
+      "html": "<button class=\"ds-mode-key\" aria-current=\"page\">Live</button> <button class=\"ds-mode-key\">Runs</button>",
+      "css": ".ds-mode-key{display:inline-flex;align-items:center;height:28px;padding:0 11px;border:1px solid oklch(0.72 0.014 95);border-radius:3px;background:oklch(0.974 0.007 95);color:oklch(0.25 0.012 95);font:500 11px/1 ui-monospace, \"SFMono-Regular\", \"SF Mono\", Menlo, Consolas, \"Liberation Mono\", \"DejaVu Sans Mono\", monospace;letter-spacing:.07em;text-transform:uppercase;cursor:pointer;transition:background-color 150ms ease-out,color 150ms ease-out,border-color 150ms ease-out}.ds-mode-key:hover{border-color:oklch(0.25 0.012 95)}.ds-mode-key:focus-visible{outline:2px solid oklch(0.25 0.012 95);outline-offset:2px}.ds-mode-key[aria-current=\"page\"]{background:oklch(0.25 0.012 95);color:oklch(0.974 0.007 95);border-color:oklch(0.25 0.012 95)}"
+    },
+    {
+      "name": "Status Mark",
+      "kind": "chip",
+      "refersTo": "status-mark",
+      "description": "Outlined run or call status; border in the mark ink, text in the AA text ink.",
+      "html": "<span class=\"ds-status ds-ok\">converged</span> <span class=\"ds-status ds-fault\">error</span> <span class=\"ds-status ds-tmo\">unresolved</span>",
+      "css": ".ds-status{display:inline-block;padding:1px 6px;border:1px solid var(--st);border-radius:2px;color:var(--st-text);font:600 10.5px/1.5 ui-monospace, \"SFMono-Regular\", \"SF Mono\", Menlo, Consolas, \"Liberation Mono\", \"DejaVu Sans Mono\", monospace;letter-spacing:.07em;text-transform:uppercase}.ds-ok{--st:oklch(0.52 0.12 150);--st-text:oklch(0.44 0.11 150)}.ds-fault{--st:oklch(0.55 0.19 28);--st-text:oklch(0.48 0.18 28)}.ds-tmo{--st:oklch(0.62 0.14 72);--st-text:oklch(0.47 0.11 65)}"
+    },
+    {
+      "name": "Readout",
+      "kind": "custom",
+      "refersTo": "readout-value",
+      "description": "Header-strip figure: tracked-caps legend over a 15px monospace value.",
+      "html": "<dl class=\"ds-readout\"><dt>Elapsed</dt><dd>01:04.3</dd></dl>",
+      "css": ".ds-readout{margin:0}.ds-readout dt{font:500 10px/1.2 ui-monospace, \"SFMono-Regular\", \"SF Mono\", Menlo, Consolas, \"Liberation Mono\", \"DejaVu Sans Mono\", monospace;letter-spacing:.08em;text-transform:uppercase;color:oklch(0.45 0.014 95);margin-bottom:3px}.ds-readout dd{margin:0;font:500 15px/1.2 ui-monospace, \"SFMono-Regular\", \"SF Mono\", Menlo, Consolas, \"Liberation Mono\", \"DejaVu Sans Mono\", monospace;color:oklch(0.25 0.012 95)}"
+    },
+    {
+      "name": "Decode Box",
+      "kind": "chip",
+      "refersTo": "decode-box",
+      "description": "Verdict label decoded under a channel: a 1px box in the verdict ink over a 9-12% tint of it.",
+      "html": "<span class=\"ds-dec ds-dec-ok\">APPROVE</span> <span class=\"ds-dec ds-dec-warn\">REQ_CHANGES</span> <span class=\"ds-dec ds-dec-bad\">REJECT</span>",
+      "css": ".ds-dec{display:inline-block;padding:1px 7px;border:1px solid;font:600 11px/1.5 ui-monospace, \"SFMono-Regular\", \"SF Mono\", Menlo, Consolas, \"Liberation Mono\", \"DejaVu Sans Mono\", monospace;letter-spacing:.02em}.ds-dec-ok{color:oklch(0.44 0.11 150);border-color:oklch(0.52 0.12 150);background:color-mix(in oklch,oklch(0.52 0.12 150) 9%,oklch(0.974 0.007 95))}.ds-dec-warn{color:oklch(0.47 0.11 65);border-color:oklch(0.62 0.14 72);background:color-mix(in oklch,oklch(0.62 0.14 72) 12%,oklch(0.974 0.007 95))}.ds-dec-bad{color:oklch(0.48 0.18 28);border-color:oklch(0.55 0.19 28);background:color-mix(in oklch,oklch(0.55 0.19 28) 9%,oklch(0.974 0.007 95))}"
+    },
+    {
+      "name": "Round Trigger",
+      "kind": "nav",
+      "refersTo": "seq-key",
+      "description": "Trigger key on the sequence strip: a filled triangle marker, label, time; the pressed key is underlined.",
+      "html": "<button class=\"ds-seq\" aria-pressed=\"true\"><span class=\"ds-seq-mark\"></span>peers <span class=\"ds-seq-time\">12.4s</span></button>",
+      "css": ".ds-seq{display:inline-flex;align-items:baseline;gap:7px;padding:3px 0;border:0;background:none;color:oklch(0.25 0.012 95);font:500 12px/1.3 ui-monospace, \"SFMono-Regular\", \"SF Mono\", Menlo, Consolas, \"Liberation Mono\", \"DejaVu Sans Mono\", monospace;cursor:pointer;text-decoration:underline;text-decoration-color:transparent;text-decoration-thickness:2px;text-underline-offset:5px;transition:text-decoration-color 150ms ease-out}.ds-seq:hover{text-decoration-color:oklch(0.72 0.014 95)}.ds-seq[aria-pressed=\"true\"]{text-decoration-color:oklch(0.25 0.012 95)}.ds-seq:focus-visible{outline:2px solid oklch(0.25 0.012 95);outline-offset:2px}.ds-seq-mark{align-self:center;width:10px;height:8px;background:oklch(0.52 0.12 150);clip-path:polygon(0 0,100% 0,50% 100%)}.ds-seq-time{color:oklch(0.45 0.014 95);font-size:11px}"
+    },
+    {
+      "name": "Capture Index Row",
+      "kind": "custom",
+      "refersTo": "index-row",
+      "description": "Run list row; the bar length is proportional to duration.",
+      "html": "<a class=\"ds-row\" href=\"#\"><span>consensus</span><span class=\"ds-dur\"><span class=\"ds-track\"><span class=\"ds-fill\" style=\"width:62%\"></span></span><span class=\"ds-val\">42.1s</span></span></a>",
+      "css": ".ds-row{display:grid;grid-template-columns:110px 1fr;align-items:center;gap:12px;padding:7px 8px;border-bottom:1px solid oklch(0.915 0.011 95);color:oklch(0.25 0.012 95);font:12px/1.3 ui-monospace, \"SFMono-Regular\", \"SF Mono\", Menlo, Consolas, \"Liberation Mono\", \"DejaVu Sans Mono\", monospace;text-decoration:none}.ds-row:hover{background:oklch(0.948 0.009 95)}.ds-row:focus-visible{outline:2px solid oklch(0.25 0.012 95);outline-offset:-2px}.ds-dur{display:flex;align-items:center;gap:8px}.ds-track{flex:1;height:8px;background:oklch(0.915 0.011 95)}.ds-fill{display:block;height:100%;background:oklch(0.45 0.014 95)}.ds-val{width:62px}"
+    },
+    {
+      "name": "Kind Tag",
+      "kind": "chip",
+      "refersTo": "kind-tag",
+      "description": "Event-table kind cell: 1px outlined caps tag.",
+      "html": "<span class=\"ds-kind\">state</span> <span class=\"ds-kind ds-kind-muted\">call</span>",
+      "css": ".ds-kind{display:inline-block;padding:0 5px;border:1px solid oklch(0.45 0.014 95);border-radius:2px;font:500 10px/1.5 ui-monospace, \"SFMono-Regular\", \"SF Mono\", Menlo, Consolas, \"Liberation Mono\", \"DejaVu Sans Mono\", monospace;letter-spacing:.04em;text-transform:uppercase;color:oklch(0.25 0.012 95)}.ds-kind-muted{border-color:oklch(0.72 0.014 95);color:oklch(0.45 0.014 95)}"
+    },
+    {
+      "name": "Field",
+      "kind": "input",
+      "refersTo": "input-field",
+      "description": "Filter input and select: 30px tall, 3px corners, frame rule that darkens on hover.",
+      "html": "<input class=\"ds-input\" type=\"search\" placeholder=\"filter runs\">",
+      "css": ".ds-input{height:30px;width:230px;padding:0 8px;border:1px solid oklch(0.72 0.014 95);border-radius:3px;background:oklch(0.974 0.007 95);color:oklch(0.25 0.012 95);font:12px ui-monospace, \"SFMono-Regular\", \"SF Mono\", Menlo, Consolas, \"Liberation Mono\", \"DejaVu Sans Mono\", monospace}.ds-input:hover{border-color:oklch(0.45 0.014 95)}.ds-input::placeholder{color:oklch(0.45 0.014 95)}.ds-input:focus-visible{outline:2px solid oklch(0.25 0.012 95);outline-offset:2px}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Bench Capture",
+    "overview": "A run is a capture on a logic analyzer. Every model is a channel on one shared time axis, every state change is a signal edge, and verdicts are decoded underneath. The surface is bench-instrument print: off-white graticule paper in light, a graphite screen in dark, with the same fine 10-division rules in both. Nothing glows. A trace is a flat 1.5px stroke in its channel's ink, and segment length is real milliseconds.\n\nThe look is dense and quiet. Numerals are tabular monospace, legends are small tracked capitals, and the only ornaments are the ones an instrument would carry: triangle triggers on the ruler, boxed decode labels, hatching for a fault, a dashed line for a ceiling. The user reads the state of a run from shape and position first and color second.\n\nThe build rejects the generic admin console: no card grid, no gradient KPI tiles, no icon sidebar, no chat-transcript layout.\n\n**Lettering decision.** The system monospace stack is the lettering for the whole instrument and was accepted as such by the user. It is recorded here as a decision, not a defect; no webfont is loaded (the server serves under `default-src 'self'` with no CDN).",
+    "keyCharacteristics": [
+      "Two themes from one set of tokens: graticule paper (light) and graphite (dark), following the system with a manual override.",
+      "Flat everywhere. Depth is tonal (paper over instrument panel) and drawn with 1px rules.",
+      "One ink per provider channel, stable per provider name, from a five-ink set.",
+      "Status is carried by mark shape and label text as well as color: hatched-and-crossed fault, dashed timeout, grey DROPPED.",
+      "Tabular monospace for every number; sans only for running prose.",
+      "Radius is 2px to 3px. Nothing is pill-shaped."
+    ],
+    "rules": [
+      {
+        "name": "The Ink Is Identity Rule",
+        "body": "A provider's ink names the channel and nothing else. Green, red and amber never appear as channel ink, and a channel ink never signals status.",
+        "section": "colors"
+      },
+      {
+        "name": "The Mark And Text Rule",
+        "body": "A status draws its marks with the base value and writes its labels with the `-text` value. Do not put base-value text on paper.",
+        "section": "colors"
+      },
+      {
+        "name": "The Not By Color Alone Rule",
+        "body": "Every status also has a shape or word: hatched segment with X (fault), dashed line to LIMIT (timeout), DROPPED (dropped), outlined-versus-filled trigger (pending versus reached).",
+        "section": "colors"
+      },
+      {
+        "name": "The Tabular Everything Rule",
+        "body": "Every number, duration and id is monospace with tabular figures and right-aligned in columns. Prose is the only place sans is allowed.",
+        "section": "typography"
+      },
+      {
+        "name": "The One Face Rule",
+        "body": "Do not add a webfont or a display face. Hierarchy comes from size, weight, tracking and case within the two system stacks.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat Trace Rule",
+        "body": "Traces are flat 1.5px strokes. No glow, no gradient, no soft shadow, no blur. State change is drawn with a mark (triangle, hatch, X, dash), never a halo.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "**Do** draw a run as channels on a shared time axis, with segment length equal to real milliseconds.",
+      "**Do** ink each channel by provider and keep green, red and amber for status only.",
+      "**Do** write status labels in the `-text` values and draw marks in the base values.",
+      "**Do** pair every status color with a shape or a word.",
+      "**Do** set every number in tabular monospace, right-aligned in columns.",
+      "**Do** keep 1px rules, 2px to 3px radii, and 1.5px traces.",
+      "**Do** keep the elapsed clock and the live edge as the only continuous motion; keep transitions at 150ms ease-out and off under reduced motion.",
+      "**Do** keep a visible 2px Bench Ink focus outline on every control and SVG hit target."
+    ],
+    "donts": [
+      "**Don't** use card grids, gradient tiles, icon sidebars or chat-transcript layouts.",
+      "**Don't** add glow, gradients, blur or neon edges to a trace.",
+      "**Don't** hide a provider failure behind a click; a fault, timeout or DROPPED reads on the scope.",
+      "**Don't** add a webfont, a display face or a CDN asset.",
+      "**Don't** use Dropped Grey for text.",
+      "**Don't** shrink legends below 10px."
+    ]
+  }
+}
