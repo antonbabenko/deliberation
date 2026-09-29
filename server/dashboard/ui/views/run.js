@@ -285,6 +285,10 @@ function phaseInspector(ctx, run, phase, round) {
           : c.isError ? h("p", { class: "absent" }, `no answer: ${c.errorKind || "error"}${c.errorCode ? ` (${c.errorCode})` : ""}`)
           : h("p", { class: "absent" }, ctx.captureMode() === "content" ? "content not captured for this event" : "content not captured (capture: metadata)"))))];
   }
+  if (run.workflow === "fanout" && (run.undispatched || []).includes(phase) && !calls.some((c) => c.provider === phase)) {
+    return [h("header", { class: "insp-head" }, h("h2", {}, phase), h("span", { class: "status-mark st-skipped" }, "skipped")),
+      h("p", { class: "insp-lede" }, "Not dispatched: the panel listed this provider, but no call for it reached this run.")];
+  }
   if (phase === "revise") {
     const revs = run.arbiter.filter((a) => a.action === "submit_revision");
     const cur = revs.find((a) => (a.round || 1) === round);
@@ -304,7 +308,7 @@ function phaseInspector(ctx, run, phase, round) {
       contentBlock(ctx, phase === "adjudicate" ? "Adjudication" : "Blind verdict", a ? a.text : undefined)];
   }
   // Terminal or template-only nodes: the run's outcome.
-  return [head, facts([["status", run.status], ["stop reason", run.stopReason], ["rounds", run.rounds || null], ["dropped", run.dropped.join(", ")]]),
+  return [head, facts([["status", run.status], ["stop reason", run.stopReason], ["rounds", run.rounds || null], ["dropped", run.dropped.join(", ")], ["not dispatched", (run.undispatched || []).join(", ")]]),
     ENDED.has(run.status) ? contentBlock(ctx, "Final report", run.finalReport) : h("p", { class: "absent" }, "Not reached yet."),
     contentBlock(ctx, "Prompt", run.prompt)];
 }
@@ -321,7 +325,7 @@ export function renderInspector(drawer, ctx, run, key) {
       ? [h("header", { class: "insp-head" }, h("h2", {}, `arbiter (host) ${a.action.replace(/_/g, " ")}`)), facts([["round", a.round], ["verdict", verdictLabel(a.verdict)], ["at", run.startedAt ? `+${fmtMs(a.at - run.startedAt)}` : null]]), contentBlock(ctx, "Text", a.text)]
       : [h("header", { class: "insp-head" }, h("h2", {}, "arbiter (host)")), h("p", { class: "insp-lede" }, "Claude is writing the next arbiter step in the Claude Code session.")];
   } else {
-    const m = /^phase:([^:]+):(\d+)$/.exec(key);
+    const m = /^phase:(.+):(\d+)$/.exec(key);
     body = m ? phaseInspector(ctx, run, m[1], Number(m[2])) : [h("p", { class: "absent" }, "Nothing selected.")];
   }
   document.body.classList.toggle("is-wide", /^phase:(peers|start|join):/.test(key));

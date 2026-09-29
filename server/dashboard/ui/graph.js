@@ -148,9 +148,13 @@ function flatNodes(run) {
     const branches = names.map((p) => {
       const mine = calls.filter((c) => c.provider === p);
       const last = mine[mine.length - 1];
-      let state = last ? callState(last, run) : run.status === "abandoned" ? "abandoned" : ended ? "failed" : "pending";
+      // A provider the panel listed but no call ever reached (the server's `undispatched`) is
+      // skipped, not failed: nothing was asked of it.
+      const skipped = !last && (run.undispatched || []).includes(p);
+      let state = last ? callState(last, run) : skipped ? "skipped" : run.status === "abandoned" ? "abandoned" : ended ? "failed" : "pending";
       if (run.dropped.includes(p)) state = "broken";
-      return { id: p, label: p, state, key: last ? last.callId : `phase:${p}:1`, round: 1, at: last ? last.startAt : null, sub: last && last.ms !== null ? fmtMs(last.ms) : null };
+      const sub = last && last.ms !== null ? fmtMs(last.ms) : skipped ? "not dispatched" : null;
+      return { id: p, label: p, state, key: last ? last.callId : `phase:${p}:1`, round: 1, at: last ? last.startAt : null, sub };
     });
     return [
       { id: "start", label: "start", state: "succeeded", key: "phase:start:1", round: 1, at: run.startedAt, sub: null },
@@ -243,6 +247,7 @@ function channelsOf(run, health) {
   for (const c of list) {
     if (c.kind === "host") continue;
     if (run.dropped.includes(c.provider)) c.flags.push("DROPPED");
+    if (!c.segments.length && (run.undispatched || []).includes(c.provider)) c.flags.push("SKIPPED");
     const h = hp.get(c.provider);
     if (h && h.needsLogin) c.flags.push("LOGIN");
     else if (h && h.ok === false) c.flags.push("UNAVAILABLE");
@@ -305,7 +310,7 @@ const tick = (ms) => {
   return `+${Math.floor(ms / 60000)}m${String(Math.floor((ms % 60000) / 1000)).padStart(2, "0")}`;
 };
 
-const SEVERITY = ["succeeded", "pending", "running", "abandoned", "broken", "timeout", "failed"];
+const SEVERITY = ["succeeded", "skipped", "pending", "running", "abandoned", "broken", "timeout", "failed"];
 
 /** The state a merged marker shows: the most severe of its members. */
 export function worstState(states) {
@@ -578,7 +583,7 @@ export function renderGraph(svg, workflow, model) {
     const hi = ly + 4;
     const lo = ly + TRACE_H - 2;
     // A dropped or unavailable channel draws in the dimmed ink; its label says why.
-    const dimmed = c.flags.includes("DROPPED") || c.flags.includes("UNAVAILABLE");
+    const dimmed = c.flags.includes("DROPPED") || c.flags.includes("UNAVAILABLE") || c.flags.includes("SKIPPED");
     const inkCls = dimmed ? "ink-dropped" : `ink-${c.ink}`;
     kids.push(s("line", { x1: x0, x2: x1, y1: lo, y2: lo, class: "lane-rule" }));
     const segs = c.segments
@@ -605,7 +610,8 @@ export function renderGraph(svg, workflow, model) {
     free -= shownModel.length - 1;
     const lines = [
       ...nameRows.map((t) => [t, `ch-name${dimmed ? " is-dropped" : ""}`]),
-      ...flagRows.map((t) => [t, "ch-flag"]),
+      // SKIPPED is not a fault (nothing was asked), so it is not written in the fault ink.
+      ...flagRows.map((t) => [t, c.flags.includes("SKIPPED") ? "ch-flag is-quiet" : "ch-flag"]),
       ...shownModel.map((t) => [t, "ch-meta"]),
       ...(!oneLine && c.effort && free > 0 ? [[clip(c.effort, maxChars), "ch-meta"]] : []),
     ];

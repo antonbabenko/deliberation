@@ -12,7 +12,7 @@ const load = (f) => import(pathToFileURL(path.join(UI, f)).href);
 const ev = (/** @type {number} */ seq, /** @type {Record<string, unknown>} */ fields) => ({ v: 1, runId: "fan-1", at: 1000 + seq * 100, seq, ...fields });
 
 test("UI1: reduce folds a fan-out of 2 into status and node states", async () => {
-  const { reduce } = await load("app.js");
+  const { reduce, applySummary } = await load("app.js");
   const { graphModel } = await load("graph.js");
   let runs = {};
   const apply = (/** @type {any} */ e) => { runs = reduce(runs, e); };
@@ -37,7 +37,10 @@ test("UI1: reduce folds a fan-out of 2 into status and node states", async () =>
   assert.equal(/** @type {any} */ (before)["fan-1"].calls.c1.endAt, null, "the previous state is not mutated");
   apply(ev(4, { kind: "call_end", callId: "c2", provider: "grok", model: "grok-4", ms: 300, isError: true, errorKind: "timeout" }));
   run = /** @type {any} */ (runs)["fan-1"];
-  assert.equal(run.status, "done", "a fan-out with a call_end per provider is done without run_end");
+  assert.equal(run.status, "running", "a fan-out's status without run_end comes from the server summary, not a UI rule");
+  runs = applySummary(runs, { runId: "fan-1", status: "done", endedAt: 1400, providers: ["codex", "grok"] });
+  run = /** @type {any} */ (runs)["fan-1"];
+  assert.equal(run.status, "done");
   assert.equal(run.tokens, 50);
   assert.equal(run.errors, 1);
   m = graphModel(run, { now: 2000 });
@@ -182,4 +185,70 @@ test("UI6: gutter text, decodes and run ids are shortened without going blank or
   assert.deepEqual(splitId("gemini-3.1-pro-low", 12), ["gemini-3.1-", "pro-low"], "a long model id splits after a hyphen and keeps its tail");
   assert.deepEqual(splitId("Claude, in session", 12), ["Claude, in", "session"]);
   assert.equal(clip("gemini-3.1-pro-low", 12), "gemini-3....", "the model id is cut hard, not at a hyphen");
+});
+
+test("UI7: undispatched providers draw as skipped branches; a late join reopens the run", async () => {
+  const { reduce, applySummary } = await load("app.js");
+  const { graphModel } = await load("graph.js");
+  let runs = [
+    ev(0, { kind: "run_start", tool: "ask-all", workflow: "fanout", providers: ["codex", "grok"] }),
+    ev(1, { kind: "call_start", callId: "c1", provider: "codex", role: "single" }),
+    ev(2, { kind: "call_end", callId: "c1", provider: "codex", ms: 100, isError: false }),
+  ].reduce((acc, e) => reduce(acc, e), {});
+  runs = applySummary(runs, { runId: "fan-1", status: "done", endedAt: 1200, providers: ["codex", "grok"], undispatched: ["grok"] });
+  let run = /** @type {any} */ (runs)["fan-1"];
+  assert.equal(run.status, "done");
+  let m = graphModel(run, { now: 5000 });
+  const node = (/** @type {string} */ id) => m.nodes.find((/** @type {any} */ n) => n.id === id);
+  assert.equal(node("codex").state, "succeeded");
+  assert.equal(node("grok").state, "skipped", "never dispatched is not a failure");
+  assert.equal(node("join").state, "succeeded");
+  assert.ok(m.channels.find((/** @type {any} */ c) => c.id === "grok").flags.includes("SKIPPED"));
+
+  // A late ask-one joins: the run is live again, locally and when the server re-derives it.
+  runs = reduce(runs, ev(3, { kind: "call_start", callId: "c2", provider: "grok", role: "single" }));
+  assert.equal(/** @type {any} */ (runs)["fan-1"].status, "running");
+  runs = applySummary(applySummary(runs, { runId: "fan-1", status: "done", undispatched: ["grok"] }), { runId: "fan-1", status: "running" });
+  run = /** @type {any} */ (runs)["fan-1"];
+  assert.equal(run.status, "running", "a terminal status the server re-derives as running is accepted");
+  m = graphModel(run, { now: 5000 });
+  assert.equal(node("grok").state, "running");
+
+  // A run_end seen live is final: a stale summary cannot roll it back.
+  runs = reduce(runs, ev(4, { kind: "run_end", status: "done" }));
+  runs = applySummary(runs, { runId: "fan-1", status: "running" });
+  assert.equal(/** @type {any} */ (runs)["fan-1"].status, "done");
+});
+
+test("UI8: a gap in a loaded run's seq marks it unloaded so it is fetched again", async () => {
+  const { reduce } = await load("app.js");
+  let runs = [
+    ev(0, { kind: "run_start", tool: "ask-gpt", workflow: "single", providers: ["codex"] }),
+    ev(1, { kind: "call_start", callId: "c1", provider: "codex" }),
+  ].reduce((acc, e) => reduce(acc, e), {});
+  assert.equal(/** @type {any} */ (runs)["fan-1"].loaded, true);
+  runs = reduce(runs, ev(2, { kind: "state", state: "x" }));
+  assert.equal(/** @type {any} */ (runs)["fan-1"].loaded, true, "contiguous seq keeps the run loaded");
+  runs = reduce(runs, ev(5, { kind: "call_end", callId: "c1", provider: "codex", isError: false }));
+  const run = /** @type {any} */ (runs)["fan-1"];
+  assert.equal(run.loaded, false, "seq 3 and 4 were missed (a resumed stream for another run)");
+  assert.equal(run.seq, 5);
+});
+
+test("UI9: errors count a call's final attempt only", async () => {
+  const { reduce } = await load("app.js");
+  const fold = (/** @type {any[]} */ list) => /** @type {any} */ (list.reduce((acc, e) => reduce(acc, e), {}))["fan-1"];
+  const start = ev(0, { kind: "run_start", tool: "consensus", workflow: "consensus", providers: ["x"] });
+  const retried = fold([start,
+    ev(1, { kind: "call_start", callId: "x-1", provider: "x", role: "peer", round: 1 }),
+    ev(2, { kind: "call_end", callId: "x-1", provider: "x", isError: true, errorKind: "network" }),
+    ev(3, { kind: "call_start", callId: "x-2", provider: "x", role: "peer", round: 1 }),
+    ev(4, { kind: "call_end", callId: "x-2", provider: "x", isError: false })]);
+  assert.equal(retried.errors, 0);
+  const concurrent = fold([start,
+    ev(1, { kind: "call_start", callId: "x-1", provider: "x", role: "arbiter", round: 1 }),
+    ev(2, { kind: "call_start", callId: "x-2", provider: "x", role: "arbiter", round: 1 }),
+    ev(3, { kind: "call_end", callId: "x-1", provider: "x", isError: true }),
+    ev(4, { kind: "call_end", callId: "x-2", provider: "x", isError: false })]);
+  assert.equal(concurrent.errors, 1, "an overlapping leg is not a retry");
 });

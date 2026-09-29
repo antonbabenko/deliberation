@@ -16,8 +16,8 @@ export function emptyRun(runId) {
   return {
     runId, tool: null, workflow: null, expert: null, providers: [], status: "running",
     startedAt: 0, endedAt: null, lastAt: 0, seq: -1, rounds: 0, tokens: 0, errors: 0,
-    prompt: undefined, stopReason: null, finalReport: undefined, dropped: [],
-    states: [], calls: {}, callOrder: [], arbiter: [], events: [],
+    prompt: undefined, stopReason: null, finalReport: undefined, dropped: [], undispatched: [], ended: false,
+    states: [], calls: {}, callOrder: [], arbiter: [], events: [], erroredByKey: {},
     loaded: false, legacy: null,
   };
 }
@@ -29,6 +29,11 @@ function tokensOf(usage) {
 }
 
 const strings = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === "string") : []);
+
+// A retry is a call_start for the same (provider, role, round) after an earlier call with
+// that key ended in an error; only the final attempt counts. Same rule as server/dashboard/runs.js.
+const retryKey = (c) => `${c.provider}|${c.role}|${c.round}`;
+const errorsOf = (calls) => Object.values(calls).filter((c) => c.isError && !c.retried).length;
 
 function step(r, ev, at) {
   switch (ev.kind) {
@@ -55,7 +60,17 @@ function step(r, ev, at) {
         reasoningEffort: ev.reasoningEffort || null, request: typeof ev.request === "string" ? ev.request : undefined,
         usage: null, isError: false, errorKind: null, errorCode: null, verdict: null, criticalIssues: [], response: undefined,
       };
-      return { ...r, calls: { ...r.calls, [id]: c }, callOrder: r.calls[id] ? r.callOrder : [...r.callOrder, id], rounds: Math.max(r.rounds, c.round || 0) };
+      const key = retryKey(c);
+      const calls = { ...r.calls, [id]: c };
+      const retriedId = r.erroredByKey[key];
+      if (retriedId && calls[retriedId]) calls[retriedId] = { ...calls[retriedId], retried: true };
+      const { [key]: _, ...erroredByKey } = r.erroredByKey;
+      // A call after the server called a fan-out done (a late join) makes it live again.
+      const reopened = r.workflow === "fanout" && !r.ended ? { status: "running", endedAt: null } : {};
+      return {
+        ...r, ...reopened, calls, erroredByKey, errors: errorsOf(calls),
+        callOrder: r.calls[id] ? r.callOrder : [...r.callOrder, id], rounds: Math.max(r.rounds, c.round || 0),
+      };
     }
     case "call_end": {
       const id = String(ev.callId || `call-${ev.seq}`);
@@ -70,19 +85,16 @@ function step(r, ev, at) {
         verdict: ev.verdict || null, criticalIssues: Array.isArray(ev.criticalIssues) ? ev.criticalIssues : [],
         response: typeof ev.response === "string" ? ev.response : undefined,
       };
-      const next = {
+      const calls = { ...r.calls, [id]: c };
+      // A fan-out opened by `panel` has no run_end: its status comes from the server summary.
+      return {
         ...r,
-        calls: { ...r.calls, [id]: c },
+        calls,
         callOrder: r.calls[id] ? r.callOrder : [...r.callOrder, id],
+        erroredByKey: c.isError && r.calls[id] ? { ...r.erroredByKey, [retryKey(c)]: id } : r.erroredByKey,
         tokens: r.tokens + tokensOf(ev.usage),
-        errors: r.errors + (ev.isError ? 1 : 0),
+        errors: errorsOf(calls),
       };
-      // A fan-out opened by `panel` never gets run_end: it is done once every listed provider answered.
-      if (next.workflow === "fanout" && next.status === "running" && next.providers.length) {
-        const answered = new Set(Object.values(next.calls).filter((x) => x.endAt !== null).map((x) => x.provider));
-        if (next.providers.every((p) => answered.has(p))) return { ...next, status: "done", endedAt: at };
-      }
-      return next;
     }
     case "arbiter":
       return { ...r, arbiter: [...r.arbiter, { action: String(ev.action || ""), round: num(ev.round), verdict: ev.verdict || null, text: typeof ev.text === "string" ? ev.text : undefined, at }] };
@@ -90,6 +102,7 @@ function step(r, ev, at) {
       return {
         ...r,
         status: typeof ev.status === "string" ? ev.status : "done",
+        ended: true,
         stopReason: ev.stopReason || null,
         rounds: num(ev.rounds) ?? r.rounds,
         dropped: strings(ev.droppedProviders),
@@ -115,17 +128,23 @@ export function reduce(runs, event) {
   if (seq !== null && seq <= prev.seq) return runs;
   const at = num(event.at) ?? prev.lastAt;
   const base = { ...prev, seq: seq ?? prev.seq, lastAt: Math.max(prev.lastAt, at), events: [...prev.events, event] };
-  return { ...runs, [event.runId]: step(base, event, at) };
+  const next = step(base, event, at);
+  // A skipped seq means events were missed (an SSE resume replays only the run named in
+  // Last-Event-ID): mark the run unloaded so the caller fetches it again.
+  const gap = prev.loaded && seq !== null && seq > prev.seq + 1;
+  return { ...runs, [event.runId]: gap ? { ...next, loaded: false } : next };
 }
 
 /**
- * Apply a server RunSummary. The server's status is authoritative (it alone can tell an
- * abandoned run), except that a terminal status seen live is not rolled back.
+ * Apply a server RunSummary. The server's status is authoritative: it alone can tell an
+ * abandoned run or a finished fan-out, and it may move a fan-out from done back to running
+ * when a late call joins. Only a run_end seen live is final, so an older summary that
+ * still says running cannot roll it back.
  */
 export function applySummary(runs, sum) {
   if (!sum || typeof sum.runId !== "string") return runs;
   const r = runs[sum.runId] || emptyRun(sum.runId);
-  const status = sum.status === "running" && TERMINAL.has(r.status) ? r.status : sum.status;
+  const status = r.ended && TERMINAL.has(r.status) ? r.status : sum.status;
   return {
     ...runs,
     [sum.runId]: {
@@ -134,7 +153,9 @@ export function applySummary(runs, sum) {
       workflow: r.workflow || sum.workflow,
       providers: r.providers.length ? r.providers : strings(sum.providers),
       startedAt: r.startedAt || sum.startedAt,
-      endedAt: r.endedAt ?? sum.endedAt ?? null,
+      endedAt: r.ended ? r.endedAt : sum.endedAt ?? null,
+      stopReason: r.ended ? r.stopReason : sum.stopReason ?? r.stopReason ?? null,
+      undispatched: strings(sum.undispatched),
       lastAt: Math.max(r.lastAt, sum.endedAt || sum.startedAt || 0),
       status,
       rounds: Math.max(r.rounds, sum.rounds || 0),
@@ -149,7 +170,7 @@ export function applySummary(runs, sum) {
 export function summaryOf(r) {
   return {
     runId: r.runId, tool: r.tool, workflow: r.workflow, status: r.status, startedAt: r.startedAt, endedAt: r.endedAt,
-    providers: r.providers, rounds: r.rounds, errors: r.errors, tokens: r.tokens,
+    providers: r.providers, rounds: r.rounds, errors: r.errors, tokens: r.tokens, stopReason: r.stopReason, undispatched: r.undispatched,
     legacy: !!(r.isLegacy !== undefined ? r.isLegacy : r.legacy),
   };
 }
@@ -171,7 +192,7 @@ export function compactRuns(runs, index, keep) {
     if (r.status === "running" || keep.has(id)) out[id] = r;
     else if (!listed.has(id)) continue;
     else if (!r.loaded) out[id] = r;
-    else out[id] = { ...r, events: [], calls: {}, callOrder: [], arbiter: [], states: [], seq: -1, loaded: false, prompt: undefined, finalReport: undefined, legacy: null };
+    else out[id] = { ...r, events: [], calls: {}, callOrder: [], arbiter: [], states: [], erroredByKey: {}, seq: -1, loaded: false, prompt: undefined, finalReport: undefined, legacy: null };
   }
   return out;
 }
@@ -353,11 +374,20 @@ function boot() {
     store.set("index", list.slice(0, 200).map(summaryOf));
   }
 
+  // A fan-out's done status is the server's call (runs.js deriveStatus), so ask for it soon
+  // after an answer lands instead of waiting for the 15 s index poll.
+  let soon = 0;
+  const refreshSoon = () => {
+    clearTimeout(soon);
+    soon = setTimeout(() => refreshIndex(), 1000);
+  };
+
   function onEvent(e) {
     const before = S.runs[e.runId];
     S.runs = reduce(S.runs, e);
     const after = S.runs[e.runId];
     if (after && !after.loaded && e.kind !== "run_start") ensureLoaded(e.runId);
+    if (after && after.workflow === "fanout" && e.kind === "call_end") refreshSoon();
     if (after && after !== before) {
       const i = S.index.findIndex((x) => x.runId === e.runId);
       const sum = summaryOf(after);

@@ -102,7 +102,7 @@ code, pre, .num, input, select { font-family: var(--mono); }
 noscript { display: block; padding: 24px; font-family: var(--mono); }
 
 /* State and status inks. --st draws marks, --st-text writes labels (AA on paper). */
-.st-pending, .st-broken, .st-abandoned { --st: var(--dim); --st-text: var(--fg-2); }
+.st-pending, .st-broken, .st-abandoned, .st-skipped { --st: var(--dim); --st-text: var(--fg-2); }
 .st-running { --st: var(--fg); --st-text: var(--fg); }
 .st-succeeded, .st-done, .st-converged { --st: var(--ok); --st-text: var(--ok-text); }
 .st-failed, .st-error { --st: var(--fault); --st-text: var(--fault-text); }
@@ -206,6 +206,10 @@ noscript { display: block; padding: 24px; font-family: var(--mono); }
 .seq-key.st-pending { color: var(--fg-2); }
 .seq-mark { align-self: center; width: 10px; height: 8px; background: var(--st); clip-path: polygon(0 0, 100% 0, 50% 100%); }
 .seq-key.st-pending .seq-mark { clip-path: polygon(0 0, 100% 0, 50% 100%, 50% 70%, 76% 18%, 24% 18%, 50% 70%, 50% 100%); }
+/* Skipped (listed, never dispatched): a flat dash and a struck label, never the fault ink. */
+.seq-key.st-skipped { color: var(--fg-2); }
+.seq-key.st-skipped .seq-mark { height: 2px; clip-path: none; }
+.seq-key.st-skipped .seq-label { text-decoration: line-through; text-decoration-thickness: 1px; }
 .seq-time { color: var(--fg-2); font-size: 11px; }
 .seq-sub { color: var(--st-text); font-size: 11px; }
 .seq-key.st-succeeded .seq-sub { color: var(--fg-2); }
@@ -241,6 +245,7 @@ noscript { display: block; padding: 24px; font-family: var(--mono); }
 .is-dropped { fill: var(--fg-2); }
 .ch-meta { font-size: 11px; fill: var(--fg-2); }
 .ch-flag { font-size: 11px; letter-spacing: 0.04em; fill: var(--fault-text); font-weight: 600; }
+.ch-flag.is-quiet { fill: var(--fg-2); }
 .live-edge { fill: currentColor; }
 .fault { fill: none; stroke: var(--fault); stroke-width: 1.5; }
 .hatch { stroke: var(--fault); stroke-width: 1.3; opacity: 0.6; }
