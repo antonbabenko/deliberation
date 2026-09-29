@@ -6,7 +6,8 @@ const os = require("node:os");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const { readEvents, summarize, createRunIndex } = require("../server/dashboard/runs.js");
+const { readEvents, summarize, createRunIndex, deriveStatus, QUIET_MS, NEVER_DISPATCHED_MS } = require("../server/dashboard/runs.js");
+const { DEFAULT_TTL_MS } = require("../core/loop-store.js");
 const { writeSession, newSessionId, SCHEMA_VERSION } = require("../core/sessions.js");
 
 /** @param {string} [prefix] */
@@ -110,8 +111,8 @@ test("RR3: status - run_end wins; no run_end + dead pid -> abandoned; live pid -
 test("RR4: fan-out done rule - done only once every run_start provider has a call_end, else falls to liveness", () => {
   const events = [
     runStart({ workflow: "fanout", providers: ["gpt", "grok"] }),
-    callEnd({ provider: "gpt", at: 10 }),
-    callEnd({ provider: "grok", at: 20 }),
+    callEnd({ callId: "gpt-1", provider: "gpt", at: 10 }),
+    callEnd({ callId: "grok-2", provider: "grok", at: 20 }),
   ];
   const done = summarize(events, () => { throw new Error("must not be called once fan-out is done"); });
   assert.equal(done.status, "done");
@@ -254,4 +255,83 @@ test("RR11: a multi-byte UTF-8 character right at a line boundary keeps byte off
   const resumed = readEvents(file, offsetAfterLine1);
   assert.equal(resumed.events.length, 1);
   assert.equal(resumed.events[0].state, "next", "resuming from the reported offset must land exactly on the next line");
+});
+
+const T0 = 1_700_000_000_000;
+/** @param {Record<string, unknown>[]} list */
+const evs = (list) => list.map((e, i) => ({ v: 1, runId: "r", seq: i, at: T0 + i, ...e }));
+const cs = (/** @type {string} */ callId, /** @type {string} */ provider, /** @type {number} */ at, extra = {}) => ({ kind: "call_start", callId, provider, at, ...extra });
+const ce = (/** @type {string} */ callId, /** @type {string} */ provider, /** @type {number} */ at, extra = {}) => ({ kind: "call_end", callId, provider, at, isError: false, ...extra });
+const fan = (/** @type {string[]} */ providers) => ({ kind: "run_start", tool: "ask-all", workflow: "fanout", pid: 7, procStartedAt: 1, providers, at: T0 });
+const never = () => { throw new Error("isAlive must not be consulted"); };
+
+test("DS1: deriveStatus - one row per rule", () => {
+  /** @type {[string, Record<string, unknown>[], number, Function, Record<string, unknown>][]} */
+  const rows = [
+    ["run_end wins", evs([runStart({ at: T0 }), { kind: "run_end", status: "unresolved", stopReason: "max-rounds", at: T0 + 9 }]), T0 + 1e9, never,
+      { status: "unresolved", endedAt: T0 + 9, stopReason: "max-rounds" }],
+    ["fan-out: every listed provider's latest call ended", evs([fan(["a", "b"]), cs("a-1", "a", T0 + 1), cs("b-2", "b", T0 + 2), ce("a-1", "a", T0 + 5), ce("b-2", "b", T0 + 20)]), T0 + 30, never,
+      { status: "done", endedAt: T0 + 20, stopReason: null }],
+    ["fan-out: a retry still in flight after an errored first call", evs([fan(["a"]), cs("a-1", "a", T0 + 1), ce("a-1", "a", T0 + 2, { isError: true, errorKind: "network" }), cs("a-2", "a", T0 + 3)]), T0 + 3 * QUIET_MS, () => true,
+      { status: "running", endedAt: null, stopReason: null }],
+    ["fan-out: quiet with an undispatched provider", evs([fan(["a", "b"]), cs("a-1", "a", T0 + 1), ce("a-1", "a", T0 + 10)]), T0 + 10 + QUIET_MS, never,
+      { status: "done", endedAt: T0 + 10, stopReason: null, undispatched: ["b"] }],
+    ["fan-out: not yet quiet", evs([fan(["a", "b"]), cs("a-1", "a", T0 + 1), ce("a-1", "a", T0 + 10)]), T0 + 9 + QUIET_MS, () => true,
+      { status: "running", endedAt: null, stopReason: null }],
+    ["fan-out: never dispatched", evs([fan(["a", "b"])]), T0 + NEVER_DISPATCHED_MS + 1, never,
+      { status: "abandoned", endedAt: null, stopReason: "never-dispatched" }],
+    ["fan-out: not dispatched yet", evs([fan(["a", "b"])]), T0 + NEVER_DISPATCHED_MS, () => true,
+      { status: "running", endedAt: null, stopReason: null }],
+    ["consensus-step: expired", evs([runStart({ tool: "consensus-step", workflow: "consensus-step", at: T0 }), { kind: "state", state: "init", at: T0 + 5 }]), T0 + 5 + DEFAULT_TTL_MS + 1, never,
+      { status: "abandoned", endedAt: null, stopReason: "expired" }],
+    ["consensus-step: within the loop TTL", evs([runStart({ tool: "consensus-step", workflow: "consensus-step", at: T0 }), { kind: "state", state: "init", at: T0 + 5 }]), T0 + 5 + DEFAULT_TTL_MS, () => true,
+      { status: "running", endedAt: null, stopReason: null }],
+    ["dead pid", evs([runStart({ pid: 5555, at: T0 })]), T0 + 1, () => false,
+      { status: "abandoned", endedAt: null, stopReason: null }],
+    ["live pid", evs([runStart({ pid: 5555, at: T0 })]), T0 + 1e9, () => true,
+      { status: "running", endedAt: null, stopReason: null }],
+  ];
+  for (const [name, events, now, alive, want] of rows) {
+    assert.deepEqual(deriveStatus(events, now, /** @type {any} */ (alive)), want, name);
+  }
+});
+
+test("RR12: a cached run's status is re-derived on every read, without a file change", () => {
+  const runsDir = tmpDir();
+  writeRun(runsDir, "live-pid", [runStart({})]);
+  writeRun(runsDir, "step", [{ ...runStart({ tool: "consensus-step", workflow: "consensus-step" }), at: T0 }]);
+  let alive = true;
+  let clock = T0 + 1;
+  const index = createRunIndex({ runsDir, isAlive: () => alive, now: () => clock });
+  const statusOf = (/** @type {string} */ id) => index.list().find((r) => r.runId === id)?.status;
+  assert.equal(statusOf("live-pid"), "running");
+  assert.equal(statusOf("step"), "running");
+  alive = false;
+  assert.equal(statusOf("live-pid"), "abandoned", "the writer died; the file never changes");
+  alive = true;
+  clock = T0 + DEFAULT_TTL_MS + 1;
+  assert.equal(statusOf("step"), "abandoned");
+  assert.equal(index.get("step")?.summary.stopReason, "expired");
+  assert.deepEqual(index.list({ status: "abandoned" }).map((r) => r.runId), ["step"]);
+});
+
+test("RR13: errors count a call's final attempt only", () => {
+  const retried = summarize(evs([fan(["a"]), cs("a-1", "a", T0 + 1, { role: "peer", round: 1 }), ce("a-1", "a", T0 + 2, { isError: true }), cs("a-2", "a", T0 + 3, { role: "peer", round: 1 }), ce("a-2", "a", T0 + 4)]), () => true, T0 + 5);
+  assert.equal(retried.errors, 0, "an errored attempt followed by a successful retry is not an error");
+  const failedTwice = summarize(evs([fan(["a"]), cs("a-1", "a", T0 + 1), ce("a-1", "a", T0 + 2, { isError: true }), cs("a-2", "a", T0 + 3), ce("a-2", "a", T0 + 4, { isError: true })]), () => true, T0 + 5);
+  assert.equal(failedTwice.errors, 1);
+  // Two concurrent arbiter legs in one round: the second started before the first failed, so it is not its retry.
+  const concurrent = summarize(evs([runStart({ workflow: "consensus" }), cs("x-1", "x", T0 + 1, { role: "arbiter", round: 1 }), cs("x-2", "x", T0 + 2, { role: "arbiter", round: 1 }), ce("x-1", "x", T0 + 3, { isError: true }), ce("x-2", "x", T0 + 4)]), () => true, T0 + 5);
+  assert.equal(concurrent.errors, 1);
+  const otherRound = summarize(evs([runStart({ workflow: "consensus" }), cs("x-1", "x", T0 + 1, { role: "peer", round: 1 }), ce("x-1", "x", T0 + 2, { isError: true }), cs("x-2", "x", T0 + 3, { role: "peer", round: 2 }), ce("x-2", "x", T0 + 4)]), () => true, T0 + 5);
+  assert.equal(otherRound.errors, 1, "the next round's call is not a retry");
+});
+
+test("RR14: q matches the redacted prompt when asked to", () => {
+  const runsDir = tmpDir();
+  writeRun(runsDir, "pii", [runStart({ prompt: "mail alice@example.com about it" }), runEnd({})]);
+  const index = createRunIndex({ runsDir });
+  assert.equal(index.list({ q: "alice@example" }).length, 1);
+  assert.equal(index.list({ q: "alice@example", redacted: true }).length, 0, "a search cannot confirm a masked value");
+  assert.equal(index.list({ q: "mail [email]", redacted: true }).length, 1);
 });

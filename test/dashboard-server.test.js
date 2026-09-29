@@ -355,3 +355,15 @@ test("S15: a run id whose last UUID group is all digits survives redaction on ev
     s.close();
   }
 });
+
+test("S16: with showPII off, ?q= matches the redacted prompt, so a search cannot confirm a masked value", async () => {
+  cfg.dashboard.showPII = false;
+  assert.equal(JSON.parse((await req("/api/runs?q=x%40y.io", { cookie: true })).body).runs.length, 0);
+  assert.equal(JSON.parse((await req("/api/runs?q=%5Bemail%5D", { cookie: true })).body).runs.length, 1);
+  cfg.dashboard.showPII = true;
+  try {
+    assert.equal(JSON.parse((await req("/api/runs?q=x%40y.io", { cookie: true })).body).runs.length, 1);
+  } finally {
+    cfg.dashboard.showPII = false;
+  }
+});

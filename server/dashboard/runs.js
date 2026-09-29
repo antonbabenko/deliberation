@@ -19,6 +19,9 @@ const path = require("node:path");
 const os = require("node:os");
 const { isSafeId } = require("../../core/journal.js");
 const { readSession, listSessions } = require("../../core/sessions.js");
+const { redactString } = require("../../core/redact.js");
+// The loop store's TTL: past it a consensus-step loop's state is gone, so the host cannot resume it.
+const { DEFAULT_TTL_MS: STEP_TTL_MS } = require("../../core/loop-store.js");
 
 /**
  * @typedef {("running"|"done"|"converged"|"unresolved"|"error"|"abandoned")} RunStatus
@@ -37,6 +40,8 @@ const { readSession, listSessions } = require("../../core/sessions.js");
  * @property {number} errors
  * @property {number} tokens
  * @property {boolean} legacy
+ * @property {(string|null)} stopReason
+ * @property {string[]} [undispatched]  a quiet fan-out's listed providers that were never called
  */
 
 /** @typedef {(pid: number, procStartedAt: number) => boolean} IsAliveFn */
@@ -190,27 +195,134 @@ function tokensOf(usage) {
   return p + c;
 }
 
-/**
- * Fold one run's events into a `RunSummary`. Tolerant of a run file missing
- * `run_start` (rare legacy/pruned case): `tool`/`workflow` come back null and
- * `startedAt` falls back to the earliest event seen. Never throws.
- * @param {Record<string, unknown>[]} events
- * @param {IsAliveFn} [isAliveFn]
- * @returns {RunSummary}
- */
-function summarize(events, isAliveFn) {
-  const list = Array.isArray(events) ? events : [];
-  const aliveCheck = typeof isAliveFn === "function" ? isAliveFn : isAlive;
+/** A fan-out with no call in flight and no event for this long is done; the providers
+ * it never dispatched are reported as `undispatched`. */
+const QUIET_MS = 60000;
+/** A fan-out that has dispatched nothing this long after run_start was abandoned. */
+const NEVER_DISPATCHED_MS = 20 * 60 * 1000;
 
+/** @param {any} v @returns {(number|null)} */
+const numOr = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+
+/**
+ * @typedef {Object} DerivedStatus
+ * @property {RunStatus} status
+ * @property {(number|null)} endedAt
+ * @property {(string|null)} stopReason
+ * @property {string[]} [undispatched]  fan-out only: listed providers that were never called
+ */
+
+/**
+ * A run's status at time `now`. Pure apart from `isAliveFn`, which is consulted only by the
+ * last rule. In order:
+ *   1. a run_end gives the status (and stopReason);
+ *   2. a `fanout` is done once every provider run_start lists has a LATEST call (by
+ *      callId, so a retry in flight after an errored attempt keeps it open) with a call_end;
+ *   3. a `fanout` with at least one call_start, none of them still open, and no event for
+ *      QUIET_MS is done, with the providers it never called as `undispatched`;
+ *   4. a `fanout` with no call_start NEVER_DISPATCHED_MS after it started is abandoned
+ *      ("never-dispatched");
+ *   5. a `consensus-step` whose last event is older than the loop store's TTL is abandoned
+ *      ("expired"): the host stopped driving it and the loop state is gone;
+ *   6. otherwise the run is running while its writer pid is alive, else abandoned.
+ * @param {Record<string, unknown>[]} events
+ * @param {number} now  epoch ms
+ * @param {IsAliveFn} [isAliveFn]
+ * @returns {DerivedStatus}
+ */
+function deriveStatus(events, now, isAliveFn) {
+  const aliveCheck = typeof isAliveFn === "function" ? isAliveFn : isAlive;
+  /** @type {any} */
+  let start = null;
+  /** @type {any} */
+  let end = null;
+  /** @type {(number|null)} */
+  let lastAt = null;
+  /** @type {(number|null)} */
+  let minAt = null;
+  /** @type {Map<string, {started: boolean, ended: boolean, endAt: (number|null)}>} */
+  const calls = new Map();
+  /** @type {Map<string, string>} provider -> its latest callId */
+  const latest = new Map();
+  for (const e of Array.isArray(events) ? events : []) {
+    if (!e || typeof e !== "object") continue;
+    const ev = /** @type {any} */ (e);
+    const at = numOr(ev.at);
+    if (at !== null) {
+      lastAt = lastAt === null ? at : Math.max(lastAt, at);
+      minAt = minAt === null ? at : Math.min(minAt, at);
+    }
+    if (ev.kind === "run_start") start = ev;
+    else if (ev.kind === "run_end") end = ev;
+    else if (ev.kind === "call_start" || ev.kind === "call_end") {
+      const id = typeof ev.callId === "string" ? ev.callId : `seq-${ev.seq}`;
+      const c = calls.get(id) || { started: false, ended: false, endAt: null };
+      calls.set(id, c);
+      const provider = typeof ev.provider === "string" ? ev.provider : "";
+      if (ev.kind === "call_start") {
+        c.started = true;
+        latest.set(provider, id);
+      } else {
+        c.ended = true;
+        c.endAt = at;
+        if (!latest.has(provider)) latest.set(provider, id);
+      }
+    }
+  }
+  if (end) {
+    return {
+      status: /** @type {RunStatus} */ (typeof end.status === "string" ? end.status : "done"),
+      endedAt: numOr(end.at),
+      stopReason: typeof end.stopReason === "string" ? end.stopReason : null,
+    };
+  }
+  const workflow = start && typeof start.workflow === "string" ? start.workflow : null;
+  if (workflow === "fanout") {
+    const listed = Array.isArray(start.providers) ? start.providers.filter((/** @type {any} */ p) => typeof p === "string") : [];
+    const latestCalls = listed.map((/** @type {string} */ p) => (latest.has(p) ? calls.get(/** @type {string} */ (latest.get(p))) : undefined));
+    if (listed.length && latestCalls.every((/** @type {any} */ c) => c && c.ended)) {
+      const ends = latestCalls.map((/** @type {any} */ c) => c.endAt).filter((/** @type {any} */ x) => x !== null);
+      return { status: "done", endedAt: ends.length ? Math.max(...ends) : lastAt, stopReason: null };
+    }
+    const started = [...calls.values()].filter((c) => c.started);
+    if (started.length && started.every((c) => c.ended) && lastAt !== null && now - lastAt >= QUIET_MS) {
+      return { status: "done", endedAt: lastAt, stopReason: null, undispatched: listed.filter((/** @type {string} */ p) => !latest.has(p)) };
+    }
+    const startedAt = numOr(start.at) ?? minAt;
+    if (!started.length && startedAt !== null && now - startedAt > NEVER_DISPATCHED_MS) {
+      return { status: "abandoned", endedAt: null, stopReason: "never-dispatched" };
+    }
+  }
+  if (workflow === "consensus-step" && lastAt !== null && now - lastAt > STEP_TTL_MS) {
+    return { status: "abandoned", endedAt: null, stopReason: "expired" };
+  }
+  const pid = start ? numOr(start.pid) : null;
+  // NaN, not 0, when run_start carried no procStartedAt: 0 is finite and would pass
+  // isAlive's Number.isFinite guard, enabling the pid-reuse check against epoch 0 and
+  // reporting a live pid as abandoned. NaN makes isAlive fall back to pid-only liveness.
+  const procStarted = start ? numOr(start.procStartedAt) : null;
+  const alive = pid !== null && aliveCheck(pid, procStarted === null ? NaN : procStarted);
+  return { status: alive ? "running" : "abandoned", endedAt: null, stopReason: null };
+}
+
+/**
+ * Fold the time-independent part of a run's summary: everything but the status fields
+ * (deriveStatus). Tolerant of a run file missing `run_start` (rare legacy/pruned case):
+ * `tool`/`workflow` come back null and `startedAt` falls back to the earliest event seen.
+ *
+ * `errors` counts a call's final attempt only. A retry is a call_start for the same
+ * (provider, role, round) that begins after an earlier call with that key ended in an
+ * error; that earlier error no longer counts. Two legs that overlap in time (a
+ * consensus round's concurrent arbiter calls) are separate calls. Never throws.
+ * @param {Record<string, unknown>[]} events
+ * @returns {Omit<RunSummary, "status"|"endedAt"|"stopReason"|"undispatched">}
+ */
+function foldRun(events) {
   let runId = "";
   /** @type {(string|null)} */
   let tool = null;
   /** @type {(string|null)} */
   let workflow = null;
-  /** @type {(number|null)} */
-  let pid = null;
-  /** @type {(number|null)} */
-  let procStartedAtVal = null;
   /** @type {(number|null)} */
   let runStartAt = null;
   /** @type {string[]} */
@@ -219,87 +331,85 @@ function summarize(events, isAliveFn) {
   let runEnd = null;
   let maxRound = 0;
   let tokens = 0;
-  let errors = 0;
   /** @type {(number|null)} */
   let minAt = null;
-  /** @type {(number|null)} */
-  let lastCallEndAt = null;
   /** @type {Set<string>} */
   const callEndProviders = new Set();
+  /** @type {Map<string, string>} callId -> retry key */
+  const keyOf = new Map();
+  /** @type {Map<string, string>} retry key -> the errored callId a retry would replace */
+  const erroredByKey = new Map();
+  /** @type {Set<string>} */
+  const errored = new Set();
 
-  for (const e of list) {
+  for (const e of Array.isArray(events) ? events : []) {
     if (!e || typeof e !== "object") continue;
     const ev = /** @type {any} */ (e);
     if (typeof ev.runId === "string" && !runId) runId = ev.runId;
-    if (typeof ev.at === "number" && Number.isFinite(ev.at)) {
-      minAt = minAt === null ? ev.at : Math.min(minAt, ev.at);
-    }
+    const at = numOr(ev.at);
+    if (at !== null) minAt = minAt === null ? at : Math.min(minAt, at);
+    const callId = typeof ev.callId === "string" ? ev.callId : `seq-${ev.seq}`;
     switch (ev.kind) {
       case "run_start":
         if (typeof ev.tool === "string") tool = ev.tool;
         if (typeof ev.workflow === "string") workflow = ev.workflow;
-        if (typeof ev.pid === "number") pid = ev.pid;
-        if (typeof ev.procStartedAt === "number") procStartedAtVal = ev.procStartedAt;
-        if (typeof ev.at === "number") runStartAt = ev.at;
+        if (at !== null) runStartAt = at;
         if (Array.isArray(ev.providers)) providersFromStart = ev.providers.filter((/** @type {any} */ p) => typeof p === "string");
         break;
       case "run_end":
         runEnd = ev;
         break;
       case "state":
-      case "call_start":
         if (typeof ev.round === "number") maxRound = Math.max(maxRound, ev.round);
         break;
+      case "call_start": {
+        if (typeof ev.round === "number") maxRound = Math.max(maxRound, ev.round);
+        const key = `${ev.provider}|${ev.role}|${ev.round}`;
+        keyOf.set(callId, key);
+        const prev = erroredByKey.get(key);
+        if (prev !== undefined) {
+          errored.delete(prev);
+          erroredByKey.delete(key);
+        }
+        break;
+      }
       case "call_end":
         if (typeof ev.round === "number") maxRound = Math.max(maxRound, ev.round);
         if (typeof ev.provider === "string") callEndProviders.add(ev.provider);
-        if (ev.isError) errors += 1;
+        if (ev.isError) {
+          errored.add(callId);
+          const key = keyOf.get(callId);
+          if (key !== undefined) erroredByKey.set(key, callId);
+        }
         tokens += tokensOf(ev.usage);
-        if (typeof ev.at === "number") lastCallEndAt = lastCallEndAt === null ? ev.at : Math.max(lastCallEndAt, ev.at);
         break;
       default:
         break;
     }
   }
 
-  const providers = providersFromStart.length ? providersFromStart : Array.from(callEndProviders).sort();
-  // Fan-out done rule: a "fanout" run with no run_end is done once every provider
-  // run_start named has a call_end.
-  const fanoutDone = workflow === "fanout" && providersFromStart.length > 0
-    && providersFromStart.every((p) => callEndProviders.has(p));
-
-  /** @type {RunStatus} */
-  let status;
-  /** @type {(number|null)} */
-  let endedAt = null;
-  if (runEnd && typeof runEnd.status === "string") {
-    status = /** @type {RunStatus} */ (runEnd.status);
-    endedAt = typeof runEnd.at === "number" ? runEnd.at : null;
-  } else if (fanoutDone) {
-    status = "done";
-    endedAt = lastCallEndAt;
-  } else {
-    // NaN, not 0: procStartedAtVal === null means run_start carried no procStartedAt
-    // (or is absent entirely). 0 is a finite number and would pass isAlive's
-    // Number.isFinite guard, wrongly enabling the pid-reuse check against epoch 0 and
-    // reporting a live pid as abandoned. NaN fails that guard, so isAlive falls back
-    // to pid-only liveness, same as when /proc can't be read.
-    status = pid !== null && aliveCheck(pid, procStartedAtVal === null ? NaN : procStartedAtVal) ? "running" : "abandoned";
-  }
-
   return {
     runId,
     tool,
     workflow,
-    status,
     startedAt: runStartAt !== null ? runStartAt : (minAt !== null ? minAt : 0),
-    endedAt,
-    providers,
+    providers: providersFromStart.length ? providersFromStart : Array.from(callEndProviders).sort(),
     rounds: runEnd && typeof runEnd.rounds === "number" ? runEnd.rounds : maxRound,
-    errors,
+    errors: errored.size,
     tokens,
     legacy: false,
   };
+}
+
+/**
+ * Fold one run's events into a `RunSummary` as of `now`. Never throws.
+ * @param {Record<string, unknown>[]} events
+ * @param {IsAliveFn} [isAliveFn]
+ * @param {number} [now]  epoch ms, default Date.now()
+ * @returns {RunSummary}
+ */
+function summarize(events, isAliveFn, now = Date.now()) {
+  return { ...foldRun(events), ...deriveStatus(events, now, isAliveFn) };
 }
 
 /**
@@ -337,12 +447,14 @@ function legacySummary(id, record) {
     errors: 0,
     tokens: 0,
     legacy: true,
+    stopReason: null,
   };
 }
 
 /**
  * @typedef {Object} RunFilter
  * @property {string} [q]  matches run_start.prompt (journal) or question (legacy); case-insensitive substring
+ * @property {boolean} [redacted]  match `q` against the PII-redacted text, so a search cannot confirm a masked value
  * @property {string} [tool]
  * @property {string} [provider]
  * @property {string} [status]
@@ -355,26 +467,55 @@ function legacySummary(id, record) {
 
 /**
  * Build a run index over a journal dir (`core/journal.js` `.jsonl` files) and a
- * legacy sessions dir (`core/sessions.js` `.json` records). Summaries are
- * cached per file by `(size, mtimeMs)`, so a `list()`/`get()` call re-reads a
- * file only when it changed on disk.
- * @param {{runsDir: string, sessionsDir?: string, isAlive?: IsAliveFn}} opts
+ * legacy sessions dir (`core/sessions.js` `.json` records). Events and the
+ * time-independent summary fields are cached per file by `(size, mtimeMs)`, so a
+ * `list()`/`get()` call re-reads a file only when it changed on disk. The status of
+ * a run with no run_end depends on the clock and on its writer pid, so it is derived
+ * again on every read (deriveStatus). ponytail: one liveness probe per open run per
+ * read; cache it for a few seconds if the index ever grows past a few hundred runs.
+ * @param {{runsDir: string, sessionsDir?: string, isAlive?: IsAliveFn, now?: () => number}} opts
  * @returns {{list: (filter?: RunFilter) => RunSummary[], get: (id: string) => (RunDetail|null), cacheSize: () => number}}
  */
 function createRunIndex(opts) {
   const runsDir = opts.runsDir;
   const sessionsDir = opts.sessionsDir;
   const aliveCheck = typeof opts.isAlive === "function" ? opts.isAlive : isAlive;
+  const now = typeof opts.now === "function" ? opts.now : Date.now;
 
-  /** @type {Map<string, {size: number, mtimeMs: number, summary: (RunSummary|null), events: Record<string, unknown>[], searchText: string}>} */
+  /**
+   * @typedef {{searchText: string, redactedText?: string}} Searchable
+   * @typedef {Searchable & {size: number, mtimeMs: number, base: (ReturnType<typeof foldRun>|null), fixed: (DerivedStatus|null), events: Record<string, unknown>[]}} JournalEntry
+   */
+  /** @type {Map<string, JournalEntry>} */
   const journalCache = new Map();
-  /** @type {Map<string, {mtimeMs: number, summary: RunSummary, searchText: string}>} */
+  /** @type {Map<string, Searchable & {mtimeMs: number, summary: RunSummary}>} */
   const legacyCache = new Map();
+
+  /**
+   * The entry's summary as of now. Null for a file with no valid events.
+   * @param {JournalEntry} entry
+   * @returns {(RunSummary|null)}
+   */
+  function journalSummary(entry) {
+    if (!entry.base) return null;
+    return { ...entry.base, ...(entry.fixed || deriveStatus(entry.events, now(), aliveCheck)) };
+  }
+
+  /**
+   * @param {Searchable} entry
+   * @param {boolean} redacted
+   * @returns {string}
+   */
+  function searchTextOf(entry, redacted) {
+    if (!redacted) return entry.searchText;
+    if (entry.redactedText === undefined) entry.redactedText = redactString(entry.searchText);
+    return entry.redactedText;
+  }
 
   /**
    * Load (or reuse a cached) journal entry for one run id. Returns undefined when
    * the file can't be stat'd (gone, a directory, etc - never thrown). A file with
-   * zero parseable events (corrupt / not JSON) caches with `summary: null` so it
+   * zero parseable events (corrupt / not JSON) caches with `base: null` so it
    * is not re-read on every call, but is excluded from the index as "not a valid
    * run".
    * @param {string} id
@@ -391,21 +532,20 @@ function createRunIndex(opts) {
     const cached = journalCache.get(id);
     if (cached && cached.size === stat.size && cached.mtimeMs === stat.mtimeMs) return cached;
     const { events } = readEvents(file);
-    /** @type {(RunSummary|null)} */
-    let summary = null;
-    let searchText = "";
+    /** @type {JournalEntry} */
+    const entry = { size: stat.size, mtimeMs: stat.mtimeMs, base: null, fixed: null, events, searchText: "" };
     if (events.length > 0) {
-      summary = summarize(events, aliveCheck);
-      summary.runId = id; // filename is the source of truth, in case run_start is absent or mismatched
+      entry.base = { ...foldRun(events), runId: id }; // filename is the source of truth, in case run_start is absent or mismatched
+      // A run_end makes the status time-independent, so it is cached with the rest.
+      if (events.some((e) => e && /** @type {any} */ (e).kind === "run_end")) entry.fixed = deriveStatus(events, 0, aliveCheck);
       const runStart = events.find((e) => e && typeof e === "object" && /** @type {any} */ (e).kind === "run_start");
-      if (runStart && typeof (/** @type {any} */ (runStart)).prompt === "string") searchText = /** @type {any} */ (runStart).prompt;
+      if (runStart && typeof (/** @type {any} */ (runStart)).prompt === "string") entry.searchText = /** @type {any} */ (runStart).prompt;
     }
-    const entry = { size: stat.size, mtimeMs: stat.mtimeMs, summary, events, searchText };
     journalCache.set(id, entry);
     return entry;
   }
 
-  /** @returns {{summary: RunSummary, searchText: string}[]} */
+  /** @returns {(Searchable & {summary: RunSummary})[]} */
   function loadLegacyEntries() {
     if (!sessionsDir) return [];
     const out = [];
@@ -435,12 +575,12 @@ function createRunIndex(opts) {
   }
 
   /**
-   * @param {{summary: RunSummary, searchText: string}} entry
+   * @param {RunSummary} s
+   * @param {Searchable} entry
    * @param {RunFilter} filter
    * @returns {boolean}
    */
-  function matchesFilter(entry, filter) {
-    const s = entry.summary;
+  function matchesFilter(s, entry, filter) {
     if (filter.tool && s.tool !== filter.tool) return false;
     if (filter.status && s.status !== filter.status) return false;
     if (filter.provider && s.providers.indexOf(filter.provider) === -1) return false;
@@ -450,7 +590,8 @@ function createRunIndex(opts) {
     }
     if (filter.q) {
       const needle = String(filter.q).toLowerCase();
-      if (!entry.searchText || entry.searchText.toLowerCase().indexOf(needle) === -1) return false;
+      const text = searchTextOf(entry, !!filter.redacted);
+      if (!text || text.toLowerCase().indexOf(needle) === -1) return false;
     }
     return true;
   }
@@ -468,7 +609,7 @@ function createRunIndex(opts) {
     } catch {
       names = [];
     }
-    /** @type {{summary: RunSummary, searchText: string}[]} */
+    /** @type {{summary: RunSummary, entry: Searchable}[]} */
     const entries = [];
     /** @type {Set<string>} */
     const seenIds = new Set();
@@ -480,8 +621,9 @@ function createRunIndex(opts) {
       if (!isSafeId(id)) continue;
       currentJournalIds.add(id);
       const entry = loadJournalEntry(id, path.join(runsDir, name));
-      if (entry && entry.summary) {
-        entries.push({ summary: entry.summary, searchText: entry.searchText });
+      const summary = entry ? journalSummary(entry) : null;
+      if (entry && summary) {
+        entries.push({ summary, entry });
         seenIds.add(id);
       }
     }
@@ -492,11 +634,11 @@ function createRunIndex(opts) {
     }
     for (const entry of loadLegacyEntries()) {
       if (seenIds.has(entry.summary.runId)) continue; // a live journal file wins on id collision
-      entries.push(entry);
+      entries.push({ summary: entry.summary, entry });
     }
     return entries
-      .filter((entry) => matchesFilter(entry, f))
-      .map((entry) => entry.summary)
+      .filter((x) => matchesFilter(x.summary, x.entry, f))
+      .map((x) => x.summary)
       .sort((a, b) => b.startedAt - a.startedAt);
   }
 
@@ -512,7 +654,8 @@ function createRunIndex(opts) {
     // id may still name a legacy session record, exactly as list() already falls
     // back to the legacy store for ids the journal doesn't have - so fall through
     // instead of returning null here.
-    if (entry && entry.summary) return { summary: entry.summary, events: entry.events };
+    const summary = entry ? journalSummary(entry) : null;
+    if (entry && summary) return { summary, events: entry.events };
     if (!sessionsDir) return null;
     const record = readSession(id, { dir: sessionsDir });
     if (!record) return null;
@@ -529,4 +672,4 @@ function createRunIndex(opts) {
   return { list, get, cacheSize };
 }
 
-module.exports = { readEvents, summarize, legacySummary, createRunIndex, isAlive };
+module.exports = { readEvents, summarize, deriveStatus, legacySummary, createRunIndex, isAlive, QUIET_MS, NEVER_DISPATCHED_MS };

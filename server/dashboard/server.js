@@ -274,6 +274,7 @@ function createDashboardServer(opts) {
         provider: q.get("provider") || undefined,
         status: q.get("status") || undefined,
         since: sinceRaw && /^\d+$/.test(sinceRaw) ? Number(sinceRaw) : sinceRaw || undefined,
+        redacted: !showPII(),
       };
       return sendJson(req, res, 200, outward({ runs: index.list(filter) }));
     }
