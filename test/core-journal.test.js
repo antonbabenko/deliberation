@@ -239,3 +239,13 @@ test("J-nonstring: a non-string content value is dropped under capture=content",
   assert.ok(!("prompt" in start));
   assert.ok(!("text" in arb));
 });
+
+test("J-seq: run_end releases the run's seq counter (the map cannot grow for the life of the process)", () => {
+  const dir = tmpDir();
+  const j = createJournal({ dir, getSettings: () => settings() });
+  j.emit("run-s", "run_start", { tool: "ask-all", workflow: "single", providers: ["grok"] });
+  j.emit("run-s", "run_end", { status: "done" });
+  // Nothing is written after a run_end in practice; a stray one starts a fresh counter.
+  j.emit("run-s", "state", { state: "late" });
+  assert.deepEqual(readLines(dir, "run-s").map((e) => e.seq), [0, 1, 0]);
+});

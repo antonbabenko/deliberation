@@ -228,8 +228,8 @@ function resolveRunsDir(opts) {
 }
 
 /**
- * Resolve the absolute path to the dashboard's small persisted state file
- * (last-read offsets, prefs mirrored server-side, etc). Always the canonical
+ * Resolve the absolute path to the running dashboard's state file: its pid,
+ * port, token and startedAt, so a second launch can find it. Always the canonical
  * cache-dir location - no env override, unlike the other resolvers here.
  *
  * Pure path logic - no FS access, no side effects.

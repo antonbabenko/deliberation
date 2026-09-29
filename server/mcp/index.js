@@ -400,8 +400,9 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
     const id = runId || journal.newRunId();
     journal.emit(id, "run_start", {
       tool, workflow, providers: providerNames,
-      // Untrusted tool args: only strings reach the journal (a non-string would skip the scrub).
-      ...(typeof expert === "string" ? { expert } : {}),
+      // Untrusted tool args: only strings reach the journal (a non-string would skip the scrub),
+      // and `expert` only as a known persona name, never free text.
+      ...(typeof expert === "string" && EXPERTS.includes(expert) ? { expert } : {}),
       ...(typeof prompt === "string" ? { prompt } : {}),
     });
     return { journal, runId: id };
@@ -1330,7 +1331,9 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
             voices: Array.isArray(cur.results) ? cur.results.length : undefined,
           });
         } catch { /* logging must never break the step */ }
-        jemit("arbiter", { action: "submit_adjudication", round: cur.round, verdict: typeof args.verdict === "string" ? args.verdict : null, text: JSON.stringify(decisions) });
+        // submitAdjudication above already rejects a verdict outside the enum; check again here so
+        // the journal never depends on that ordering.
+        jemit("arbiter", { action: "submit_adjudication", round: cur.round, verdict: loop.VERDICTS.includes(args.verdict) ? args.verdict : null, text: JSON.stringify(decisions) });
         if (next.status === "converged") {
           const { finalReport, confidence } = loop.finalize(next);
           // Atomic take: remove-and-return in ONE synchronous step so a concurrent/

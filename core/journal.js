@@ -283,6 +283,9 @@ function createJournal(opts) {
         built.procStartedAt = procStartedAt();
       }
       const envelope = { v: 1, kind, runId, at: now(), seq: nextSeq(runId), ...built };
+      // A run ends once: drop its counter (even if the write below fails) so seqByRun
+      // holds open runs only.
+      if (kind === "run_end") seqByRun.delete(runId);
       fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
       const file = path.join(dir, `${runId}.jsonl`);
       fs.appendFileSync(file, JSON.stringify(envelope) + "\n", { mode: 0o600 });
