@@ -96,7 +96,9 @@ tolerates real-world drift across models: it first strips fenced code blocks (so
 template cannot hijack the verdict), then resolves the verdict via a 4-tier ladder - the `VERDICT:`
 sentinel, a same-line `Verdict: <token>`, a `Verdict` heading with the token on a following line, or a
 bare standalone token line - and joins a category heading to a description on the next line when the
-bullet itself has none. An unparsed verdict stays `null` (treated as "not APPROVE"), so a parse miss
+bullet itself has none. A repeated issue (same category, same text ignoring case and whitespace)
+is kept once: models often list their issues in the body and again after the `VERDICT:` line, and the
+repeat must not inflate the issue count. An unparsed verdict stays `null` (treated as "not APPROVE"), so a parse miss
 never false-approves into convergence.
 
 **Stage 2 (anonymized peer cross-review) is not part of the current loop.** Earlier revisions ran
@@ -1878,7 +1880,11 @@ defenses, in request order:
   `127.0.0.1` still sends its own `Host`, so it is refused.
 - **Per-start token, swapped for a cookie.** Each start generates a 32-byte random token.
   The printed URL carries it as `?t=<token>`; the first request with a valid token gets a
-  302 to `/` and a `dlb_dash` cookie (`HttpOnly; SameSite=Strict; Path=/`). Requests with
+  `dlb_dash` cookie (`HttpOnly; SameSite=Strict; Path=/`) and a small page that refreshes
+  to `/`. It is not a 302: the browser arrives from the `file://` opener page, a redirect
+  keeps that navigation cross-site, and Chrome would withhold the Strict cookie from the
+  redirected `GET /` (a 401 on the first open). The refresh starts from the dashboard's
+  own origin, so the cookie is sent. Requests with
   neither a valid token nor the cookie get 401. Comparison is constant-time.
 - **The token is in the printed URL.** Anyone who sees that line (terminal scrollback, a
   shared screen, a pasted log) can open the dashboard until it restarts. It is also stored

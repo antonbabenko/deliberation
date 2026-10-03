@@ -86,7 +86,7 @@ test("bundle: `dashboard` prints its URL and serves the copied UI", { skip: !esb
     assert.ok(m, "URL line");
     const [, base, , token] = m;
     const first = /** @type {any} */ (await get(`${base}/?t=${token}`));
-    assert.equal(first.status, 302);
+    assert.equal(first.status, 200);
     const page = /** @type {any} */ (await get(`${base}/`, { Cookie: `dlb_dash=${token}` }));
     assert.equal(page.status, 200);
     assert.match(page.body, /<html/i);

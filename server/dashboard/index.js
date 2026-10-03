@@ -106,7 +106,7 @@ function probeInstance(port, token, timeoutMs = 500) {
   return new Promise((resolve) => {
     const req = http.get({ host: "127.0.0.1", port, path: `/?t=${token}`, headers: { Host: `127.0.0.1:${port}` }, timeout: timeoutMs }, (res) => {
       res.resume();
-      resolve(res.statusCode === 302);
+      resolve(res.statusCode === 200 && String(res.headers["set-cookie"] || "").startsWith("dlb_dash="));
     });
     req.on("timeout", () => req.destroy());
     req.on("error", () => resolve(false));
@@ -251,7 +251,13 @@ async function main(argv, io = {}) {
   } catch (e) {
     tailer.close();
     const code = /** @type {any} */ (e).code;
-    err.write(code === "EADDRINUSE" ? `port ${port} is in use; pass --port\n` : `dashboard failed to start: ${String((/** @type {any} */ (e)).message || e)}\n`);
+    // The pidfile names this port and a live pid, but the probe above failed: most likely an
+    // older dashboard (it answers ?t= differently). The pid may also have been reused, so name
+    // it without claiming it or telling the user to stop it, and keep --port as the way out.
+    const older = code === "EADDRINUSE" && existing && existing.port === port && pidAlive(existing.pid);
+    err.write(older ? `port ${port} is in use and did not answer as this dashboard; the pidfile names pid ${existing.pid}, possibly an older dashboard; pass --port, or free the port\n`
+      : code === "EADDRINUSE" ? `port ${port} is in use; pass --port\n`
+      : `dashboard failed to start: ${String((/** @type {any} */ (e)).message || e)}\n`);
     return 1;
   }
   const bound = /** @type {import("node:net").AddressInfo} */ (server.address()).port;

@@ -44,6 +44,11 @@ Print the script's output **as-is**, then act on its exit code:
     `"dashboard": { "enabled": true }` to that config file (it hot-reloads) and run
     `/deliberation:dashboard` again. Runs made before that are not recorded.
   - `port <n> is in use; pass --port` - rerun with `--port <another port>`.
+  - `port <n> is in use and did not answer as this dashboard; the pidfile names pid <pid>, ...` -
+    most likely a dashboard started before an update. Tell the user to check that pid and end
+    it if it is the old dashboard, or rerun with `--port <another port>`. Do not kill it yourself.
+  - `deliberation <version> at <path> has no dashboard; update it: ...` - the installed plugin
+    predates the dashboard; tell the user to update it as the message says.
 - `2` - a remote session (Claude Code on the web): the dashboard needs a browser on the
   same machine, and `localhost` here is the remote container. Stop.
 

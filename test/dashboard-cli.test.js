@@ -188,3 +188,21 @@ test("healthReport marks unhealthy, needsLogin and panel eligibility", async () 
   assert.equal(grok.model, "grok-4.6");
   assert.equal(grok.reasoningEffort, "high");
 });
+
+test("C-older: an older dashboard still on the port (answers ?t= with a 302) is named as possibly older, with --port kept", async () => {
+  writeConfig({ enabled: true });
+  const http = require("node:http");
+  const old = http.createServer((_q, s) => { s.writeHead(302, { Location: "/" }); s.end(); });
+  await new Promise((r) => old.listen(0, "127.0.0.1", () => r(undefined)));
+  const port = /** @type {any} */ (old.address()).port;
+  fs.mkdirSync(path.dirname(statePath), { recursive: true });
+  fs.writeFileSync(statePath, JSON.stringify({ pid: process.pid, port, token: "f".repeat(64), startedAt: 1 }));
+  try {
+    const err = sink();
+    assert.equal(await main(["--no-open", "--port", String(port)], { stdout: sink(), stderr: err }), 1);
+    assert.equal(err.text, `port ${port} is in use and did not answer as this dashboard; the pidfile names pid ${process.pid}, possibly an older dashboard; pass --port, or free the port\n`);
+  } finally {
+    await new Promise((r) => old.close(() => r(undefined)));
+    fs.rmSync(statePath, { force: true });
+  }
+});
