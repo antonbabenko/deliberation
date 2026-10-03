@@ -96,7 +96,9 @@ tolerates real-world drift across models: it first strips fenced code blocks (so
 template cannot hijack the verdict), then resolves the verdict via a 4-tier ladder - the `VERDICT:`
 sentinel, a same-line `Verdict: <token>`, a `Verdict` heading with the token on a following line, or a
 bare standalone token line - and joins a category heading to a description on the next line when the
-bullet itself has none. An unparsed verdict stays `null` (treated as "not APPROVE"), so a parse miss
+bullet itself has none. A repeated issue (same category, same text ignoring case and whitespace)
+is kept once: models often list their issues in the body and again after the `VERDICT:` line, and the
+repeat must not inflate the issue count. An unparsed verdict stays `null` (treated as "not APPROVE"), so a parse miss
 never false-approves into convergence.
 
 **Stage 2 (anonymized peer cross-review) is not part of the current loop.** Earlier revisions ran
