@@ -231,8 +231,15 @@ function createDashboardServer(opts) {
     const t = url.searchParams.get("t");
     if (t !== null) {
       if (!tokenMatches(t, expected)) return sendJson(req, res, 401, { error: "unauthorized" }), false;
-      res.writeHead(302, { Location: "/", "Set-Cookie": `${COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/` });
-      res.end();
+      // Not a 302: the browser is opened through a file:// redirect page, so a redirect
+      // would still be a cross-site navigation and Chrome would withhold the Strict cookie
+      // from the redirected GET /. A same-origin page that refreshes to / is same-site.
+      res.writeHead(200, {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store",
+        "Set-Cookie": `${COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/`,
+      });
+      res.end(req.method === "HEAD" ? undefined : '<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=/"><title>Deliberation dashboard</title><a href="/">Open the dashboard</a>\n');
       return false;
     }
     if (!tokenMatches(readCookie(req.headers.cookie), expected)) return sendJson(req, res, 401, { error: "unauthorized" }), false;

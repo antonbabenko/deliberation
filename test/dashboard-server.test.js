@@ -97,8 +97,12 @@ test("S2: token and cookie flow", async () => {
   assert.equal((await req(`/?t=${"b".repeat(64)}`)).status, 401);
   assert.equal((await req("/", { headers: { Cookie: "dlb_dash=nope" } })).status, 401);
   const ok = await req(`/?t=${TOKEN}`);
-  assert.equal(ok.status, 302);
-  assert.equal(ok.headers.location, "/");
+  // 200 + same-origin refresh, not 302: a redirect out of the file:// opener page is
+  // cross-site, and Chrome withholds the Strict cookie from the redirected GET /.
+  assert.equal(ok.status, 200);
+  assert.equal(ok.headers.location, undefined);
+  assert.equal(ok.headers["cache-control"], "no-store");
+  assert.match(ok.body, /http-equiv="refresh" content="0;url=\/"/);
   const cookie = String((ok.headers["set-cookie"] || [])[0]);
   assert.match(cookie, /^dlb_dash=a{64};/);
   assert.match(cookie, /HttpOnly/);
@@ -471,5 +475,23 @@ test("S19: with capture metadata, ?q= does not match stripped prompt or question
     assert.deepEqual(await hits("SECRETPROMPT"), [f.jid]);
   } finally {
     f.close();
+  }
+});
+
+test("S-sh: dashboard.sh names an install that predates the dashboard instead of exiting silently", () => {
+  const { spawnSync } = require("node:child_process");
+  const old = tmpDir();
+  fs.mkdirSync(path.join(old, "server/mcp"), { recursive: true });
+  fs.mkdirSync(path.join(old, ".claude-plugin"));
+  fs.writeFileSync(path.join(old, "server/mcp/index.js"), "process.exit(1)\n");
+  fs.writeFileSync(path.join(old, ".claude-plugin/plugin.json"), '{\n  "name": "deliberation",\n  "version": "3.18.0"\n}\n');
+  try {
+    const r = spawnSync("bash", [path.join(__dirname, "../scripts/commands/dashboard.sh")], {
+      env: { ...process.env, CLAUDE_PLUGIN_ROOT: old, CLAUDE_CODE_REMOTE: "" }, encoding: "utf8",
+    });
+    assert.equal(r.status, 1);
+    assert.match(r.stdout, /deliberation 3\.18\.0 at .* has no dashboard; update it/);
+  } finally {
+    fs.rmSync(old, { recursive: true, force: true });
   }
 });

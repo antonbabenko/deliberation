@@ -106,7 +106,7 @@ function probeInstance(port, token, timeoutMs = 500) {
   return new Promise((resolve) => {
     const req = http.get({ host: "127.0.0.1", port, path: `/?t=${token}`, headers: { Host: `127.0.0.1:${port}` }, timeout: timeoutMs }, (res) => {
       res.resume();
-      resolve(res.statusCode === 302);
+      resolve(res.statusCode === 200 && String(res.headers["set-cookie"] || "").startsWith("dlb_dash="));
     });
     req.on("timeout", () => req.destroy());
     req.on("error", () => resolve(false));
