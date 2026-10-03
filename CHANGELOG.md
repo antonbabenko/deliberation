@@ -1,3 +1,10 @@
+## [3.19.0](https://github.com/antonbabenko/deliberation/compare/v3.18.0...v3.19.0) (2026-10-03)
+
+
+### Features
+
+* pin GPT model and reasoning effort in config.json ([#214](https://github.com/antonbabenko/deliberation/issues/214)) ([e3e2b7e](https://github.com/antonbabenko/deliberation/commit/e3e2b7e1d9dadc1d0344350e63a1fb60a7ec4cf7))
+
 ## [3.18.0](https://github.com/antonbabenko/deliberation/compare/v3.17.1...v3.18.0) (2026-09-26)
 
 
@@ -25,11 +32,4 @@
 ### Performance Improvements
 
 * **codex:** show the device code in ~1s instead of after a 5-minute dialog wait ([#202](https://github.com/antonbabenko/deliberation/issues/202)) ([6b90229](https://github.com/antonbabenko/deliberation/commit/6b90229ace82112a0a54700f4d273f4b7fbfe215))
-
-## [3.16.0](https://github.com/antonbabenko/deliberation/compare/v3.15.0...v3.16.0) (2026-09-20)
-
-
-### Features
-
-* **codex:** add a codex-login tool and /deliberation:codex-login so a login never depends on a GPT call ([#200](https://github.com/antonbabenko/deliberation/issues/200)) ([1062b1f](https://github.com/antonbabenko/deliberation/commit/1062b1fe3cb38bd5fa3d950bbc0284dd7f2d774a))
 
