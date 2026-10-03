@@ -200,7 +200,7 @@ test("C-older: an older dashboard still on the port (answers ?t= with a 302) is 
   try {
     const err = sink();
     assert.equal(await main(["--no-open", "--port", String(port)], { stdout: sink(), stderr: err }), 1);
-    assert.equal(err.text, `port ${port} is in use and did not answer as this dashboard; the pidfile names pid ${process.pid}, possibly an older dashboard: stop it if so, or pass --port\n`);
+    assert.equal(err.text, `port ${port} is in use and did not answer as this dashboard; the pidfile names pid ${process.pid}, possibly an older dashboard; pass --port, or free the port\n`);
   } finally {
     await new Promise((r) => old.close(() => r(undefined)));
     fs.rmSync(statePath, { force: true });

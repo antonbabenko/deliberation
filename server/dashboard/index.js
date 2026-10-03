@@ -253,9 +253,9 @@ async function main(argv, io = {}) {
     const code = /** @type {any} */ (e).code;
     // The pidfile names this port and a live pid, but the probe above failed: most likely an
     // older dashboard (it answers ?t= differently). The pid may also have been reused, so name
-    // it without claiming it, and keep --port as the way out.
+    // it without claiming it or telling the user to stop it, and keep --port as the way out.
     const older = code === "EADDRINUSE" && existing && existing.port === port && pidAlive(existing.pid);
-    err.write(older ? `port ${port} is in use and did not answer as this dashboard; the pidfile names pid ${existing.pid}, possibly an older dashboard: stop it if so, or pass --port\n`
+    err.write(older ? `port ${port} is in use and did not answer as this dashboard; the pidfile names pid ${existing.pid}, possibly an older dashboard; pass --port, or free the port\n`
       : code === "EADDRINUSE" ? `port ${port} is in use; pass --port\n`
       : `dashboard failed to start: ${String((/** @type {any} */ (e)).message || e)}\n`);
     return 1;
