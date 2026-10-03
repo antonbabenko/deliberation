@@ -42,10 +42,10 @@ After it runs, report the printed status to the user.
 
 ### Optional provider tuning (no extra setup calls needed)
 
-- **Codex model:** Codex reads its model from `~/.codex/config.toml` (`model` key), and that is the
-  only place to change it. GPT has no dedicated MCP server (codex-cli ships none) - the unified
-  `deliberation` server spawns `codex exec` itself, and deliberately leaves model resolution to
-  that file, so there is no per-call or per-server override.
+- **Codex model and effort:** set `providers.codex.model` and `providers.codex.reasoningEffort`
+  (`none`/`minimal`/`low`/`medium`/`high`/`xhigh`/`max`/`ultra`) in `~/.config/deliberation/config.json`. They
+  win over `~/.codex/config.toml`; leave them out and codex uses that file. No per-call override;
+  a change needs an MCP restart.
 - **Grok key (env vs manifest):** the `deliberation-grok` manifest entry sets no `env`, so the
   bridge inherits `XAI_API_KEY` from Claude Code's launch environment (export it in your shell
   profile - no secret in any committed file). To pin it on the server instead, add an `"env":

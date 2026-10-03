@@ -297,11 +297,16 @@ This is the single source of truth for the bridge environment variables.
 
 Codex has no bridge and no MCP server of its own: the `core` provider
 (`core/providers/codex.js`) spawns `codex exec` and lets the CLI read `~/.codex/config.toml`
-directly. `CODEX_BIN` above overrides which binary is spawned. The **model** comes from the
-`model` key in that file (the Codex analog of `GEMINI_DEFAULT_MODEL` / `GROK_DEFAULT_MODEL`)
-and from nowhere else - there is no per-call or per-server override, because the MCP tool
-surface (`mcp__deliberation__ask-gpt`) exposes no `model` parameter. See
-[SETUP.md](SETUP.md#openrouter-config).
+directly. `CODEX_BIN` above overrides which binary is spawned. The **model** and **reasoning
+effort** can be pinned in `config.json` as `providers.codex.model` and
+`providers.codex.reasoningEffort` (`none`/`minimal`/`low`/`medium`/`high`/`xhigh`/`max`/`ultra`). They are
+passed as `--model <id>` and `-c model_reasoning_effort="<value>"`, so they win over
+`~/.codex/config.toml`. Unset, codex uses that file. Both are read once at startup, and there is
+no per-call override: the `reasoningEffort` tool argument is still ignored for codex. Each value
+is checked against a closed shape (model `^[A-Za-z0-9][A-Za-z0-9._:/-]*$`, effort from the enum)
+before it reaches argv, so a value starting with `-` or carrying a quote is dropped and never
+becomes a flag or a TOML injection. Results report the pinned model and effort (`"default"` /
+`null` when unpinned). See [SETUP.md](SETUP.md#openrouter-config).
 
 **Codex per-call timeout.** The `core` Codex provider caps each `codex exec` invocation to
 `CODEX_DEFAULT_TIMEOUT_MS` (600 000 ms, 10 min) by default, so a stalled Codex process cannot
@@ -602,8 +607,8 @@ in two lenses that are **never joined** (the debug log and the session store sha
 `detectOutliers` flags slow (relative to the fastest-peer baseline, or absolute) and
 high-error models; `recommend` turns those + the agreement signal into advisory `Suggestion`s
 naming the exact `config.json` key (`models.<id>.askAll`, `models.<id>.reasoningEffort`,
-`routing.maxFanout`). Codex/Gemini reasoning is flagged as external (`~/.codex/config.toml` /
-agy) since it is outside deliberation's config. The tool writes nothing; `/deliberation:analyze`
+`providers.codex.reasoningEffort`, `routing.maxFanout`). Gemini reasoning is flagged as external
+(agy) since it is outside deliberation's config. The tool writes nothing; `/deliberation:analyze`
 renders it for humans and prints suggested edits without applying them. Needs `debug.enabled`
 for Lens A and `sessions.persist` for Lens B; when the log is empty it returns
 `meta.insufficientData:true` instead of fabricating numbers.
@@ -655,7 +660,8 @@ DELIB_ROOT="${DELIB_ROOT%/server/mcp/index.js}"
 # The unified `deliberation` server - serves ask-all / consensus / the seven experts AND
 # GPT (`ask-gpt`). Register this one first: without it there is no GPT at all, because
 # codex-cli ships no MCP server of its own and this server spawns `codex exec` itself.
-# GPT's model comes from the `model` key in ~/.codex/config.toml.
+# GPT's model + reasoning effort: providers.codex.{model,reasoningEffort} in config.json,
+# else ~/.codex/config.toml.
 claude mcp remove deliberation >/dev/null 2>&1 || true
 claude mcp add --transport stdio --scope user deliberation -- node "$DELIB_ROOT/server/mcp/index.js"
 

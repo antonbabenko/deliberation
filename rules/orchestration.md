@@ -15,7 +15,7 @@ You have access to GPT experts via MCP tools. Use them strategically based on th
 | `mcp__deliberation-openrouter__openrouter-reply` | OpenRouter | Continue a session (multi-turn via threadId) |
 | `mcp__deliberation-openrouter__openrouter-list` | OpenRouter | List configured aliases and their eligibility flags |
 
-> **GPT notes:** codex-cli ships no MCP server, so GPT has no dedicated bridge. It is reached through the unified `deliberation` server, which spawns `codex exec` itself. That path is advisory-only and single-shot: no `threadId`, no `-reply` tool, no `workspace-write`. The model comes from `~/.codex/config.toml` (`model` key) and cannot be overridden per call.
+> **GPT notes:** codex-cli ships no MCP server, so GPT has no dedicated bridge. It is reached through the unified `deliberation` server, which spawns `codex exec` itself. That path is advisory-only and single-shot: no `threadId`, no `-reply` tool, no `workspace-write`. The model and reasoning effort come from `providers.codex.model` / `providers.codex.reasoningEffort` in `~/.config/deliberation/config.json`, else from `~/.codex/config.toml`; neither can be overridden per call.
 
 > **Grok notes:** the Grok bridge talks to the xAI HTTP API, so it is advisory-only (it cannot edit files). It reads attached files via `files:[{path|file_id|file_url}]` - attach referenced local files by default and set `cwd` to the repo root so paths resolve (a path outside `cwd` is refused). It needs `XAI_API_KEY`; a missing key surfaces `errorKind: "missing-auth"`.
 
@@ -341,11 +341,18 @@ Fix the issue - ensure validation runs after body parser.`,
 
 ## Codex Configuration Defaults
 
-`~/.codex/config.toml` is where GPT's **model** comes from - deliberation reads it from nowhere else and exposes no per-call override:
+GPT's **model** and **reasoning effort** can be pinned in `~/.config/deliberation/config.json`; they are passed as `codex exec --model` / `-c model_reasoning_effort=...` and win over `~/.codex/config.toml`:
+
+```json
+"providers": { "codex": { "model": "gpt-5.5", "reasoningEffort": "high" } }
+```
+
+Unset, codex reads its own `~/.codex/config.toml`. There is no per-call override:
 
 ```toml
 # ~/.codex/config.toml
 model = "gpt-5.5"
+model_reasoning_effort = "high"
 ```
 
 The **sandbox is not yours to set here.** Every delegation runs `codex exec --sandbox read-only`, passed as argv on each call, so a `sandbox_mode = "workspace-write"` in this file cannot widen a deliberation run. That is deliberate: a writable global default must never turn an advisory second opinion into a write.

@@ -102,8 +102,8 @@ correlated by timestamp:
    - `target: "deliberation"` -> show the exact `config.json` edit
      (`configKey`), e.g. a copy-paste block the user can drop into
      `~/.config/deliberation/config.json`.
-   - `target: "external"` -> Codex/Gemini reasoning lives OUTSIDE deliberation
-     (`~/.codex/config.toml`, agy settings); surface it as advice, not an edit.
+   - `target: "external"` -> Gemini reasoning lives OUTSIDE deliberation (agy
+     settings); surface it as advice, not an edit.
 
 6. **Print the compare links.** For each entry in `compare`, print its `group` and `url`
    as a one-line "compare these on OpenRouter". They are OpenRouter-only by construction

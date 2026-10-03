@@ -19,6 +19,44 @@ test("CX-impl-2: only the exact string 'implement' opens writes (gate is structu
   }
 });
 
+test("CX-pin-1: providers.codex model/reasoningEffort become --model and a model_reasoning_effort override", () => {
+  assert.deepEqual(codexExecArgs("advisory", { model: "gpt-5.5", reasoningEffort: "high" }),
+    ["exec", "--sandbox", "read-only", "--skip-git-repo-check", "--model", "gpt-5.5", "-c", 'model_reasoning_effort="high"']);
+  assert.deepEqual(codexExecArgs(undefined, { reasoningEffort: "xhigh" }).slice(-2), ["-c", 'model_reasoning_effort="xhigh"']);
+});
+
+test("CX-pin-2: a malformed pin is dropped, never reaching argv", () => {
+  const base = codexExecArgs();
+  for (const pin of [{ model: "--dangerously-bypass-approvals-and-sandbox" }, { model: "gpt 5" }, { model: 'x"y' }, { reasoningEffort: 'high"\nsandbox_mode="danger-full-access' }, { reasoningEffort: "HIGH" }, { model: 5 }]) {
+    assert.deepEqual(codexExecArgs("advisory", /** @type {any} */ (pin)), base, JSON.stringify(pin));
+  }
+});
+
+test("CX-pin-4: a dropped pin warns once on stderr, a valid one does not", () => {
+  const orig = process.stderr.write;
+  /** @type {string[]} */ const lines = [];
+  process.stderr.write = /** @type {any} */ ((/** @type {string} */ s) => { lines.push(String(s)); return true; });
+  try {
+    makeCodexProvider({ model: "-x", reasoningEffort: "HIGH", run: async () => ({ code: 0, stdout: "", stderr: "" }) });
+    makeCodexProvider({ model: "gpt-5.5", reasoningEffort: "max", run: async () => ({ code: 0, stdout: "", stderr: "" }) });
+  } finally { process.stderr.write = orig; }
+  assert.equal(lines.length, 2);
+  assert.match(lines[0], /providers\.codex\.model "-x" is not valid/);
+  assert.match(lines[1], /providers\.codex\.reasoningEffort "HIGH" is not valid/);
+});
+
+test("CX-pin-3: the provider forwards its pin to run and reports it on the result", async () => {
+  /** @type {any} */ let seen;
+  const p = makeCodexProvider({ model: "gpt-5.5", reasoningEffort: "low", run: async (a) => { seen = a; return { code: 0, stdout: "ok", stderr: "" }; } });
+  const r = await p.ask({ prompt: "x" });
+  assert.deepEqual(seen.pin, { model: "gpt-5.5", reasoningEffort: "low" });
+  assert.equal(r.model, "gpt-5.5");
+  assert.equal(r.reasoningEffort, "low");
+  const plain = await makeCodexProvider({ run: async () => ({ code: 0, stdout: "ok", stderr: "" }) }).ask({ prompt: "x" });
+  assert.equal(plain.model, "default");
+  assert.equal(plain.reasoningEffort, null);
+});
+
 test("CX1: ask returns the captured stdout as text on exit 0", async () => {
   const p = makeCodexProvider({ run: async () => ({ code: 0, stdout: "codex says hi", stderr: "" }) });
   const r = await p.ask({ prompt: "hi" });

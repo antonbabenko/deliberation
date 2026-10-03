@@ -412,7 +412,7 @@ function rowKey(/** @type {string} */ provider, /** @type {any} */ model) {
 /**
  * Map a debug-log provider name to where its tuning lever lives.
  * @param {string} provider
- * @returns {{kind:"openrouter"|"external"|"grok"|"unknown", alias?:string}}
+ * @returns {{kind:"openrouter"|"codex"|"external"|"grok"|"unknown", alias?:string}}
  */
 function leverFor(provider) {
   // Guard the prefix before slicing: a bare "openrouter" provider string would otherwise
@@ -420,7 +420,8 @@ function leverFor(provider) {
   if (provider.startsWith(OR_PREFIX) && provider.length > OR_PREFIX.length) {
     return { kind: "openrouter", alias: provider.slice(OR_PREFIX.length) };
   }
-  if (provider === "codex" || provider === "gemini") return { kind: "external" };
+  if (provider === "codex") return { kind: "codex" };
+  if (provider === "gemini") return { kind: "external" };
   if (provider === "grok") return { kind: "grok" };
   return { kind: "unknown" };
 }
@@ -558,8 +559,10 @@ function recommend(stats, agreement, config) {
       if (!entry || entry.askAll !== false) {
         out.push({ target: "deliberation", subject: o.provider, configKey: `models.${alias}.askAll`, action: `set models.${alias}.askAll=false to drop it from /ask-all fan-out`, rationale: `In parallel fan-out, wall-time is the slowest model (${o.detail}).${valueNote}` });
       }
+    } else if (lever.kind === "codex") {
+      out.push({ target: "deliberation", subject: o.provider, configKey: "providers.codex.reasoningEffort", action: "lower providers.codex.reasoningEffort (or model_reasoning_effort in ~/.codex/config.toml when unset)", rationale: `Slowest in the panel (${o.detail}).${valueNote}` });
     } else if (lever.kind === "external") {
-      out.push({ target: "external", subject: o.provider, configKey: null, action: o.provider === "codex" ? "lower model_reasoning_effort in ~/.codex/config.toml (or pass it per-call)" : "lower the Gemini/agy reasoning setting", rationale: `Slowest in the panel (${o.detail}); its reasoning lever is outside deliberation's config.${valueNote}` });
+      out.push({ target: "external", subject: o.provider, configKey: null, action: "lower the Gemini/agy reasoning setting", rationale: `Slowest in the panel (${o.detail}); its reasoning lever is outside deliberation's config.${valueNote}` });
     } else {
       out.push({ target: "deliberation", subject: o.provider, configKey: null, action: `consider whether ${o.provider} earns its latency in the panel`, rationale: `${o.detail}.${valueNote}` });
     }

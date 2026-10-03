@@ -28,7 +28,7 @@
             "timeout": { "type": "integer", "minimum": 1, "examples": [600000], "description": "Per-call wall-time ceiling in ms for EVERY provider. Overridden by providers.<name>.timeout (providers.openrouter.defaults.timeout for OpenRouter), and by a pinned alias's models.<id>.timeout. Read once at MCP startup, so a change needs a restart." }
           }
         },
-        "codex": { "$ref": "#/$defs/simpleProvider" },
+        "codex": { "$ref": "#/$defs/codexProvider" },
         "gemini": { "$ref": "#/$defs/geminiProvider" },
         "grok": { "$ref": "#/$defs/grokProvider" },
         "openrouter": { "$ref": "#/$defs/openrouterProvider" }
@@ -173,12 +173,23 @@
     }
   },
   "$defs": {
-    "simpleProvider": {
+    "codexProvider": {
       "type": "object",
-      "description": "A CLI-managed provider (Codex). Connection AND model selection are handled by its own CLI config (~/.codex/config.toml); only the enable flag applies here.",
+      "description": "GPT via the Codex CLI. Connection is handled by codex (codex login / CODEX_API_KEY); the model and reasoning effort can be pinned here, otherwise codex uses ~/.codex/config.toml.",
       "additionalProperties": false,
       "properties": {
         "enabled": { "type": "boolean", "default": true, "description": "Whether this provider participates." },
+        "model": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$",
+          "examples": ["gpt-5.5"],
+          "description": "Codex model id, passed to `codex exec --model` so it wins over the `model` key in ~/.codex/config.toml. Which ids work depends on the codex login (a ChatGPT plan or an API key). A value that does not match the pattern is ignored. Read once at MCP startup, so a change needs a restart."
+        },
+        "reasoningEffort": {
+          "type": "string",
+          "enum": ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"],
+          "description": "Passed as `-c model_reasoning_effort=...`, winning over the same key in ~/.codex/config.toml. The values are the ones codex-cli 0.160 accepts; not every model accepts every one, and a value the installed codex or the model rejects fails the call. Absent: codex's own setting. Read once at MCP startup, so a change needs a restart."
+        },
         "timeout": { "type": "integer", "minimum": 1, "examples": [600000], "description": "Per-call wall-time ceiling in ms. Falls back to providers.defaults.timeout, then the built-in default (600000). Read once at MCP startup, so a change needs a restart." }
       }
     },
