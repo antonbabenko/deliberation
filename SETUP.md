@@ -333,6 +333,12 @@ Troubleshooting:
   the config at that path is not the one you edited.
 - `port 7717 is in use; pass --port` - another program holds the port; start with
   `--port <n>`, or set `dashboard.port`.
+- `port <n> is in use and did not answer as this dashboard; the pidfile names pid <pid>, possibly an
+  older dashboard; ...` - usually a dashboard started before an update is still running. Check
+  what that pid is (`ps -p <pid>`); if it is the old dashboard, end it and start again. Otherwise
+  start with `--port <n>`.
+- `deliberation <version> at <path> has no dashboard; update it: ...` - `/deliberation:dashboard`
+  found an install older than the dashboard; update the plugin and run `/reload-plugins`.
 - To stop it, end the process (Ctrl+C in the terminal that runs it, or kill the pid in
   `<XDG cache>/deliberation/dashboard.json`).
 
