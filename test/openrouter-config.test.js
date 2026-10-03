@@ -590,6 +590,12 @@ test("PM1: providers.gemini/grok model is carried into resolved.providers", () =
   assert.equal(resolved.providers.grok.model, "grok-4.6");
 });
 
+test("PM1b: providers.codex model + reasoningEffort are carried into resolved.providers", () => {
+  const { resolved } = validateConfig({ version: 1, providers: { codex: { model: "gpt-5.5", reasoningEffort: "xhigh" } } });
+  assert.equal(resolved.providers.codex.model, "gpt-5.5");
+  assert.equal(resolved.providers.codex.reasoningEffort, "xhigh");
+});
+
 test("PM2: absent model leaves the key undefined so env/built-in defaults still apply", () => {
   const { resolved } = validateConfig({ version: 1, providers: { gemini: { enabled: true } } });
   assert.equal(resolved.providers.gemini.enabled, true);

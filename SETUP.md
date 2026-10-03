@@ -105,8 +105,17 @@ concrete id if you have one:** the alias routes server-side and agy's catalog al
 GPT-OSS entries, so a routed call can seat a non-Gemini model in the Gemini slot and
 quietly cost you the cross-model independence that `/ask-all` and `/consensus` rely on.
 
-Codex has no such key - it resolves its model from `~/.codex/config.toml` and
-deliberation never overrides it.
+Codex takes `providers.codex.model` and `providers.codex.reasoningEffort`
+(`none`/`minimal`/`low`/`medium`/`high`/`xhigh`/`max`/`ultra`). They become `codex exec --model <id>` and
+`-c model_reasoning_effort="<value>"`, so they win over `~/.codex/config.toml`. Leave
+either one out and codex uses its own setting from that file. Not every model accepts every
+effort, and a value the model or your codex version rejects fails the GPT call rather than
+falling back. A malformed value is ignored with one stderr warning at startup. Both are read once at MCP
+startup, so a change needs a restart.
+
+```json
+"codex": { "enabled": true, "model": "gpt-5.5", "reasoningEffort": "high" }
+```
 
 ### Windows: the CLI providers
 

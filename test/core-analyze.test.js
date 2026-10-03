@@ -163,7 +163,7 @@ test("A7: recommend suggests askAll=false + reasoning for a slow OpenRouter mode
   for (const r of recs) assert.equal(r.target === "deliberation" || r.target === "external", true);
 });
 
-test("A8: recommend routes Codex reasoning to external advice (outside deliberation config)", () => {
+test("A8: recommend routes slow Codex to providers.codex.reasoningEffort", () => {
   const stats = aggregateByModel([
     ev("grok", "grok-m", 100), ev("grok", "grok-m", 100),
     ev("codex", "default", 9000), ev("codex", "default", 9000),
@@ -171,9 +171,8 @@ test("A8: recommend routes Codex reasoning to external advice (outside deliberat
   const recs = recommend(stats, [], {});
   const codexRec = recs.find((r) => r.subject === "codex");
   assert.ok(codexRec);
-  assert.equal(codexRec.target, "external");
-  assert.equal(codexRec.configKey, null);
-  assert.match(codexRec.action, /config\.toml|reasoning/i);
+  assert.equal(codexRec.target, "deliberation");
+  assert.equal(codexRec.configKey, "providers.codex.reasoningEffort");
 });
 
 test("A9: high agreement on a slow model adds the strongest-cut-candidate note", () => {

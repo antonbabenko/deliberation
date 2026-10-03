@@ -87,13 +87,33 @@ function classifyCodex(stderr, prompt) {
  * bypass-approvals. The mode reaching here is already gated by the two-lock check in
  * `ask` (allowImplement AND req.mode === "implement"); the opts.run injection point
  * remains the test-only escape hatch.
+ *
+ * `pin` (providers.codex.model / reasoningEffort) adds `--model` and a
+ * `-c model_reasoning_effort=...` override, which win over ~/.codex/config.toml. Both are
+ * re-checked here against a closed shape, so a malformed value is dropped (codex keeps its
+ * own default) rather than reaching argv or codex's TOML parser.
  * @param {("advisory"|"implement")} [mode]
+ * @param {{model?: string, reasoningEffort?: string}} [pin]
  * @returns {string[]}
  */
-function codexExecArgs(mode) {
+function codexExecArgs(mode, pin = {}) {
   const sandbox = mode === "implement" ? "workspace-write" : "read-only";
-  return ["exec", "--sandbox", sandbox, "--skip-git-repo-check"];
+  const args = ["exec", "--sandbox", sandbox, "--skip-git-repo-check"];
+  const model = codexModel(pin.model);
+  const effort = codexEffort(pin.reasoningEffort);
+  if (model) args.push("--model", model);
+  if (effort) args.push("-c", `model_reasoning_effort="${effort}"`);
+  return args;
 }
+
+// codex's own `model_reasoning_effort` values (the serde enum in codex-cli 0.160).
+const CODEX_EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"];
+// A model id: no leading dash (never read as a flag), no quotes or spaces.
+const CODEX_MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:/-]*$/;
+/** @param {unknown} v @returns {(string|undefined)} */
+const codexModel = (v) => (typeof v === "string" && CODEX_MODEL_RE.test(v) ? v : undefined);
+/** @param {unknown} v @returns {(string|undefined)} */
+const codexEffort = (v) => (typeof v === "string" && CODEX_EFFORTS.includes(v) ? v : undefined);
 
 /**
  * What to spawn, and with which argv, for one `codex exec` run.
@@ -105,6 +125,7 @@ function codexExecArgs(mode) {
  *
  * @param {Object} [o]
  * @param {("advisory"|"implement")} [o.mode]
+ * @param {{model?: string, reasoningEffort?: string}} [o.pin]  providers.codex model/effort
  * @param {string[]} [o.args]  codex arguments instead of `exec ...` (the device login uses it)
  * @param {string} [o.platform]
  * @param {Record<string, (string|undefined)>} [o.env]
@@ -123,7 +144,7 @@ function buildSpawnPlan(o = {}) {
     npmEntry: CODEX_NPM_ENTRY,
   });
   // prefixArgs (the npm entry point, when the shim was bypassed) must lead: `node <entry> exec ...`.
-  return { cmd: target.cmd, argv: [...target.prefixArgs, ...(o.args || codexExecArgs(o.mode))], shim: target.shim, name };
+  return { cmd: target.cmd, argv: [...target.prefixArgs, ...(o.args || codexExecArgs(o.mode, o.pin))], shim: target.shim, name };
 }
 
 /**
@@ -213,12 +234,12 @@ function codexHealth(o = {}) {
  * which costs a few `existsSync` probes on Windows and nothing at all anywhere else. The Gemini
  * bridge resolves once at module scope instead because it also gates startup on the result.
  *
- * @param {{prompt:string, cwd?:string, timeoutMs?:number, mode?:("advisory"|"implement"), env?:Record<string,(string|undefined)>}} args
+ * @param {{prompt:string, cwd?:string, timeoutMs?:number, mode?:("advisory"|"implement"), env?:Record<string,(string|undefined)>, pin?:{model?:string, reasoningEffort?:string}}} args
  * @returns {Promise<{code:number, stdout:string, stderr:string, timedOut:boolean, spawnFailed?:boolean}>}
  */
-function defaultRun({ prompt, cwd, timeoutMs, mode, env }) {
+function defaultRun({ prompt, cwd, timeoutMs, mode, env, pin }) {
   return new Promise((resolve) => {
-    const plan = buildSpawnPlan({ mode, env });
+    const plan = buildSpawnPlan({ mode, env, pin });
     // Only a shell shim was found. Spawning it fails with a bare EINVAL that explains nothing,
     // and `shell: true` is not the answer - the shell would become the child, so the SIGKILL
     // below would kill the shell and leave codex running past its timeout.
@@ -494,8 +515,9 @@ function loginMessage(prompt) {
 
 /**
  * @param {Object} [opts]
- * @param {(args:{prompt:string,cwd?:string,timeoutMs?:number,mode?:("advisory"|"implement"),env?:Record<string,(string|undefined)>})=>Promise<{code:number,stdout:string,stderr:string,timedOut?:boolean,spawnFailed?:boolean}>} [opts.run]
- * @param {string} [opts.model]
+ * @param {(args:{prompt:string,cwd?:string,timeoutMs?:number,mode?:("advisory"|"implement"),env?:Record<string,(string|undefined)>,pin?:{model?:string,reasoningEffort?:string}})=>Promise<{code:number,stdout:string,stderr:string,timedOut?:boolean,spawnFailed?:boolean}>} [opts.run]
+ * @param {string} [opts.model]  providers.codex.model; absent -> codex's own (~/.codex/config.toml)
+ * @param {string} [opts.reasoningEffort]  providers.codex.reasoningEffort (none|minimal|low|medium|high|xhigh|max|ultra)
  * @param {boolean} [opts.allowImplement]  construction-time lock (first of two AND-ed locks).
  *   When false/absent, this provider is read-only no matter what `req.mode` says. Set ONLY in a
  *   composition root that has a local workspace + a human-gated write surface (section 3).
@@ -517,7 +539,15 @@ function loginMessage(prompt) {
 function makeCodexProvider(opts = {}) {
   const run = opts.run || defaultRun;
   const env = opts.env || process.env;
-  const model = opts.model || "default"; // codex resolves its own model from config.toml
+  const pin = { model: codexModel(opts.model), reasoningEffort: codexEffort(opts.reasoningEffort) };
+  const model = pin.model || "default"; // unpinned: codex resolves its own model from config.toml
+  const reasoningEffort = pin.reasoningEffort || null;
+  // A typo would otherwise run on codex's own default with nothing saying why.
+  for (const [key, given, kept] of /** @type {const} */ ([["model", opts.model, pin.model], ["reasoningEffort", opts.reasoningEffort, pin.reasoningEffort]])) {
+    if (given !== undefined && kept === undefined) {
+      process.stderr.write(`[deliberation] providers.codex.${key} ${JSON.stringify(given)} is not valid; ignored, codex uses ~/.codex/config.toml\n`);
+    }
+  }
   const allowImplement = opts.allowImplement === true;
   const deviceLogin = opts.deviceLogin === true;
   const login = opts.login || makeDeviceLogin();
@@ -532,7 +562,7 @@ function makeCodexProvider(opts = {}) {
    * @param {Partial<LoginResult>} [state]
    */
   const authError = (started, message, state = {}) =>
-    ({ provider: "codex", model, isError: true, errorKind: "auth", retryable: false, message, deviceLogin: { ...state, message }, ms: Date.now() - started, reasoningEffort: null });
+    ({ provider: "codex", model, isError: true, errorKind: "auth", retryable: false, message, deviceLogin: { ...state, message }, ms: Date.now() - started, reasoningEffort });
 
   /**
    * What the host still allows after `started`: a call that waited for a login must not hand
@@ -614,10 +644,9 @@ function makeCodexProvider(opts = {}) {
     // host would kill mid-flight fails HERE first, as a timeout that names the cap.
     const clamp = clampToHostBudget(typeof req.timeoutMs === "number" && req.timeoutMs > 0 ? req.timeoutMs : defaultTimeoutMs, env, req.hostBudgetRemainingMs);
     const timeoutMs = /** @type {number} */ (clamp.timeoutMs);
-    const { code, stdout, stderr, timedOut, spawnFailed } = await run({ prompt: full, cwd: req.cwd, timeoutMs, mode, env });
+    const { code, stdout, stderr, timedOut, spawnFailed } = await run({ prompt: full, cwd: req.cwd, timeoutMs, mode, env, pin });
     if (code === 0) {
-      // Codex CLI has no per-call reasoning-effort knob in this integration -> null.
-      return { result: { provider: "codex", model, text: stdout.trim(), isError: false, ms: Date.now() - started, reasoningEffort: null } };
+      return { result: { provider: "codex", model, text: stdout.trim(), isError: false, ms: Date.now() - started, reasoningEffort } };
     }
     // The kill timer is authoritative: a run we killed is a timeout regardless of what
     // (if anything) landed on stderr. Without this a codex timeout classifies as
@@ -648,7 +677,7 @@ function makeCodexProvider(opts = {}) {
           ? annotateTimeout({ code: "timeout", message: `codex timed out after ${Math.round(timeoutMs / 1000)}s` }, clamp).message
           : refreshLine ? `${refreshLine}\n${CODEX_REFRESH_HINT}\n\n${output}` : output,
         ms: Date.now() - started,
-        reasoningEffort: null,
+        reasoningEffort,
       },
     };
   }

@@ -1619,6 +1619,7 @@ function startStdio() {
   const initialProviders = getConfig().providers || {};
   const geminiCfg = initialProviders.gemini || {};
   const grokCfg = initialProviders.grok || {};
+  const codexCfg = initialProviders.codex || {};
   // Per-call wall-time ceiling. The precedence ladder (providers.<name>.timeout >
   // providers.defaults.timeout > adapter built-in) is resolved in the config layer, so
   // this just reads the resolved value; undefined leaves the adapter on its own default.
@@ -1635,6 +1636,8 @@ function startStdio() {
     // `codex login --device-auth` and shows its link + code (a host dialog when the client
     // supports MCP elicitation, else in the result) instead of failing.
     makeCodexProvider({
+      model: codexCfg.model,
+      reasoningEffort: codexCfg.reasoningEffort,
       timeoutMs: providerTimeout("codex"),
       deviceLogin: true,
       // Every argument forwarded: the third is the AbortSignal that cancels an abandoned dialog.
@@ -1642,9 +1645,8 @@ function startStdio() {
     }),
     // providers.<name>.{model,reasoningEffort,timeout} are read ONCE here (constructor
     // args), so unlike the hot-reloading models map a change needs an MCP restart. Absent
-    // -> undefined, letting each adapter fall through to its env var then its built-in.
-    // Codex is excluded from the MODEL wiring on purpose: it resolves its model from
-    // ~/.codex/config.toml.
+    // -> undefined, letting each adapter fall through to its env var then its built-in
+    // (for codex: its own ~/.codex/config.toml).
     makeAntigravityProvider({
       bridge: require("../gemini/index.js"),
       model: geminiCfg.model,
