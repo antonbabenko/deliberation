@@ -29,6 +29,23 @@ When three models argue, the real bug reveals itself. Round 1 = independent top 
 
 </details>
 
+<details>
+<summary>📸 See the local dashboard draw a <code>/consensus</code> run as a timeline: one lane per voice, verdicts on each, final report alongside</summary>
+
+![Dashboard: a converged 3-round /consensus run with the arbiter and six panel voices on one timeline](assets/dashboard.png)
+
+The dashboard (`/deliberation:dashboard`, opt-in with `"dashboard": { "enabled": true }`) is a read-only page on `127.0.0.1`. **Live** follows runs as they happen, **Runs** keeps the history, **Config** shows the effective config, and **Stats** shows usage and provider health. For a run you get:
+
+- the header: tool, elapsed time, status, round, tokens, errors, and expert
+- the phase strip: blind, peers, adjudicate, converged or revise, each with its time offset
+- the timeline: rounds across the top, then one lane for the arbiter and one for each panel voice, with each call drawn as a pulse and labelled with its verdict. Drag across the plot to place two cursors and measure the time between them
+- the event table: every journal event with its sequence number, time, kind, and round
+- the side panel: the final report and the prompt
+
+The `CAPTURE` and `PII` badges show what was recorded. The default capture is metadata only, and PII is redacted unless `dashboard.showPII` is on.
+
+</details>
+
 ## What is Deliberation?
 
 Claude can ask GPT, Gemini, Grok, or any OpenAI-compatible model (via OpenRouter) for help
