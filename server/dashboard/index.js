@@ -251,10 +251,11 @@ async function main(argv, io = {}) {
   } catch (e) {
     tailer.close();
     const code = /** @type {any} */ (e).code;
-    // A live pidfile owner on this port failed the probe above: an older dashboard
-    // (one that answers ?t= differently) is still running, so --port is the wrong advice.
+    // The pidfile names this port and a live pid, but the probe above failed: most likely an
+    // older dashboard (it answers ?t= differently). The pid may also have been reused, so name
+    // it without claiming it, and keep --port as the way out.
     const older = code === "EADDRINUSE" && existing && existing.port === port && pidAlive(existing.pid);
-    err.write(older ? `an older dashboard (pid ${existing.pid}) still holds port ${port}; stop it and run again\n`
+    err.write(older ? `port ${port} is in use and did not answer as this dashboard; the pidfile names pid ${existing.pid}, possibly an older dashboard: stop it if so, or pass --port\n`
       : code === "EADDRINUSE" ? `port ${port} is in use; pass --port\n`
       : `dashboard failed to start: ${String((/** @type {any} */ (e)).message || e)}\n`);
     return 1;

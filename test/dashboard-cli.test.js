@@ -189,7 +189,7 @@ test("healthReport marks unhealthy, needsLogin and panel eligibility", async () 
   assert.equal(grok.reasoningEffort, "high");
 });
 
-test("C-older: an older dashboard still on the port (answers ?t= with a 302) is named, not 'pass --port'", async () => {
+test("C-older: an older dashboard still on the port (answers ?t= with a 302) is named as possibly older, with --port kept", async () => {
   writeConfig({ enabled: true });
   const http = require("node:http");
   const old = http.createServer((_q, s) => { s.writeHead(302, { Location: "/" }); s.end(); });
@@ -200,7 +200,7 @@ test("C-older: an older dashboard still on the port (answers ?t= with a 302) is 
   try {
     const err = sink();
     assert.equal(await main(["--no-open", "--port", String(port)], { stdout: sink(), stderr: err }), 1);
-    assert.equal(err.text, `an older dashboard (pid ${process.pid}) still holds port ${port}; stop it and run again\n`);
+    assert.equal(err.text, `port ${port} is in use and did not answer as this dashboard; the pidfile names pid ${process.pid}, possibly an older dashboard: stop it if so, or pass --port\n`);
   } finally {
     await new Promise((r) => old.close(() => r(undefined)));
     fs.rmSync(statePath, { force: true });
