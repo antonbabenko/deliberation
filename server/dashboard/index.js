@@ -251,7 +251,12 @@ async function main(argv, io = {}) {
   } catch (e) {
     tailer.close();
     const code = /** @type {any} */ (e).code;
-    err.write(code === "EADDRINUSE" ? `port ${port} is in use; pass --port\n` : `dashboard failed to start: ${String((/** @type {any} */ (e)).message || e)}\n`);
+    // A live pidfile owner on this port failed the probe above: an older dashboard
+    // (one that answers ?t= differently) is still running, so --port is the wrong advice.
+    const older = code === "EADDRINUSE" && existing && existing.port === port && pidAlive(existing.pid);
+    err.write(older ? `an older dashboard (pid ${existing.pid}) still holds port ${port}; stop it and run again\n`
+      : code === "EADDRINUSE" ? `port ${port} is in use; pass --port\n`
+      : `dashboard failed to start: ${String((/** @type {any} */ (e)).message || e)}\n`);
     return 1;
   }
   const bound = /** @type {import("node:net").AddressInfo} */ (server.address()).port;
