@@ -1,3 +1,10 @@
+## [3.20.0](https://github.com/antonbabenko/deliberation/compare/v3.19.0...v3.20.0) (2026-10-03)
+
+
+### Features
+
+* local read-only dashboard for live and past runs ([#213](https://github.com/antonbabenko/deliberation/issues/213)) ([6ade68f](https://github.com/antonbabenko/deliberation/commit/6ade68f1b7ec5cdd2420ba020c9427bc515cdd9a))
+
 ## [3.19.0](https://github.com/antonbabenko/deliberation/compare/v3.18.0...v3.19.0) (2026-10-03)
 
 
@@ -25,11 +32,4 @@
 ### Features
 
 * stamp the current UTC date and a no-denial rule into every delegate prompt ([#205](https://github.com/antonbabenko/deliberation/issues/205)) ([7e9262a](https://github.com/antonbabenko/deliberation/commit/7e9262abfbef2cd117bbd9dc81e20098a6dc3b59)), closes [#204](https://github.com/antonbabenko/deliberation/issues/204)
-
-## [3.16.1](https://github.com/antonbabenko/deliberation/compare/v3.16.0...v3.16.1) (2026-09-20)
-
-
-### Performance Improvements
-
-* **codex:** show the device code in ~1s instead of after a 5-minute dialog wait ([#202](https://github.com/antonbabenko/deliberation/issues/202)) ([6b90229](https://github.com/antonbabenko/deliberation/commit/6b90229ace82112a0a54700f4d273f4b7fbfe215))
 
