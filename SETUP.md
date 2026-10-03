@@ -22,11 +22,13 @@ truth: changes to `models`, `routing`, or the `providers.openrouter` block hot-r
 without restarting Claude Code. Toggling a built-in provider (codex / gemini / grok)
 still requires `/setup`.
 
-The config has six sections: `providers` (transport / connection per provider),
+The config sections: `providers` (transport / connection per provider),
 `models` (named model records keyed by id), `routing` (fan-out policy),
 `consensus` (`arbiter` = who synthesizes the verdict; optional `blindVote` for a blind
 arbiter pre-vote), `sessions` (opt-in run persistence; default off - see
-[Session persistence](#session-persistence)), and `debug` (opt-in debug log; default off).
+[Session persistence](#session-persistence)), `debug` (opt-in debug log; default off),
+`orientation` (opt-in repo bundle for file-blind providers; default off), and `dashboard`
+(opt-in run journal and local browser view; default off - see [Dashboard](#dashboard)).
 The `$schema` key gives editors validation and autocomplete - VS Code needs no extension.
 
 Minimal example:
@@ -66,7 +68,8 @@ Minimal example:
   "routing": { "maxFanout": 3 },
   "consensus": { "arbiter": { "model": "claude-arb" }, "blindVote": true, "maxRounds": 5, "maxWallMs": 1800000 },
   "sessions": { "persist": false, "maxRecords": 200, "maxAgeDays": 30 },
-  "debug": { "enabled": false }
+  "debug": { "enabled": false },
+  "dashboard": { "enabled": false }
 }
 ```
 
@@ -285,5 +288,70 @@ and `session-annotate` (append a note to the audit trail). Full details:
 
 > Distinct from "session model persistence" above, which is OpenRouter multi-turn
 > (`threadId`) reuse - unrelated to this on-disk store.
+
+## Dashboard
+
+A local, read-only browser view of deliberation runs: each `/consensus`, `/ask-all`, and
+`/ask-*` run drawn as a state graph while it runs (which state is active, what each
+provider was sent and returned, timing, tokens), plus run history, the effective config,
+provider health, and usage stats. Opt-in, **default off**, and it needs a browser on the
+same machine as the MCP server, so it does not work from Claude Code on the web.
+
+1. Turn on the journal in the config (it hot-reloads, no restart needed):
+
+   ```json
+   "dashboard": { "enabled": true }
+   ```
+
+   From now on every run writes one file under `<XDG cache>/deliberation/runs/`
+   (override with `DELIBERATION_RUNS`). Runs made before this are not recorded; older
+   `sessions` records show up as summaries.
+
+2. Start the dashboard. In Claude Code:
+
+   ```text
+   /deliberation:dashboard
+   ```
+
+   The command runs a bash script, so on Windows it needs Git Bash; without it, use the
+   terminal form below. Anywhere else (or from a terminal):
+
+   ```bash
+   deliberation-mcp dashboard            # npm package
+   node server/mcp/index.js dashboard    # from a checkout
+   ```
+
+   It prints `Deliberation dashboard: http://127.0.0.1:7717/?t=<token>` and opens your
+   browser. The token is a per-start credential: keep that line to yourself. Running the
+   command again while it is up reprints the same URL.
+
+3. Run `/consensus` or `/ask-all` and watch the graph fill in.
+
+Options, all in the `dashboard` block:
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `capture` | `"metadata"` | `"metadata"` records states, timings, tokens, verdicts, and error kinds. `"content"` also records prompts, responses, arbiter text, and final reports (secret-scrubbed, capped at ~100 KB each) as plaintext on local disk. |
+| `showPII` | `false` | Off: emails, your home path and user name, IP addresses, and 12-digit account ids are masked in everything the browser receives. The journal itself is not rewritten. |
+| `port` | `7717` | Local port; `--port N` overrides it for one start. |
+| `maxRuns` / `maxAgeDays` | `200` / `30` | Journal retention; `-1` means unlimited. |
+
+Troubleshooting:
+
+- `dashboard is disabled: set dashboard.enabled to true in <path>` - step 1 is missing, or
+  the config at that path is not the one you edited.
+- `port 7717 is in use; pass --port` - another program holds the port; start with
+  `--port <n>`, or set `dashboard.port`.
+- `port <n> is in use and did not answer as this dashboard; the pidfile names pid <pid>, possibly an
+  older dashboard; ...` - usually a dashboard started before an update is still running. Check
+  what that pid is (`ps -p <pid>`); if it is the old dashboard, end it and start again. Otherwise
+  start with `--port <n>`.
+- `deliberation <version> at <path> has no dashboard; update it: ...` - `/deliberation:dashboard`
+  found an install older than the dashboard; update the plugin and run `/reload-plugins`.
+- To stop it, end the process (Ctrl+C in the terminal that runs it, or kill the pid in
+  `<XDG cache>/deliberation/dashboard.json`).
+
+Security details (loopback bind, Host/Origin checks, token and cookie, redaction) are in
+[TECHNICAL.md - Dashboard](TECHNICAL.md#dashboard).
 
 For provider defaults, environment variables, and manual MCP setup, see [TECHNICAL.md](TECHNICAL.md#environment-variables).

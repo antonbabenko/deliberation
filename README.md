@@ -29,6 +29,23 @@ When three models argue, the real bug reveals itself. Round 1 = independent top 
 
 </details>
 
+<details>
+<summary>📸 See the local dashboard draw a <code>/consensus</code> run as a timeline: one lane per voice, verdicts on each, final report alongside</summary>
+
+![Dashboard: a converged 3-round /consensus run with the arbiter and six panel voices on one timeline](assets/dashboard.png)
+
+The dashboard (`/deliberation:dashboard`, opt-in with `"dashboard": { "enabled": true }`) is a read-only page on `127.0.0.1`. **Live** follows runs as they happen, **Runs** keeps the history, **Config** shows the effective config, and **Stats** shows usage and provider health. For a run you get:
+
+- the header: tool, elapsed time, status, round, tokens, errors, and expert
+- the phase strip: blind, peers, adjudicate, converged or revise, each with its time offset
+- the timeline: rounds across the top, then one lane for the arbiter and one for each panel voice, with each call drawn as a pulse and labelled with its verdict. Drag across the plot to place two cursors and measure the time between them
+- the event table: every journal event with its sequence number, time, kind, and round
+- the side panel: the final report and the prompt
+
+The `CAPTURE` and `PII` badges show what was recorded. The default capture is metadata only, and PII is redacted unless `dashboard.showPII` is on.
+
+</details>
+
 ## What is Deliberation?
 
 Claude can ask GPT, Gemini, Grok, or any OpenAI-compatible model (via OpenRouter) for help
@@ -47,6 +64,7 @@ with `DELIBERATION_CONFIG`) and hot-reload without restarting Claude Code.
 | Dual mode | Experts analyze (read-only) or implement (write) |
 | Auto-routing | Claude detects when to delegate from your request |
 | Synthesized responses | Claude interprets expert output, never raw passthrough |
+| Local dashboard (opt-in) | Watch each run as a live state graph in your browser, plus history, health, and usage stats |
 
 ## Install
 
@@ -130,7 +148,7 @@ Per-host config location and the key it expects:
 
 Provider prerequisites are the same as the plugin (see [Requirements](#requirements)): the Codex CLI for GPT, `agy` for Gemini, `XAI_API_KEY` for Grok, and `OPENROUTER_API_KEY` plus `~/.config/deliberation/config.json` for OpenRouter (Windows: `%APPDATA%\deliberation\config.json`; override the config path with `DELIBERATION_CONFIG`).
 
-Tools exposed: `ask-all`, `consensus` (the full convergence loop in one call, or a single synthesis pass with `synthesizeAlways:true`), `consensus-step` (drive the loop yourself, one action per call), `ask-gpt` / `ask-gemini` / `ask-grok` / `ask-openrouter`, `panel` + `ask-one` (discover the active provider set, then call providers individually - issue them in parallel for visible per-provider progress), `analyze` (read-only run analytics over the debug log + sessions: per-model latency / tokens + verdict agreement, with advisory tuning suggestions; `configuredOnly` and `since` keep the report to models you still run and a period you choose), the seven experts (`architect`, `plan-reviewer`, `scope-analyst`, `code-reviewer`, `security-analyst`, `researcher`, `debugger`), and the session tools (`session-get` / `session-revisit` / `session-annotate`). Every result carries `ms` + the effective `reasoningEffort` (HTTP providers add token `usage`). An optional debug log (`"debug": { "enabled": true }`) records latency / tokens / votes - never prompts or responses. These are server-side, so they work on every MCP host, not just Claude Code (see [AGENTS.md](AGENTS.md)).
+Tools exposed: `ask-all`, `consensus` (the full convergence loop in one call, or a single synthesis pass with `synthesizeAlways:true`), `consensus-step` (drive the loop yourself, one action per call), `ask-gpt` / `ask-gemini` / `ask-grok` / `ask-openrouter`, `panel` + `ask-one` (discover the active provider set, then call providers individually - issue them in parallel for visible per-provider progress), `analyze` (read-only run analytics over the debug log + sessions: per-model latency / tokens + verdict agreement, with advisory tuning suggestions; `configuredOnly` and `since` keep the report to models you still run and a period you choose), the seven experts (`architect`, `plan-reviewer`, `scope-analyst`, `code-reviewer`, `security-analyst`, `researcher`, `debugger`), and the session tools (`session-get` / `session-revisit` / `session-annotate`). Every result carries `ms` + the effective `reasoningEffort` (HTTP providers add token `usage`). An optional debug log (`"debug": { "enabled": true }`) records latency / tokens / votes - never prompts or responses. An optional local dashboard (`"dashboard": { "enabled": true }`, then `deliberation-mcp dashboard`) draws every run as a live state graph in your browser; `panel` returns a `runId` that `ask-one` accepts, so a parallel fan-out shows as one run. These are server-side, so they work on every MCP host, not just Claude Code (see [AGENTS.md](AGENTS.md)).
 
 The package also ships a `deliberation-setup` bin. Run it once with `npx -y --package @antonbabenko/deliberation-mcp deliberation-setup` to write a starter `~/.config/deliberation/config.json` (it never overwrites an existing one). The plain `npx -y @antonbabenko/deliberation-mcp` form runs the default bin (the server), which is what your MCP host launches. For host rule wiring, see [`AGENTS.md`](AGENTS.md) and the per-host snippets in [`examples/`](examples/).
 
@@ -205,6 +223,7 @@ Bundled with the plugin (available once installed):
 | `/deliberation:setup` | Configure Codex/Gemini/Grok/OpenRouter MCP servers + orchestration rules |
 | `/deliberation:help` | How to use deliberation on your host, with paste-ready example prompts |
 | `/deliberation:doctor` | Health check (config, provider CLIs, sessions/debug, path drift) with fixes; read-only |
+| `/deliberation:dashboard` | Start the local read-only dashboard (runs as live state graphs, history, config, health, stats) and print its URL; needs `dashboard.enabled` and a browser on the same machine |
 | `/deliberation:codex-login` | Log GPT (Codex) in on this machine with a ChatGPT device login - shows a link + code; for web and headless sessions |
 | `/deliberation:consensus` | 🔥🔥🔥 Arbiter-mediated GPT + Gemini + Grok + Claude convergence loop |
 | `/deliberation:ask-all` | 🔥 GPT + Gemini + Grok (+ configured OpenRouter models) in parallel, synthesized |
@@ -305,12 +324,13 @@ Full setup and configuration reference lives in **[SETUP.md](SETUP.md)**. It cov
 
 - **Expert modes** - advisory (`read-only`) vs implementation (`workspace-write`), chosen automatically from your request
 - **Config file** - location (`~/.config/deliberation/config.json`), the `DELIBERATION_CONFIG` override, and hot-reload
-- **The six config sections** - `providers`, `models`, `routing`, `consensus`, `sessions`, `debug` - with a minimal example
+- **The config sections** - `providers`, `models`, `routing`, `consensus`, `sessions`, `debug`, `orientation`, `dashboard` - with a minimal example
 - **OpenRouter models** - declaring records, `askAll` / `consensus` eligibility, fan-out, `reasoningEffort`, and arbiter selection; `consensus` also configures the round cap (`maxRounds`) and wall-time budget (`maxWallMs`, default 30 min)
 - **GPT model and effort** - `providers.codex.model` and `providers.codex.reasoningEffort` pin what `codex exec` runs, winning over `~/.codex/config.toml`
 - **Timeouts** - `providers.defaults.timeout` raises the per-call ceiling for every provider at once; `providers.<name>.timeout` overrides one, and a pinned model's `models.<id>.timeout` still wins. A host cap (`MCP_TOOL_TIMEOUT`, set by Claude Code on the web) clamps all of them and is named in the timeout message. A rate-limited (HTTP 429) call is retried once, honoring the upstream's `Retry-After`
 - **Debug log** - opt-in latency / token / voting trace
 - **Session persistence** - opt-in on-disk run history (incl. the host-driven `/consensus` loop) and the `session-*` tools; `sessions.captureText` (default off) additionally stores provider response bodies (scrubbed)
+- **Dashboard** - opt-in local, read-only browser view of live and past runs as state graphs, with config, provider health, and usage stats. `dashboard.capture` picks metadata only (default) or full prompts and responses; secrets are scrubbed on write and PII is redacted on serve unless `dashboard.showPII` is on. Loopback only, token-protected. Start it with `/deliberation:dashboard` or `deliberation-mcp dashboard`
 
 For provider internals, environment variables, and manual MCP setup, see **[TECHNICAL.md](TECHNICAL.md)**.
 

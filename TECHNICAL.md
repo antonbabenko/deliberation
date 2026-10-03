@@ -20,6 +20,7 @@ and the Gemini recovery paths.
 - [Orientation auto-attach](#orientation-auto-attach)
 - [Date grounding](#date-grounding)
 - [Session persistence](#session-persistence)
+- [Dashboard](#dashboard)
 - [Customizing expert prompts](#customizing-expert-prompts)
 - [Troubleshooting](#troubleshooting)
 - [Known limitations](#known-limitations)
@@ -95,7 +96,9 @@ tolerates real-world drift across models: it first strips fenced code blocks (so
 template cannot hijack the verdict), then resolves the verdict via a 4-tier ladder - the `VERDICT:`
 sentinel, a same-line `Verdict: <token>`, a `Verdict` heading with the token on a following line, or a
 bare standalone token line - and joins a category heading to a description on the next line when the
-bullet itself has none. An unparsed verdict stays `null` (treated as "not APPROVE"), so a parse miss
+bullet itself has none. A repeated issue (same category, same text ignoring case and whitespace)
+is kept once: models often list their issues in the body and again after the `VERDICT:` line, and the
+repeat must not inflate the issue count. An unparsed verdict stays `null` (treated as "not APPROVE"), so a parse miss
 never false-approves into convergence.
 
 **Stage 2 (anonymized peer cross-review) is not part of the current loop.** Earlier revisions ran
@@ -293,6 +296,7 @@ This is the single source of truth for the bridge environment variables.
 | `CODEX_ACCESS_TOKEN` | Codex | unset | Codex access token (ChatGPT Business/Enterprise workspaces only), read by codex-cli itself. It never refreshes, so the same value works on every machine and in every web session until it expires. codex ranks it above `auth.json`. It counts as a credential for `codexHealth()`, and while it is set `CODEX_API_KEY` is dropped from the child's env |
 | `CODEX_API_KEY` | Codex | unset | Codex API key, used ONLY when there is no ChatGPT credential (`codex login` = `$CODEX_HOME/auth.json` / `~/.codex/auth.json`, or `CODEX_ACCESS_TOKEN`). With one, the provider drops the key from the `codex exec` child's env so the subscription wins. `OPENAI_API_KEY` is never used for codex and is always dropped from the child's env |
 | `MCP_TOOL_TIMEOUT` | host (all) | unset | Set by some MCP hosts (Claude Code on the web: `60000`) - the host kills any tool call longer than this. deliberation reads it and clamps every provider ceiling to `MCP_TOOL_TIMEOUT - 5000` ms so the call fails as a `timeout` naming the cap; see [Timeouts](#timeouts). Claude Code applies a per-server `timeout` ahead of this variable, so `.claude-plugin/plugin.json` sets `1800000` on every server and mirrors it into the server env under this name (the mirror is what the clamp reads) |
+| `DELIBERATION_RUNS` | dashboard | `<XDG cache>/deliberation/runs` | Override the dashboard run journal directory (see [Dashboard](#dashboard)); only written when `dashboard.enabled` |
 | `DELIBERATION_DEBUG_LOG` | debug | `<XDG cache>/deliberation/debug.jsonl` | Override the debug log path (see [Observability](#observability--per-provider-progress)); only written when `debug.enabled` |
 
 Codex has no bridge and no MCP server of its own: the `core` provider
@@ -1722,6 +1726,217 @@ There is no enumeration tool, so a `sessionId` comes from one of three places:
 2. The store on disk: `ls ~/.cache/deliberation/sessions/` - one `<sessionId>.json` per run.
    The exact dir is what `/deliberation:doctor` prints, and `DELIBERATION_SESSIONS` overrides it.
 3. `/deliberation:analyze` - reviews recent runs in aggregate (verdict agreement, Lens B).
+
+## Dashboard
+
+A local, read-only web page that draws each deliberation run as a state graph while it
+runs and after it ends: which state is running, what each provider was sent and returned,
+status, timing, and tokens. It also shows the effective config, provider health, models,
+and usage stats. Default OFF. Nothing in the dashboard changes deliberation state, and
+only the unified `deliberation` server is instrumented (the standalone `/ask-*` bridge
+servers write nothing).
+
+Each MCP host session runs its own stdio server process, so the processes write a shared
+on-disk journal and the dashboard is a separate process that reads it. It can start after
+a run began and still show all of it, a crashed MCP process leaves its events on disk,
+and the journal is the history.
+
+| Unit | Does |
+|------|------|
+| `core/journal.js` | Builds and appends journal events; per-kind key whitelist; secret scrub and text cap on content fields; retention; a no-op while `dashboard.enabled` is off |
+| `core/redact.js` | `redact(value)`: masks PII in every string of a JSON value (see Redaction) |
+| `server/dashboard/index.js` | CLI entry (`deliberation-mcp dashboard`), pidfile, browser opener, health and stats wiring |
+| `server/dashboard/server.js` | HTTP routes, Host/Origin and token checks, security headers, SSE |
+| `server/dashboard/runs.js` | Run index over the journal plus legacy session records; run status, abandoned detection |
+| `server/dashboard/tail.js` | Byte-offset tailer for SSE (`fs.watch` plus a 5 s stat sweep) |
+| `server/dashboard/ui/` | Static page: ES modules, CSS, inline SVG. No build step, no dependency, works offline |
+
+### Configuration
+
+```json
+"dashboard": { "enabled": false, "capture": "metadata", "showPII": false, "port": 7717, "maxRuns": 200, "maxAgeDays": 30 }
+```
+
+| Key | Type | Default | Meaning |
+|-----|------|---------|---------|
+| `enabled` | boolean | `false` | Master switch. Off: no journal is written and `deliberation-mcp dashboard` exits 1 naming this key. Read per event, so a config hot-reload applies to the next run. |
+| `capture` | `"metadata"` \| `"content"` | `"metadata"` | `metadata`: states, timings, tokens, verdicts, error kinds. `content`: also prompts, requests, responses, arbiter text, and final reports. |
+| `showPII` | boolean | `false` | Off: every API body and SSE payload is redacted before it leaves the dashboard process. On: served as stored. Applies to existing journal files; nothing on disk is rewritten. |
+| `port` | integer | `7717` | Port on `127.0.0.1`. `--port N` overrides it (`--port 0` picks a free port). |
+| `maxRuns` | integer | `200` | Keep at most this many newest run files. `-1` = unlimited. |
+| `maxAgeDays` | integer | `30` | Delete run files older than this. `-1` = unlimited. |
+
+Invalid values soft-degrade to the default with a warning, like `sessions`. Retention runs
+when a run ends, when the MCP server starts, and when the dashboard starts.
+
+### Journal
+
+One file per run: `<XDG cache>/deliberation/runs/<runId>.jsonl` (override with
+`DELIBERATION_RUNS`), mode `0600` in a `0700` directory. Every line is one event:
+`{ v: 1, kind, runId, at, seq, ...fields }` (`at` epoch ms, `seq` a per-run counter).
+Writes are synchronous whole-line appends by the one process that owns the run, and a
+failed write is swallowed: journaling never fails a delegation (the same contract as the
+debug log, whose `ALLOWED_KEYS` whitelist is unchanged and still excludes all content).
+
+| Kind | Metadata fields | Content fields (`capture: "content"` only) |
+|------|-----------------|---------------------------------------------|
+| `run_start` | `tool`, `pid`, `procStartedAt`, `expert`, `workflow` (`single` \| `fanout` \| `consensus-step` \| `consensus`), `providers[]` | `prompt` |
+| `state` | `state`, `round`, `status`, `verdicts[]` (`{provider, verdict, categories[]}`, on adjudicate) | none |
+| `call_start` | `callId`, `provider`, `model`, `role` (`peer` \| `arbiter` \| `blind` \| `single`), `round`, `timeoutMs`, `reasoningEffort` | `request` |
+| `call_end` | `callId`, `provider`, `model`, `ms`, `usage`, `isError`, `errorKind`, `errorCode`, `verdict`, `criticalIssues[].category` | `response`, `criticalIssues[].description` |
+| `arbiter` | `action` (`record_blind` \| `submit_adjudication` \| `submit_revision`), `round`, `verdict` | `text` |
+| `run_end` | `status` (`converged` \| `unresolved` \| `done` \| `error`), `stopReason`, `rounds`, `droppedProviders[]` | `finalReport` |
+
+Keys outside this whitelist are dropped at write. Content fields pass `scrubSecrets` and
+then `capText` (100 KB) before the write, the same privacy contract as `sessions`.
+
+Where events come from:
+
+- `core/orchestrate.js` `callProvider`, which every provider call passes through, emits
+  `call_start` and `call_end` (errors included; a retry is a new `callId`).
+- `server/mcp/index.js` emits `run_start` / `run_end` for `ask-all`, `ask-one`, the
+  `ask-*` tools, the seven expert tools, and `consensus`; the server-side loop also emits
+  `state` per transition.
+- `consensus-step`: `init` opens the run with the loop `sessionId` as its `runId`; each
+  action emits `state`, the three host actions also emit `arbiter`, and a terminal
+  transition emits `run_end`.
+- `/ask-all` is `panel` plus N parallel `ask-one` calls. `panel` opens a `fanout` run and
+  returns its `runId` (only when the journal is on); `ask-one` and the `ask-*` tools accept
+  an optional `runId` and join that run. Only ids that `panel` opened in the same server
+  process are joined; any other id is ignored and the call becomes its own `single` run.
+  `panel` stays side-effect-free toward providers: the journal line is a local write.
+
+### Run status and abandoned runs
+
+Status is derived when the index is read (`deriveStatus(events, now, isAlive)` in
+`server/dashboard/runs.js`), never cached: a run whose writer died never changes its file,
+so a cached status could not age. The index caches only the events and the fields that do
+not depend on time. The first rule that matches wins:
+
+| # | Run | Status |
+|---|-----|--------|
+| 1 | Has a `run_end` | Its `status` and `stopReason`. |
+| 2 | `fanout`, every provider `run_start` lists has a latest call with a `call_end` | `done`. Calls pair by `callId`, so a retry still in flight after an errored first attempt keeps the run open. |
+| 3 | `fanout`, at least one `call_start`, none still open, nothing written for 60 s | `done`, with the listed providers that were never called in `undispatched` (drawn as skipped branches, not failures). |
+| 4 | `fanout`, no `call_start` 20 minutes after it started | `abandoned`, `stopReason: "never-dispatched"`. |
+| 5 | `consensus-step`, last event older than the loop store TTL (30 minutes) | `abandoned`, `stopReason: "expired"`: the host stopped driving it and its loop state is gone. |
+| 6 | Anything else | `running` while the MCP process that wrote it is alive, else `abandoned`. |
+
+Rule 6 reads `pid` and `procStartedAt` from `run_start`: the run is abandoned when that pid
+is gone, or is alive with a different start time (pid reuse). The pid-reuse check reads
+`/proc/<pid>/stat`, so it runs on Linux only; elsewhere a reused pid still reads as alive.
+A late `ask-one` that joins a fan-out after rule 3 fired moves it back to `running`, and
+the UI follows the server's status for fan-outs rather than deciding on its own. An
+abandoned run keeps the last state it reached. `errors` counts a call's final attempt: an
+errored attempt followed by a retry for the same provider, role and round is not an
+error. Legacy session-store records are listed too, flagged `legacy` (summary only, no
+step graph).
+
+### Routes and SSE
+
+GET and HEAD only; any other method gets 405.
+
+| Route | Returns |
+|-------|---------|
+| `/` | The page. |
+| `/assets/*` | Static UI files, resolved inside the UI directory; a path that escapes it is rejected. |
+| `/api/runs` | Run index; filters `?q=`, `?tool=`, `?provider=`, `?status=`, `?since=`. While `showPII` is off, `?q=` matches the redacted prompt, so a search cannot confirm a masked value. |
+| `/api/runs/:id` | All events of one run (or the legacy record); `id` must match `^[A-Za-z0-9-]+$`. |
+| `/api/config` | Effective config. For every API key env var, only its name and whether it is set; credentials in URLs are stripped. |
+| `/api/health` | Provider health from the checks `panel` uses (`unavailable`, `needsLogin`), models, reasoning effort, `askAll` / `consensus` eligibility. |
+| `/api/stats` | The `analyze` report plus runs, tokens, and errors per day. |
+| `/api/events` | Server-Sent Events stream of new journal events. |
+
+The tailer keeps a byte offset per run file and reads only appended bytes; a partial last
+line waits until it is complete. Each SSE message `id` is `<runId>:<offset>`. On reconnect
+the browser sends it back as `Last-Event-ID` and that run resumes from the offset; a
+malformed id is ignored. A comment line every 15 s keeps the connection open, and a client
+more than 1 MB behind is dropped, then reconnects and resumes the same way.
+
+### Redaction
+
+Secrets (API-key shapes) are scrubbed at write time at every capture level, so they never
+reach the journal. PII is redacted at serve time by `core/redact.js` while `showPII` is
+off: email addresses, the home directory and the OS user's home paths (`/home/<user>`,
+`/Users/<user>`, `C:\Users\<user>`; the user name elsewhere is left alone), IPv4 and IPv6
+addresses, and 12-digit account ids. Values under `runId`, `callId`, `sessionId`,
+`loopSessionId` and `id` are never redacted, because a UUID can end in 12 digits. The SSE
+`id:` line is not redacted either. Redaction is pattern-based and best-effort; it
+reduces what a browser receives, and the journal on disk keeps the unredacted text for
+`capture: "content"`.
+
+### Capture gates what is served
+
+`dashboard.capture` is read on every request. Unless it is `"content"`, the server strips
+content fields (the `content` keys of `JOURNAL_KEYS`, plus the legacy session record's
+`question`, `synthesis`, opinion `text`, critical-issue descriptions and annotation notes)
+before redaction from `/api/runs/:id` and the SSE stream, and `?q=` matches only runId,
+tool and provider. Journal files written earlier under `content` keep their text on disk.
+
+### Threat model
+
+The dashboard serves prompt and response text over HTTP on the local machine. The
+defenses, in request order:
+
+- **Loopback bind.** The server listens on `127.0.0.1` only; nothing off the machine can
+  connect.
+- **Host and Origin checks (DNS rebinding).** A request whose `Host` is not
+  `127.0.0.1:<port>` or `localhost:<port>` gets 403, and so does one carrying an `Origin`
+  that is not one of those two. A web page on another domain that rebinds its name to
+  `127.0.0.1` still sends its own `Host`, so it is refused.
+- **Per-start token, swapped for a cookie.** Each start generates a 32-byte random token.
+  The printed URL carries it as `?t=<token>`; the first request with a valid token gets a
+  `dlb_dash` cookie (`HttpOnly; SameSite=Strict; Path=/`) and a small page that refreshes
+  to `/`. It is not a 302: the browser arrives from the `file://` opener page, a redirect
+  keeps that navigation cross-site, and Chrome would withhold the Strict cookie from the
+  redirected `GET /` (a 401 on the first open). The refresh starts from the dashboard's
+  own origin, so the cookie is sent. Requests with
+  neither a valid token nor the cookie get 401. Comparison is constant-time.
+- **The token is in the printed URL.** Anyone who sees that line (terminal scrollback, a
+  shared screen, a pasted log) can open the dashboard until it restarts. It is also stored
+  in the `0600` pidfile `<XDG cache>/deliberation/dashboard.json`, which is how a second
+  launch reprints the live URL. Restarting the dashboard issues a new token.
+- **The cookie reaches every local port.** Browsers scope cookies by host, not port, so
+  `dlb_dash` is also sent to any other service on `127.0.0.1`. A web page cannot use that
+  to read dashboard data: a cross-port fetch carries its own `Origin` and is refused, and
+  `X-Content-Type-Options: nosniff` stops a page from loading the JSON as a script. The
+  local service itself can, though: it receives the cookie value, so it can replay the
+  token server-side (for example `curl -H "Host: 127.0.0.1:<port>"` with the cookie, or
+  with `?t=<token>`) and read everything the dashboard serves. This is accepted because
+  any process listening on the machine is already inside the same-machine trust boundary;
+  the design scope is a single-user laptop. The cookie is only issued after you open the
+  tokenized URL, and restarting the dashboard rotates the token, which invalidates it.
+  On a shared multi-user machine, do not enable the dashboard, and do not use
+  `capture: "content"`.
+- **Token off argv.** The browser is opened through a `0600` redirect file next to the
+  pidfile (`dashboard-open.html`); the opener gets that file's path, so the token never
+  appears in a process list.
+- **Headers.** `Content-Security-Policy: default-src 'self'; frame-ancestors 'none'`,
+  `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, and
+  `Cache-Control: no-store` on `/api/*`. The UI renders run content with `textContent`
+  only, never as HTML, and keeps only preferences and a metadata-only run index in
+  `localStorage`.
+- **Secrets scrubbed at write, PII redacted at serve** (see Redaction).
+
+Out of scope: another account on the same machine with read access to your cache
+directory (the journal and pidfile are `0600` in a `0700` directory), and anything that
+already runs as your user. Remote sessions (Claude Code on the web) cannot use the
+dashboard: `localhost` there is the remote container.
+
+### Running it
+
+```bash
+deliberation-mcp dashboard [--port N] [--no-open]   # npm package
+node server/mcp/index.js dashboard [--port N] [--no-open]   # from a checkout
+```
+
+It prints exactly one line, `Deliberation dashboard: http://127.0.0.1:<port>/?t=<token>`,
+opens the browser unless `--no-open`, and keeps running. It exits 1 with
+`dashboard is disabled: set dashboard.enabled to true in <config path>` when the switch is
+off, and with `port <n> is in use; pass --port` on a port conflict. A second launch while
+one is live reprints the live URL and exits 0. In Claude Code, `/deliberation:dashboard`
+starts it detached and prints the URL. The npm bundle ships the UI as `dist/dashboard-ui/`
+(copied by `prepack`); a checkout serves `server/dashboard/ui/`.
 
 ## Customizing expert prompts
 

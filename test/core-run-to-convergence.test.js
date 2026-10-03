@@ -247,6 +247,54 @@ test("RC-breaker-2: a NON-timeout failure trips the breaker too", async () => {
   assert.equal(dead.calls, 4);
 });
 
+// --- Journal tracing (Task 4) ---------------------------------------------------
+
+/** @returns {{journal:any, events:any[]}} */
+function recordingJournal() {
+  /** @type {any[]} */
+  const events = [];
+  const journal = {
+    enabled: () => true,
+    newRunId: () => "run-1",
+    emit: (/** @type {string} */ id, /** @type {string} */ k, /** @type {any} */ f) => events.push({ id, k, f }),
+    prune: () => {},
+  };
+  return { journal, events };
+}
+
+test("OT4b: a dissent-then-converge run emits state sequence per round, ending unresolved when it never converges", async () => {
+  const { journal, events } = recordingJournal();
+  const trace = { journal, runId: "run-1" };
+  const peers = [stub("gpt", () => "**Verdict**: REQUEST_CHANGES\n- [ops] x")];
+  const arb = stub("arb", (p) => (p.includes("ADJUDICATE") ? "**Verdict**: REQUEST_CHANGES" : p.includes("REVISE") ? "still not enough" : "**Verdict**: REQUEST_CHANGES"));
+  await runToConvergence(peers, REQ, { arbiter: arb, maxRounds: 2, trace });
+  const stateEvents = events.filter((e) => e.k === "state");
+  assert.deepEqual(stateEvents.map((e) => e.f.state), ["blind", "peers", "adjudicate", "revise", "blind", "peers", "adjudicate", "revise", "unresolved"]);
+  assert.deepEqual(stateEvents.map((e) => e.f.round), [1, 1, 1, 1, 2, 2, 2, 2, 2]);
+  // Round-1 dissent: verdicts ride the "adjudicate" entry, categories only.
+  const round1Adjudicate = stateEvents.find((e) => e.f.state === "adjudicate" && e.f.round === 1);
+  assert.deepEqual(round1Adjudicate.f.verdicts, [{ provider: "gpt", verdict: "REQUEST_CHANGES", categories: ["ops"] }]);
+  // "revise" fires on ENTRY too - before the adjudication+revision legs that dissent
+  // dispatches in parallel, not after the round settles.
+  const revise1Idx = events.findIndex((e) => e.k === "state" && e.f.state === "revise" && e.f.round === 1);
+  const adjudicationCallIdx = events.findIndex((e) => e.k === "call_start" && e.f.role === "arbiter" && e.f.round === 1);
+  assert.ok(revise1Idx < adjudicationCallIdx, "revise entry fires before the round's arbiter legs start");
+});
+
+test("OT4c: peer and arbiter calls carry role and round in call_start", async () => {
+  const { journal, events } = recordingJournal();
+  const trace = { journal, runId: "run-1" };
+  const peers = [stub("gpt", () => "**Verdict**: APPROVE")];
+  await runToConvergence(peers, REQ, { arbiter: smartArbiter(), trace });
+  const starts = events.filter((e) => e.k === "call_start");
+  const peerStart = starts.find((e) => e.f.provider === "gpt");
+  const blindStart = starts.find((e) => e.f.role === "blind");
+  assert.equal(peerStart.f.role, "peer");
+  assert.equal(peerStart.f.round, 1);
+  assert.ok(blindStart, "blind arbiter call is traced");
+  assert.equal(blindStart.f.round, 1);
+});
+
 test("RC-breaker-3: an empty panel from the start is `no-providers`, not a circuit break", async () => {
   // The host-driven driver already distinguished these two. Reporting a breaker that
   // never tripped made the drivers disagree on identical input.

@@ -61,7 +61,11 @@ Fan-out and single-provider:
   fan-out, so report them once rather than treating them as errors. `needsLogin[]` names
   panel members that have no login yet but stay on the panel (codex on a fresh machine):
   run `codex-login` and let the user approve BEFORE dispatching, so GPT answers from the first
-  call. Pass `for: "consensus"` for the consensus panel. Read-only; never starts a login.
+  call. Pass `for: "consensus"` for the consensus panel. No provider calls and never starts
+  a login; the only write is one local dashboard journal line, and only when that journal is on.
+  When the local dashboard journal is on (`dashboard.enabled`), it also returns a `runId`
+  (the ask-all panel only): pass it to every `ask-one` of that fan-out so the dashboard
+  draws them as one run. Optional `prompt` is recorded on that run, never sent to a provider.
 - `codex-login` - start (or join) the ChatGPT device login for GPT and return its link and
   one-time code, without asking GPT anything. Show the returned `message` to the user as-is;
   GPT answers once they approve. Call it before a fan-out when `panel.needsLogin` contains
@@ -74,6 +78,8 @@ Fan-out and single-provider:
   result lands independently as it finishes - visible per-provider progress with parallel
   wall-time, instead of the one opaque `ask-all` call. (The single-call `ask-all` still
   works; `ask-one` is the progressive alternative.)
+  Optional `runId` (from `panel`, also accepted by the `ask-*` tools) joins the call to
+  that dashboard run; an id this server's `panel` did not open is ignored.
 - `analyze` - read-only run analytics. Reads the opt-in debug log (per-model p50/p95/max
   latency over SUCCESSFUL calls, mean tokens, error rate, reasoning effort) and the session
   store (verdict agreement rate), then returns advisory tuning suggestions (disable a
@@ -150,6 +156,14 @@ These apply to every MCP host, not just Claude Code:
   (override with `DELIBERATION_DEBUG_LOG`). It records latency, reasoning effort, HTTP
   token usage, and voting/approval outcomes - never prompts, responses, or issue text.
   OFF by default.
+- **Dashboard** - set `"dashboard": { "enabled": true }` in `config.json` to journal every
+  run to `<XDG cache>/deliberation/runs/` (override with `DELIBERATION_RUNS`), then run
+  `deliberation-mcp dashboard` (or `node server/mcp/index.js dashboard` from a checkout) and
+  open the printed `http://127.0.0.1:<port>/?t=<token>` URL. It is a read-only browser view
+  of live and past runs as state graphs, with config, provider health, and stats. Loopback
+  only, token-protected; `dashboard.capture` is `metadata` (default) or `content` (prompts
+  and responses, secret-scrubbed), and PII is redacted in the browser unless
+  `dashboard.showPII`. Needs a browser on the same machine. OFF by default.
 - **Live progress notifications** - the server declares the MCP `logging` capability and
   emits `notifications/message` per provider as it settles during a fan-out. Hosts that
   render server log notifications mid-call show this automatically (Claude Code does not -

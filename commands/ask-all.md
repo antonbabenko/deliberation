@@ -77,9 +77,12 @@ User question or topic: $ARGUMENTS
    server would dispatch for this config + expert (enabled built-ins + eligible OpenRouter
    aliases, fanout cap already applied), WITHOUT calling any provider:
    ```
-   mcp__deliberation__panel({ expert: "[chosen expert]", cwd: "[cwd]" })
+   mcp__deliberation__panel({ expert: "[chosen expert]", cwd: "[cwd]", prompt: "[the 7-section prompt]" })
    ```
-   It returns `{ providers: ["codex","gemini","grok","openrouter:<alias>", ...], omitted: [...], unavailable: [{name, reason}], needsLogin: [...] }`.
+   `prompt` is optional: it is never sent to a provider, only recorded on the dashboard run
+   when the dashboard journal captures content.
+   It returns `{ providers: ["codex","gemini","grok","openrouter:<alias>", ...], omitted: [...], unavailable: [{name, reason}], needsLogin: [...], runId? }`.
+   `runId` is present only when the local dashboard is on (`dashboard.enabled`); keep it for step 5.
    `unavailable` lists built-ins that cannot answer right now (CLI not on PATH, no credential) -
    mention each once with its reason and do not call `ask-one` for it.
    `omitted` lists aliases dropped for the fanout cap - report it as the cap note in the
@@ -117,10 +120,12 @@ User question or topic: $ARGUMENTS
    ```
    ```
    // one per provider name, ALL in the same message:
-   mcp__deliberation__ask-one({ provider: "codex",              prompt: "[identical 7-section prompt]", expert: "[expert]", cwd: "[cwd]" })
-   mcp__deliberation__ask-one({ provider: "grok",               prompt: "[identical 7-section prompt]", expert: "[expert]", cwd: "[cwd]" })
-   mcp__deliberation__ask-one({ provider: "openrouter:<alias>", prompt: "[identical 7-section prompt]", expert: "[expert]", cwd: "[cwd]" })
+   mcp__deliberation__ask-one({ provider: "codex",              prompt: "[identical 7-section prompt]", expert: "[expert]", cwd: "[cwd]", runId: "[panel runId]" })
+   mcp__deliberation__ask-one({ provider: "grok",               prompt: "[identical 7-section prompt]", expert: "[expert]", cwd: "[cwd]", runId: "[panel runId]" })
+   mcp__deliberation__ask-one({ provider: "openrouter:<alias>", prompt: "[identical 7-section prompt]", expert: "[expert]", cwd: "[cwd]", runId: "[panel runId]" })
    ```
+   Pass the `runId` from `panel` into EVERY `ask-one` call so the dashboard draws them as one
+   fan-out; when `panel` returned no `runId`, omit the field.
    The prompt + expert are BYTE-IDENTICAL across every call (no cross-contamination). Each
    returns `{ result: DelegationResult }` where `result` is
    `{ provider, model, text?, isError, errorKind?, ms, reasoningEffort }`. Collect the N

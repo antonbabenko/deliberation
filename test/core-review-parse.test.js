@@ -163,3 +163,21 @@ test("RP-V7: a bare token on a MIDDLE line (not first/last) does NOT hijack the 
   assert.equal(parseReview("APPROVE\nrationale follows").verdict, "APPROVE");
   assert.equal(parseReview("rationale first\nREJECT").verdict, "REJECT");
 });
+
+test("RP-D1: a reply that repeats its issue list (body + after VERDICT) yields each issue once", () => {
+  const list = "- [scope] Plan body is only \"ping\": no goal.\n- [correctness] No acceptance criteria.";
+  const r = parseReview(`Review.\n\n${list}\n\nVERDICT: REJECT\n${list}`);
+  assert.equal(r.verdict, "REJECT");
+  assert.deepEqual(r.criticalIssues, [
+    { category: "scope", description: "Plan body is only \"ping\": no goal." },
+    { category: "correctness", description: "No acceptance criteria." },
+  ]);
+});
+
+test("RP-D2: dedup ignores case and whitespace, keeps distinct categories and first wording", () => {
+  const r = parseReview("- [ops] No  rollback plan\n- [ops] no rollback plan\n- [scope] No rollback plan\nVERDICT: REQUEST_CHANGES");
+  assert.deepEqual(r.criticalIssues, [
+    { category: "ops", description: "No  rollback plan" },
+    { category: "scope", description: "No rollback plan" },
+  ]);
+});

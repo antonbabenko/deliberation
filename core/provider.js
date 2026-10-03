@@ -500,12 +500,15 @@ function resolveVerdict(lines) {
  * empty or only markdown artifacts (e.g. a bold `**[security]**` heading with the
  * text on the following line), pull the next usable line as the description. A
  * still-empty/artifact-only description is dropped (not actionable for convergence).
+ * A repeat of an earlier issue (same category, description equal ignoring case and
+ * whitespace) is dropped; the first wording and order are kept.
  * @param {string[]} lines
  * @returns {ReviewCriticalIssue[]}
  */
 function resolveIssues(lines) {
   /** @type {ReviewCriticalIssue[]} */
   const out = [];
+  const seen = new Set();
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i].trim();
     if (!BULLET_RE.test(trimmed)) continue;
@@ -530,7 +533,13 @@ function resolveIssues(lines) {
         break;                                           // take the first usable continuation line
       }
     }
-    if (description && !ARTIFACT_RE.test(description)) out.push({ category, description });
+    if (!description || ARTIFACT_RE.test(description)) continue;
+    // Models often list their issues in the body and again after the VERDICT line; the
+    // repeat must not double the issue count. Same category + normalized text = one issue.
+    const key = `${category}\0${description.replace(/\s+/g, " ").toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ category, description });
   }
   return out;
 }

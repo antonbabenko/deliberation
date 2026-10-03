@@ -10,7 +10,7 @@
   "files": ["dist/"],
   "engines": { "node": ">=18" },
   "scripts": {
-    "prepack": "esbuild index.js setup.js --bundle --platform=node --target=node18 --format=cjs --outdir=dist"
+    "prepack": "esbuild index.js setup.js --bundle --platform=node --target=node18 --format=cjs --outdir=dist && node -e \"const fs=require('fs');fs.rmSync('dist/dashboard-ui',{recursive:true,force:true});fs.cpSync('../dashboard/ui','dist/dashboard-ui',{recursive:true})\""
   },
   "devDependencies": { "esbuild": "^0.28.0" },
   "license": "MIT"
