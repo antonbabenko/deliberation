@@ -105,6 +105,12 @@
           "minimum": 1,
           "default": 1800000,
           "description": "Global wall-time budget (ms) for the server-side provider-arbiter convergence loop (the `consensus` tool). When the budget is spent the loop stops BEFORE starting the next round and returns UNRESOLVED with stopReason \"budget-exhausted\"; it never aborts an in-flight provider call. Does not apply to the host-driven /consensus (consensus-step) path. Default 1800000 (30 min)."
+        },
+        "quorumFloor": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 2,
+          "description": "Minimum number of healthy, responding peer reviews required to establish consensus. If circuit breaks or provider failures reduce healthy responding peers below this threshold, the loop terminates as unresolved with stopReason \"quorum-lost\". Positive integer >= 1, default 2."
         }
       }
     },

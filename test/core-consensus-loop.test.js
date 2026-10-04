@@ -183,10 +183,27 @@ test("L14: recordBlindVerdict rejects an empty/non-string verdict", () => {
 test("L15: prepareRound throws on a terminated state (guarded to await_blind)", () => {
   let s = initConsensusLoop({ plan: "p", arbiterMode: "host" });
   s = recordBlindVerdict(s, "b");
-  s = addOpinions(s, [review("gpt", "APPROVE")]);
+  s = addOpinions(s, [review("gpt", "APPROVE"), review("gemini", "APPROVE")]);
   s = submitAdjudication(s, { verdict: "APPROVE", decisions: [] });
   assert.equal(s.status, "converged");
   assert.throws(() => prepareRound(s), /await_blind|status/i);
+});
+
+test("L16: a single responding peer cannot converge under default quorumFloor (2) -> quorumMet: false", () => {
+  let s = initConsensusLoop({ plan: "p", arbiterMode: "host" });
+  s = recordBlindVerdict(s, "b");
+  s = addOpinions(s, [review("gpt", "APPROVE")]);
+  s = submitAdjudication(s, { verdict: "APPROVE", decisions: [] });
+  assert.equal(s.status, "await_revision", "fewer than quorumFloor (2) peers must not converge");
+});
+
+test("L17: configurable quorumFloor is honored", () => {
+  let s = initConsensusLoop({ plan: "p", arbiterMode: "host", quorumFloor: 1 });
+  assert.equal(s.quorumFloor, 1);
+  s = recordBlindVerdict(s, "b");
+  s = addOpinions(s, [review("gpt", "APPROVE")]);
+  s = submitAdjudication(s, { verdict: "APPROVE", decisions: [] });
+  assert.equal(s.status, "converged", "quorumFloor 1 allows single peer to converge");
 });
 
 // --- circuit-breaker streak (shared by both drivers) -----------------------
@@ -231,4 +248,27 @@ test("CB4: addOpinions folds the round into the streak", () => {
 test("CB5: malformed results never corrupt the streak", () => {
   assert.deepEqual(loop.updateErrorStreak({ a: 1 }, /** @type {any} */ ([null, {}, { source: 5, isError: true }])), { a: 1 });
   assert.deepEqual(loop.updateErrorStreak(undefined, undefined), {});
+});
+
+test("CB6: substantive dissent (REQUEST_CHANGES / REJECT) resets the error streak to 0", () => {
+  // A prior error streak must be cleared when the peer successfully reviews, even if it dissents.
+  /** @type {Record<string, number>} */
+  let streak = { codex: 1, grok: 1 };
+  streak = loop.updateErrorStreak(streak, [
+    { source: "codex", isError: false, verdict: "REQUEST_CHANGES", criticalIssues: [] },
+    { source: "grok", isError: false, verdict: "REJECT", criticalIssues: [] },
+  ]);
+  assert.equal(streak.codex, 0, "REQUEST_CHANGES is valid technical dissent and resets the streak");
+  assert.equal(streak.grok, 0, "REJECT is valid technical dissent and resets the streak");
+});
+
+test("CB7: malformed verdict (null / not in VERDICTS) increments the error streak", () => {
+  /** @type {Record<string, number>} */
+  let streak = { codex: 0, grok: 0 };
+  streak = loop.updateErrorStreak(streak, [
+    { source: "codex", isError: false, verdict: null, criticalIssues: [] },
+    { source: "grok", isError: false, verdict: /** @type {any} */ ("MAYBE"), criticalIssues: [] },
+  ]);
+  assert.equal(streak.codex, 1, "null verdict is a parsing fault and increments the streak");
+  assert.equal(streak.grok, 1, "unrecognized verdict is a fault and increments the streak");
 });

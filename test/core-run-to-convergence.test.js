@@ -72,11 +72,22 @@ test("RC3: persistent dissent -> unresolved at maxRounds", async () => {
 });
 
 test("RC4: an errored peer is excluded; remaining APPROVE -> converges", async () => {
-  const peers = [stub("gpt", () => "**Verdict**: APPROVE"), stub("grok", () => "", { errors: true })];
+  const peers = [
+    stub("gpt", () => "**Verdict**: APPROVE"),
+    stub("gemini", () => "**Verdict**: APPROVE"),
+    stub("grok", () => "", { errors: true }),
+  ];
   const out = await runToConvergence(peers, REQ, { arbiter: smartArbiter() });
   assert.equal(out.converged, true);
   // the errored peer surfaces as isError in the opinions
   assert.ok(out.opinions.some((o) => o.isError && o.source === "grok"));
+});
+
+test("RC4b: remaining peers below quorumFloor cannot converge", async () => {
+  // 1 healthy + 1 errored: responding peers = 1 < quorumFloor (2), cannot converge
+  const peers = [stub("gpt", () => "**Verdict**: APPROVE"), stub("grok", () => "", { errors: true })];
+  const out = await runToConvergence(peers, REQ, { arbiter: smartArbiter(), maxRounds: 1, quorumFloor: 2 });
+  assert.equal(out.converged, false, "cannot converge when responding count is below quorumFloor");
 });
 
 test("RC5: a failing blind arbiter pass is isolated (run still completes)", async () => {
@@ -220,10 +231,11 @@ function flakyTimeoutPeer(name) {
 
 test("RC-breaker: a peer that times out 2 rounds running is dropped for later rounds", async () => {
   const flaky = flakyTimeoutPeer("flaky");
-  // A healthy dissenter keeps the loop from converging so it runs all 5 rounds.
+  // Healthy dissenters keep quorum and keep the loop running 5 rounds.
   const healthy = stub("healthy", () => "**Verdict**: REQUEST_CHANGES\n- [ops] x");
+  const healthy2 = stub("healthy2", () => "**Verdict**: REQUEST_CHANGES\n- [ops] x");
   const arb = stub("arb", (p) => (p.includes("ADJUDICATE") ? "**Verdict**: REQUEST_CHANGES" : p.includes("REVISE") ? "nope" : "**Verdict**: REQUEST_CHANGES"));
-  const out = await runToConvergence([flaky, healthy], REQ, { arbiter: arb, maxRounds: 5 });
+  const out = await runToConvergence([flaky, healthy, healthy2], REQ, { arbiter: arb, maxRounds: 5 });
   assert.equal(out.converged, false);
   assert.equal(out.rounds.length, 5);   // healthy peer kept the loop going
   assert.equal(flaky.calls, 2);         // called rounds 1 & 2, then circuit-broken
@@ -240,8 +252,9 @@ test("RC-breaker-2: a NON-timeout failure trips the breaker too", async () => {
     ask: async () => { dead.calls++; return { provider: "dead", model: "stub", isError: true, errorKind: "network", retryable: false, ms: 1 }; },
   };
   const healthy = stub("healthy", () => "**Verdict**: REQUEST_CHANGES\n- [ops] x");
+  const healthy2 = stub("healthy2", () => "**Verdict**: REQUEST_CHANGES\n- [ops] x");
   const arb = stub("arb", (p) => (p.includes("ADJUDICATE") ? "**Verdict**: REQUEST_CHANGES" : p.includes("REVISE") ? "nope" : "**Verdict**: REQUEST_CHANGES"));
-  const out = await runToConvergence([dead, healthy], REQ, { arbiter: arb, maxRounds: 5 });
+  const out = await runToConvergence([dead, healthy, healthy2], REQ, { arbiter: arb, maxRounds: 5 });
   assert.equal(out.rounds.length, 5);
   // 2 rounds x 2 attempts (`network` is retried once), then dropped.
   assert.equal(dead.calls, 4);

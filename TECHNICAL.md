@@ -1206,11 +1206,21 @@ rounds**, so one broken model cannot add its full per-call ceiling to every roun
 success resets the streak; a peer that is not dispatched keeps its streak (not being
 asked is not recovering).
 
-Two things about it are easy to get wrong, so they are pinned here:
+Key rules and invariants pinned here:
 
-- **Every error kind counts**, not just `timeout`. The original condition counted
-  timeouts alone, so a peer failing every round with `network` - e.g. a transport
-  ceiling it can never beat - stayed on the panel forever.
+- **Substantive technical dissent never trips the breaker.** Only transport/execution
+  faults (`isError: true`) or malformed responses (`verdict: null` or unrecognized)
+  increment the error streak. Valid technical dissent (`REQUEST_CHANGES` or `REJECT`)
+  resets the streak to 0, ensuring principled dissent is never silenced as a fault.
+- **Every genuine error kind counts**, not just `timeout`. Transport errors (`network`,
+  `timeout`, `upstream`, `empty`) and unparseable outputs count toward the streak.
+- **Quorum floor ($N \ge 2$).** Under `consensus.quorumFloor` (default 2), `checkConvergence`
+  refuses convergence unless `responding.length >= quorumFloor`. When circuit breaks drop
+  surviving active providers below the quorum floor, the loop terminates with
+  `stopReason: "quorum-lost"`.
+- **Mid-session peer substitution / identity drift prevention.** In `consensus-step`, round 1
+  locks in `initialPeerNames`. Subsequent rounds strictly restrict candidates to this
+  initial set, preventing unexpected provider injection mid-session.
 - **Both drivers share one rule.** The streak lives on `LoopState.errorStreak` in
   `core/consensus-loop.js` (`updateErrorStreak` / `trippedProviders`), folded in by
   `addOpinions`. The provider-arbiter driver (`runToConvergence`) and the host-driven

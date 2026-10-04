@@ -23,6 +23,10 @@ const MAX_ROUNDS_DEFAULT = 5;
 // re-bills its ceiling every round while contributing no opinion. Lives here rather
 // than in a driver because both drivers must break the circuit identically.
 const CIRCUIT_BREAK_AFTER = 2;
+// Minimum responding healthy peer reviews required to establish consensus. Prevents
+// the circuit breaker or partial peer outages from degrading multi-model consensus
+// into a single-model echo chamber.
+const DEFAULT_QUORUM_FLOOR = 2;
 /** Closed verdict set a peer/host review can carry. */
 const VERDICTS = Object.freeze(["APPROVE", "REQUEST_CHANGES", "REJECT"]);
 
@@ -88,6 +92,7 @@ const REVIEW_FORMAT_INSTRUCTION =
  * @typedef {Object} LoopState
  * @property {number} round
  * @property {number} maxRounds
+ * @property {number} quorumFloor
  * @property {("await_blind"|"await_peers"|"await_adjudication"|"await_revision"|"converged"|"unresolved")} status
  * @property {string} currentPlan
  * @property {(string|null)} [expert]
@@ -98,7 +103,7 @@ const REVIEW_FORMAT_INSTRUCTION =
  * @property {(HostVerdict|null)} [hostVerdict]
  * @property {RoundRecord[]} history
  * @property {Record<string, number>} [errorStreak]  consecutive failed rounds per peer
- *   `source`. Drives the circuit breaker; reset to 0 by any non-error result.
+ *   `source`. Drives the circuit breaker; reset to 0 by any valid non-error result.
  */
 
 /** Throw a clear status-guard error so a driver can recover (expected vs got). */
@@ -109,16 +114,20 @@ function assertStatus(/** @type {LoopState} */ state, /** @type {string} */ expe
 }
 
 /**
- * @param {{plan:string, maxRounds?:number, expert?:string, arbiterMode?:("host"|"provider")}} opts
+ * @param {{plan:string, maxRounds?:number, quorumFloor?:number, expert?:string, arbiterMode?:("host"|"provider")}} opts
  * @returns {LoopState}
  */
 function initConsensusLoop(opts) {
   const maxRounds = Number.isInteger(opts.maxRounds) && /** @type {number} */ (opts.maxRounds) > 0
     ? /** @type {number} */ (opts.maxRounds)
     : MAX_ROUNDS_DEFAULT;
+  const quorumFloor = Number.isInteger(opts.quorumFloor) && /** @type {number} */ (opts.quorumFloor) >= 1
+    ? /** @type {number} */ (opts.quorumFloor)
+    : DEFAULT_QUORUM_FLOOR;
   return {
     round: 1,
     maxRounds,
+    quorumFloor,
     status: "await_blind",
     currentPlan: opts.plan,
     expert: opts.expert || null,
@@ -181,10 +190,9 @@ function recordBlindVerdict(state, blindVerdict) {
 }
 
 /**
- * Fold ONE round's results into the per-peer consecutive-failure streak. Any error
- * increments; any success resets to 0. Kinds are deliberately not distinguished - the
- * original breaker counted only `timeout`, so a provider failing every round with
- * `network` (e.g. a transport ceiling it can never beat) was never dropped.
+ * Fold ONE round's results into the per-peer consecutive-failure streak. Any transport
+ * error or malformed verdict increments; any valid verdict (APPROVE, REQUEST_CHANGES,
+ * REJECT) resets to 0. Substantive technical dissent NEVER trips the breaker.
  *
  * A peer absent from `results` keeps its streak: once dropped it is no longer
  * dispatched, so it would otherwise silently "recover" by not being asked.
@@ -196,7 +204,8 @@ function updateErrorStreak(prev, results) {
   const next = { ...(prev || {}) };
   for (const r of results || []) {
     if (!r || typeof r.source !== "string") continue;
-    next[r.source] = r.isError ? (next[r.source] || 0) + 1 : 0;
+    const isFault = r.isError || !VERDICTS.includes(/** @type {any} */ (r.verdict));
+    next[r.source] = isFault ? (next[r.source] || 0) + 1 : 0;
   }
   return next;
 }
@@ -261,10 +270,12 @@ function submitAdjudication(state, adj) {
 }
 
 /**
- * PURE convergence check. Converges only when: >=1 responding external (an
- * errored voice is excluded), every responding external APPROVES, no REJECT,
- * zero ACCEPTED critical issues, AND the host/arbiter verdict is APPROVE
- * (cannot self-approve - peers must carry it).
+ * PURE convergence check. Converges only when:
+ * 1. Responding external count >= quorumFloor (an errored or malformed voice is excluded).
+ * 2. Every responding external APPROVES.
+ * 3. No REJECT.
+ * 4. Zero ACCEPTED critical issues.
+ * 5. Host/arbiter verdict is APPROVE (cannot self-approve - peers must carry it).
  *
  * Contract: a peer's blocking concerns ride a REQUEST_CHANGES/REJECT verdict,
  * which `everyApprove` catches. `criticalIssues` attached to an APPROVE verdict
@@ -272,20 +283,25 @@ function submitAdjudication(state, adj) {
  * not block convergence unless the host adjudicates one as `accept`. Any
  * non-"APPROVE" / null / malformed verdict fails closed (no convergence).
  * @param {LoopState} state
- * @returns {{converged:boolean, verdict:("APPROVE"|"REQUEST_CHANGES"), nextAction:("finalize"|"revise")}}
+ * @returns {{converged:boolean, verdict:("APPROVE"|"REQUEST_CHANGES"), nextAction:("finalize"|"revise"), quorumMet:boolean}}
  */
 function checkConvergence(state) {
   const results = state.results || [];
-  const responding = results.filter((r) => !r.isError);
+  const responding = results.filter((r) => !r.isError && VERDICTS.includes(/** @type {any} */ (r.verdict)));
+  const quorumFloor = Number.isInteger(state.quorumFloor) && /** @type {number} */ (state.quorumFloor) >= 1
+    ? /** @type {number} */ (state.quorumFloor)
+    : DEFAULT_QUORUM_FLOOR;
+  const quorumMet = responding.length >= quorumFloor;
   const everyApprove = responding.length > 0 && responding.every((r) => r.verdict === "APPROVE");
   const anyReject = responding.some((r) => r.verdict === "REJECT");
   const acceptedCritical = (state.decisions || []).filter((d) => d.action === "accept").length;
   const hostApprove = !!(state.hostVerdict && state.hostVerdict.verdict === "APPROVE");
-  const converged = responding.length > 0 && everyApprove && !anyReject && acceptedCritical === 0 && hostApprove;
+  const converged = quorumMet && everyApprove && !anyReject && acceptedCritical === 0 && hostApprove;
   return {
     converged,
     verdict: converged ? "APPROVE" : "REQUEST_CHANGES",
     nextAction: converged ? "finalize" : "revise",
+    quorumMet,
   };
 }
 
@@ -354,6 +370,7 @@ function finalize(state) {
 module.exports = {
   MAX_ROUNDS_DEFAULT,
   CIRCUIT_BREAK_AFTER,
+  DEFAULT_QUORUM_FLOOR,
   updateErrorStreak,
   trippedProviders,
   VERDICTS,

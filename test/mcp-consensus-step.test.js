@@ -479,3 +479,34 @@ test("CS-CB11: droppedProviders never names a peer that is not on the panel", as
   assert.equal(r3.droppedProviders, undefined, "grok left via config, not via the breaker");
   assert.deepEqual(r3.opinions.map((o) => o.source), ["codex"]);
 });
+
+test("CS-ID1: mid-session peer substitution / identity drift is prevented across rounds", async () => {
+  let cfg = configCap(5);
+  const provs = [reject("codex"), reject("gemini")];
+  const srv = buildServer({ providers: provs, getConfig: () => cfg });
+  const sid = (await step(srv, { action: "init", prompt: "ship it" }, 1100)).sessionId;
+  const r1 = await runRound(srv, sid, 1110);
+  assert.deepEqual(r1.opinions.map((o) => o.source).sort(), ["codex", "gemini"]);
+
+  // Inject a new provider mid-session into the config & provider registry
+  cfg = { ...cfg, providers: { ...cfg.providers, grok: { enabled: true } } };
+  provs.push(reject("grok"));
+
+  await step(srv, { action: "record_blind", sessionId: sid, blindVerdict: "v" }, 1120);
+  const r2 = await step(srv, { action: "dispatch_peers", sessionId: sid }, 1121);
+  // grok must NOT be introduced mid-session:
+  assert.deepEqual(r2.opinions.map((o) => o.source).sort(), ["codex", "gemini"]);
+});
+
+test("CS-CB12: substantive technical dissent (REJECT/REQUEST_CHANGES) never trips the circuit breaker", async () => {
+  const cfg = configCap(5);
+  const srv = buildServer({ providers: [reject("codex"), reject("gemini")], getConfig: () => cfg });
+  const sid = (await step(srv, { action: "init", prompt: "ship it" }, 1150)).sessionId;
+  // Run 3 consecutive rounds of REJECT (CIRCUIT_BREAK_AFTER = 2)
+  await runRound(srv, sid, 1160);
+  await runRound(srv, sid, 1170);
+  const r3 = await runRound(srv, sid, 1180);
+  // Neither codex nor gemini should be dropped:
+  assert.equal(r3.droppedProviders, undefined);
+  assert.equal(r3.opinions.length, 2);
+});

@@ -24,6 +24,7 @@ const MAX_ROUNDS_CAP = 50;
 // that pre-date the feature. A present-but-invalid value degrades to the default
 // WITH a warning (unlike maxRounds which omits when invalid, here we always emit).
 const DEFAULT_CONSENSUS_MAX_WALL_MS = 1800000;
+const DEFAULT_CONSENSUS_QUORUM_FLOOR = 2;
 // sessions block defaults (opt-in store; default OFF).
 const DEFAULT_SESSIONS_MAX_RECORDS = 200;
 const DEFAULT_SESSIONS_MAX_AGE_DAYS = 30;
@@ -458,7 +459,7 @@ function resolveConsensus(rawConsensus, models) {
     // The user DID set consensus (just malformed) -> degrade to auto but treat as
     // explicit (arbiterDefaulted:false), so host auto-detect does not override it.
     warnings.push(`consensus must be an object (got ${JSON.stringify(rawConsensus)}); using "${DEFAULT_ARBITER}"`);
-    return { consensus: { arbiter: DEFAULT_ARBITER, arbiterDefaulted: false, blindVote: false, maxWallMs: DEFAULT_CONSENSUS_MAX_WALL_MS }, warnings };
+    return { consensus: { arbiter: DEFAULT_ARBITER, arbiterDefaulted: false, blindVote: false, maxWallMs: DEFAULT_CONSENSUS_MAX_WALL_MS, quorumFloor: DEFAULT_CONSENSUS_QUORUM_FLOOR }, warnings };
   }
   const block = isObject(rawConsensus) ? rawConsensus : {};
 
@@ -502,13 +503,24 @@ function resolveConsensus(rawConsensus, models) {
     }
   }
 
+  // quorumFloor: optional integer >= 1 quorum floor (min responding healthy reviews)
+  // for consensus. Defaults to 2.
+  let quorumFloor = DEFAULT_CONSENSUS_QUORUM_FLOOR;
+  if (block.quorumFloor !== undefined) {
+    if (Number.isInteger(block.quorumFloor) && block.quorumFloor >= 1) {
+      quorumFloor = block.quorumFloor;
+    } else {
+      warnings.push(`consensus.quorumFloor must be an integer >= 1 (got ${JSON.stringify(block.quorumFloor)}); using ${DEFAULT_CONSENSUS_QUORUM_FLOOR}`);
+    }
+  }
+
   // arbiterDefaulted=true ONLY when the user did not set an arbiter at all, so the
   // server can pick host (under Claude Code) vs auto (elsewhere). An explicit but
   // invalid arbiter degrades to auto with arbiterDefaulted=false (the user did choose).
   const wrap = (/** @type {any} */ arbiter, /** @type {boolean} */ arbiterDefaulted) => ({
     consensus: maxRounds === undefined
-      ? { arbiter, arbiterDefaulted, blindVote, maxWallMs }
-      : { arbiter, arbiterDefaulted, blindVote, maxRounds, maxWallMs },
+      ? { arbiter, arbiterDefaulted, blindVote, maxWallMs, quorumFloor }
+      : { arbiter, arbiterDefaulted, blindVote, maxRounds, maxWallMs, quorumFloor },
     warnings,
   });
 
@@ -560,7 +572,7 @@ function makeConfigReader(filePath) {
     try {
       text = fs.readFileSync(filePath, "utf8");
     } catch (_) {
-      return { ok: true, error: null, resolved: { version: 1, providers: {}, openrouter: disabledOpenRouter(), consensus: { arbiter: DEFAULT_ARBITER, arbiterDefaulted: true, blindVote: false, maxWallMs: DEFAULT_CONSENSUS_MAX_WALL_MS }, sessions: { persist: false, maxRecords: DEFAULT_SESSIONS_MAX_RECORDS, maxAgeDays: DEFAULT_SESSIONS_MAX_AGE_DAYS, captureText: false }, dashboard: { enabled: false, capture: DEFAULT_DASHBOARD_CAPTURE, showPII: false, port: DEFAULT_DASHBOARD_PORT, maxRuns: DEFAULT_DASHBOARD_MAX_RUNS, maxAgeDays: DEFAULT_DASHBOARD_MAX_AGE_DAYS }, consensusWarnings: [] } };
+      return { ok: true, error: null, resolved: { version: 1, providers: {}, openrouter: disabledOpenRouter(), consensus: { arbiter: DEFAULT_ARBITER, arbiterDefaulted: true, blindVote: false, maxWallMs: DEFAULT_CONSENSUS_MAX_WALL_MS, quorumFloor: DEFAULT_CONSENSUS_QUORUM_FLOOR }, sessions: { persist: false, maxRecords: DEFAULT_SESSIONS_MAX_RECORDS, maxAgeDays: DEFAULT_SESSIONS_MAX_AGE_DAYS, captureText: false }, dashboard: { enabled: false, capture: DEFAULT_DASHBOARD_CAPTURE, showPII: false, port: DEFAULT_DASHBOARD_PORT, maxRuns: DEFAULT_DASHBOARD_MAX_RUNS, maxAgeDays: DEFAULT_DASHBOARD_MAX_AGE_DAYS }, consensusWarnings: [] } };
     }
     let parsed;
     try {

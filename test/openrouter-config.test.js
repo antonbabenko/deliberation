@@ -323,7 +323,7 @@ test("C11: malformed JSON => ok=false with parse error, no throw", () => {
 test("CB1: missing consensus block defaults arbiter to 'auto', no warnings", () => {
   const { ok, resolved } = validateConfig(base());
   assert.equal(ok, true);
-  assert.deepEqual(resolved.consensus, { arbiter: "auto", arbiterDefaulted: true, blindVote: false, maxWallMs: 1800000 });
+  assert.deepEqual(resolved.consensus, { arbiter: "auto", arbiterDefaulted: true, blindVote: false, maxWallMs: 1800000, quorumFloor: 2 });
   assert.deepEqual(resolved.consensusWarnings, []);
 });
 
@@ -492,9 +492,35 @@ test("CB-MW3: invalid consensus.maxWallMs falls back to 1800000 + a warning", ()
   }
 });
 
+test("CB-QF1: a valid positive-integer consensus.quorumFloor is preserved in the resolved block", () => {
+  const c = base();
+  c.consensus = { quorumFloor: 3 };
+  const { resolved } = validateConfig(c);
+  assert.equal(resolved.consensus.quorumFloor, 3);
+  assert.deepEqual(resolved.consensusWarnings, []);
+});
+
+test("CB-QF2: absent consensus.quorumFloor defaults to 2", () => {
+  const { resolved } = validateConfig(base());
+  assert.equal(resolved.consensus.quorumFloor, 2);
+});
+
+test("CB-QF3: invalid consensus.quorumFloor falls back to 2 + a warning", () => {
+  for (const bad of [-5, 0, 1.5, "x", true, null]) {
+    const c = base();
+    c.consensus = { quorumFloor: bad };
+    const { resolved } = validateConfig(c);
+    assert.equal(resolved.consensus.quorumFloor, 2, `${JSON.stringify(bad)}: default`);
+    assert.ok(
+      resolved.consensusWarnings.some((/** @type {string} */ w) => /quorumFloor must be an integer >= 1/.test(w)),
+      `${JSON.stringify(bad)}: warned`,
+    );
+  }
+});
+
 test("CB7: omitted openrouter block still carries consensus default auto", () => {
   const { resolved } = validateConfig({ version: 1 });
-  assert.deepEqual(resolved.consensus, { arbiter: "auto", arbiterDefaulted: true, blindVote: false, maxWallMs: 1800000 });
+  assert.deepEqual(resolved.consensus, { arbiter: "auto", arbiterDefaulted: true, blindVote: false, maxWallMs: 1800000, quorumFloor: 2 });
   assert.deepEqual(resolved.consensusWarnings, []);
 });
 
@@ -502,7 +528,7 @@ test("CB8: missing config file => disabled openrouter + consensus default auto",
   const reader = makeConfigReader(path.join(os.tmpdir(), "definitely-absent-cdg-cb.json"));
   const r = reader.get();
   assert.equal(r.ok, true);
-  assert.deepEqual(r.resolved.consensus, { arbiter: "auto", arbiterDefaulted: true, blindVote: false, maxWallMs: 1800000 });
+  assert.deepEqual(r.resolved.consensus, { arbiter: "auto", arbiterDefaulted: true, blindVote: false, maxWallMs: 1800000, quorumFloor: 2 });
 });
 
 // --- sessions block ----------------------------------------------------------
