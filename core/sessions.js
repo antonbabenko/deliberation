@@ -108,16 +108,20 @@ const DEFAULT_MAX_AGE_DAYS = 30;
  */
 function scrubSecrets(text) {
   if (typeof text !== "string" || text.length === 0) return text;
-  return text
-    // Leading \b so a key embedded in a normal word (e.g. "risk-analysis" ->
-    // "sk-analysis") is NOT matched. {20,} (not {8,}) so short hyphenated terms
-    // (e.g. "sk-folding-cube", "xai-explainability") are not mistaken for keys -
-    // real OpenAI/OpenRouter/xAI keys are well over 20 chars. OpenRouter (sk-or-)
-    // BEFORE OpenAI (sk-) so the more specific shape wins.
+  let out = text
+    // Multi-line private key blocks (RSA, EC, OPENSSH, DSA, PGP, etc.).
+    .replace(/-----BEGIN (?:[A-Z0-9 -]+ )?PRIVATE KEY-----[\s\S]*?-----END (?:[A-Z0-9 -]+ )?PRIVATE KEY-----/g, "[REDACTED_PRIVATE_KEY]")
+    // Standard compact serialized JWT tokens (header.payload.signature).
+    .replace(/\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g, "[REDACTED_JWT]")
+    // Specific provider key prefixes: Anthropic, OpenRouter, OpenAI, xAI.
+    .replace(/\bsk-ant-[A-Za-z0-9_-]{20,}/g, "[REDACTED]")
     .replace(/\bsk-or-[A-Za-z0-9_-]{20,}/g, "[REDACTED]")
     .replace(/\bsk-[A-Za-z0-9_-]{20,}/g, "[REDACTED]")
-    // xAI keys.
     .replace(/\bxai-[A-Za-z0-9_-]{20,}/g, "[REDACTED]")
+    // Slack tokens (bot, app, personal, user).
+    .replace(/\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g, "[REDACTED]")
+    // Stripe API keys (live/test secret keys).
+    .replace(/\b[sr]k_(?:live|test)_[A-Za-z0-9]{20,}\b/g, "[REDACTED]")
     // GitHub tokens (ghp_/gho_/ghu_/ghs_/ghr_) and AWS access key ids (AKIA...).
     .replace(/\bgh[pousr]_[A-Za-z0-9]{20,}/g, "[REDACTED]")
     .replace(/\bAKIA[0-9A-Z]{16}\b/g, "[REDACTED]")
@@ -133,6 +137,28 @@ function scrubSecrets(text) {
     // (+ / ~ -) and optional = padding so a real token is fully redacted, not
     // partially leaked.
     .replace(/\bBearer\s+[A-Za-z0-9._~+/-]{20,}={0,2}/g, "Bearer [REDACTED]");
+
+  // Syntax-aware JSON key-value scrubbing for sensitive field names:
+  // "api_key": "secret", "password": "pass", etc.
+  out = out.replace(
+    /("(?:api[_-]?key|secret[_-]?key|client[_-]?secret|access[_-]?token|auth[_-]?token|refresh[_-]?token|private[_-]?key|password|passwd)"\s*:\s*)"([^"\\]*(?:\\.[^"\\]*)*)"/gi,
+    (match, prefix, val) => {
+      if (val.length < 4 || val.startsWith("[REDACTED")) return match;
+      return `${prefix}"[REDACTED]"`;
+    }
+  );
+
+  // Syntax-aware YAML / Shell / INI / .env key-value scrubbing:
+  // export API_KEY="secret" or password: secret
+  out = out.replace(
+    /(^|[\r\n\s;,])((?:export\s+)?(?:api[_-]?key|secret[_-]?key|client[_-]?secret|access[_-]?token|auth[_-]?token|refresh[_-]?token|private[_-]?key|password|passwd)\s*[:=]\s*)(['"]?)([^\r\n\s'"]{6,})\3/gi,
+    (match, lead, prefix, quote, val) => {
+      if (val.startsWith("[REDACTED")) return match;
+      return `${lead}${prefix}${quote}[REDACTED]${quote}`;
+    }
+  );
+
+  return out;
 }
 
 /**
