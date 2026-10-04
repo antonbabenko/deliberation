@@ -18,7 +18,7 @@ const path = require("node:path");
 
 const REPO_ROOT = path.resolve(__dirname, "..");
 const { buildServer } = require("../server/mcp/index.js");
-const { buildArtifacts, readVersion, CLAUDE_ONLY_TOKENS } = require("../scripts/sync-hosts.js");
+const { readVersion, CLAUDE_ONLY_TOKENS } = require("../scripts/sync-hosts.js");
 
 const CANONICAL_SKILLS = [
   "architect",
