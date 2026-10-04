@@ -1760,6 +1760,7 @@ and the journal is the history.
 | `server/dashboard/runs.js` | Run index over the journal plus legacy session records; run status, abandoned detection |
 | `server/dashboard/tail.js` | Byte-offset tailer for SSE (`fs.watch` plus a 5 s stat sweep) |
 | `server/dashboard/ui/` | Static page: ES modules, CSS, inline SVG. No build step, no dependency, works offline |
+| `server/dashboard/ui/telemetry.js` | Pure debate convergence trajectory and provider latency breakdown analytics |
 
 ### Configuration
 

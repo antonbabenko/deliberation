@@ -3,6 +3,7 @@
 
 import { h, put, fmtMs, fmtClock, fmtInt, fmtK, fmtTime, midId, verdictLabel, num } from "../dom.js";
 import { graphModel, renderGraph } from "../graph.js";
+import { deriveDebateTrajectory, deriveProviderLatency, renderDebateTrajectory, renderProviderLatency } from "../telemetry.js";
 
 const ENDED = new Set(["done", "converged", "unresolved", "error"]);
 
@@ -90,11 +91,12 @@ export function createCapture(ctx, runId, opts = {}) {
   svg.setAttribute("aria-label", "Waveform capture");
   const scope = h("figure", { class: "scope" }, svg);
   const note = h("p", { class: "capture-note" });
+  const telemetry = h("div", { class: "capture-telemetry" });
   const events = h("details", { class: "events-panel", ontoggle: () => ctx.panel("events", events.open) });
   let eventsLen = "";
   let lastRun = null;
   let clock = null;
-  el.append(strip, seq, scope, note);
+  el.append(strip, seq, scope, note, telemetry);
   // Redraw when the scope's width settles or changes (layout, scrollbar, drawer), not only on data.
   let drawnWidth = 0;
   if (typeof ResizeObserver !== "undefined") {
@@ -186,6 +188,14 @@ export function createCapture(ctx, runId, opts = {}) {
     if (run.dropped.length) facts.push(`dropped by the circuit breaker: ${run.dropped.join(", ")}`);
     if (run.stopReason) facts.push(`stop reason: ${run.stopReason}`);
     note.textContent = facts.join(". ");
+    if (opts.full && run) {
+      const traj = deriveDebateTrajectory(run);
+      const lats = deriveProviderLatency(run);
+      put(telemetry,
+        traj.length ? renderDebateTrajectory(traj, (r) => ctx.setRound(runId, r)) : null,
+        lats.length ? renderProviderLatency(lats) : null
+      );
+    }
     const sig = `${run.events.length}|${ctx.S.selection ? ctx.S.selection.key : ""}`;
     if (sig !== eventsLen) {
       eventsLen = sig;
