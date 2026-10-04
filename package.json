@@ -7,6 +7,7 @@
   ],
   "scripts": {
     "test": "node --test test/*.test.js",
+    "test:contracts": "node --test test/multihost-contracts.test.js",
     "typecheck": "tsc -p tsconfig.json",
     "check": "npm run typecheck && npm test",
     "sync": "node scripts/sync-prompts.js && node scripts/sync-hosts.js && node scripts/sync-fallbacks.js",
