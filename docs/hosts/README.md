@@ -4,12 +4,13 @@ deliberation ships native plugin artifacts for non-Claude hosts, generated from
 the canonical sources by `scripts/sync-hosts.js` (drift-guarded in CI). Full
 install instructions per host:
 
+- [Antigravity & Gemini Code Assist](antigravity.md) - native `.agents/skills/`, `.gemini/skills/`, and `.agents/mcp.json`.
 - [Cursor](cursor.md) - `.cursor/rules/deliberation.mdc` + the one-click MCP deeplink.
 - [OpenAI Codex CLI](codex.md) - native plugin at `plugins/deliberation/`, installed via `codex plugin marketplace add antonbabenko/deliberation`.
 - [Kiro](kiro.md) - a Kiro Power (`POWER.md` + `mcp.json` + `steering/`), installed via "Add power from GitHub".
 - [OpenCode](opencode.md) - `.opencode/commands/` + `.opencode/agents/` + an `opencode.json` MCP snippet.
 
-All four route the same MCP tools (`ask-all`, `consensus`, `ask-gpt` / `ask-gemini`
+All route the same MCP tools (`ask-all`, `consensus`, `ask-gpt` / `ask-gemini`
 / `ask-grok` / `ask-openrouter`, plus `panel` + `ask-one` for per-provider progress)
 and the seven expert personas (`architect`, `plan-reviewer`, `scope-analyst`,
 `code-reviewer`, `security-analyst`, `researcher`, `debugger`). Every result carries

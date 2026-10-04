@@ -16,6 +16,7 @@ const REPO_ROOT = path.resolve(__dirname, "..");
 const { buildArtifacts, readVersion, readDiskLF, CLAUDE_ONLY_TOKENS } = require("../scripts/sync-hosts.js");
 
 const CODEX_MANIFEST = "plugins/deliberation/.codex-plugin/plugin.json";
+const AGENTS_MCP = ".agents/mcp.json";
 
 test("host artifacts on disk match the generator (no drift)", () => {
   const artifacts = buildArtifacts();
@@ -30,6 +31,33 @@ test("Codex plugin manifest version matches version.json", () => {
   const version = readVersion();
   const manifest = JSON.parse(buildArtifacts()[CODEX_MANIFEST]);
   assert.strictEqual(manifest.version, version);
+});
+
+test("Antigravity & Agent host artifacts are present and well-formed", () => {
+  const artifacts = buildArtifacts();
+  assert.ok(artifacts[AGENTS_MCP], "missing .agents/mcp.json");
+  const mcp = JSON.parse(artifacts[AGENTS_MCP]);
+  assert.ok(mcp.mcpServers?.deliberation, "missing deliberation server in .agents/mcp.json");
+
+  // Check that .agents/skills/ and .gemini/skills/ carry deliberation and all 7 experts
+  const experts = [
+    "deliberation",
+    "architect",
+    "plan-reviewer",
+    "scope-analyst",
+    "code-reviewer",
+    "security-analyst",
+    "researcher",
+    "debugger",
+  ];
+  for (const exp of experts) {
+    const agentSkill = `.agents/skills/${exp}/SKILL.md`;
+    const geminiSkill = `.gemini/skills/${exp}/SKILL.md`;
+    assert.ok(artifacts[agentSkill], `missing ${agentSkill}`);
+    assert.ok(artifacts[geminiSkill], `missing ${geminiSkill}`);
+    assert.match(artifacts[agentSkill], /^---\nname: /);
+    assert.strictEqual(artifacts[agentSkill], artifacts[geminiSkill]);
+  }
 });
 
 test("no host artifact leaks a Claude-Code-only reference", () => {
