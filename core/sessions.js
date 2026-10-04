@@ -101,8 +101,16 @@ const DEFAULT_MAX_AGE_DAYS = 30;
  * @property {number} [rounds]  consensus loop: number of rounds the loop ran
  */
 
+/** Common programming type identifiers and boolean keywords preserved from secret scrubbing. */
+const TYPE_OR_PLACEHOLDER_KEYWORDS = new Set([
+  "string", "boolean", "number", "any", "unknown", "never",
+  "null", "undefined", "true", "false", "void", "object"
+]);
+
 /**
- * Redact common API-key shapes from a string. Best-effort - see module note.
+ * Redact common API-key shapes, private key blocks (RSA, EC, OpenSSH, PGP), JWTs,
+ * and syntax-aware key-value secrets (JSON, YAML, .env, Shell) from a string.
+ * Best-effort - see module note.
  * @param {string} text
  * @returns {string}
  */
@@ -110,7 +118,7 @@ function scrubSecrets(text) {
   if (typeof text !== "string" || text.length === 0) return text;
   let out = text
     // Multi-line private key blocks (RSA, EC, OPENSSH, DSA, PGP, etc.).
-    .replace(/-----BEGIN (?:[A-Z0-9 -]+ )?PRIVATE KEY-----[\s\S]*?-----END (?:[A-Z0-9 -]+ )?PRIVATE KEY-----/g, "[REDACTED_PRIVATE_KEY]")
+    .replace(/-----BEGIN (?:[A-Z0-9 -]+ )?PRIVATE KEY(?: BLOCK)?-----[\s\S]*?-----END (?:[A-Z0-9 -]+ )?PRIVATE KEY(?: BLOCK)?-----/g, "[REDACTED_PRIVATE_KEY]")
     // Standard compact serialized JWT tokens (header.payload.signature).
     .replace(/\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g, "[REDACTED_JWT]")
     // Specific provider key prefixes: Anthropic, OpenRouter, OpenAI, xAI.
@@ -118,8 +126,8 @@ function scrubSecrets(text) {
     .replace(/\bsk-or-[A-Za-z0-9_-]{20,}/g, "[REDACTED]")
     .replace(/\bsk-[A-Za-z0-9_-]{20,}/g, "[REDACTED]")
     .replace(/\bxai-[A-Za-z0-9_-]{20,}/g, "[REDACTED]")
-    // Slack tokens (bot, app, personal, user).
-    .replace(/\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g, "[REDACTED]")
+    // Slack tokens (bot, app, personal, user, enterprise).
+    .replace(/\bxox[baprse](?:\.[a-z0-9]+)?-[A-Za-z0-9.-]{10,}\b/g, "[REDACTED]")
     // Stripe API keys (live/test secret keys).
     .replace(/\b[sr]k_(?:live|test)_[A-Za-z0-9]{20,}\b/g, "[REDACTED]")
     // GitHub tokens (ghp_/gho_/ghu_/ghs_/ghr_) and AWS access key ids (AKIA...).
@@ -130,31 +138,45 @@ function scrubSecrets(text) {
     .replace(/\bAIza[0-9A-Za-z_-]{35,}/g, "[REDACTED]")
     // URL-embedded credentials: scheme://user:SECRET@host -> redact the password only.
     .replace(/\b([a-z][a-z0-9+.-]*:\/\/[^\s:@/]+:)[^\s@/]{6,}@/gi, "$1[REDACTED]@")
-    // Non-Bearer "Token <value>" auth headers (e.g. GitHub "Authorization: token ...").
+    // Non-Bearer \"Token <value>\" auth headers (e.g. GitHub \"Authorization: token ...\").
     .replace(/\bToken\s+[A-Za-z0-9._~+/-]{20,}={0,2}/g, "Token [REDACTED]")
-    // `Bearer <token>` headers. No `i` flag (HTTP uses capital "Bearer") so the
-    // English word "bearer" is not matched; {20,} min + base64/base64url charset
+    // `Bearer <token>` headers. No `i` flag (HTTP uses capital \"Bearer\") so the
+    // English word \"bearer\" is not matched; {20,} min + base64/base64url charset
     // (+ / ~ -) and optional = padding so a real token is fully redacted, not
     // partially leaked.
     .replace(/\bBearer\s+[A-Za-z0-9._~+/-]{20,}={0,2}/g, "Bearer [REDACTED]");
 
   // Syntax-aware JSON key-value scrubbing for sensitive field names:
-  // "api_key": "secret", "password": "pass", etc.
+  // \"api_key\": \"secret\", \"password\": \"pass\", etc.
   out = out.replace(
-    /("(?:api[_-]?key|secret[_-]?key|client[_-]?secret|access[_-]?token|auth[_-]?token|refresh[_-]?token|private[_-]?key|password|passwd)"\s*:\s*)"([^"\\]*(?:\\.[^"\\]*)*)"/gi,
+    /(\"(?:api[_-]?key|secret[_-]?key|client[_-]?secret|access[_-]?token|auth[_-]?token|refresh[_-]?token|private[_-]?key|password|passwd)\"\s*:\s*)\"([^\"\\]*(?:\\.[^\"\\]*)*)\"/gi,
     (match, prefix, val) => {
-      if (val.length < 4 || val.startsWith("[REDACTED")) return match;
-      return `${prefix}"[REDACTED]"`;
+      if (val.length < 4 || val.startsWith("[REDACTED") || TYPE_OR_PLACEHOLDER_KEYWORDS.has(val.toLowerCase())) {
+        return match;
+      }
+      return prefix + "\"[REDACTED]\"";
     }
   );
 
-  // Syntax-aware YAML / Shell / INI / .env key-value scrubbing:
-  // export API_KEY="secret" or password: secret
+  // Syntax-aware YAML / Shell / INI / .env key-value scrubbing.
+  // Requires line start or statement separator (; ,), prevents eating delimiters,
+  // supports quoted values containing spaces, and protects TypeScript / code types.
   out = out.replace(
-    /(^|[\r\n\s;,])((?:export\s+)?(?:api[_-]?key|secret[_-]?key|client[_-]?secret|access[_-]?token|auth[_-]?token|refresh[_-]?token|private[_-]?key|password|passwd)\s*[:=]\s*)(['"]?)([^\r\n\s'"]{6,})\3/gi,
-    (match, lead, prefix, quote, val) => {
-      if (val.startsWith("[REDACTED")) return match;
-      return `${lead}${prefix}${quote}[REDACTED]${quote}`;
+    /(^|[\r\n;,])(\s*(?:export\s+)?(?:[A-Za-z0-9_.-]*?(?:api[_-]?key|secret[_-]?key|client[_-]?secret|access[_-]?token|auth[_-]?token|refresh[_-]?token|private[_-]?key|password|passwd)[A-Za-z0-9_.-]*)\s*[:=]\s*)(?:([\"\x27])((?:(?!\3)[^\r\n\\]|\\.)*)\3|([^\s\r\n;,|&()]{4,}))/gi,
+    (match, lineLead, keyAssign, quote, quotedVal, unquotedVal) => {
+      if (quote) {
+        if (quotedVal.startsWith("[REDACTED") || TYPE_OR_PLACEHOLDER_KEYWORDS.has(quotedVal.toLowerCase())) {
+          return match;
+        }
+        return lineLead + keyAssign + quote + "[REDACTED]" + quote;
+      }
+      if (unquotedVal) {
+        if (unquotedVal.startsWith("[REDACTED") || TYPE_OR_PLACEHOLDER_KEYWORDS.has(unquotedVal.toLowerCase())) {
+          return match;
+        }
+        return lineLead + keyAssign + "[REDACTED]";
+      }
+      return match;
     }
   );
 
