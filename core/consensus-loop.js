@@ -123,7 +123,7 @@ function initConsensusLoop(opts) {
     : MAX_ROUNDS_DEFAULT;
   const quorumFloor = Number.isInteger(opts.quorumFloor) && /** @type {number} */ (opts.quorumFloor) >= 1
     ? /** @type {number} */ (opts.quorumFloor)
-    : 1;
+    : DEFAULT_QUORUM_FLOOR;
   return {
     round: 1,
     maxRounds,
