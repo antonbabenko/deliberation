@@ -323,23 +323,42 @@ async function runRound(srv, sid, n) {
 
 test("CS-CB1: a peer failing two rounds is dropped from round 3 and reported once", async () => {
   const dead = deadPeer("grok", "network");
-  const srv = buildServer({ providers: [reject("codex"), dead], getConfig: () => configCap(9) });
+  const srv = buildServer({ providers: [reject("codex"), reject("gemini"), dead], getConfig: () => configCap(9) });
   const sid = (await step(srv, { action: "init", prompt: "ship it" }, 300)).sessionId;
 
   const r1 = await runRound(srv, sid, 310);
-  assert.equal(r1.opinions.length, 2);
+  assert.equal(r1.opinions.length, 3);
   assert.equal(r1.droppedProviders, undefined, "one failure is not yet a pattern");
 
   const r2 = await runRound(srv, sid, 320);
-  assert.equal(r2.opinions.length, 2, "still dispatched on its second failing round");
+  assert.equal(r2.opinions.length, 3, "still dispatched on its second failing round");
 
   const r3 = await runRound(srv, sid, 330);
   assert.deepEqual(r3.droppedProviders, ["grok"]);
-  assert.deepEqual(r3.opinions.map((o) => o.source), ["codex"]);
+  assert.deepEqual(r3.opinions.map((o) => o.source), ["codex", "gemini"]);
   // 2 rounds x 2 attempts: `network` is retried once per round. The point is that
   // round 3 adds nothing - and that a NETWORK failure trips the breaker at all, which
   // the old timeout-only condition never did.
   assert.equal(dead.calls, 4, "the dead peer is never asked again");
+});
+
+test("CS-CB1b: dropping a peer below quorumFloor terminates with quorum-lost", async () => {
+  const dead = deadPeer("grok", "network");
+  // 2-peer initial panel with explicit quorumFloor: 2
+  const srv = buildServer({
+    providers: [reject("codex"), dead],
+    getConfig: () => ({ consensus: { maxRounds: 9, quorumFloor: 2 } }),
+  });
+  const sid = (await step(srv, { action: "init", prompt: "ship it" }, 340)).sessionId;
+
+  await runRound(srv, sid, 350);
+  await runRound(srv, sid, 360);
+
+  // Round 3: grok is dropped, leaving 1 peer < quorumFloor (2) -> terminates with quorum-lost
+  const r3 = await step(srv, { action: "dispatch_peers", sessionId: sid }, 370);
+  assert.equal(r3.status, "unresolved");
+  assert.equal(r3.stopReason, "quorum-lost");
+  assert.deepEqual(r3.droppedProviders, ["grok"]);
 });
 
 test("CS-CB2: one success resets the streak (a flaky peer is not punished)", async () => {

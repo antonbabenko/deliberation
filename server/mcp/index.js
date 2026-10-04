@@ -970,9 +970,10 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       if (peers.length < 1) {
         return { payload: { converged: false, verdict: null, confidence: "none", rounds: 0, opinions: [], arbiter: { mode: "server", provider: arbiterP.name }, warnings: warnings.concat(["consensus needs at least one peer distinct from the arbiter"]), error: "insufficient-peers" }, parts: null };
       }
-      const quorumFloor = Number.isInteger(cc.quorumFloor) && cc.quorumFloor >= 1
+      const configuredQuorum = Number.isInteger(cc.quorumFloor) && cc.quorumFloor >= 1
         ? cc.quorumFloor
-        : undefined;
+        : loop.DEFAULT_QUORUM_FLOOR;
+      const quorumFloor = Math.min(peers.length, configuredQuorum);
 
       // Per-call maxRounds wins; else the config default; else the engine default.
       const maxRounds = Number.isInteger(maxRoundsOverride) && /** @type {number} */ (maxRoundsOverride) > 0
@@ -1204,9 +1205,10 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         const cc = cfg.consensus || {};
         const maxRounds = Number.isInteger(cc.maxRounds) && cc.maxRounds > 0 ? cc.maxRounds : undefined;
         const { providers: allCandidates } = registry.selectForConsensus({ config: cfg, expert: args.expert || "", unhealthy: await unhealthyMap(providers) });
-        const quorumFloor = Number.isInteger(cc.quorumFloor) && cc.quorumFloor >= 1
+        const configuredQuorum = Number.isInteger(cc.quorumFloor) && cc.quorumFloor >= 1
           ? cc.quorumFloor
-          : Math.min(allCandidates.length, loop.DEFAULT_QUORUM_FLOOR);
+          : loop.DEFAULT_QUORUM_FLOOR;
+        const quorumFloor = Math.min(allCandidates.length, configuredQuorum);
         const originalPrompt = typeof args.prompt === "string" ? args.prompt : "";
         let state = loop.initConsensusLoop({ plan: originalPrompt, expert: args.expert, arbiterMode: "host", maxRounds, quorumFloor });
         const entered = enterBlind(state);
@@ -1295,6 +1297,10 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         // Only claim the breaker when it is actually why the panel is empty; a config
         // with no eligible providers is a different problem and must say so.
         if (!selected.length) return terminateLoop(sid, cur, dropped.length ? "all-providers-circuit-broken" : "no-providers", dropped);
+        const quorumFloor = Number.isInteger(cur.quorumFloor) && cur.quorumFloor >= 1 ? cur.quorumFloor : loop.DEFAULT_QUORUM_FLOOR;
+        if (selected.length < quorumFloor) {
+          return terminateLoop(sid, cur, "quorum-lost", dropped);
+        }
         /** @type {DelegationRequest} */
         const peerReq = { prompt: peerPrompt, expert: ex, cwd: typeof args.cwd === "string" ? args.cwd : undefined };
         const lg = currentLogger();
