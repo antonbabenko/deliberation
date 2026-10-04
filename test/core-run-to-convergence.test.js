@@ -315,3 +315,15 @@ test("RC-breaker-3: an empty panel from the start is `no-providers`, not a circu
   const out = await runToConvergence([], REQ, { arbiter: arb, maxRounds: 3 });
   assert.equal(out.stopReason, "no-providers");
 });
+
+test("RC-quorum-lost: circuit breaker dropping active providers below quorumFloor halts runToConvergence with stopReason: quorum-lost", async () => {
+  const flaky = flakyTimeoutPeer("flaky");
+  const healthy = stub("healthy", () => "**Verdict**: REQUEST_CHANGES\n- [ops] x");
+  const arb = stub("arb", (p) => (p.includes("ADJUDICATE") ? "**Verdict**: REQUEST_CHANGES" : p.includes("REVISE") ? "nope" : "**Verdict**: REQUEST_CHANGES"));
+  const out = await runToConvergence([flaky, healthy], REQ, { arbiter: arb, maxRounds: 5 });
+  assert.equal(out.converged, false);
+  assert.equal(out.stopReason, "quorum-lost");
+  assert.equal(out.rounds.length, 2);
+  assert.equal(flaky.calls, 2);
+  assert.match(String(out.finalReport), /UNRESOLVED after 2 round/);
+});

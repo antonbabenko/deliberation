@@ -536,7 +536,7 @@ async function runToConvergence(providers, req, opts = {}) {
   const configuredQuorum = Number.isInteger(opts.quorumFloor) && /** @type {number} */ (opts.quorumFloor) >= 1
     ? /** @type {number} */ (opts.quorumFloor)
     : loop.DEFAULT_QUORUM_FLOOR;
-  const quorumFloor = Math.min(providers.length, configuredQuorum);
+  const quorumFloor = Math.max(1, Math.min(providers.length, configuredQuorum));
   const startedAt = now();
   // The host-cap clock is always the real one (opts.now is a test seam for maxWallMs):
   // the tool call's entry when the server passes it, else now.
@@ -692,7 +692,15 @@ async function runToConvergence(providers, req, opts = {}) {
     };
   }
 
-  const { finalReport, confidence } = loop.finalize(state);
+  const history = Array.isArray(state.history) ? state.history : [];
+  const effectiveState = stopReason
+    ? {
+        ...state,
+        status: /** @type {const} */ ("unresolved"),
+        round: Math.max(1, history.length || state.round),
+      }
+    : state;
+  const { finalReport, confidence } = loop.finalize(effectiveState);
   return {
     converged: state.status === "converged",
     verdict: state.hostVerdict ? state.hostVerdict.verdict : null,

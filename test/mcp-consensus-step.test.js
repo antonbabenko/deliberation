@@ -323,19 +323,19 @@ async function runRound(srv, sid, n) {
 
 test("CS-CB1: a peer failing two rounds is dropped from round 3 and reported once", async () => {
   const dead = deadPeer("grok", "network");
-  const srv = buildServer({ providers: [reject("codex"), dead], getConfig: () => configCap(9) });
+  const srv = buildServer({ providers: [reject("codex"), reject("gemini"), dead], getConfig: () => configCap(9) });
   const sid = (await step(srv, { action: "init", prompt: "ship it" }, 300)).sessionId;
 
   const r1 = await runRound(srv, sid, 310);
-  assert.equal(r1.opinions.length, 2);
+  assert.equal(r1.opinions.length, 3);
   assert.equal(r1.droppedProviders, undefined, "one failure is not yet a pattern");
 
   const r2 = await runRound(srv, sid, 320);
-  assert.equal(r2.opinions.length, 2, "still dispatched on its second failing round");
+  assert.equal(r2.opinions.length, 3, "still dispatched on its second failing round");
 
   const r3 = await runRound(srv, sid, 330);
   assert.deepEqual(r3.droppedProviders, ["grok"]);
-  assert.deepEqual(r3.opinions.map((o) => o.source), ["codex"]);
+  assert.deepEqual(r3.opinions.map((o) => o.source).sort(), ["codex", "gemini"]);
   // 2 rounds x 2 attempts: `network` is retried once per round. The point is that
   // round 3 adds nothing - and that a NETWORK failure trips the breaker at all, which
   // the old timeout-only condition never did.
@@ -441,7 +441,7 @@ test("CS-CB8: a stop before a fan-out reports the rounds that COMPLETED", async 
 
 test("CS-CB9: droppedProviders reports only the NEWLY dropped, not the whole set", async () => {
   const dead = deadPeer("grok");
-  const srv = buildServer({ providers: [reject("codex"), dead], getConfig: () => configCap(9) });
+  const srv = buildServer({ providers: [reject("codex"), reject("gemini"), dead], getConfig: () => configCap(9) });
   const sid = (await step(srv, { action: "init", prompt: "ship it" }, 960)).sessionId;
   await runRound(srv, sid, 970);
   await runRound(srv, sid, 980);
@@ -470,14 +470,14 @@ test("CS-CB10: a config-emptied panel is `no-providers`, even with a stale tripp
 test("CS-CB11: droppedProviders never names a peer that is not on the panel", async () => {
   const dead = deadPeer("grok");
   let cfg = configCap(9);
-  const srv = buildServer({ providers: [reject("codex"), dead], getConfig: () => cfg });
+  const srv = buildServer({ providers: [reject("codex"), reject("gemini"), dead], getConfig: () => cfg });
   const sid = (await step(srv, { action: "init", prompt: "ship it" }, 1050)).sessionId;
   await runRound(srv, sid, 1060);
   await runRound(srv, sid, 1070);                       // grok is now tripped
   cfg = { ...cfg, providers: { grok: { enabled: false } } };  // and now removed entirely
   const r3 = await runRound(srv, sid, 1080);
   assert.equal(r3.droppedProviders, undefined, "grok left via config, not via the breaker");
-  assert.deepEqual(r3.opinions.map((o) => o.source), ["codex"]);
+  assert.deepEqual(r3.opinions.map((o) => o.source).sort(), ["codex", "gemini"]);
 });
 
 test("CS-ID1: mid-session peer substitution / identity drift is prevented across rounds", async () => {
@@ -509,4 +509,19 @@ test("CS-CB12: substantive technical dissent (REJECT/REQUEST_CHANGES) never trip
   // Neither codex nor gemini should be dropped:
   assert.equal(r3.droppedProviders, undefined);
   assert.equal(r3.opinions.length, 2);
+});
+
+test("CS-QF1: dropping below quorumFloor terminates consensus-step with stopReason: quorum-lost", async () => {
+  const dead = deadPeer("grok");
+  const srv = buildServer({ providers: [reject("codex"), dead], getConfig: () => configCap(9) });
+  const sid = (await step(srv, { action: "init", prompt: "ship it" }, 1200)).sessionId;
+  await runRound(srv, sid, 1210); // round 1
+  await runRound(srv, sid, 1220); // round 2: grok trips breaker
+  await step(srv, { action: "record_blind", sessionId: sid, blindVerdict: "v" }, 1230);
+  const out = await step(srv, { action: "dispatch_peers", sessionId: sid }, 1231);
+  assert.equal(out.status, "unresolved");
+  assert.equal(out.converged, false);
+  assert.equal(out.stopReason, "quorum-lost");
+  assert.deepEqual(out.droppedProviders, ["grok"]);
+  assert.match(out.finalReport, /UNRESOLVED after 2 round/);
 });

@@ -1166,6 +1166,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       sessionId: id || undefined, loopSessionId: sid, persisted,
       ...(errorCode ? { persistError: errorCode } : {}),
       status: "unresolved", converged: false, confidence, finalReport, stopReason,
+      ...(dropped.length ? { droppedProviders: dropped } : {}),
     };
   }
 
@@ -1297,6 +1298,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         // Only claim the breaker when it is actually why the panel is empty; a config
         // with no eligible providers is a different problem and must say so.
         if (!selected.length) return terminateLoop(sid, cur, dropped.length ? "all-providers-circuit-broken" : "no-providers", dropped);
+        if (selected.length < cur.quorumFloor) return terminateLoop(sid, cur, "quorum-lost", dropped);
         /** @type {DelegationRequest} */
         const peerReq = { prompt: peerPrompt, expert: ex, cwd: typeof args.cwd === "string" ? args.cwd : undefined };
         const lg = currentLogger();

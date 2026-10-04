@@ -232,7 +232,12 @@ function addOpinions(state, results) {
   assertStatus(state, "await_peers", "addOpinions");
   // Copy the array AND each element so later caller mutation cannot corrupt
   // stored state or history (the pure-machine contract).
-  const owned = Array.isArray(results) ? results.map((r) => ({ ...r })) : [];
+  const owned = Array.isArray(results)
+    ? results.map((r) => ({
+        ...r,
+        criticalIssues: Array.isArray(r.criticalIssues) ? r.criticalIssues.map((ci) => ({ ...ci })) : [],
+      }))
+    : [];
   return {
     ...state,
     results: owned,
