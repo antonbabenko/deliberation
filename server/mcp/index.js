@@ -1208,7 +1208,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         const configuredQuorum = Number.isInteger(cc.quorumFloor) && cc.quorumFloor >= 1
           ? cc.quorumFloor
           : loop.DEFAULT_QUORUM_FLOOR;
-        const quorumFloor = Math.min(allCandidates.length, configuredQuorum);
+        const quorumFloor = Math.max(1, Math.min(allCandidates.length, configuredQuorum));
         const originalPrompt = typeof args.prompt === "string" ? args.prompt : "";
         let state = loop.initConsensusLoop({ plan: originalPrompt, expert: args.expert, arbiterMode: "host", maxRounds, quorumFloor });
         const entered = enterBlind(state);
@@ -1297,10 +1297,6 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         // Only claim the breaker when it is actually why the panel is empty; a config
         // with no eligible providers is a different problem and must say so.
         if (!selected.length) return terminateLoop(sid, cur, dropped.length ? "all-providers-circuit-broken" : "no-providers", dropped);
-        const quorumFloor = Number.isInteger(cur.quorumFloor) && cur.quorumFloor >= 1 ? cur.quorumFloor : loop.DEFAULT_QUORUM_FLOOR;
-        if (selected.length < quorumFloor) {
-          return terminateLoop(sid, cur, "quorum-lost", dropped);
-        }
         /** @type {DelegationRequest} */
         const peerReq = { prompt: peerPrompt, expert: ex, cwd: typeof args.cwd === "string" ? args.cwd : undefined };
         const lg = currentLogger();
