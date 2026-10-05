@@ -449,6 +449,79 @@ input[type="search"] { width: 230px; }
 .dur-val { width: 62px; flex: none; }
 .index-foot { margin: 10px 0 0; font: 11px/1.3 var(--mono); color: var(--fg-2); }
 
+/* ------------------------------------------------------------------ telemetry */
+
+.capture-telemetry { margin-top: 24px; display: grid; gap: 24px; }
+.capture-telemetry:empty { display: none; }
+.trajectory-panel, .latency-panel { margin: 0; }
+.round-btn {
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
+  color: var(--fg);
+  font: 600 11px/1.2 var(--mono);
+  padding: 3px 7px;
+  border-radius: 2px;
+  cursor: pointer;
+}
+.round-btn:hover { background: var(--paper); border-color: var(--fg-2); }
+.peer-verdict-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-right: 12px;
+  margin-bottom: 4px;
+}
+.provider-tag { font-weight: 600; font-size: 11px; }
+.verdict-pill {
+  display: inline-block;
+  font: 600 10px/1.2 var(--mono);
+  padding: 1px 5px;
+  border-radius: 2px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.verdict-pill.tone-ok {
+  background: color-mix(in oklch, var(--ok) 14%, var(--paper));
+  color: var(--ok-text);
+  border: 1px solid color-mix(in oklch, var(--ok) 35%, transparent);
+}
+.verdict-pill.tone-bad {
+  background: color-mix(in oklch, var(--fault) 14%, var(--paper));
+  color: var(--fault-text);
+  border: 1px solid color-mix(in oklch, var(--fault) 35%, transparent);
+}
+.verdict-pill.tone-neutral {
+  background: var(--paper-2);
+  color: var(--fg-2);
+  border: 1px solid var(--rule);
+}
+.issues-count {
+  font-size: 10px;
+  color: var(--fault-text);
+  font-weight: 600;
+}
+.revision-tag {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 10px;
+  color: var(--tmo-text);
+  font-weight: 600;
+}
+.trajectory-status {
+  font-size: 11px;
+}
+.trajectory-status.st-converged {
+  color: var(--ok-text);
+  font-weight: 600;
+}
+.trajectory-table td {
+  vertical-align: middle;
+  padding: 8px 14px 8px 0;
+}
+.trajectory-table tr.is-converged {
+  background: color-mix(in oklch, var(--ok) 4%, transparent);
+}
+
 /* ------------------------------------------------------------------ config + stats */
 
 .panel + .panel { margin-top: 32px; }

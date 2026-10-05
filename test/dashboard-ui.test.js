@@ -347,3 +347,150 @@ test("UI12: a detail fetch that started before a reconnect is discarded and refe
   await stale;
   assert.deepEqual(applied.slice(1), [{ snap: "fresh" }], "only the fresh snapshot lands; no loop");
 });
+test("UI13: deriveDebateTrajectory tracks round-by-round votes, dissents, and convergence", async () => {
+  const { deriveDebateTrajectory } = await load("telemetry.js");
+  const { reduce } = await load("app.js");
+
+  const e = (/** @type {number} */ seq, /** @type {Record<string, unknown>} */ f) => ({ v: 1, runId: "c-1", at: 1000 + seq * 100, seq, ...f });
+  const events = [
+    e(0, { kind: "run_start", tool: "consensus", workflow: "consensus", providers: ["codex", "grok"] }),
+    // Round 1: codex APPROVE, grok REQUEST_CHANGES -> revision
+    e(1, { kind: "call_start", callId: "c1", provider: "codex", model: "gpt-5", role: "peer", round: 1 }),
+    e(2, { kind: "call_start", callId: "c2", provider: "grok", model: "grok-4", role: "peer", round: 1 }),
+    e(3, { kind: "call_end", callId: "c1", provider: "codex", model: "gpt-5", ms: 1200, verdict: "APPROVE", isError: false }),
+    e(4, { kind: "call_end", callId: "c2", provider: "grok", model: "grok-4", ms: 2400, verdict: "REQUEST_CHANGES", criticalIssues: [{ category: "security", description: "token leak" }], isError: false }),
+    e(5, { kind: "arbiter", action: "submit_revision", round: 1, text: "revised plan" }),
+    // Round 2: both APPROVE -> converged
+    e(6, { kind: "call_start", callId: "c3", provider: "codex", model: "gpt-5", role: "peer", round: 2 }),
+    e(7, { kind: "call_start", callId: "c4", provider: "grok", model: "grok-4", role: "peer", round: 2 }),
+    e(8, { kind: "call_end", callId: "c3", provider: "codex", model: "gpt-5", ms: 1100, verdict: "APPROVE", isError: false }),
+    e(9, { kind: "call_end", callId: "c4", provider: "grok", model: "grok-4", ms: 1500, verdict: "APPROVE", isError: false }),
+    e(10, { kind: "arbiter", action: "submit_adjudication", round: 2, verdict: "APPROVE" }),
+    e(11, { kind: "run_end", status: "converged", rounds: 2 }),
+  ];
+
+  const runs = events.reduce((acc, x) => reduce(acc, x), {});
+  const traj = deriveDebateTrajectory(/** @type {any} */ (runs)["c-1"]);
+
+  assert.equal(traj.length, 2);
+  assert.equal(traj[0].round, 1);
+  assert.equal(traj[0].converged, false);
+  assert.equal(traj[0].peers.length, 2);
+  assert.equal(traj[0].peers[0].verdict, "APPROVE");
+  assert.equal(traj[0].peers[1].verdict, "REQUEST_CHANGES");
+  assert.equal(traj[0].peers[1].issuesCount, 1);
+  assert.equal(traj[0].arbiter.hasRevision, true);
+  assert.ok(traj[0].summary.includes("Dissent: grok"));
+
+  assert.equal(traj[1].round, 2);
+  assert.equal(traj[1].converged, true);
+  assert.equal(traj[1].agreedCount, 2);
+  assert.equal(traj[1].arbiter.verdict, "APPROVE");
+  assert.ok(traj[1].summary.includes("Consensus reached"));
+});
+
+test("UI14: deriveProviderLatency aggregates call count, durations, and bottlenecks accurately", async () => {
+  const { deriveProviderLatency } = await load("telemetry.js");
+  const { reduce } = await load("app.js");
+
+  const e = (/** @type {number} */ seq, /** @type {Record<string, unknown>} */ f) => ({ v: 1, runId: "fan-lats", at: 1000 + seq * 100, seq, ...f });
+  const events = [
+    e(0, { kind: "run_start", tool: "panel", workflow: "fanout", providers: ["codex", "gemini", "grok"] }),
+    e(1, { kind: "call_start", callId: "c1", provider: "codex", model: "gpt-5" }),
+    e(2, { kind: "call_start", callId: "c2", provider: "gemini", model: "gemini-2.5-pro" }),
+    e(3, { kind: "call_start", callId: "c3", provider: "grok", model: "grok-4" }),
+    e(4, { kind: "call_end", callId: "c1", provider: "codex", model: "gpt-5", ms: 1000, isError: false }),
+    e(5, { kind: "call_end", callId: "c2", provider: "gemini", model: "gemini-2.5-pro", ms: 500, isError: false }),
+    e(6, { kind: "call_end", callId: "c3", provider: "grok", model: "grok-4", ms: 3000, isError: false }),
+    e(7, { kind: "run_end", status: "done" }),
+  ];
+
+  const runs = events.reduce((acc, x) => reduce(acc, x), {});
+  const lats = deriveProviderLatency(/** @type {any} */ (runs)["fan-lats"]);
+
+  assert.equal(lats.length, 3);
+  // Sorted slowest first
+  assert.equal(lats[0].provider, "grok");
+  assert.equal(lats[0].totalMs, 3000);
+  assert.equal(lats[0].share, 1.0);
+
+  assert.equal(lats[1].provider, "codex");
+  assert.equal(lats[1].totalMs, 1000);
+  assert.ok(Math.abs(lats[1].share - 1/3) < 0.01);
+
+  assert.equal(lats[2].provider, "gemini");
+  assert.equal(lats[2].totalMs, 500);
+  assert.ok(Math.abs(lats[2].share - 1/6) < 0.01);
+});
+
+test("UI15: deriveDebateTrajectory handles non-consensus runs, retried peer calls, and state category fallbacks", async () => {
+  const { deriveDebateTrajectory } = await load("telemetry.js");
+  const { reduce } = await load("app.js");
+
+  // 1. Non-consensus workflow returns []
+  assert.deepEqual(deriveDebateTrajectory(null), []);
+  assert.deepEqual(deriveDebateTrajectory(/** @type {any} */ ({ workflow: "fanout" })), []);
+
+  // 2. Retried peer calls in consensus: failed call superseded by retried call does not duplicate
+  const e = (/** @type {number} */ seq, /** @type {Record<string, unknown>} */ f) => ({ v: 1, runId: "c-retry", at: 1000 + seq * 100, seq, ...f });
+  const events = [
+    e(0, { kind: "run_start", tool: "consensus", workflow: "consensus", providers: ["gemini"] }),
+    // Call 1 fails (transient network error)
+    e(1, { kind: "call_start", callId: "c1", provider: "gemini", role: "peer", round: 1 }),
+    e(2, { kind: "call_end", callId: "c1", provider: "gemini", ms: 200, isError: true, errorKind: "network" }),
+    // Call 2 retried and succeeds
+    e(3, { kind: "call_start", callId: "c2", provider: "gemini", role: "peer", round: 1 }),
+    e(4, { kind: "call_end", callId: "c2", provider: "gemini", ms: 800, verdict: "APPROVE", isError: false }),
+    // State event with categories
+    e(5, { kind: "state", state: "converged", round: 1, verdicts: [{ provider: "gemini", verdict: "APPROVE", categories: ["correctness"] }] }),
+    e(6, { kind: "run_end", status: "converged", rounds: 1 }),
+  ];
+
+  const runs = events.reduce((acc, x) => reduce(acc, x), {});
+  const traj = deriveDebateTrajectory(/** @type {any} */ (runs)["c-retry"]);
+
+  assert.equal(traj.length, 1);
+  assert.equal(traj[0].peers.length, 1, "failed attempt was retried and superseded; only 1 peer entry");
+  assert.equal(traj[0].peers[0].provider, "gemini");
+  assert.equal(traj[0].peers[0].verdict, "APPROVE");
+  assert.equal(traj[0].peers[0].issuesCount, 1, "extracts categories from state verdict");
+  assert.equal(traj[0].converged, true);
+  assert.equal(traj[0].agreedCount, 1);
+});
+
+test("UI16: deriveProviderLatency handles multi-round calls, in-flight calls (ms null), and error counts", async () => {
+  const { deriveProviderLatency } = await load("telemetry.js");
+  const { reduce } = await load("app.js");
+
+  const e = (/** @type {number} */ seq, /** @type {Record<string, unknown>} */ f) => ({ v: 1, runId: "lat-multi", at: 1000 + seq * 100, seq, ...f });
+  const events = [
+    e(0, { kind: "run_start", tool: "consensus", workflow: "consensus", providers: ["codex", "gemini"] }),
+    // Codex: 2 completed calls (1000ms, 2000ms)
+    e(1, { kind: "call_start", callId: "c1", provider: "codex", model: "gpt-5", round: 1 }),
+    e(2, { kind: "call_end", callId: "c1", provider: "codex", model: "gpt-5", ms: 1000, isError: false }),
+    e(3, { kind: "call_start", callId: "c2", provider: "codex", model: "gpt-5", round: 2 }),
+    e(4, { kind: "call_end", callId: "c2", provider: "codex", model: "gpt-5", ms: 2000, isError: false }),
+    // Gemini: 1 error call (500ms) + 1 in-flight call (started, no call_end)
+    e(5, { kind: "call_start", callId: "g1", provider: "gemini", model: "gemini-2.5-pro", round: 1 }),
+    e(6, { kind: "call_end", callId: "g1", provider: "gemini", model: "gemini-2.5-pro", ms: 500, isError: true }),
+    e(7, { kind: "call_start", callId: "g2", provider: "gemini", model: "gemini-2.5-pro", round: 2 }),
+  ];
+
+  const runs = events.reduce((acc, x) => reduce(acc, x), {});
+  const lats = deriveProviderLatency(/** @type {any} */ (runs)["lat-multi"]);
+
+  assert.equal(lats.length, 2);
+  const codex = lats.find((l) => l.provider === "codex");
+  assert.ok(codex);
+  assert.equal(codex.calls, 2);
+  assert.equal(codex.totalMs, 3000);
+  assert.equal(codex.meanMs, 1500);
+  assert.equal(codex.maxMs, 2000);
+  assert.equal(codex.errors, 0);
+
+  const gemini = lats.find((l) => l.provider === "gemini");
+  assert.ok(gemini);
+  assert.equal(gemini.calls, 2, "includes the in-flight call in calls count");
+  assert.equal(gemini.totalMs, 500, "only completed calls contribute to durations");
+  assert.equal(gemini.errors, 1);
+});
