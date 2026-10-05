@@ -52,7 +52,8 @@ const CANONICAL_PERSONAS = [
  * Returns { frontmatter: Record<string, string>, body: string }
  */
 function parseFrontmatter(raw) {
-  const normalized = raw.replace(/\r\n/g, "\n");
+  const clean = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
+  const normalized = clean.replace(/\r\n/g, "\n");
   if (!normalized.startsWith("---\n")) {
     throw new Error("File does not start with YAML frontmatter fence '---'");
   }
@@ -80,6 +81,10 @@ function parseFrontmatter(raw) {
 
 /**
  * Mock provider for hermetic server testing.
+ * @param {string} name
+ * @param {"APPROVE"|"REVISE"|"REJECT"} [verdict]
+ * @param {string} [text]
+ * @returns {import("../core/types.js").Provider}
  */
 function mockProvider(name, verdict = "APPROVE", text = "looks good") {
   return {
@@ -349,44 +354,9 @@ test("MHC-T3: tool annotations correctly flag read-only hints", async () => {
 // ============================================================================
 
 test("MHC-H1: Claude client identity defaults unconfigured arbiter to host", async () => {
-  const defaultedConfig = {
-    providers: {},
-    openrouter: { maxFanout: 3, models: [] },
-    consensus: { arbiter: "auto", arbiterDefaulted: true, blindVote: false },
-  };
-
-  const srv = buildServer({
-    providers: [mockProvider("codex"), mockProvider("gemini")],
-    getConfig: () => defaultedConfig,
-  });
-
-  // Client identifies as Claude Code
-  await srv.handle({
-    jsonrpc: "2.0",
-    id: 1,
-    method: "initialize",
-    params: { clientInfo: { name: "claude-code" } },
-  });
-
-  // synthesizeAlways: true allows one-shot consensus collection under host arbiter
-  const callRes = await srv.handle({
-    jsonrpc: "2.0",
-    id: 2,
-    method: "tools/call",
-    params: { name: "consensus", arguments: { prompt: "review architecture", expert: "architect", synthesizeAlways: true } },
-  });
-
-  const payload = JSON.parse(callRes.result.content[0].text);
-  assert.strictEqual(payload.arbiter.mode, "host");
-  assert.strictEqual(payload.verdict, null);
-  assert.ok(Array.isArray(payload.opinions));
-  assert.strictEqual(payload.opinions.length, 2);
-});
-
-test("MHC-H2: Non-Claude host identities default unconfigured arbiter to auto (server synthesis)", async () => {
-  const nonClaudeHosts = ["codex", "cursor", "kiro", "opencode", "antigravity", "generic-agent"];
-
-  for (const hostName of nonClaudeHosts) {
+  const prevEnv = process.env.CLAUDECODE;
+  delete process.env.CLAUDECODE;
+  try {
     const defaultedConfig = {
       providers: {},
       openrouter: { maxFanout: 3, models: [] },
@@ -398,25 +368,74 @@ test("MHC-H2: Non-Claude host identities default unconfigured arbiter to auto (s
       getConfig: () => defaultedConfig,
     });
 
+    // Client identifies as Claude Code
     await srv.handle({
       jsonrpc: "2.0",
       id: 1,
       method: "initialize",
-      params: { clientInfo: { name: hostName } },
+      params: { clientInfo: { name: "claude-code" } },
     });
 
+    // synthesizeAlways: true allows one-shot consensus collection under host arbiter
     const callRes = await srv.handle({
       jsonrpc: "2.0",
       id: 2,
       method: "tools/call",
-      params: { name: "consensus", arguments: { prompt: "review code", expert: "code-reviewer" } },
+      params: { name: "consensus", arguments: { prompt: "review architecture", expert: "architect", synthesizeAlways: true } },
     });
 
     const payload = JSON.parse(callRes.result.content[0].text);
-    // Non-Claude host gets automated server consensus synthesis
-    assert.strictEqual(payload.arbiter.mode, "server", `host '${hostName}' failed to set server arbiter mode`);
-    assert.strictEqual(payload.verdict, "APPROVE", `host '${hostName}' failed to auto-synthesize verdict`);
-    assert.strictEqual(payload.converged, true);
+    assert.strictEqual(payload.arbiter.mode, "host");
+    assert.strictEqual(payload.verdict, null);
+    assert.ok(Array.isArray(payload.opinions));
+    assert.strictEqual(payload.opinions.length, 2);
+  } finally {
+    if (prevEnv === undefined) delete process.env.CLAUDECODE;
+    else process.env.CLAUDECODE = prevEnv;
+  }
+});
+
+test("MHC-H2: Non-Claude host identities default unconfigured arbiter to auto (server synthesis)", async () => {
+  const prevEnv = process.env.CLAUDECODE;
+  delete process.env.CLAUDECODE;
+  try {
+    const nonClaudeHosts = ["codex", "cursor", "kiro", "opencode", "antigravity", "generic-agent"];
+
+    for (const hostName of nonClaudeHosts) {
+      const defaultedConfig = {
+        providers: {},
+        openrouter: { maxFanout: 3, models: [] },
+        consensus: { arbiter: "auto", arbiterDefaulted: true, blindVote: false },
+      };
+
+      const srv = buildServer({
+        providers: [mockProvider("codex"), mockProvider("gemini")],
+        getConfig: () => defaultedConfig,
+      });
+
+      await srv.handle({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: { clientInfo: { name: hostName } },
+      });
+
+      const callRes = await srv.handle({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "consensus", arguments: { prompt: "review code", expert: "code-reviewer" } },
+      });
+
+      const payload = JSON.parse(callRes.result.content[0].text);
+      // Non-Claude host gets automated server consensus synthesis
+      assert.strictEqual(payload.arbiter.mode, "server", `host '${hostName}' failed to set server arbiter mode`);
+      assert.strictEqual(payload.verdict, "APPROVE", `host '${hostName}' failed to auto-synthesize verdict`);
+      assert.strictEqual(payload.converged, true);
+    }
+  } finally {
+    if (prevEnv === undefined) delete process.env.CLAUDECODE;
+    else process.env.CLAUDECODE = prevEnv;
   }
 });
 
