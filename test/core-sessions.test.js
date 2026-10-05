@@ -349,6 +349,109 @@ test("S17c: a longer-than-39-char Google key is fully redacted (no tail leak)", 
   assert.equal(out, "k=[REDACTED] end");
 });
 
+test("S17i: scrubSecrets redacts private key blocks (RSA, EC, OpenSSH, PGP) and JWTs", () => {
+  const privKey = "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA0Yq123456789\n-----END RSA PRIVATE KEY-----";
+  const privScrubbed = scrubSecrets(`server key:\n${privKey}\nconfigured`);
+  assert.equal(privScrubbed.includes("MIIEow"), false);
+  assert.ok(privScrubbed.includes("[REDACTED_PRIVATE_KEY]"));
+
+  const pgpKey = "-----BEGIN PGP PRIVATE KEY BLOCK-----\nVersion: BCPG v1.6\n\nlQOWBF...\n-----END PGP PRIVATE KEY BLOCK-----";
+  const pgpScrubbed = scrubSecrets(`pgp key:\n${pgpKey}\nconfigured`);
+  assert.equal(pgpScrubbed.includes("lQOWBF"), false);
+  assert.ok(pgpScrubbed.includes("[REDACTED_PRIVATE_KEY]"));
+
+  const jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
+  const jwtScrubbed = scrubSecrets(`auth token: ${jwt}`);
+  assert.equal(jwtScrubbed.includes(jwt), false);
+  assert.ok(jwtScrubbed.includes("[REDACTED_JWT]"));
+});
+
+test("S17j: scrubSecrets redacts Slack, Stripe, and Anthropic keys", () => {
+  const slackBot = "xoxb-123456789012-1234567890123-abcdef123456";
+  const slackEnt = "xoxe.xoxp-1-123456789012-abcdef123456";
+  const stripeLive = "sk_live_" + "a".repeat(24);
+  const stripeTest = "rk_test_" + "b".repeat(24);
+  const anthropic = "sk-ant-" + "c".repeat(24);
+
+  assert.equal(scrubSecrets(slackBot).includes(slackBot), false);
+  assert.ok(scrubSecrets(slackBot).includes("[REDACTED]"));
+
+  assert.equal(scrubSecrets(slackEnt).includes(slackEnt), false);
+  assert.ok(scrubSecrets(slackEnt).includes("[REDACTED]"));
+
+  assert.equal(scrubSecrets(stripeLive).includes(stripeLive), false);
+  assert.ok(scrubSecrets(stripeLive).includes("[REDACTED]"));
+
+  assert.equal(scrubSecrets(stripeTest).includes(stripeTest), false);
+  assert.ok(scrubSecrets(stripeTest).includes("[REDACTED]"));
+
+  assert.equal(scrubSecrets(anthropic).includes(anthropic), false);
+  assert.ok(scrubSecrets(anthropic).includes("[REDACTED]"));
+});
+
+test("S17k: scrubSecrets performs syntax-aware JSON key-value redaction and preserves type placeholders", () => {
+  const jsonPayload = JSON.stringify({
+    username: "alice",
+    password: "superSecretPassword123",
+    api_key: "custom-proprietary-token-9988",
+    client_secret: "top_secret_oauth_secret",
+    status: "active",
+    schemaType: "string"
+  });
+  const scrubbed = scrubSecrets(jsonPayload);
+  assert.equal(scrubbed.includes("superSecretPassword123"), false);
+  assert.equal(scrubbed.includes("custom-proprietary-token-9988"), false);
+  assert.equal(scrubbed.includes("top_secret_oauth_secret"), false);
+  assert.ok(scrubbed.includes("\"username\":\"alice\""));
+  assert.ok(scrubbed.includes("\"password\":\"[REDACTED]\""));
+  assert.ok(scrubbed.includes("\"api_key\":\"[REDACTED]\""));
+  assert.ok(scrubbed.includes("\"client_secret\":\"[REDACTED]\""));
+  assert.ok(scrubbed.includes("\"status\":\"active\""));
+
+  // Type placeholder preserved in schema definitions
+  const schemaJson = `{"properties": {"password": {"type": "string"}}}`;
+  assert.equal(scrubSecrets(schemaJson), schemaJson);
+});
+
+test("S17l: scrubSecrets performs syntax-aware Shell/YAML redaction, preserves delimiters and code keywords", () => {
+  // Preserves delimiters and handles spaces inside quotes
+  const shellDelim = "export API_KEY=secret12345; ./deploy.sh";
+  assert.equal(scrubSecrets(shellDelim), "export API_KEY=[REDACTED]; ./deploy.sh");
+
+  const chainedEnv = "api_key=secret1111; password=secret2222; ./run";
+  assert.equal(scrubSecrets(chainedEnv), "api_key=[REDACTED]; password=[REDACTED]; ./run");
+
+  const quotedWithSpaces = "export PASSWORD=\"correct horse battery staple\"\nother=val";
+  assert.equal(scrubSecrets(quotedWithSpaces), "export PASSWORD=\"[REDACTED]\"\nother=val");
+
+  const yamlPayload = "database:\n  password: super_secret_db_pass\n  user: dbadmin";
+  const yamlScrubbed = scrubSecrets(yamlPayload);
+  assert.equal(yamlScrubbed.includes("super_secret_db_pass"), false);
+  assert.ok(yamlScrubbed.includes("password: [REDACTED]"));
+  assert.ok(yamlScrubbed.includes("user: dbadmin"));
+
+  // Code constructs and TypeScript type annotations are NOT corrupted
+  const tsCode = [
+    "const api_key = process.env.API_KEY;",
+    "interface User {",
+    "  password: string;",
+    "  api_key: boolean;",
+    "}",
+    "const { password: userPassword } = req.body;",
+    "if (valid && password == expectedPassword) {"
+  ].join("\n");
+  assert.equal(scrubSecrets(tsCode), tsCode);
+});
+
+test("S17m: scrubSecrets stays linear on pathological input (no catastrophic backtracking)", () => {
+  const pathological = "password: " + "a".repeat(20000) + "; " + "export API_KEY=\"" + "b".repeat(20000) + "\"";
+  const t0 = Date.now();
+  const out = scrubSecrets(pathological);
+  const elapsed = Date.now() - t0;
+  assert.ok(elapsed < 200, `scrubSecrets took ${elapsed}ms on 40KB input, expected <200ms`);
+  assert.ok(out.includes("password: [REDACTED];"));
+  assert.ok(out.includes("export API_KEY=\"[REDACTED]\""));
+});
 test("S18: secrets are scrubbed on write (question, opinion text, verdict, file refs)", () => {
   const dir = tmpDir();
   const secret = "sk-" + "z".repeat(24);

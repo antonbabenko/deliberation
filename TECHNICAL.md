@@ -1647,9 +1647,13 @@ all of them. (`tool` is `"consensus"` for both consensus modes; `synthesizeAlway
 the mode so `session-revisit` replays it.)
 
 Before writing, `scrubSecrets` redacts common key shapes (OpenAI `sk-`, OpenRouter
-`sk-or-`, xAI `xai-`, GitHub `gh[pousr]_`, AWS `AKIA`, Google `AIza`, and `Bearer`
-tokens) in the question, opinion/verdict text, each critical-issue description, `warnings`,
-annotation notes, and the file `path`/`dir` strings; the question and each opinion/verdict
+`sk-or-`, Anthropic `sk-ant-`, xAI `xai-`, GitHub `gh[pousr]_`, AWS `AKIA`, Google `AIza`,
+Slack `xox[baprs]-`, Stripe `[sr]k_(live|test)_`, and `Bearer` tokens), multi-line private key
+blocks (`[REDACTED_PRIVATE_KEY]`), compact serialized JWT tokens (`[REDACTED_JWT]`), and
+syntax-aware key-value secrets in JSON, YAML, .env, and Shell assignments (`api_key`,
+`secret_key`, `client_secret`, `access_token`, `auth_token`, `refresh_token`, `private_key`,
+`password`, `passwd` mapped to `[REDACTED]`) in the question, opinion/verdict text, each
+critical-issue description, `warnings`, annotation notes, and the file `path`/`dir` strings; the question and each opinion/verdict
 are capped at ~100 KB, and an opinion `verdict` is whitelisted to the closed enum (anything
 else is coerced to `null`) so no free text rides the unscrubbed verdict field. Scrubbing is
 best-effort - user transcript text may still carry secrets in unrecognized shapes.
