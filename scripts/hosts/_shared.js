@@ -2,7 +2,7 @@
 /**
  * Shared helpers + constants for the per-host artifact generators.
  *
- * Each host module (cursor.js, codex.js, kiro.js, opencode.js) exports a
+ * Each host module (cursor.js, codex.js, kiro.js, opencode.js, antigravity.js) exports a
  * `build(ctx)` that returns a { repoRelativePath: content } map. The orchestrator
  * (scripts/sync-hosts.js) merges them and writes / checks. Keeping each host in
  * its own file lets independent contributors (or parallel agents) own one host
