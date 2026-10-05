@@ -1,3 +1,14 @@
+## [3.21.0](https://github.com/antonbabenko/deliberation/compare/v3.20.0...v3.21.0) (2026-10-05)
+
+
+### Features
+
+* **consensus:** enforce quorum floor and breaker technical dissent immunity ([#218](https://github.com/antonbabenko/deliberation/issues/218)) ([6d50d04](https://github.com/antonbabenko/deliberation/commit/6d50d0459e3dd9a1cca596720b88bf6e7ebe4933))
+* **dashboard:** debate convergence trajectory and provider latency analytics ([#222](https://github.com/antonbabenko/deliberation/issues/222)) ([4499175](https://github.com/antonbabenko/deliberation/commit/449917544b4d483a60f278ee470f5ca97566473d))
+* **hosts:** add native Antigravity CLI and Gemini host generator and sync ([#219](https://github.com/antonbabenko/deliberation/issues/219)) ([df100b7](https://github.com/antonbabenko/deliberation/commit/df100b77e28038cfb477e2883ad6b329ebb1fd02))
+* **security:** syntax-aware secret scrubbing and credential redaction ([#221](https://github.com/antonbabenko/deliberation/issues/221)) ([7b46f97](https://github.com/antonbabenko/deliberation/commit/7b46f97b0327d610fbaaeec8fc0cd77ce2938452))
+* **test:** hermetic multi-host contract test suite ([#220](https://github.com/antonbabenko/deliberation/issues/220)) ([27c8def](https://github.com/antonbabenko/deliberation/commit/27c8deffdb219b3910b7d0359de41cec97e5ee02))
+
 ## [3.20.0](https://github.com/antonbabenko/deliberation/compare/v3.19.0...v3.20.0) (2026-10-03)
 
 
@@ -25,11 +36,4 @@
 ### Bug Fixes
 
 * comment on each released PR with its version and how to update ([#207](https://github.com/antonbabenko/deliberation/issues/207)) ([aea7f85](https://github.com/antonbabenko/deliberation/commit/aea7f85b2df6539f4d3256196cc047e7b5ae5a20))
-
-## [3.17.0](https://github.com/antonbabenko/deliberation/compare/v3.16.1...v3.17.0) (2026-09-24)
-
-
-### Features
-
-* stamp the current UTC date and a no-denial rule into every delegate prompt ([#205](https://github.com/antonbabenko/deliberation/issues/205)) ([7e9262a](https://github.com/antonbabenko/deliberation/commit/7e9262abfbef2cd117bbd9dc81e20098a6dc3b59)), closes [#204](https://github.com/antonbabenko/deliberation/issues/204)
 
