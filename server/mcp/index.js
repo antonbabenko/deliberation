@@ -970,13 +970,17 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       if (peers.length < 1) {
         return { payload: { converged: false, verdict: null, confidence: "none", rounds: 0, opinions: [], arbiter: { mode: "server", provider: arbiterP.name }, warnings: warnings.concat(["consensus needs at least one peer distinct from the arbiter"]), error: "insufficient-peers" }, parts: null };
       }
+      const configuredQuorum = Number.isInteger(cc.quorumFloor) && cc.quorumFloor >= 1
+        ? cc.quorumFloor
+        : loop.DEFAULT_QUORUM_FLOOR;
+      const quorumFloor = Math.min(peers.length, configuredQuorum);
 
       // Per-call maxRounds wins; else the config default; else the engine default.
       const maxRounds = Number.isInteger(maxRoundsOverride) && /** @type {number} */ (maxRoundsOverride) > 0
         ? maxRoundsOverride
         : (Number.isInteger(cc.maxRounds) && cc.maxRounds > 0 ? cc.maxRounds : undefined);
       const maxWallMs = Number.isInteger(cc.maxWallMs) && cc.maxWallMs > 0 ? cc.maxWallMs : undefined;
-      const out = await runToConvergence(peers, withPersona(req, expert), { arbiter: arbiterP, maxRounds, maxWallMs, logger: currentLogger(), orientationFiles: orient(req), startedAt, trace });
+      const out = await runToConvergence(peers, withPersona(req, expert), { arbiter: arbiterP, maxRounds, maxWallMs, quorumFloor, logger: currentLogger(), orientationFiles: orient(req), startedAt, trace });
       const allWarnings = out.error ? warnings.concat([`loop: ${out.error}`]) : warnings;
       const rounds = Array.isArray(out.rounds) ? out.rounds.length : 0;
       const arbiter = { mode: "server", provider: arbiterP.name };
@@ -1162,6 +1166,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       sessionId: id || undefined, loopSessionId: sid, persisted,
       ...(errorCode ? { persistError: errorCode } : {}),
       status: "unresolved", converged: false, confidence, finalReport, stopReason,
+      ...(dropped.length ? { droppedProviders: dropped } : {}),
     };
   }
 
@@ -1200,8 +1205,13 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         const cfg = getConfig() || {};
         const cc = cfg.consensus || {};
         const maxRounds = Number.isInteger(cc.maxRounds) && cc.maxRounds > 0 ? cc.maxRounds : undefined;
+        const { providers: allCandidates } = registry.selectForConsensus({ config: cfg, expert: args.expert || "", unhealthy: await unhealthyMap(providers) });
+        const configuredQuorum = Number.isInteger(cc.quorumFloor) && cc.quorumFloor >= 1
+          ? cc.quorumFloor
+          : loop.DEFAULT_QUORUM_FLOOR;
+        const quorumFloor = Math.max(1, Math.min(allCandidates.length, configuredQuorum));
         const originalPrompt = typeof args.prompt === "string" ? args.prompt : "";
-        let state = loop.initConsensusLoop({ plan: originalPrompt, expert: args.expert, arbiterMode: "host", maxRounds });
+        let state = loop.initConsensusLoop({ plan: originalPrompt, expert: args.expert, arbiterMode: "host", maxRounds, quorumFloor });
         const entered = enterBlind(state);
         const sid = sessions.newSessionId();
         // Stash the ORIGINAL prompt so a terminal record's `question` is the original
@@ -1255,7 +1265,14 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         const peerPrompt = cur.peerPrompt || cur.currentPlan || "";
         // One resolved expert for selection, persona, and the request - consistent.
         const ex = cur.expert || expert || undefined;
-        const { providers: candidates, unavailable } = registry.selectForConsensus({ config: getConfig() || {}, expert: ex || "", unhealthy: await unhealthyMap(providers) });
+        const { providers: allCandidates, unavailable } = registry.selectForConsensus({ config: getConfig() || {}, expert: ex || "", unhealthy: await unhealthyMap(providers) });
+        // Prevent mid-session peer substitution / identity drift:
+        // On round 1, lock the initial peer panel. In subsequent rounds, candidates are
+        // strictly restricted to this initial set (no new peers may enter mid-session).
+        const initialPeerNames = Array.isArray(cur.initialPeerNames)
+          ? cur.initialPeerNames
+          : allCandidates.map((p) => p.name);
+        const candidates = allCandidates.filter((p) => initialPeerNames.includes(p.name));
         // Circuit breaker. selectForConsensus re-reads config every round and has no
         // memory, so without this a peer that has failed every round is re-dispatched
         // every round - paying its full ceiling to contribute nothing. The streak is
@@ -1281,6 +1298,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         // Only claim the breaker when it is actually why the panel is empty; a config
         // with no eligible providers is a different problem and must say so.
         if (!selected.length) return terminateLoop(sid, cur, dropped.length ? "all-providers-circuit-broken" : "no-providers", dropped);
+        if (selected.length < cur.quorumFloor) return terminateLoop(sid, cur, "quorum-lost", dropped);
         /** @type {DelegationRequest} */
         const peerReq = { prompt: peerPrompt, expert: ex, cwd: typeof args.cwd === "string" ? args.cwd : undefined };
         const lg = currentLogger();
@@ -1296,7 +1314,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
             : { ...parseReview(typeof r.text === "string" ? r.text : ""), source: r.provider, isError: false, text: typeof r.text === "string" ? r.text : undefined, model: r.model, reasoningEffort: r.reasoningEffort ?? null, ms: r.ms }
         );
         const next = loop.addOpinions(cur, results);
-        loopStore.put(sid, { ...next, announcedDropped: announced.concat(newlyDropped) });
+        loopStore.put(sid, { ...next, initialPeerNames, announcedDropped: announced.concat(newlyDropped) });
         jemit("state", {
           state: "adjudicate", round: cur.round, status: next.status,
           verdicts: results.map((r) => ({ provider: r.source, verdict: r.verdict, categories: (r.criticalIssues || []).map((/** @type {any} */ ci) => ci.category) })),

@@ -524,7 +524,7 @@ function okText(/** @type {any} */ res) {
  * revision keeps the current plan.
  * @param {Provider[]} providers  peer panel
  * @param {DelegationRequest} req  `prompt` is the initial plan
- * @param {{arbiter?:Provider, maxRounds?:number, maxWallMs?:number, now?:()=>number, logger?:Logger, orientationFiles?:import("./types.js").FileRef[], startedAt?:number, trace?:Trace}} [opts]
+ * @param {{arbiter?:Provider, maxRounds?:number, maxWallMs?:number, quorumFloor?:number, now?:()=>number, logger?:Logger, orientationFiles?:import("./types.js").FileRef[], startedAt?:number, trace?:Trace}} [opts]
  * @returns {Promise<{converged:boolean, verdict:(string|null), confidence:string, finalReport?:string, rounds:any[], opinions:any[], error?:string, stopReason?:string}>}
  */
 async function runToConvergence(providers, req, opts = {}) {
@@ -533,6 +533,10 @@ async function runToConvergence(providers, req, opts = {}) {
   const logger = opts.logger || NULL_LOGGER;
   const now = typeof opts.now === "function" ? opts.now : Date.now;
   const maxWallMs = typeof opts.maxWallMs === "number" && opts.maxWallMs > 0 ? opts.maxWallMs : null;
+  const configuredQuorum = Number.isInteger(opts.quorumFloor) && /** @type {number} */ (opts.quorumFloor) >= 1
+    ? /** @type {number} */ (opts.quorumFloor)
+    : loop.DEFAULT_QUORUM_FLOOR;
+  const quorumFloor = Math.max(1, Math.min(providers.length, configuredQuorum));
   const startedAt = now();
   // The host-cap clock is always the real one (opts.now is a test seam for maxWallMs):
   // the tool call's entry when the server passes it, else now.
@@ -545,6 +549,7 @@ async function runToConvergence(providers, req, opts = {}) {
   let state = loop.initConsensusLoop({
     plan: typeof req.prompt === "string" ? req.prompt : "",
     maxRounds: opts.maxRounds,
+    quorumFloor,
     expert: req.expert,
     arbiterMode: "provider",
   });
@@ -566,6 +571,7 @@ async function runToConvergence(providers, req, opts = {}) {
       // Distinguish "the breaker emptied the panel" from "there was never a panel" -
       // the same distinction the host-driven driver makes, so the two agree.
       if (!activeProviders.length) { stopReason = providers.length ? "all-providers-circuit-broken" : "no-providers"; break; }
+      if (activeProviders.length < quorumFloor) { stopReason = "quorum-lost"; break; }
       const { peerPrompt, blindPrompt } = loop.prepareRound(state);
       // Blind pass runs concurrently with the peer fan-out; isolate its failure.
       const roundNo = state.round;
@@ -686,7 +692,15 @@ async function runToConvergence(providers, req, opts = {}) {
     };
   }
 
-  const { finalReport, confidence } = loop.finalize(state);
+  const history = Array.isArray(state.history) ? state.history : [];
+  const effectiveState = stopReason
+    ? {
+        ...state,
+        status: /** @type {const} */ ("unresolved"),
+        round: Math.max(1, history.length || state.round),
+      }
+    : state;
+  const { finalReport, confidence } = loop.finalize(effectiveState);
   return {
     converged: state.status === "converged",
     verdict: state.hostVerdict ? state.hostVerdict.verdict : null,
