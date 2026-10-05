@@ -17,10 +17,9 @@ canonical sources (`AGENTS.md`, `prompts/*.md`).
 ## Usage
 
 Once installed or placed in the project root, Antigravity and Gemini Code Assist automatically
-discover the skills and MCP tools:
-- `/consensus`: Multi-model consensus and peer review across GPT, Gemini, Grok, and OpenRouter.
-- `/ask-all`: Concurrent second opinions from all active peers.
-- Individual expert subagent delegation: `@architect`, `@code-reviewer`, `@debugger`, etc.
+discover the workspace skills and project-level MCP tools:
+- **Workspace Skills**: Specialized expert personas (`@architect`, `@code-reviewer`, `@debugger`, `@plan-reviewer`, `@security-analyst`, `@scope-analyst`, `@researcher`) and delegation guidance (`@deliberation`).
+- **MCP Tools**: Multi-model consensus and peer-review tools (`consensus`, `consensus-step`, `ask-all`, `ask-gpt`, `ask-gemini`, `ask-grok`, `ask-openrouter`) called directly by the agent or host.
 
 ## Provider credentials
 
@@ -29,6 +28,6 @@ Provider credentials come from the host environment:
 | Provider | How it authenticates |
 |----------|----------------------|
 | Gemini | Antigravity CLI (`agy`) - native sign-in |
-| GPT (Codex) | Codex CLI auth (`codex login`) or `CODEX_API_KEY` |
+| GPT (Codex) | Codex CLI auth (`codex login` / `codex login --device-auth`) or `CODEX_API_KEY` / `CODEX_ACCESS_TOKEN` |
 | Grok (xAI) | `XAI_API_KEY` |
-| OpenRouter | `OPENROUTER_API_KEY` |
+| OpenRouter | `OPENROUTER_API_KEY` (models configured in `~/.config/deliberation/config.json`) |
