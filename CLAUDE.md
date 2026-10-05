@@ -12,6 +12,12 @@ A Claude Code plugin that provides GPT (via Codex CLI), Gemini 3 (via the Antigr
 # Test plugin locally (loads from working directory)
 claude --plugin-dir /path/to/deliberation
 
+# Run all checks (typecheck + all test suites)
+npm run check
+
+# Run hermetic multi-host contract test suite
+npm run test:contracts
+
 # Run setup to test installation flow
 /deliberation:setup
 
