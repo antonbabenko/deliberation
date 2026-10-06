@@ -1688,7 +1688,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       if (name === "ask-openrouter") {
         const or = getConfig().openrouter || {};
         const dm = or.defaultModel;
-        const matched = (or.models || []).find((m) => m.alias === dm);
+        const matched = (or.models || []).find((/** @type {any} */ m) => m.alias === dm);
         if (matched) {
           if (!req.model) req.model = matched.model;
           if (!req.reasoningEffort && matched.reasoning_effort) req.reasoningEffort = matched.reasoning_effort;
@@ -1869,7 +1869,7 @@ function makeRuntime({ getServer = () => null } = {}) {
         if (!or) return "";
         const dm = or.defaultModel;
         if (!dm) return "";
-        const matched = (or.models || []).find((m) => m.alias === dm);
+        const matched = (or.models || []).find((/** @type {any} */ m) => m.alias === dm);
         return matched ? matched.model : dm;
       },
       bridge: require("../openrouter/index.js"),
