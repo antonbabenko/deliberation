@@ -33,12 +33,17 @@ function consensusDelegates(or, expert) {
 
 // Resolve an alias to a delegate-like object, or null.
 // openrouter-default resolves to the configured defaultModel (null if unset).
-// The synthetic object for openrouter-default intentionally carries ONLY { alias, model, experts }:
-// it is a single-shot fallback delegate and deliberately omits askAll/consensus because
-// openrouter-default never participates in /ask-all or /consensus fan-out.
+// When defaultModel matches a configured model alias, inherits that model's settings.
+// The synthetic object for openrouter-default intentionally carries alias: RESERVED_ALIAS
+// and never participates in /ask-all or /consensus fan-out.
 function resolveAlias(or, alias) {
   if (alias === RESERVED_ALIAS) {
-    return or.defaultModel ? { alias: RESERVED_ALIAS, model: or.defaultModel, experts: null } : null;
+    if (!or.defaultModel) return null;
+    const matched = (or.models || []).find((m) => m.alias === or.defaultModel);
+    if (matched) {
+      return { ...matched, alias: RESERVED_ALIAS };
+    }
+    return { alias: RESERVED_ALIAS, model: or.defaultModel, experts: null };
   }
   return (or.models || []).find((m) => m.alias === alias) || null;
 }

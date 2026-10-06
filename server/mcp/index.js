@@ -1685,6 +1685,15 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
     if (Object.prototype.hasOwnProperty.call(ASK_PROVIDER, name)) {
       const p = registry.get(ASK_PROVIDER[name]);
       if (!p) return { content: [{ type: "text", text: JSON.stringify({ error: `provider ${ASK_PROVIDER[name]} not registered` }) }] };
+      if (name === "ask-openrouter") {
+        const or = getConfig().openrouter || {};
+        const dm = or.defaultModel;
+        const matched = (or.models || []).find((m) => m.alias === dm);
+        if (matched) {
+          if (!req.model) req.model = matched.model;
+          if (!req.reasoningEffort && matched.reasoning_effort) req.reasoningEffort = matched.reasoning_effort;
+        }
+      }
       const { trace, own } = singleTrace(name, args, expert, p.name);
       const result = await askOne(p, withPersona(req, expert), { logger: currentLogger(), tool: "ask-one", cache: resultCache, orientationFiles: orient(req), startedAt: toolStartedAt, trace });
       if (own) endRun(trace, { status: result.isError ? "error" : "done" });
@@ -1854,7 +1863,15 @@ function makeRuntime({ getServer = () => null } = {}) {
       name: "openrouter",
       apiBase: initialOr.apiBase || DEFAULT_API_BASE,
       apiKeyEnv: DEFAULT_API_KEY_ENV,
-      resolveModel: (req) => req.model || (getConfig().openrouter && getConfig().openrouter.defaultModel) || "",
+      resolveModel: (req) => {
+        if (req.model) return req.model;
+        const or = getConfig().openrouter;
+        if (!or) return "";
+        const dm = or.defaultModel;
+        if (!dm) return "";
+        const matched = (or.models || []).find((m) => m.alias === dm);
+        return matched ? matched.model : dm;
+      },
       bridge: require("../openrouter/index.js"),
       timeoutMs: providerTimeout("openrouter"),
     }),

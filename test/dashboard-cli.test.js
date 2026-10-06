@@ -175,15 +175,18 @@ test("dailyStats groups run summaries by UTC day", () => {
   ]);
 });
 
-test("healthReport marks unhealthy, needsLogin and panel eligibility", async () => {
+test("healthReport marks unhealthy, needsLogin and panel eligibility, omitting bare openrouter provider", async () => {
   const mk = (/** @type {string} */ name, /** @type {any} */ h) => ({ name, capabilities: {}, health: async () => h, ask: async () => { throw new Error("never called"); } });
-  const providers = [mk("codex", { ok: true, needsLogin: true }), mk("gemini", { ok: false, reason: "agy not found" }), mk("grok", { ok: true })];
-  const cfg = { providers: { grok: { enabled: true, model: "grok-4.6", reasoningEffort: "high" } }, openrouter: { models: [] } };
+  const providers = [mk("codex", { ok: true, needsLogin: true }), mk("gemini", { ok: false, reason: "agy not found" }), mk("grok", { ok: true }), mk("openrouter", { ok: true })];
+  const cfg = { providers: { grok: { enabled: true, model: "grok-4.6", reasoningEffort: "high" } }, openrouter: { models: [{ alias: "deepseek-v4", model: "deepseek/v4" }] } };
   const r = await healthReport({ providers, getConfig: () => cfg });
-  assert.deepEqual(r.askAll, ["codex", "grok"]);
+  assert.deepEqual(r.askAll, ["codex", "grok", "openrouter:deepseek-v4"]);
   assert.deepEqual(r.consensus, ["codex", "grok"]);
   assert.deepEqual(r.needsLogin, ["codex"]);
   assert.deepEqual(r.unavailable, [{ name: "gemini", reason: "agy not found" }]);
+  assert.equal(r.providers.find((/** @type {any} */ p) => p.name === "openrouter"), undefined);
+  assert.equal(r.models.length, 1);
+  assert.equal(r.models[0].name, "openrouter:deepseek-v4");
   const grok = r.providers.find((/** @type {any} */ p) => p.name === "grok");
   assert.equal(grok.model, "grok-4.6");
   assert.equal(grok.reasoningEffort, "high");

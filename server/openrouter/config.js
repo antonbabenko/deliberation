@@ -91,8 +91,6 @@ function validateConfig(raw) {
   const apiKeyEnv = (orProviderRaw && orProviderRaw.apiKeyEnv) || DEFAULT_API_KEY_ENV;
   const apiBase = (orProviderRaw && orProviderRaw.apiBase) || DEFAULT_API_BASE;
   const allowRawModel = !!orProviderRaw && orProviderRaw.allowRawModel === true;
-  const defaultModel = orProviderRaw && typeof orProviderRaw.defaultModel === "string" && orProviderRaw.defaultModel.trim()
-    ? orProviderRaw.defaultModel.trim() : null;
   const { defaults, warnings: defaultsWarnings } = resolveDefaults(orProviderRaw && orProviderRaw.defaults);
 
   // models = a MAP keyed by id. Resolve each entry into the legacy array shape with
@@ -106,6 +104,18 @@ function validateConfig(raw) {
   // model degrades to "auto" + warning instead of pinning a disabled delegate.
   const models = enabled ? parsed.models : [];
   const invalidModels = enabled ? parsed.invalidModels : [];
+
+  const defaultEntries = models.filter((m) => m.default);
+  const defaultWarnings = [];
+  if (defaultEntries.length > 1) {
+    defaultWarnings.push(
+      `multiple models marked with default: true (${defaultEntries.map((m) => `"${m.alias}"`).join(", ")}); using "${defaultEntries[0].alias}"`
+    );
+  }
+  const defaultModelFromRecord = defaultEntries.length > 0 ? defaultEntries[0].alias : null;
+  const defaultModelFromProvider = orProviderRaw && typeof (orProviderRaw.model || orProviderRaw.defaultModel) === "string" && (orProviderRaw.model || orProviderRaw.defaultModel).trim()
+    ? (orProviderRaw.model || orProviderRaw.defaultModel).trim() : null;
+  const defaultModel = defaultModelFromRecord || defaultModelFromProvider;
 
   const { consensus, warnings } = resolveConsensus(raw.consensus, models);
   const { sessions, warnings: sessionsWarnings } = resolveSessions(raw.sessions);
@@ -126,7 +136,7 @@ function validateConfig(raw) {
       // Defaults-, sessions-, debug-, and dashboard-validation warnings ride the same
       // consensusWarnings channel the bridge already surfaces, so a dropped/degraded
       // value is visible, not silent.
-      consensusWarnings: [...defaultsWarnings, ...warnings, ...sessionsWarnings, ...debugWarnings, ...dashboardWarnings],
+      consensusWarnings: [...defaultsWarnings, ...warnings, ...sessionsWarnings, ...debugWarnings, ...dashboardWarnings, ...defaultWarnings],
     },
   };
 }
@@ -420,6 +430,9 @@ function resolveModels(modelsRaw) {
     if (m.temperature !== undefined && !(typeof m.temperature === "number" && Number.isFinite(m.temperature))) {
       addInvalid(i, id, `models["${id}"] temperature must be a finite number`); continue;
     }
+    if (m.default !== undefined && typeof m.default !== "boolean") {
+      addInvalid(i, id, `models["${id}"] default must be a boolean`); continue;
+    }
     if (m.apiBase !== undefined && !(typeof m.apiBase === "string" && m.apiBase.trim())) {
       addInvalid(i, id, `models["${id}"] apiBase must be a non-empty string`); continue;
     }
@@ -429,6 +442,7 @@ function resolveModels(modelsRaw) {
       experts,
       askAll: m.askAll !== false,
       consensus: m.consensus === true,
+      default: m.default === true,
       // camelCase -> wire mapping happens HERE (the one place): the on-disk
       // `reasoningEffort` becomes the resolved `.reasoning_effort` the bridge call
       // site (server/openrouter/index.js) sends to the API as `reasoning_effort`.
