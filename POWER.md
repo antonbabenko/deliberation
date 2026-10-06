@@ -196,6 +196,16 @@ packages, so if you keep getting an old build, clear the cache
 (The Claude Code plugin manifest is a separate mechanism and does not affect
 non-Claude hosts.)
 
+To cycle the background dashboard daemon and audit MCP processes after an update
+without dropping active host connections, run:
+
+```bash
+bash scripts/commands/reload-mcp.sh
+```
+
+or invoke the `reload-mcp` skill/command supported on your host (Claude Code,
+Codex, Antigravity, OpenCode).
+
 ## License and support
 
 deliberation is licensed MIT (`MIT`).

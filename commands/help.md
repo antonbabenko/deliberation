@@ -37,6 +37,7 @@ Render the sections below. Keep it tight - this is a cheat sheet, not a manual.
 | `/deliberation:doctor` | Something looks broken - commands missing, providers failing, empty analyze. |
 | `/deliberation:dashboard` | You want to watch runs live in a browser as state graphs, with history, config, health and stats. Local machine only; turn on `dashboard.enabled` first. |
 | `/deliberation:codex-login` | GPT has no login on this machine (e.g. a Claude Code web session): get a ChatGPT link + code. |
+| `/deliberation:reload-mcp` | You updated deliberation and want to cycle the dashboard daemon and audit MCP workers. |
 | `/deliberation:setup` | First install, or to repair the install. |
 
 ### Prompts you can paste right now

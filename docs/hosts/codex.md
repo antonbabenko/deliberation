@@ -30,6 +30,7 @@ Plugin root: `plugins/deliberation/`
 - `skills/<expert>/SKILL.md` - one skill per expert (`architect`, `plan-reviewer`,
   `scope-analyst`, `code-reviewer`, `security-analyst`, `researcher`, `debugger`),
   each carrying that expert's persona so Codex gets the same guidance natively.
+- `skills/reload-mcp/SKILL.md` - process audit and graceful dashboard recycling after deliberation updates.
 
 Once installed you get the deliberation MCP tools (`ask-all`, `consensus`,
 `ask-gpt` / `ask-gemini` / `ask-grok` / `ask-openrouter`, and the seven experts).
@@ -61,3 +62,14 @@ owner/repo` install flow; the root-`source.path`-rejected requirement
 `@plugin-creator` skill scaffolds entries; the public curation/submission flow is
 not yet pinned). Confirm at developers.openai.com/codex/plugins before claiming a
 curated-directory listing.
+
+
+## Updating
+
+When deliberation is updated, invoke the `reload-mcp` skill or run:
+
+```bash
+bash scripts/commands/reload-mcp.sh
+```
+
+This audits active deliberation processes, protects running workloads, cleans up orphaned processes, and safely cycles the background dashboard daemon if running. Next tool calls and new sessions will automatically resolve the updated server code.

@@ -8,7 +8,7 @@ ship as:
 
 - `.opencode/commands/*.md` - one thin slash-command per fan-out / single-provider
   tool (`/ask-all`, `/consensus`, `/ask-gpt`, `/ask-gemini`, `/ask-grok`,
-  `/ask-openrouter`). Each just calls the matching deliberation MCP tool.
+  `/ask-openrouter`, `/reload-mcp`). Each calls the matching deliberation tool or command script.
 - `.opencode/agents/*.md` - one subagent per expert persona (`architect`,
   `plan-reviewer`, `scope-analyst`, `code-reviewer`, `security-analyst`,
   `researcher`, `debugger`), each with `mode: subagent`.
@@ -125,3 +125,14 @@ Unverified (confirm at the linked doc before relying on it):
 - The exact OpenCode ecosystem submission flow and awesome-opencode listing format.
 - Whether OpenCode does `${VAR}` substitution inside `environment` (deliberation
   reads keys from the process env, so this is not needed).
+
+
+## Updating
+
+When deliberation is updated, invoke `/reload-mcp` in OpenCode or run:
+
+```bash
+bash scripts/commands/reload-mcp.sh
+```
+
+This audits active deliberation processes, protects running workloads, cleans up orphaned processes, and safely cycles the background dashboard daemon if running.

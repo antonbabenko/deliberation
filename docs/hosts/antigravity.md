@@ -12,6 +12,7 @@ canonical sources (`AGENTS.md`, `prompts/*.md`).
   - `deliberation/SKILL.md`: "When and how to delegate" (from `AGENTS.md`).
   - `<expert>/SKILL.md`: The 7 expert subagents (`architect`, `plan-reviewer`,
     `scope-analyst`, `code-reviewer`, `security-analyst`, `researcher`, `debugger`).
+  - `reload-mcp/SKILL.md`: Gracefully cycle the dashboard daemon and audit MCP processes after an update.
 - `.gemini/skills/` - Workspace-level skill mirror for native Gemini Code Assist discovery.
 
 ## Usage
@@ -31,3 +32,13 @@ Provider credentials come from the host environment:
 | GPT (Codex) | Codex CLI auth (`codex login` / `codex login --device-auth`) or `CODEX_API_KEY` / `CODEX_ACCESS_TOKEN` |
 | Grok (xAI) | `XAI_API_KEY` |
 | OpenRouter | `OPENROUTER_API_KEY` (models configured in `~/.config/deliberation/config.json`) |
+
+## Updating
+
+When deliberation is updated, invoke the `reload-mcp` skill or run:
+
+```bash
+bash scripts/commands/reload-mcp.sh
+```
+
+This audits active deliberation processes, protects running workloads, cleans up orphaned processes, and safely cycles the background dashboard daemon if running. Active Antigravity host sessions preserve their stdio pipes without unexpected disconnection errors.

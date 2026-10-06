@@ -10,7 +10,7 @@
 
 const { test } = require("node:test");
 const assert = require("node:assert");
-const path = require("node:path");
+const path = require("path");
 
 const REPO_ROOT = path.resolve(__dirname, "..");
 const { buildArtifacts, readVersion, readDiskLF, CLAUDE_ONLY_TOKENS } = require("../scripts/sync-hosts.js");
@@ -39,8 +39,8 @@ test("Antigravity & Agent host artifacts are present and well-formed", () => {
   const mcp = JSON.parse(artifacts[AGENTS_MCP]);
   assert.ok(mcp.mcpServers?.deliberation, "missing deliberation server in .agents/mcp.json");
 
-  // Check that .agents/skills/ and .gemini/skills/ carry deliberation and all 7 experts
-  const experts = [
+  // Check that .agents/skills/ and .gemini/skills/ carry deliberation, all 7 experts, and reload-mcp
+  const skills = [
     "deliberation",
     "architect",
     "plan-reviewer",
@@ -49,8 +49,9 @@ test("Antigravity & Agent host artifacts are present and well-formed", () => {
     "security-analyst",
     "researcher",
     "debugger",
+    "reload-mcp",
   ];
-  for (const exp of experts) {
+  for (const exp of skills) {
     const agentSkill = `.agents/skills/${exp}/SKILL.md`;
     const geminiSkill = `.gemini/skills/${exp}/SKILL.md`;
     assert.ok(artifacts[agentSkill], `missing ${agentSkill}`);

@@ -26,6 +26,7 @@ const CANONICAL_SKILLS = [
   "debugger",
   "deliberation",
   "plan-reviewer",
+  "reload-mcp",
   "researcher",
   "scope-analyst",
   "security-analyst",
@@ -109,7 +110,7 @@ function mockProvider(name, verdict = "APPROVE", text = "looks good") {
 // 1. Skill Structure & Frontmatter Schema Contracts
 // ============================================================================
 
-test("MHC-S1: all 8 canonical skills exist in every supported host skill tree", () => {
+test("MHC-S1: all canonical skills exist in every supported host skill tree", () => {
   for (const { host, dir } of SKILL_HOST_TREES) {
     const fullDir = path.join(REPO_ROOT, dir);
     assert.ok(fs.existsSync(fullDir), `host '${host}' skill directory missing: ${dir}`);

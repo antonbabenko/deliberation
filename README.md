@@ -94,13 +94,16 @@ Claude now routes complex tasks to your GPT, Gemini, Grok, and OpenRouter expert
 
 ```
 /plugin marketplace update antonbabenko  # pull the new version from the marketplace
-/reload-plugins                          # reconnect the MCP servers (or just restart Claude Code)
+/deliberation:reload-mcp                 # audit processes & recycle dashboard daemon
+/reload-plugins                          # reconnect the MCP servers (or restart Claude Code)
 ```
 
 **Updating on non-Claude hosts:** hosts that run the standalone server via `npx -y
 @antonbabenko/deliberation-mcp` get the latest published version on each fresh resolve. `npx`
 caches resolved packages, so if a host serves an old build, clear the npx cache
-(`rm -rf ~/.npm/_npx`) or pin/refresh the version.
+(`rm -rf ~/.npm/_npx`) or pin/refresh the version. Run `bash scripts/commands/reload-mcp.sh`
+(or trigger the `reload-mcp` skill / command on Codex, Antigravity, OpenCode) to audit
+running worker processes and recycle the background dashboard daemon safely.
 
 ### Alternative: Use `deliberation` MCP server (standalone, works with any agents)
 
@@ -235,6 +238,7 @@ Bundled with the plugin (available once installed):
 | `/deliberation:analyze` | Analyze recent runs (latency, tokens, verdict agreement) and suggest model/reasoning/fanout tuning (advisory) |
 | `/deliberation:uninstall` | Remove MCP config, rules, and aliases |
 | `/deliberation:grok-files` | List, prune, or gc Grok-uploaded files (storage + local cache cleanup) |
+| `/deliberation:reload-mcp` | Gracefully cycle the dashboard daemon and audit MCP processes after an update |
 
 `/setup` can also install short aliases (`/ask-gpt`, `/ask-gemini`, `/ask-grok`, `/ask-openrouter`, `/ask-all`, `/consensus`) into `~/.claude/commands/`. This is opt-in. Existing same-named commands are kept by default; setup asks before overwriting any of them. `/deliberation:uninstall` removes an alias only if it is byte-identical to the bundled copy.
 
