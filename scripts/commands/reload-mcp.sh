@@ -132,13 +132,13 @@ if [ -n "$DASH_STATE_PATH" ] && [ -f "$DASH_STATE_PATH" ]; then
         fi
         
         # Relaunch detached using same port if known
-        PORT_ARG=""
+        PORT_ARGS=()
         if [ -n "$DASH_PORT" ]; then
-          PORT_ARG="--port $DASH_PORT"
+          PORT_ARGS=(--port "$DASH_PORT")
         fi
         
         echo "  Restarting dashboard daemon from $ROOT..."
-        nohup node "$ROOT/server/mcp/index.js" dashboard --no-open $PORT_ARG >/dev/null 2>&1 </dev/null &
+        nohup node "$ROOT/server/mcp/index.js" dashboard --no-open "${PORT_ARGS[@]}" >/dev/null 2>&1 </dev/null &
         NEW_DASH_PID=$!
         
         # Wait up to 3s for dashboard state to regenerate
@@ -179,6 +179,7 @@ echo ""
 echo "• Auditing Deliberation MCP Server Processes..."
 
 # Find matching processes (avoiding grep, self, and the dashboard daemon)
+# shellcheck disable=SC2009
 PROCS=$(ps -eo pid,ppid,command 2>/dev/null | grep -E "server/(mcp|gemini|grok|openrouter)/index\.js|deliberation-mcp" | grep -v "grep" | grep -v "reload-mcp" | grep -v " dashboard" || true)
 
 if [ -z "$PROCS" ]; then
@@ -193,7 +194,6 @@ else
     [ -z "$line" ] && continue
     PROC_PID=$(echo "$line" | awk '{print $1}')
     PROC_PPID=$(echo "$line" | awk '{print $2}')
-    CMD=$(echo "$line" | awk '{$1=""; $2=""; print $0}' | sed 's/^ *//')
 
     WORKER_COUNT=$((WORKER_COUNT + 1))
 
