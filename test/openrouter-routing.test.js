@@ -84,3 +84,12 @@ test("R8: a model expert-eligible but askAll:false is excluded from askAll, stil
   const con = consensusDelegates(c, "architect").map((m) => m.alias);
   assert.equal(con.includes("dis"), true, "askAll:false does not affect /consensus eligibility");
 });
+
+test("R5b: resolveAlias openrouter-default inherits model settings when defaultModel matches a configured alias", () => {
+  const c = cfg();
+  c.defaultModel = "arch";
+  const resolved = resolveAlias(c, "openrouter-default");
+  assert.equal(resolved.alias, "openrouter-default");
+  assert.equal(resolved.model, "a/y");
+  assert.deepEqual(resolved.experts, ["architect"]);
+});

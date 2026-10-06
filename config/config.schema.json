@@ -5,7 +5,9 @@
   "description": "User config for the deliberation MCP server. providers = transport/connection; models = named model records; routing = fan-out policy; consensus.arbiter = who synthesizes the verdict.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version"],
+  "required": [
+    "version"
+  ],
   "properties": {
     "$schema": {
       "type": "string",
@@ -25,13 +27,28 @@
           "description": "Cross-provider defaults. Applies to every provider that has no key of its own.",
           "additionalProperties": false,
           "properties": {
-            "timeout": { "type": "integer", "minimum": 1, "examples": [600000], "description": "Per-call wall-time ceiling in ms for EVERY provider. Overridden by providers.<name>.timeout (providers.openrouter.defaults.timeout for OpenRouter), and by a pinned alias's models.<id>.timeout. Read once at MCP startup, so a change needs a restart." }
+            "timeout": {
+              "type": "integer",
+              "minimum": 1,
+              "examples": [
+                600000
+              ],
+              "description": "Per-call wall-time ceiling in ms for EVERY provider. Overridden by providers.<name>.timeout (providers.openrouter.defaults.timeout for OpenRouter), and by a pinned alias's models.<id>.timeout. Read once at MCP startup, so a change needs a restart."
+            }
           }
         },
-        "codex": { "$ref": "#/$defs/codexProvider" },
-        "gemini": { "$ref": "#/$defs/geminiProvider" },
-        "grok": { "$ref": "#/$defs/grokProvider" },
-        "openrouter": { "$ref": "#/$defs/openrouterProvider" }
+        "codex": {
+          "$ref": "#/$defs/codexProvider"
+        },
+        "gemini": {
+          "$ref": "#/$defs/geminiProvider"
+        },
+        "grok": {
+          "$ref": "#/$defs/grokProvider"
+        },
+        "openrouter": {
+          "$ref": "#/$defs/openrouterProvider"
+        }
       }
     },
     "models": {
@@ -43,7 +60,9 @@
         "description": "Record id: lowercase letters/digits/hyphens, and not the reserved \"openrouter-default\"."
       },
       "patternProperties": {
-        "^(?!openrouter-default$)[a-z0-9-]+$": { "$ref": "#/$defs/modelRecord" }
+        "^(?!openrouter-default$)[a-z0-9-]+$": {
+          "$ref": "#/$defs/modelRecord"
+        }
       }
     },
     "routing": {
@@ -56,7 +75,9 @@
           "minimum": 1,
           "default": 3,
           "description": "Max number of OpenRouter delegates fanned out by /ask-all.",
-          "examples": [3]
+          "examples": [
+            3
+          ]
         }
       }
     },
@@ -70,23 +91,38 @@
           "oneOf": [
             {
               "type": "string",
-              "enum": ["auto", "host", "codex", "gemini", "grok"],
+              "enum": [
+                "auto",
+                "host",
+                "codex",
+                "gemini",
+                "grok"
+              ],
               "description": "Shorthand: auto (pick a healthy voice), host (the host arbitrates), or a built-in provider."
             },
             {
               "type": "object",
               "additionalProperties": false,
-              "required": ["model"],
+              "required": [
+                "model"
+              ],
               "properties": {
                 "model": {
                   "type": "string",
                   "description": "id of one of THIS config's `models` records to use as the arbiter (a local record id, not an OpenRouter model slug). Any record qualifies, even askAll:false / consensus:false. An id that is not a configured record soft-degrades to \"auto\" at runtime with a warning.",
-                  "examples": ["claude-arb"]
+                  "examples": [
+                    "claude-arb"
+                  ]
                 }
               }
             }
           ],
-          "examples": ["auto", { "model": "claude-arb" }]
+          "examples": [
+            "auto",
+            {
+              "model": "claude-arb"
+            }
+          ]
         },
         "blindVote": {
           "type": "boolean",
@@ -126,13 +162,27 @@
         },
         "maxRecords": {
           "type": "integer",
-          "anyOf": [{ "const": -1 }, { "minimum": 1 }],
+          "anyOf": [
+            {
+              "const": -1
+            },
+            {
+              "minimum": 1
+            }
+          ],
           "default": 200,
           "description": "Keep at most this many newest records; older ones are trimmed after each write. Use -1 for unlimited (never trim by count)."
         },
         "maxAgeDays": {
           "type": "integer",
-          "anyOf": [{ "const": -1 }, { "minimum": 1 }],
+          "anyOf": [
+            {
+              "const": -1
+            },
+            {
+              "minimum": 1
+            }
+          ],
           "default": 30,
           "description": "Delete records older than this many days after each write. Use -1 for unlimited (never delete by age)."
         },
@@ -173,7 +223,10 @@
         },
         "capture": {
           "type": "string",
-          "enum": ["metadata", "content"],
+          "enum": [
+            "metadata",
+            "content"
+          ],
           "default": "metadata",
           "description": "Threat model: \"metadata\" (default) journals run/verdict metadata only, never prompt or response bodies. \"content\" additionally journals prompt/response text (secret-scrubbed then capped at 100 KB per field) to local disk at <cache>/deliberation/runs/<runId>.jsonl (mode 0600) - only set this on a machine where that is acceptable. It also gates what the dashboard serves: unless it is \"content\", prompts, responses and legacy session text already on disk are stripped from every served payload and \"?q=\" searches metadata only."
         },
@@ -191,13 +244,27 @@
         },
         "maxRuns": {
           "type": "integer",
-          "anyOf": [{ "const": -1 }, { "minimum": 1 }],
+          "anyOf": [
+            {
+              "const": -1
+            },
+            {
+              "minimum": 1
+            }
+          ],
           "default": 200,
           "description": "Keep at most this many newest run journals; older ones are trimmed. Use -1 for unlimited (never trim by count)."
         },
         "maxAgeDays": {
           "type": "integer",
-          "anyOf": [{ "const": -1 }, { "minimum": 1 }],
+          "anyOf": [
+            {
+              "const": -1
+            },
+            {
+              "minimum": 1
+            }
+          ],
           "default": 30,
           "description": "Delete run journals older than this many days. Use -1 for unlimited (never delete by age)."
         }
@@ -226,19 +293,41 @@
       "description": "GPT via the Codex CLI. Connection is handled by codex (codex login / CODEX_API_KEY); the model and reasoning effort can be pinned here, otherwise codex uses ~/.codex/config.toml.",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean", "default": true, "description": "Whether this provider participates." },
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether this provider participates."
+        },
         "model": {
           "type": "string",
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$",
-          "examples": ["gpt-5.5"],
+          "examples": [
+            "gpt-5.5"
+          ],
           "description": "Codex model id, passed to `codex exec --model` so it wins over the `model` key in ~/.codex/config.toml. Which ids work depends on the codex login (a ChatGPT plan or an API key). A value that does not match the pattern is ignored. Read once at MCP startup, so a change needs a restart."
         },
         "reasoningEffort": {
           "type": "string",
-          "enum": ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"],
+          "enum": [
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
           "description": "Passed as `-c model_reasoning_effort=...`, winning over the same key in ~/.codex/config.toml. The values are the ones codex-cli 0.160 accepts; not every model accepts every one, and a value the installed codex or the model rejects fails the call. Absent: codex's own setting. Read once at MCP startup, so a change needs a restart."
         },
-        "timeout": { "type": "integer", "minimum": 1, "examples": [600000], "description": "Per-call wall-time ceiling in ms. Falls back to providers.defaults.timeout, then the built-in default (600000). Read once at MCP startup, so a change needs a restart." }
+        "timeout": {
+          "type": "integer",
+          "minimum": 1,
+          "examples": [
+            600000
+          ],
+          "description": "Per-call wall-time ceiling in ms. Falls back to providers.defaults.timeout, then the built-in default (600000). Read once at MCP startup, so a change needs a restart."
+        }
       }
     },
     "geminiProvider": {
@@ -246,12 +335,23 @@
       "description": "Gemini (Antigravity CLI, agy) config. Connection is handled by agy; the model can be pinned here.",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean", "default": true, "description": "Whether this provider participates." },
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether this provider participates."
+        },
         "model": {
           "type": "string",
           "description": "agy model id, passed through to agy's --model so it wins over ~/.gemini/settings.json. Ids fuse family and reasoning effort (e.g. \"gemini-3.6-flash-high\"); a bare family is rejected with \"requires --effort\". Run `agy models` for the catalog on THIS machine - ids differ per install, which is why the built-in default is the portable \"auto-gemini-3\" router alias. Prefer a concrete pin: the alias routes server-side and agy's catalog also carries Claude and GPT-OSS entries, so a routed call can seat a non-Gemini model in the Gemini slot and silently collapse cross-vendor independence in ask-all/consensus. Precedence: per-call model > this key > GEMINI_DEFAULT_MODEL > built-in."
         },
-        "timeout": { "type": "integer", "minimum": 1, "examples": [600000], "description": "Per-call wall-time ceiling in ms. Falls back to providers.defaults.timeout, then the built-in default (300000). Read once at MCP startup, so a change needs a restart." }
+        "timeout": {
+          "type": "integer",
+          "minimum": 1,
+          "examples": [
+            600000
+          ],
+          "description": "Per-call wall-time ceiling in ms. Falls back to providers.defaults.timeout, then the built-in default (300000). Read once at MCP startup, so a change needs a restart."
+        }
       }
     },
     "grokProvider": {
@@ -259,18 +359,37 @@
       "description": "Grok (xAI) connection config.",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean", "default": true },
-        "apiKeyEnv": { "type": "string", "default": "XAI_API_KEY", "description": "Env var holding the xAI API key." },
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "apiKeyEnv": {
+          "type": "string",
+          "default": "XAI_API_KEY",
+          "description": "Env var holding the xAI API key."
+        },
         "model": {
           "type": "string",
           "description": "xAI model id (e.g. \"grok-4.6\"). Precedence: per-call model > this key > GROK_DEFAULT_MODEL > built-in default."
         },
         "reasoningEffort": {
           "type": "string",
-          "enum": ["low", "medium", "high", "none"],
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "none"
+          ],
           "description": "How hard Grok reasons. \"none\" omits the field so the model uses its own default. Precedence: per-call reasoning_effort > this key > GROK_REASONING_EFFORT > \"high\"."
         },
-        "timeout": { "type": "integer", "minimum": 1, "examples": [600000], "description": "Per-call wall-time ceiling in ms for the answer call. Falls back to providers.defaults.timeout, then the built-in default (180000). File uploads are bounded separately by GROK_UPLOAD_TIMEOUT_MS. Read once at MCP startup, so a change needs a restart." }
+        "timeout": {
+          "type": "integer",
+          "minimum": 1,
+          "examples": [
+            600000
+          ],
+          "description": "Per-call wall-time ceiling in ms for the answer call. Falls back to providers.defaults.timeout, then the built-in default (180000). File uploads are bounded separately by GROK_UPLOAD_TIMEOUT_MS. Read once at MCP startup, so a change needs a restart."
+        }
       }
     },
     "openrouterProvider": {
@@ -278,20 +397,65 @@
       "description": "OpenRouter connection config (advisory-only HTTP). Holds the keys specific to OpenRouter; named models live under the top-level models map.",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean", "default": true },
-        "apiKeyEnv": { "type": "string", "default": "OPENROUTER_API_KEY", "description": "Env var holding the OpenRouter API key." },
-        "apiBase": { "type": "string", "default": "https://openrouter.ai/api/v1", "description": "OpenAI-compatible base URL." },
-        "allowRawModel": { "type": "boolean", "default": false, "description": "Allow raw model slugs (not just configured records)." },
-        "defaultModel": { "type": "string", "description": "Model slug used for bare /ask-openrouter calls.", "examples": ["openai/gpt-4.1-mini"] },
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "apiKeyEnv": {
+          "type": "string",
+          "default": "OPENROUTER_API_KEY",
+          "description": "Env var holding the OpenRouter API key."
+        },
+        "apiBase": {
+          "type": "string",
+          "default": "https://openrouter.ai/api/v1",
+          "description": "OpenAI-compatible base URL."
+        },
+        "allowRawModel": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow raw model slugs (not just configured records)."
+        },
+        "defaultModel": {
+          "type": "string",
+          "description": "Model slug used for bare /ask-openrouter calls.",
+          "examples": [
+            "openai/gpt-4.1-mini"
+          ]
+        },
         "defaults": {
           "type": "object",
           "description": "Per-call defaults applied to OpenRouter requests unless a record or call overrides them.",
           "additionalProperties": false,
           "properties": {
-            "reasoningEffort": { "type": "string", "examples": ["high"] },
-            "temperature": { "type": "number", "examples": [0.2] },
-            "timeout": { "type": "integer", "minimum": 1, "examples": [120000], "description": "Per-call wall-time ceiling in ms for OpenRouter. This is OpenRouter's equivalent of providers.<name>.timeout and overrides providers.defaults.timeout; a pinned alias's models.<id>.timeout still wins." }
+            "reasoningEffort": {
+              "type": "string",
+              "examples": [
+                "high"
+              ]
+            },
+            "temperature": {
+              "type": "number",
+              "examples": [
+                0.2
+              ]
+            },
+            "timeout": {
+              "type": "integer",
+              "minimum": 1,
+              "examples": [
+                120000
+              ],
+              "description": "Per-call wall-time ceiling in ms for OpenRouter. This is OpenRouter's equivalent of providers.<name>.timeout and overrides providers.defaults.timeout; a pinned alias's models.<id>.timeout still wins."
+            }
           }
+        },
+        "model": {
+          "type": "string",
+          "description": "Default OpenRouter model slug or alias used for bare /ask-openrouter calls.",
+          "examples": [
+            "openai/gpt-4.1-mini"
+          ]
         }
       }
     },
@@ -299,28 +463,80 @@
       "type": "object",
       "description": "A named model record. provider + model are required.",
       "additionalProperties": false,
-      "required": ["provider", "model"],
+      "required": [
+        "provider",
+        "model"
+      ],
       "properties": {
         "provider": {
           "type": "string",
-          "enum": ["openrouter"],
+          "enum": [
+            "openrouter"
+          ],
           "description": "Transport for this record. Only \"openrouter\" is supported in v1 (codex/gemini/grok are CLI-managed / singleton built-ins)."
         },
-        "model": { "type": "string", "minLength": 1, "description": "Model slug.", "examples": ["anthropic/claude-3.7-sonnet"] },
-        "askAll": { "type": "boolean", "default": true, "description": "Participate in /ask-all fan-out." },
-        "consensus": { "type": "boolean", "default": false, "description": "Participate in the /consensus voting panel." },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Model slug.",
+          "examples": [
+            "anthropic/claude-3.7-sonnet"
+          ]
+        },
+        "askAll": {
+          "type": "boolean",
+          "default": true,
+          "description": "Participate in /ask-all fan-out."
+        },
+        "consensus": {
+          "type": "boolean",
+          "default": false,
+          "description": "Participate in the /consensus voting panel."
+        },
         "experts": {
           "type": "array",
           "description": "Restrict this record to specific experts. Absent = all experts.",
           "items": {
             "type": "string",
-            "enum": ["architect", "plan-reviewer", "scope-analyst", "code-reviewer", "security-analyst", "researcher", "debugger"]
+            "enum": [
+              "architect",
+              "plan-reviewer",
+              "scope-analyst",
+              "code-reviewer",
+              "security-analyst",
+              "researcher",
+              "debugger"
+            ]
           }
         },
-        "reasoningEffort": { "type": "string", "examples": ["high"] },
-        "temperature": { "type": "number", "examples": [0.2] },
-        "timeout": { "type": "integer", "minimum": 1, "examples": [60000] },
-        "apiBase": { "type": "string", "description": "Override the provider apiBase for this record only." }
+        "reasoningEffort": {
+          "type": "string",
+          "examples": [
+            "high"
+          ]
+        },
+        "temperature": {
+          "type": "number",
+          "examples": [
+            0.2
+          ]
+        },
+        "timeout": {
+          "type": "integer",
+          "minimum": 1,
+          "examples": [
+            60000
+          ]
+        },
+        "apiBase": {
+          "type": "string",
+          "description": "Override the provider apiBase for this record only."
+        },
+        "default": {
+          "type": "boolean",
+          "default": false,
+          "description": "Mark this model as the default for /deliberation:ask-openrouter. At most one model may be marked default."
+        }
       }
     }
   },
@@ -329,16 +545,27 @@
       "$schema": "https://raw.githubusercontent.com/antonbabenko/deliberation/master/config/config.schema.json",
       "version": 1,
       "providers": {
-        "codex": { "enabled": true },
-        "gemini": { "enabled": true },
-        "grok": { "enabled": true, "apiKeyEnv": "XAI_API_KEY" },
+        "codex": {
+          "enabled": true
+        },
+        "gemini": {
+          "enabled": true
+        },
+        "grok": {
+          "enabled": true,
+          "apiKeyEnv": "XAI_API_KEY"
+        },
         "openrouter": {
           "enabled": true,
           "apiKeyEnv": "OPENROUTER_API_KEY",
           "apiBase": "https://openrouter.ai/api/v1",
           "allowRawModel": false,
           "defaultModel": "openai/gpt-4.1-mini",
-          "defaults": { "reasoningEffort": "high", "temperature": 0.2, "timeout": 120000 }
+          "defaults": {
+            "reasoningEffort": "high",
+            "temperature": 0.2,
+            "timeout": 120000
+          }
         }
       },
       "models": {
@@ -347,14 +574,22 @@
           "model": "anthropic/claude-3.7-sonnet",
           "askAll": true,
           "consensus": true,
-          "experts": ["architect"],
+          "experts": [
+            "architect"
+          ],
           "reasoningEffort": "high",
           "temperature": 0.2,
           "timeout": 60000
         }
       },
-      "routing": { "maxFanout": 3 },
-      "consensus": { "arbiter": { "model": "claude-arb" } }
+      "routing": {
+        "maxFanout": 3
+      },
+      "consensus": {
+        "arbiter": {
+          "model": "claude-arb"
+        }
+      }
     }
   ]
 }

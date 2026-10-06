@@ -743,3 +743,63 @@ test("PT6: `defaults` is a shared block, never a provider entry", () => {
   const { resolved } = validateConfig({ version: 1, providers: { defaults: { timeout: 600000 } } });
   assert.equal(resolved.providers.defaults, undefined);
 });
+
+test("DM1: model record with default: true sets defaultModel and default property", () => {
+  const { resolved } = validateConfig({
+    version: 1,
+    providers: { openrouter: { enabled: true } },
+    models: {
+      "fast-one": { provider: "openrouter", model: "fast/1", default: true },
+      "slow-one": { provider: "openrouter", model: "slow/1" },
+    },
+  });
+  assert.equal(resolved.openrouter.defaultModel, "fast-one");
+  assert.equal(resolved.openrouter.models[0].default, true);
+  assert.equal(resolved.openrouter.models[1].default, false);
+});
+
+test("DM2: providers.openrouter.model serves as fallback for defaultModel", () => {
+  const { resolved } = validateConfig({
+    version: 1,
+    providers: { openrouter: { enabled: true, model: "openrouter/auto" } },
+    models: {},
+  });
+  assert.equal(resolved.openrouter.defaultModel, "openrouter/auto");
+});
+
+test("DM3: model default: true wins over providers.openrouter.defaultModel/model", () => {
+  const { resolved } = validateConfig({
+    version: 1,
+    providers: { openrouter: { enabled: true, defaultModel: "fallback/model" } },
+    models: {
+      "chosen-one": { provider: "openrouter", model: "chosen/1", default: true },
+    },
+  });
+  assert.equal(resolved.openrouter.defaultModel, "chosen-one");
+});
+
+test("DM4: multiple default: true models issue a warning and pick the first", () => {
+  const { resolved } = validateConfig({
+    version: 1,
+    providers: { openrouter: { enabled: true } },
+    models: {
+      "first-one": { provider: "openrouter", model: "first/1", default: true },
+      "second-one": { provider: "openrouter", model: "second/1", default: true },
+    },
+  });
+  assert.equal(resolved.openrouter.defaultModel, "first-one");
+  assert.ok(resolved.consensusWarnings.some((w) => w.includes("multiple models marked with default: true")));
+});
+
+test("DM5: non-boolean default in model record lands in invalidModels", () => {
+  const { resolved } = validateConfig({
+    version: 1,
+    providers: { openrouter: { enabled: true } },
+    models: {
+      "bad-one": { provider: "openrouter", model: "bad/1", default: "yes" },
+    },
+  });
+  assert.equal(resolved.openrouter.models.length, 0);
+  assert.equal(resolved.openrouter.invalidModels.length, 1);
+  assert.match(resolved.openrouter.invalidModels[0].reason, /default must be a boolean/);
+});

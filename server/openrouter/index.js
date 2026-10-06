@@ -244,12 +244,13 @@ const handlers = {
       if (!respond) return;
       // Shape a resolved model into the wire form (matches `delegates` entries below).
       const shape = (m) => ({
-        alias: m.alias, model: m.model, experts: m.experts, askAll: m.askAll, consensus: m.consensus,
+        alias: m.alias, model: m.model, experts: m.experts, askAll: m.askAll, consensus: m.consensus, default: m.default === true,
         // Resolved effort the bridge would use absent a per-call override: per-model > defaults > null.
         reasoning_effort: pick(undefined, m.reasoning_effort, or.defaults.reasoning_effort) ?? null,
       });
       const payload = {
         delegates: or.models.map(shape),
+        defaultModel: or.defaultModel || null,
         defaultModelSet: !!or.defaultModel, maxFanout: or.maxFanout, maxFanoutHigh: or.maxFanout > 10,
         // Per-entry validation failures (kept-valid delegates above; these were skipped).
         // Each: { index, alias, reason, suggestedAlias? }. Empty when the config is clean.

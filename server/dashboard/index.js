@@ -164,20 +164,22 @@ async function healthReport(rt) {
   const askNames = askAll.providers.map((/** @type {any} */ p) => p.name);
   const consNames = consensus.providers.map((/** @type {any} */ p) => p.name);
   const pcfg = cfg.providers || {};
-  const providers = rt.providers.map((p) => {
-    const c = pcfg[p.name] || {};
-    return {
-      name: p.name,
-      enabled: c.enabled !== false,
-      ok: !unhealthy.has(p.name),
-      reason: unhealthy.get(p.name) || null,
-      needsLogin: needsLogin.has(p.name),
-      model: c.model || null,
-      reasoningEffort: c.reasoningEffort || null,
-      askAll: askNames.includes(p.name),
-      consensus: consNames.includes(p.name),
-    };
-  });
+  const providers = rt.providers
+    .filter((p) => p.name !== "openrouter")
+    .map((p) => {
+      const c = pcfg[p.name] || {};
+      return {
+        name: p.name,
+        enabled: c.enabled !== false,
+        ok: !unhealthy.has(p.name),
+        reason: unhealthy.get(p.name) || null,
+        needsLogin: needsLogin.has(p.name),
+        model: c.model || null,
+        reasoningEffort: c.reasoningEffort || null,
+        askAll: askNames.includes(p.name),
+        consensus: consNames.includes(p.name),
+      };
+    });
   const models = ((cfg.openrouter && cfg.openrouter.models) || []).map((/** @type {any} */ m) => ({
     name: `openrouter:${m.alias}`,
     model: m.model,

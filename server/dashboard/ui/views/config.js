@@ -29,7 +29,7 @@ export function create(ctx) {
   el.append(health, cfg);
 
   function drawHealth(hb) {
-    const rows = [...(hb.providers || []).map((p) => ({ ...p, kind: "provider" })), ...(hb.models || []).map((m) => ({ ...m, kind: "model", enabled: true, ok: true }))];
+    const rows = [...(hb.providers || []).filter((p) => p.name !== "openrouter").map((p) => ({ ...p, kind: "provider" })), ...(hb.models || []).map((m) => ({ ...m, kind: "model", enabled: true, ok: true }))];
     const state = (p) => (p.enabled === false ? ["off", "st-pending"] : p.needsLogin ? ["needs login", "st-timeout"] : p.ok === false ? ["unavailable", "st-failed"] : ["ready", "st-succeeded"]);
     put(health, h("h2", {}, "Provider health"),
       h("p", { class: "hint" }, "The same stat-only checks panel uses: nothing here starts a login or calls a model."),
