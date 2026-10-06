@@ -60,6 +60,16 @@ submission checklist requires that `POWER.md` carries License (SPDX), a Privacy
 Policy link, and a Support contact - the generated `## License and support`
 footer satisfies this.
 
+## Updating
+
+When deliberation is updated, run the reload script to audit running processes, refresh cached standalone packages, and safely cycle the background dashboard daemon:
+
+```bash
+bash scripts/commands/reload-mcp.sh
+```
+
+Because Kiro resolves `@antonbabenko/deliberation-mcp` on demand via `npx`, purging the stale package from `~/.npm/_npx` ensures that the next Power activation spins up the latest version. Connected Kiro host sessions and active subagent workloads remain uninterrupted.
+
 ## Notes / unverified
 
 - The official docs (kiro.dev/docs/powers, /create, /powers/submit, /docs/steering)

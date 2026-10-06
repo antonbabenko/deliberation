@@ -59,6 +59,16 @@ Missing keys just disable that one provider.
   accepts a self-serve third-party MCP+rules package - confirm with Cursor's
   publisher docs before treating a Marketplace listing as available.
 
+## Updating
+
+When deliberation is updated, run the reload script to audit running processes, refresh cached standalone packages, and safely cycle the background dashboard daemon:
+
+```bash
+bash scripts/commands/reload-mcp.sh
+```
+
+This clears the stale `@antonbabenko/deliberation-mcp` package from the npx cache (`~/.npm/_npx`), cycles the dashboard, and preserves connected Cursor stdio pipes (`CursorHelper`) so active editor windows and in-flight workloads are not disconnected.
+
 ## Notes / verified vs unverified
 
 Verified against cursor.com/docs + cursor.directory: project rules live in

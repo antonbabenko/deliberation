@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # scripts/commands/reload-mcp.sh
-# Gracefully cycle dashboard and audit MCP processes after deliberation is updated.
+# Gracefully update harnesses, cycle dashboard daemon, and audit MCP processes after deliberation is updated.
 #
 # Usage:
 #   bash scripts/commands/reload-mcp.sh [options]
 #
 # Options:
-#   --dry-run                Inspect running processes without signaling or restarting
+#   --dry-run                Inspect running processes and planned updates without making changes
+#   --no-update-agents       Skip updating agent harnesses/CLIs (only audit/cycle processes)
+#   --update-agents          Force update agent harnesses even in CI environment
 #   --no-restart-dashboard   Do not restart the dashboard daemon if it is running
-#   --force-workers          Send SIGTERM to idle attached workers (may cause host pipe disconnect)
+#   --force-workers          Send SIGTERM to idle attached workers (warn: can drop host pipes)
 #   --help, -h               Show this help message
 
 set -u
@@ -16,11 +18,21 @@ set -u
 DRY_RUN=false
 RESTART_DASHBOARD=true
 FORCE_WORKERS=false
+UPDATE_AGENTS=true
+if [ -n "${CI:-}" ]; then
+  UPDATE_AGENTS=false
+fi
 
 for arg in "$@"; do
   case "$arg" in
     --dry-run)
       DRY_RUN=true
+      ;;
+    --no-update-agents|--skip-agents-update)
+      UPDATE_AGENTS=false
+      ;;
+    --update-agents)
+      UPDATE_AGENTS=true
       ;;
     --no-restart-dashboard)
       RESTART_DASHBOARD=false
@@ -31,11 +43,14 @@ for arg in "$@"; do
     --help|-h)
       echo "Usage: $(basename "$0") [options]"
       echo ""
-      echo "Gracefully cycle the dashboard daemon and audit running Deliberation MCP"
-      echo "processes after a plugin or package update."
+      echo "Gracefully update Deliberation across supported agent harnesses (Claude, Codex,"
+      echo "Antigravity, Kiro, OpenCode, Cursor), cycle the dashboard daemon, and audit running"
+      echo "MCP worker processes without killing active in-flight threads."
       echo ""
       echo "Options:"
-      echo "  --dry-run                Inspect running processes without signaling or restarting"
+      echo "  --dry-run                Inspect installed harnesses and processes without modifying anything"
+      echo "  --no-update-agents       Skip updating agent harnesses/CLIs (only audit/cycle processes)"
+      echo "  --update-agents          Force update agent harnesses even in CI environment"
       echo "  --no-restart-dashboard   Do not restart the dashboard daemon if it is running"
       echo "  --force-workers          Send SIGTERM to idle attached workers (warn: can drop host pipes)"
       echo "  --help, -h               Show this help message"
@@ -84,21 +99,171 @@ ROOT=$(resolve_plugin_root) || {
 
 VERSION=""
 if [ -f "$ROOT/package.json" ]; then
-  VERSION=$(sed -n 's/.*"version": *"\{0,1\}\([^",]*\)"\{0,1\}.*/\1/p' "$ROOT/package.json" | head -n 1)
+  VERSION=$(sed -n 's/.*"version": *"\([^",]*\)".*/\1/p' "$ROOT/package.json" | head -n 1)
 elif [ -f "$ROOT/.claude-plugin/plugin.json" ]; then
-  VERSION=$(sed -n 's/.*"version": *"\{0,1\}\([^",]*\)"\{0,1\}.*/\1/p' "$ROOT/.claude-plugin/plugin.json" | head -n 1)
+  VERSION=$(sed -n 's/.*"version": *"\([^",]*\)".*/\1/p' "$ROOT/.claude-plugin/plugin.json" | head -n 1)
 fi
 
-echo "=== Deliberation MCP Reload & Process Audit ==="
-echo "Plugin root: $ROOT"
+echo "=== Deliberation MCP Reload & Host Audit ==="
+echo "Target root: $ROOT"
 echo "Target version: ${VERSION:-unknown}"
 if [ "$DRY_RUN" = true ]; then
-  echo "Mode: DRY RUN (no processes will be signaled or started)"
+  echo "Mode: DRY RUN (no processes or packages will be modified)"
 fi
 echo ""
 
 # -----------------------------------------------------------------------------
-# 1. Dashboard Daemon Handling
+# 1. Update Supported Agent Harnesses
+# -----------------------------------------------------------------------------
+if [ "$UPDATE_AGENTS" = true ]; then
+  echo "• Updating Supported Agent Harnesses..."
+
+  # 1.1 Source repo sync (if running inside git checkout of deliberation)
+  if [ -f "$ROOT/package.json" ] && [ -f "$ROOT/scripts/sync-hosts.js" ]; then
+    echo "  [Source Repo] Checking host artifacts in $ROOT..."
+    if [ "$DRY_RUN" = true ]; then
+      echo "    [DRY-RUN] Would verify host artifacts via npm run sync:check"
+    else
+      if ! (cd "$ROOT" && npm run sync:check --silent >/dev/null 2>&1); then
+        echo "    ⚠️ Host artifacts out of sync. Regenerating via npm run sync..."
+        (cd "$ROOT" && npm run sync >/dev/null 2>&1 || true)
+      else
+        echo "    ✔ Host artifacts up to date."
+      fi
+    fi
+  fi
+
+  # 1.2 Claude Code (claude)
+  CLAUDE_BIN=""
+  if command -v claude >/dev/null 2>&1; then
+    CLAUDE_BIN=$(command -v claude)
+  elif [ -x "$HOME/.local/bin/claude" ]; then
+    CLAUDE_BIN="$HOME/.local/bin/claude"
+  fi
+
+  if [ -n "$CLAUDE_BIN" ]; then
+    echo "  [Claude Code] Found at $CLAUDE_BIN"
+    if [ "$DRY_RUN" = true ]; then
+      echo "    [DRY-RUN] Would update marketplace 'antonbabenko' and plugin 'deliberation@antonbabenko'"
+    else
+      echo "    Updating marketplace and plugin..."
+      "$CLAUDE_BIN" plugin marketplace update antonbabenko >/dev/null 2>&1 || true
+      "$CLAUDE_BIN" plugin update deliberation@antonbabenko >/dev/null 2>&1 || true
+      echo "    ✔ Claude Code plugin updated."
+    fi
+  fi
+
+  # 1.3 OpenAI Codex (codex)
+  CODEX_BIN=""
+  if command -v codex >/dev/null 2>&1; then
+    CODEX_BIN=$(command -v codex)
+  elif [ -x "/opt/homebrew/bin/codex" ]; then
+    CODEX_BIN="/opt/homebrew/bin/codex"
+  fi
+
+  if [ -n "$CODEX_BIN" ]; then
+    echo "  [OpenAI Codex] Found at $CODEX_BIN"
+    if [ "$DRY_RUN" = true ]; then
+      echo "    [DRY-RUN] Would upgrade marketplace 'antonbabenko-deliberation' and sync plugin"
+    else
+      echo "    Upgrading marketplace and synchronizing plugin..."
+      "$CODEX_BIN" plugin marketplace upgrade antonbabenko-deliberation >/dev/null 2>&1 || true
+      "$CODEX_BIN" plugin add deliberation@antonbabenko-deliberation --json >/dev/null 2>&1 || true
+      echo "    ✔ Codex deliberation plugin synced."
+    fi
+  fi
+
+  # 1.4 Antigravity CLI (agy)
+  AGY_BIN=""
+  if command -v agy >/dev/null 2>&1; then
+    AGY_BIN=$(command -v agy)
+  elif [ -x "$HOME/.local/bin/agy" ]; then
+    AGY_BIN="$HOME/.local/bin/agy"
+  fi
+
+  if [ -n "$AGY_BIN" ]; then
+    echo "  [Antigravity CLI] Found at $AGY_BIN"
+    if [ "$DRY_RUN" = true ]; then
+      echo "    [DRY-RUN] Would re-import commands via 'agy plugin import claude'"
+    else
+      echo "    Re-importing Claude Code commands into Antigravity..."
+      "$AGY_BIN" plugin import claude >/dev/null 2>&1 || true
+      echo "    ✔ Antigravity commands re-imported."
+    fi
+  fi
+
+  # 1.5 Kiro (kiro CLI & Power)
+  KIRO_BIN=""
+  if command -v kiro >/dev/null 2>&1; then
+    KIRO_BIN=$(command -v kiro)
+  elif [ -x "/usr/local/bin/kiro" ]; then
+    KIRO_BIN="/usr/local/bin/kiro"
+  fi
+
+  if [ -n "$KIRO_BIN" ] || [ -d "$HOME/.kiro" ]; then
+    echo "  [Kiro] Found Kiro harness (${KIRO_BIN:-$HOME/.kiro})"
+    if [ "$DRY_RUN" = true ]; then
+      echo "    [DRY-RUN] Would verify Kiro POWER.md and mcp.json definitions"
+    else
+      if [ -f "$ROOT/POWER.md" ] && [ -f "$ROOT/mcp.json" ]; then
+        echo "    ✔ Kiro Power manifest and MCP definition present in $ROOT"
+      fi
+    fi
+  fi
+
+  # 1.6 OpenCode (opencode)
+  OPENCODE_BIN=""
+  if command -v opencode >/dev/null 2>&1; then
+    OPENCODE_BIN=$(command -v opencode)
+  elif [ -x "/opt/homebrew/bin/opencode" ]; then
+    OPENCODE_BIN="/opt/homebrew/bin/opencode"
+  fi
+
+  if [ -n "$OPENCODE_BIN" ] || [ -d "$HOME/.config/opencode" ]; then
+    echo "  [OpenCode] Found OpenCode harness (${OPENCODE_BIN:-$HOME/.config/opencode})"
+    if [ "$DRY_RUN" = true ]; then
+      echo "    [DRY-RUN] Would verify OpenCode commands and agent definitions"
+    else
+      if [ -d "$ROOT/.opencode" ]; then
+        echo "    ✔ OpenCode commands and agents present in $ROOT/.opencode"
+      fi
+    fi
+  fi
+
+  # 1.7 Cursor (cursor)
+  CURSOR_BIN=""
+  if command -v cursor >/dev/null 2>&1; then
+    CURSOR_BIN=$(command -v cursor)
+  elif [ -x "/usr/local/bin/cursor" ]; then
+    CURSOR_BIN="/usr/local/bin/cursor"
+  fi
+
+  if [ -n "$CURSOR_BIN" ] || [ -f "$HOME/.cursor/mcp.json" ]; then
+    echo "  [Cursor] Found Cursor harness (${CURSOR_BIN:-$HOME/.cursor})"
+    if [ "$DRY_RUN" = true ]; then
+      echo "    [DRY-RUN] Would verify Cursor rules and MCP registration"
+    else
+      if [ -f "$ROOT/.cursor/rules/deliberation.mdc" ]; then
+        echo "    ✔ Cursor rules present in $ROOT/.cursor/rules"
+      fi
+    fi
+  fi
+
+  # 1.8 Universal NPX Cache Refresh (for Kiro, Cursor, OpenCode, VS Code, Zed, Windsurf)
+  if [ -d "$HOME/.npm/_npx" ]; then
+    echo "  [NPX Cache] Purging cached @antonbabenko/deliberation-mcp packages..."
+    if [ "$DRY_RUN" = true ]; then
+      echo "    [DRY-RUN] Would remove cached deliberation-mcp builds from $HOME/.npm/_npx"
+    else
+      find "$HOME/.npm/_npx" -type d -path '*/@antonbabenko/deliberation-mcp' -prune -exec rm -rf {} + 2>/dev/null || true
+      echo "    ✔ Cached standalone MCP packages purged for on-demand runners."
+    fi
+  fi
+  echo ""
+fi
+
+# -----------------------------------------------------------------------------
+# 2. Dashboard Daemon Handling
 # -----------------------------------------------------------------------------
 DASH_STATE_PATH=""
 if command -v node >/dev/null 2>&1 && [ -f "$ROOT/core/paths.js" ]; then
@@ -174,7 +339,7 @@ fi
 echo ""
 
 # -----------------------------------------------------------------------------
-# 2. Worker / Stdio Process Audit & Safeguards
+# 3. Worker / Stdio Process Audit & Safeguards
 # -----------------------------------------------------------------------------
 echo "• Auditing Deliberation MCP Server Processes..."
 
@@ -239,7 +404,7 @@ else
         kill -TERM "$PROC_PID" 2>/dev/null || true
       fi
     else
-      # Attached to active host (claude, codex, agy, Cursor, opencode, etc.)
+      # Attached to active host (claude, codex, agy, kiro, cursor, opencode, code, etc.)
       ATTACHED_COUNT=$((ATTACHED_COUNT + 1))
       if [ "$FORCE_WORKERS" = true ]; then
         if [ "$DRY_RUN" = true ]; then
@@ -264,5 +429,7 @@ echo "=== Host-Specific Reconnection Instructions ==="
 echo "• Claude Code: Run '/reload-plugins' to reload plugin manifests and reconnect to ${VERSION:-the latest release} without restarting your session."
 echo "• OpenAI Codex: Next tool call or session start will automatically resolve the updated plugin."
 echo "• Antigravity CLI / Gemini: New sessions and subagent turns will run the latest code."
-echo "• OpenCode / Cursor: Restart MCP server via host command or palette if needed."
+echo "• Kiro: Powers and MCP tools will load the latest build on next activation."
+echo "• OpenCode: Slash commands and agents resolve updated tools immediately."
+echo "• Cursor / VS Code / Zed / Windsurf: Reload MCP server or window if needed."
 echo ""

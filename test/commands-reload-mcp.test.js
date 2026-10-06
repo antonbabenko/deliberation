@@ -18,6 +18,7 @@ test("reload-mcp.sh: --help exits 0 with usage instructions", () => {
   assert.strictEqual(res.status, 0);
   assert.ok(res.stdout.includes("Usage: reload-mcp.sh [options]"));
   assert.ok(res.stdout.includes("--dry-run"));
+  assert.ok(res.stdout.includes("--no-update-agents"));
   assert.ok(res.stdout.includes("--no-restart-dashboard"));
   assert.ok(res.stdout.includes("--force-workers"));
 });
@@ -37,8 +38,18 @@ test("reload-mcp.sh: --dry-run completes without crashing or signaling", () => {
     encoding: "utf8",
   });
   assert.strictEqual(res.status, 0);
-  assert.ok(res.stdout.includes("=== Deliberation MCP Reload & Process Audit ==="));
+  assert.ok(res.stdout.includes("=== Deliberation MCP Reload & Host Audit ==="));
   assert.ok(res.stdout.includes("DRY RUN"));
+  assert.ok(res.stdout.includes("Audit Summary"));
+});
+
+test("reload-mcp.sh: --no-update-agents skips agent updates section", () => {
+  const res = spawnSync("bash", [RELOAD_SCRIPT, "--dry-run", "--no-update-agents"], {
+    cwd: REPO_ROOT,
+    encoding: "utf8",
+  });
+  assert.strictEqual(res.status, 0);
+  assert.ok(!res.stdout.includes("• Updating Supported Agent Harnesses..."));
   assert.ok(res.stdout.includes("Audit Summary"));
 });
 
