@@ -9,8 +9,10 @@
  * Generated artifacts:
  * - `.agents/skills/deliberation/SKILL.md` (from AGENTS.md)
  * - `.agents/skills/<expert>/SKILL.md` (from prompts/<expert>.md)
+ * - `.agents/skills/reload-mcp/SKILL.md`
  * - `.gemini/skills/deliberation/SKILL.md`
  * - `.gemini/skills/<expert>/SKILL.md`
+ * - `.gemini/skills/reload-mcp/SKILL.md`
  * - `.agents/mcp.json`
  *
  * @param {{ repoRoot:string, version:string }} ctx
@@ -51,6 +53,32 @@ function build(ctx) {
     out[`.agents/skills/${key}/SKILL.md`] = expertSkill;
     out[`.gemini/skills/${key}/SKILL.md`] = expertSkill;
   }
+
+  // Reload MCP skill for cycle & process audits after updates
+  const reloadSkill = S.frontmatterDoc({
+    name: "reload-mcp",
+    description: "Gracefully cycle dashboard and audit MCP processes after deliberation is updated.",
+    body: [
+      "# Reload Deliberation MCP",
+      "",
+      "Use this skill when Deliberation has been updated to cycle running background services and verify MCP worker states.",
+      "",
+      "## Instructions",
+      "",
+      "Run the reload script to audit running processes and gracefully restart the dashboard daemon on the latest code:",
+      "",
+      "```bash",
+      "bash scripts/commands/reload-mcp.sh",
+      "```",
+      "",
+      "- Safely preserves connected host stdio pipes.",
+      "- Automatically detects and cleans up orphaned worker processes.",
+      "- Restarts the background dashboard daemon with the active configuration.",
+      "- New sessions or subagent turns will automatically run the updated server.",
+    ].join("\n"),
+  });
+  out[".agents/skills/reload-mcp/SKILL.md"] = reloadSkill;
+  out[".gemini/skills/reload-mcp/SKILL.md"] = reloadSkill;
 
   return out;
 }

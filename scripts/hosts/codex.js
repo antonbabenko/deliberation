@@ -93,6 +93,30 @@ function build(ctx) {
     });
   }
 
+  // Reload MCP skill for cycle & process audits after updates
+  out[`${PLUGIN_DIR}/skills/reload-mcp/SKILL.md`] = S.frontmatterDoc({
+    name: "reload-mcp",
+    description: "Gracefully cycle dashboard and audit MCP processes after deliberation is updated.",
+    body: [
+      "# Reload Deliberation MCP",
+      "",
+      "Use this skill when Deliberation has been updated to cycle running background services and verify MCP worker states.",
+      "",
+      "## Instructions",
+      "",
+      "Run the reload script to audit running processes and gracefully restart the dashboard daemon on the latest code:",
+      "",
+      "```bash",
+      "bash scripts/commands/reload-mcp.sh",
+      "```",
+      "",
+      "- Preserves active host stdio pipes to prevent broken pipe errors.",
+      "- Automatically cleans up orphaned worker processes.",
+      "- Gracefully restarts the dashboard daemon on the latest version.",
+      "- Next tool calls or new sessions will automatically resolve the updated code.",
+    ].join("\n"),
+  });
+
   return out;
 }
 
