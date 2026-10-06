@@ -1,3 +1,10 @@
+## [3.22.0](https://github.com/antonbabenko/deliberation/compare/v3.21.0...v3.22.0) (2026-10-06)
+
+
+### Features
+
+* **openrouter:** support default model property and remove generic provider row from dashboard ([#224](https://github.com/antonbabenko/deliberation/issues/224)) ([4d7f821](https://github.com/antonbabenko/deliberation/commit/4d7f82188094d9a55f35f3d59d3bb810ea5f55fa))
+
 ## [3.21.0](https://github.com/antonbabenko/deliberation/compare/v3.20.0...v3.21.0) (2026-10-05)
 
 
@@ -29,11 +36,4 @@
 ### Features
 
 * log GPT in before /ask-all, /consensus and /ask-gpt dispatch ([#209](https://github.com/antonbabenko/deliberation/issues/209)) ([0de7f40](https://github.com/antonbabenko/deliberation/commit/0de7f40cea64d38f798b9d849f681d52b91c38b6))
-
-## [3.17.1](https://github.com/antonbabenko/deliberation/compare/v3.17.0...v3.17.1) (2026-09-24)
-
-
-### Bug Fixes
-
-* comment on each released PR with its version and how to update ([#207](https://github.com/antonbabenko/deliberation/issues/207)) ([aea7f85](https://github.com/antonbabenko/deliberation/commit/aea7f85b2df6539f4d3256196cc047e7b5ae5a20))
 
