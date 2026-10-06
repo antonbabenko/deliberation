@@ -124,9 +124,18 @@ if [ "$UPDATE_AGENTS" = true ]; then
     if [ "$DRY_RUN" = true ]; then
       echo "    [DRY-RUN] Would verify host artifacts via npm run sync:check"
     else
-      if ! (cd "$ROOT" && npm run sync:check --silent >/dev/null 2>&1); then
+      SYNC_OK=true
+      (
+        cd "$ROOT" || exit 1
+        npm run sync:check --silent >/dev/null 2>&1
+      ) || SYNC_OK=false
+
+      if [ "$SYNC_OK" = false ]; then
         echo "    ⚠️ Host artifacts out of sync. Regenerating via npm run sync..."
-        (cd "$ROOT" && npm run sync >/dev/null 2>&1 || true)
+        (
+          cd "$ROOT" || exit 0
+          npm run sync >/dev/null 2>&1 || true
+        )
       else
         echo "    ✔ Host artifacts up to date."
       fi
