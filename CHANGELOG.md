@@ -1,3 +1,10 @@
+## [3.23.0](https://github.com/antonbabenko/deliberation/compare/v3.22.0...v3.23.0) (2026-10-06)
+
+
+### Features
+
+* add /deliberation:reload-mcp command, skill, and script across hosts ([#226](https://github.com/antonbabenko/deliberation/issues/226)) ([9138f41](https://github.com/antonbabenko/deliberation/commit/9138f41156cec7671495de94f538a12d77814546))
+
 ## [3.22.0](https://github.com/antonbabenko/deliberation/compare/v3.21.0...v3.22.0) (2026-10-06)
 
 
@@ -29,11 +36,4 @@
 ### Features
 
 * pin GPT model and reasoning effort in config.json ([#214](https://github.com/antonbabenko/deliberation/issues/214)) ([e3e2b7e](https://github.com/antonbabenko/deliberation/commit/e3e2b7e1d9dadc1d0344350e63a1fb60a7ec4cf7))
-
-## [3.18.0](https://github.com/antonbabenko/deliberation/compare/v3.17.1...v3.18.0) (2026-09-26)
-
-
-### Features
-
-* log GPT in before /ask-all, /consensus and /ask-gpt dispatch ([#209](https://github.com/antonbabenko/deliberation/issues/209)) ([0de7f40](https://github.com/antonbabenko/deliberation/commit/0de7f40cea64d38f798b9d849f681d52b91c38b6))
 
