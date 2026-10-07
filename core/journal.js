@@ -63,7 +63,7 @@ const DEFAULT_MAX_AGE_DAYS = 30;
  */
 const JOURNAL_KEYS = Object.freeze({
   run_start: Object.freeze({
-    meta: Object.freeze(["tool", "pid", "procStartedAt", "expert", "workflow", "providers"]),
+    meta: Object.freeze(["tool", "pid", "procStartedAt", "expert", "workflow", "providers", "configId", "activationId", "runtimeId", "firstSeenAt", "activatedAt", "snapshot", "configLoadState"]),
     content: Object.freeze(["prompt"]),
   }),
   state: Object.freeze({
@@ -71,11 +71,11 @@ const JOURNAL_KEYS = Object.freeze({
     content: Object.freeze([]),
   }),
   call_start: Object.freeze({
-    meta: Object.freeze(["callId", "provider", "model", "role", "round", "timeoutMs", "reasoningEffort"]),
+    meta: Object.freeze(["callId", "provider", "model", "role", "round", "timeoutMs", "reasoningEffort", "settings", "configuredTimeoutMs", "deadlineAt", "limitingReason"]),
     content: Object.freeze(["request"]),
   }),
   call_end: Object.freeze({
-    meta: Object.freeze(["callId", "provider", "model", "ms", "usage", "isError", "errorKind", "errorCode", "verdict", "criticalIssues[].category"]),
+    meta: Object.freeze(["callId", "provider", "model", "ms", "usage", "isError", "errorKind", "errorCode", "verdict", "criticalIssues[].category", "cached", "provenance", "reasoningEffort"]),
     content: Object.freeze(["response", "criticalIssues[].description"]),
   }),
   arbiter: Object.freeze({
@@ -83,7 +83,7 @@ const JOURNAL_KEYS = Object.freeze({
     content: Object.freeze(["text"]),
   }),
   run_end: Object.freeze({
-    meta: Object.freeze(["status", "stopReason", "rounds", "droppedProviders"]),
+    meta: Object.freeze(["status", "stopReason", "rounds", "droppedProviders", "undispatched"]),
     content: Object.freeze(["finalReport"]),
   }),
 });
@@ -184,6 +184,10 @@ function buildFields(kind, fields, isContent) {
     if (key.indexOf("[]") !== -1) continue; // criticalIssues[].category - handled below
     if (Object.prototype.hasOwnProperty.call(src, key)) out[key] = src[key];
   }
+  const hist=require('./config-history.js');
+  if(out.snapshot&&!hist.validSnapshot(out.snapshot))delete out.snapshot;
+  if(out.provenance)out.provenance=hist.safeCallProvenance(out.provenance);
+  if(out.settings)out.settings=hist.safeCallProvenance({settings:out.settings}).settings;
   if (isContent) {
     for (const key of spec.content) {
       if (key.indexOf("[]") !== -1) continue; // criticalIssues[].description - handled below

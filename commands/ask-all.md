@@ -81,7 +81,7 @@ User question or topic: $ARGUMENTS
    ```
    `prompt` is optional: it is never sent to a provider, only recorded on the dashboard run
    when the dashboard journal captures content.
-   It returns `{ providers: ["codex","gemini","grok","openrouter:<alias>", ...], omitted: [...], unavailable: [{name, reason}], needsLogin: [...], runId? }`.
+   It returns `{ providers: ["codex","gemini","grok","openrouter:<alias>", ...], omitted: [...], unavailable: [{name, reason}], needsLogin: [...], fanoutId, runId? }`.
    `runId` is present only when the local dashboard is on (`dashboard.enabled`); keep it for step 5.
    `unavailable` lists built-ins that cannot answer right now (CLI not on PATH, no credential) -
    mention each once with its reason and do not call `ask-one` for it.
@@ -124,6 +124,9 @@ User question or topic: $ARGUMENTS
    mcp__deliberation__ask-one({ provider: "grok",               prompt: "[identical 7-section prompt]", expert: "[expert]", cwd: "[cwd]", runId: "[panel runId]" })
    mcp__deliberation__ask-one({ provider: "openrouter:<alias>", prompt: "[identical 7-section prompt]", expert: "[expert]", cwd: "[cwd]", runId: "[panel runId]" })
    ```
+   Pass `fanoutId` from `panel` into EVERY `ask-one` call, including when logging is off,
+   to pin membership/settings and share the longest-peer deadline. Expired, duplicate,
+   or nonmember joins fail without another provider call.
    Pass the `runId` from `panel` into EVERY `ask-one` call so the dashboard draws them as one
    fan-out; when `panel` returned no `runId`, omit the field.
    The prompt + expert are BYTE-IDENTICAL across every call (no cross-contamination). Each
@@ -137,6 +140,9 @@ User question or topic: $ARGUMENTS
    one line per `result` (the `provider` label, its `model`, and
    `reasoning: <result.reasoningEffort>`). The HTTP providers (Grok, OpenRouter) carry a real
    effort; print `n/a (CLI)` when `reasoningEffort` is `null` (Codex, Gemini have no such knob).
+
+   Use `or:<alias>` for OpenRouter display labels; keep canonical IDs in tool arguments.
+   Round durations >=1s to whole seconds with normalized minute/hour carry; retain ms below 1s.
 
    ```
    Worked in parallel:

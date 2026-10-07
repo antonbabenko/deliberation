@@ -7,6 +7,7 @@
 const { parseReview } = require("./provider.js");
 const loop = require("./consensus-loop.js");
 const { NULL_LOGGER } = require("./debug-log.js");
+const { safeCallProvenance } = require("./config-history.js");
 const { fitToHostBudget, remainingHostBudgetMs, HOST_BUDGET_MIN_MS } = require("./host-budget.js");
 
 /** @typedef {import("./debug-log.js").Logger} Logger */
@@ -38,6 +39,7 @@ const sleep = (/** @type {number} */ ms) => new Promise((res) => setTimeout(res,
  * for the Journal contract itself).
  * @typedef {Object} Trace
  * @property {import("./journal.js").Journal} journal
+ * @property {any} [provenance]
  * @property {string} runId
  * @property {("peer"|"arbiter"|"blind"|"single")} [role]
  * @property {number} [round]
@@ -53,31 +55,32 @@ function nextCallId(providerName) {
 
 /**
  * Emit `call_start` for one provider call. Returns the callId to pair with
- * traceCallEnd, or null when there is no trace (or the emit itself failed) -
- * the caller does not need to branch on that, traceCallEnd is a no-op for a
- * null callId too. Never throws.
+ * traceCallEnd. Identity exists even without telemetry or when an emit fails.
+ * Never throws.
  * @param {(Trace|undefined)} trace
  * @param {string} providerName
  * @param {DelegationRequest} req
- * @returns {(string|null)}
+ * @returns {string}
  */
 function traceCallStart(trace, providerName, req) {
-  if (!trace || !trace.journal) return null;
+  const callId = nextCallId(providerName);
+  if (!trace || !trace.journal) return callId;
   try {
-    const callId = nextCallId(providerName);
     trace.journal.emit(trace.runId, "call_start", {
       callId,
       provider: providerName,
-      model: null, // not known until the call settles
+      model: req.model || null,
       role: trace.role,
       round: trace.round,
       timeoutMs: req.timeoutMs,
       reasoningEffort: req.reasoningEffort,
       request: req.prompt,
+      settings:req.provenance?.settings, configuredTimeoutMs:req.provenance?.configuredTimeoutMs,
+      deadlineAt:req.deadlineAt, limitingReason:req.provenance?.limitingReason,
     });
     return callId;
   } catch {
-    return null;
+    return callId;
   }
 }
 
@@ -101,6 +104,7 @@ function traceCallEnd(trace, callId, r) {
       isError: r.isError,
       errorKind: r.isError ? /** @type {any} */ (r).errorKind : undefined,
       errorCode: r.isError ? /** @type {any} */ (r).transportCode : undefined,
+      cached:r.cached, provenance:r.provenance, reasoningEffort:r.reasoningEffort,
       response: r.isError ? undefined : /** @type {any} */ (r).text,
     });
   } catch {
@@ -151,11 +155,14 @@ function withRole(trace, role, round) {
  * @returns {Promise<(DelegationResult|null)>}
  */
 async function tracedAsk(trace, provider, req, onError) {
-  req = { ...req, context: req.context ?? "ask" };
+  const context=req.context??'ask',settings=provider.resolveSettings?.({...req,context})||{};
+  req = { ...req,...Object.fromEntries(Object.entries(settings).filter(([k,v])=>['model','reasoningEffort','temperature','timeoutMs'].includes(k)&&v!==undefined&&v!=='CLI inherited / unknown')),context,
+    provenance:safeCallProvenance({...trace?.provenance,...req.provenance,settings,configuredTimeoutMs:settings.timeoutMs,expert:req.expert,context,role:trace?.role,round:trace?.round}) };
   const started = Date.now();
   const callId = traceCallStart(trace, provider.name, req);
   try {
-    const v = await provider.ask(req);
+    const raw = await boundedAsk(provider,req);
+    const v={...raw,provenance:{...req.provenance,callId,attemptId:require('node:crypto').randomUUID()}};
     traceCallEnd(trace, callId, v);
     return v;
   } catch (e) {
@@ -203,7 +210,8 @@ function logProviderResult(logger, tool, r) {
       // 300s undici ceiling and an instant DNS failure were indistinguishable in the
       // log - which is the only place provider health is diagnosed.
       errorCode: r.isError ? r.transportCode : undefined,
-      usage: r.isError ? undefined : r.usage,
+      usage: r.isError || r.cached ? undefined : r.usage,
+      cached:r.cached, ...r.provenance,
     });
   } catch { /* logging must never break a call */ }
 }
@@ -245,20 +253,24 @@ function withOrientation(provider, req, orientationFiles) {
  */
 async function callProvider(provider, req, logger, tool, cache, orientationFiles, startedAt, trace) {
   const context = req.context ?? (tool === "consensus" || tool === "consensus-step" ? "consensus" : "ask");
-  req = { ...req, context };
+  const resolved=provider.resolveSettings?.({...req,context}) || {};
+  req = { ...req, ...Object.fromEntries(Object.entries(resolved).filter(([k,v])=>['model','reasoningEffort','temperature','timeoutMs'].includes(k)&&v!==undefined&&v!=='CLI inherited / unknown')), context,tool,
+    provenance:safeCallProvenance({...trace?.provenance,...req.provenance,configuredTimeoutMs:req.provenance?.configuredTimeoutMs??resolved.timeoutMs,settings:resolved,expert:req.expert,context,role:trace?.role,round:trace?.round}) };
+  if(req.deadlineAt===undefined&&typeof req.timeoutMs==='number')req.deadlineAt=Date.now()+req.timeoutMs;
   // Auto-attach orientation to file-blind providers BEFORE the cache key is computed,
-  // so the now-file-bearing request correctly bypasses the cwd-agnostic dedup cache
-  // (keyFor excludes cwd; caching an oriented result would risk a cross-repo false hit).
+  // so the now-file-bearing request bypasses cache reuse of stale grounding bytes.
   req = withOrientation(provider, req, orientationFiles);
   // File-bearing requests skip the cache: file CONTENT can change under the same
   // path, and the key only fingerprints the reference, not the bytes.
-  const useCache = cache && !(Array.isArray(req.files) && req.files.length);
+  const useCache = cache && !req.threadId && !(Array.isArray(req.files) && req.files.length);
   if (useCache) {
     const hit = cache.get(provider.name, req);
     if (hit) {
-      logProviderResult(logger, tool, hit);
-      traceCallEnd(trace, traceCallStart(trace, provider.name, req), hit);
-      return hit;
+      const callId=traceCallStart(trace, provider.name, req);
+      const reused={...hit,provenance:safeCallProvenance({...req.provenance,original:hit.provenance,callId})};
+      logProviderResult(logger, tool, reused);
+      traceCallEnd(trace, callId, reused);
+      return reused;
     }
   }
   const started = Date.now();
@@ -270,16 +282,18 @@ async function callProvider(provider, req, logger, tool, cache, orientationFiles
   // One ask attempt, cloning files so a provider cannot mutate the caller's refs. Each
   // attempt is stamped with what is LEFT of the host's cap (MCP_TOOL_TIMEOUT): a retry
   // after a 20s failure must not be handed the whole cap again.
-  const askOnce = () => provider.ask(fitToHostBudget({ ...req, files: req.files ? req.files.map((f) => ({ ...f })) : undefined }, capStartedAt));
   // One traced attempt: call_start, the ask (or a synthesized error on a reject),
   // call_end. A retry below calls this again, getting its own callId pair - the
   // same per-attempt granularity as logProviderResult's own retry logging.
   const attempt = async () => {
-    const callId = traceCallStart(trace, provider.name, req);
+    const attemptReq=fitToHostBudget({ ...req, files: req.files ? req.files.map((f) => ({ ...f })) : undefined }, capStartedAt);
+    const granted=Math.min(attemptReq.timeoutMs??Infinity,attemptReq.deadlineAt===undefined?Infinity:attemptReq.deadlineAt-Date.now(),attemptReq.hostBudgetRemainingMs??Infinity);
+    if(Number.isFinite(granted))attemptReq.timeoutMs=Math.max(1,granted);
+    const callId = traceCallStart(trace, provider.name, attemptReq);
     /** @type {DelegationResult} */
     let res;
     try {
-      res = await askOnce();
+      res = await boundedAsk(provider,attemptReq);
     } catch (e) {
       // A provider that REJECTS (rather than returning an error envelope) must not
       // break the call OR vanish from the log. Synthesize + log a uniform error -
@@ -289,6 +303,7 @@ async function callProvider(provider, req, logger, tool, cache, orientationFiles
         retryable: false, message: String((e && /** @type {any} */ (e).message) || e), ms: Date.now() - started,
       };
     }
+    res={...res,provenance:{...req.provenance,callId,attemptId:require('node:crypto').randomUUID()}};
     traceCallEnd(trace, callId, res);
     return res;
   };
@@ -307,20 +322,50 @@ async function callProvider(provider, req, logger, tool, cache, orientationFiles
     // below, so without this a retry that succeeds erases every trace of the
     // rate-limit / stub - and the debug log is exactly how provider health is
     // diagnosed. A retried call therefore emits two provider_result rows.
-    logProviderResult(logger, tool, r);
     const delay = r.errorKind === "rate-limit" ? retryDelayMs(r) : r.errorKind === "network" ? NETWORK_RETRY_DELAY_MS : 0;
     // Under a host cap, a retry with no budget left AFTER its backoff is a guaranteed
     // second failure the host would kill first - and a 30s Retry-After at 40s into a
     // 60s cap must not even sleep. Keep the honest first result instead.
     const remaining = remainingHostBudgetMs(capStartedAt);
-    if (remaining === null || remaining - delay > HOST_BUDGET_MIN_MS) {
-      if (delay) await sleep(delay);
-      r = await attempt();
+    if (!req.signal?.aborted && (req.deadlineAt===undefined || req.deadlineAt-Date.now()-delay>0) && (remaining === null || remaining - delay > HOST_BUDGET_MIN_MS)) {
+      if (delay) await new Promise(resolve=>{const timer=setTimeout(done,delay);function done(){clearTimeout(timer);req.signal?.removeEventListener("abort",done);resolve(undefined);}req.signal?.addEventListener("abort",done,{once:true});});
+      const retryRemaining=remainingHostBudgetMs(capStartedAt);
+      if (!req.signal?.aborted && (req.deadlineAt===undefined||req.deadlineAt>Date.now()) && (retryRemaining===null||retryRemaining>HOST_BUDGET_MIN_MS)) {
+        logProviderResult(logger, tool, r);
+        r = await attempt();
+      }
     }
   }
   logProviderResult(logger, tool, r);
   if (useCache) cache.set(provider.name, req, r);
   return r;
+}
+
+/** Provider adapters get one remaining absolute budget and a cancellable signal.
+ * The race isolates even a broken adapter that ignores cancellation.
+ * @param {Provider} provider @param {DelegationRequest} req @returns {Promise<DelegationResult>} */
+async function boundedAsk(provider,req) {
+  const start=Date.now(), controller=new AbortController();
+  const configured=req.timeoutMs;
+  const deadline=Math.min(req.deadlineAt??Infinity, start+(configured??Infinity),start+(req.hostBudgetRemainingMs??Infinity));
+  const left=deadline-start;
+  /** @type {any} */ let timer;
+  /** @type {any} */ let finish;
+  const stopped=new Promise(resolve=>{finish=()=>{controller.abort();resolve({provider:provider.name,model:req.model||'unknown',isError:true,errorKind:'timeout',retryable:false,message:req.signal?.aborted?'Call cancelled':'Call deadline expired',ms:Date.now()-start});};});
+  if(Number.isFinite(left))timer=setTimeout(finish,Math.max(0,left));
+  req.signal?.addEventListener('abort',finish,{once:true});
+  if(req.signal?.aborted||left<=0)finish();
+  try {
+    if(controller.signal.aborted)return /** @type {DelegationResult} */ (await stopped);
+    return /** @type {DelegationResult} */ (await Promise.race([provider.ask({...req,timeoutMs:req.deadlineAt!==undefined&&Number.isFinite(left)?Math.max(1,left):req.timeoutMs,signal:controller.signal}),stopped]));
+  }finally{clearTimeout(timer);req.signal?.removeEventListener('abort',finish);}
+}
+/** @param {Provider[]} providers @param {DelegationRequest} req @param {number} [startedAt] */
+function fanoutDeadline(providers,req,startedAt) {
+  const limits=providers.map(p=>p.resolveSettings?.(req)?.timeoutMs??req.timeoutMs??600000);
+  const host=remainingHostBudgetMs(startedAt??Date.now());
+  const longest=Math.max(1,...limits);
+  return Math.min(Date.now()+longest,req.deadlineAt??Infinity,Date.now()+(host??Infinity));
 }
 
 /**
@@ -337,8 +382,11 @@ async function callProvider(provider, req, logger, tool, cache, orientationFiles
 async function askAll(providers, req, opts = {}) {
   const logger = opts.logger || NULL_LOGGER;
   const tool = opts.tool || "ask-all";
+  const deadline=fanoutDeadline(providers,req,opts.startedAt);
+  const shared=req.timeoutPolicy!=='per-provider';
   const settled = await Promise.allSettled(
-    providers.map((/** @type {Provider} */ p) => callProvider(p, req, logger, tool, opts.cache, opts.orientationFiles, opts.startedAt, opts.trace))
+    providers.map((/** @type {Provider} */ p) => callProvider(p, {...req,deadlineAt:shared?deadline:req.deadlineAt,timeoutMs:shared?Math.max(1,deadline-Date.now()):req.timeoutMs,
+      provenance:{...req.provenance,configuredTimeoutMs:p.resolveSettings?.(req)?.timeoutMs,limitingReason:shared?'longest-peer / outer budget':'per-provider'}}, logger, tool, opts.cache, opts.orientationFiles, opts.startedAt, opts.trace))
   );
   return settled.map((s, i) =>
     s.status === "fulfilled"
@@ -544,6 +592,7 @@ async function runToConvergence(providers, req, opts = {}) {
     : loop.DEFAULT_QUORUM_FLOOR;
   const quorumFloor = Math.max(1, Math.min(providers.length, configuredQuorum));
   const startedAt = now();
+  if(maxWallMs!==null)req={...req,deadlineAt:Math.min(req.deadlineAt??Infinity,Date.now()+maxWallMs)};
   // The host-cap clock is always the real one (opts.now is a test seam for maxWallMs):
   // the tool call's entry when the server passes it, else now.
   const capStartedAt = typeof opts.startedAt === "number" ? opts.startedAt : Date.now();
@@ -592,15 +641,15 @@ async function runToConvergence(providers, req, opts = {}) {
         tracedAsk(blindTrace, arbiter, fitToHostBudget(withOrientation(arbiter, { ...req, context: "consensus", prompt: blindPrompt }, opts.orientationFiles), capStartedAt), "null"),
         // Later rounds run on the SAME cap clock as round one - a fresh clock per fan-out
         // would hand round two the whole cap again.
-        askAll(activeProviders, { ...req, context: "consensus", prompt: peerPrompt }, { logger, tool: "consensus", orientationFiles: opts.orientationFiles, startedAt: capStartedAt, trace: peerTrace }),
+        askAll(activeProviders, { ...req, context: "consensus", prompt: peerPrompt,deadlineAt:maxWallMs===null?req.deadlineAt:Math.min(req.deadlineAt??Infinity,Date.now()+maxWallMs-(now()-startedAt)) }, { logger, tool: "consensus", orientationFiles: opts.orientationFiles, startedAt: capStartedAt, trace: peerTrace }),
       ]);
       state = loop.recordBlindVerdict(state, okText(blindRes) || "(blind pass unavailable)");
 
       lastResults = peerResults.map((r) =>
         r.isError
-          ? { source: r.provider, isError: true, errorKind: r.errorKind, verdict: null, criticalIssues: [] }
+          ? { source: r.provider, model:r.model, reasoningEffort:r.reasoningEffort, provenance:r.provenance, cached:r.cached, ms:r.ms, isError: true, errorKind: r.errorKind, verdict: null, criticalIssues: [] }
           // parseReview spread FIRST so the explicit structural fields always win.
-          : { ...parseReview(typeof r.text === "string" ? r.text : ""), source: r.provider, isError: false, ms: r.ms }
+          : { ...parseReview(typeof r.text === "string" ? r.text : ""), source: r.provider, model:r.model, reasoningEffort:r.reasoningEffort, provenance:r.provenance, cached:r.cached, isError: false, ms: r.ms }
       );
       state = loop.addOpinions(state, lastResults);
       // Per-peer verdicts, attached to the "adjudicate" entry below (categories only -
@@ -719,4 +768,4 @@ async function runToConvergence(providers, req, opts = {}) {
   };
 }
 
-module.exports = { askAll, askOne, consensus, buildArbiterPrompt, buildAdjudicationPrompt, runToConvergence };
+module.exports = { boundedAsk, fanoutDeadline, askAll, askOne, consensus, buildArbiterPrompt, buildAdjudicationPrompt, runToConvergence };

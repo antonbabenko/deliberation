@@ -2,7 +2,7 @@
 // the browser: every apiKeyEnv arrives as {env, set}.
 
 import { api } from "../api.js";
-import { h, put } from "../dom.js";
+import { h, put, providerLabel } from "../dom.js";
 
 const yes = (v) => (v ? "yes" : "no");
 
@@ -25,6 +25,7 @@ function flatten(obj, prefix = "", out = []) {
 export function create(ctx) {
   const el = h("section", { class: "view view-config", "data-view": "config" });
   const health = h("section", { class: "panel" }, h("h2", {}, "Provider health"), h("div", { class: "skeleton-rows" }, h("span"), h("span"), h("span")));
+  const runtime=h('div',{},h('p',{class:'hint'},'Select a runtime to inspect its active snapshot and pending restart changes.'));
   const cfg = h("section", { class: "panel" }, h("h2", {}, "Effective config"), h("div", { class: "skeleton-rows" }, h("span"), h("span"), h("span")));
   el.append(health, cfg);
 
@@ -34,19 +35,23 @@ export function create(ctx) {
     put(health, h("h2", {}, "Provider health"),
       h("p", { class: "hint" }, "The same stat-only checks panel uses: nothing here starts a login or calls a model."),
       rows.length ? h("div", { class: "table-wrap" }, h("table", { class: "grid-table" },
-        h("thead", {}, h("tr", {}, ["provider", "state", "reason", "model", "effort", "ask-all", "consensus"].map((t) => h("th", {}, t)))),
+        h("thead", {}, h("tr", {}, ["provider", "state", "reason", "model", "Ask effort", "Consensus effort", "source", "ask-all", "consensus"].map((t) => h("th", {}, t)))),
         h("tbody", {}, rows.map((p) => {
           const [label, cls] = state(p);
-          return h("tr", {}, h("td", { class: "strong" }, p.name), h("td", {}, h("span", { class: `status-mark ${cls}` }, label)), h("td", { class: "wrap" }, p.reason || ""),
-            h("td", {}, p.model || "-"), h("td", {}, p.reasoningEffort || "-"), h("td", {}, yes(p.askAll)), h("td", {}, yes(p.consensus)));
+          return h("tr", {}, h("td", { class: "strong" }, providerLabel(p.name)), h("td", {}, h("span", { class: `status-mark ${cls}` }, label)), h("td", { class: "wrap" }, p.reason || ""),
+            h("td", {}, p.model || "-"), h("td", {}, p.askEffort || "inherited / unknown"),h("td", {}, p.consensusEffort || "inherited / unknown"),h("td", {}, p.effortSource || "unknown"), h("td", {}, yes(p.askAll)), h("td", {}, yes(p.consensus)));
         })))) : h("p", { class: "empty" }, "No providers configured."),
       hb.needsLogin && hb.needsLogin.length ? h("p", { class: "note-warn" }, `Needs login before the next run: ${hb.needsLogin.join(", ")}. Run /deliberation:codex-login in Claude Code.`) : null);
   }
 
   function drawConfig(c) {
-    const rows = flatten(c);
-    put(cfg, h("h2", {}, "Effective config"),
-      h("p", { class: "hint" }, "Resolved values after defaults. API keys show only the variable name and whether it is set."),
+    const observed=c.observedRuntimeSettings;
+    const selected=observed?.runtimes.find(r=>r.runtimeId===observed.dashboardRuntimeId)||observed?.runtimes[0];
+    if(selected)put(runtime,h('pre',{class:'payload'},JSON.stringify(selected,null,2)));
+    const rows = flatten(Object.fromEntries(Object.entries(c).filter(([k])=>k!=='observedRuntimeSettings')));
+    put(cfg, h("h2", {}, "Config file and observed runtimes"),
+      observed?h('section',{},h('p',{class:'hint'},observed.note),h('label',{},'Observed runtime ',h('select',{'aria-label':'Observed runtime',onchange:e=>{const r=observed.runtimes.find(r=>r.runtimeId===e.target.value);put(runtime,h('pre',{class:'payload'},JSON.stringify(r,null,2)));}},observed.runtimes.map(r=>h('option',{value:r.runtimeId},`${r.runtimeId===observed.dashboardRuntimeId?'Dashboard runtime':'Delegation runtime'} ${r.runtimeId.slice(0,12)} — ${r.freshness}`)))),runtime):null,
+      h("p", { class: "hint" }, "Current file values after defaults. Each observed runtime reports its own active and pending snapshots; the file alone is not proof of active dispatch settings."),
       h("div", { class: "table-wrap" }, h("table", { class: "grid-table kv" }, h("tbody", {}, rows.map(([k, v]) => h("tr", {}, h("th", { scope: "row" }, k), h("td", {}, v)))))));
   }
 

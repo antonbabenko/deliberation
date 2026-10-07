@@ -82,6 +82,8 @@ const DEFAULT_MAX_AGE_DAYS = 30;
  * @typedef {Object} SessionRecord
  * @property {string} id
  * @property {(string|null)} parentId
+ * @property {any} [provenance]
+ * @property {string} [runId]
  * @property {number} schemaVersion
  * @property {string} createdAt  ISO timestamp
  * @property {("consensus"|"ask-all")} tool
@@ -256,6 +258,7 @@ function newSessionId() {
 function sanitizeRecord(record) {
   /** @type {SessionRecord} */
   const out = { ...record };
+  if(record.provenance)out.provenance=require("./config-history.js").safeProvenance(record.provenance);
   out.question = capText(scrubSecrets(String(record.question == null ? "" : record.question)));
   if (Array.isArray(record.opinions)) {
     out.opinions = record.opinions.map((o) => {
@@ -263,6 +266,7 @@ function sanitizeRecord(record) {
       const so = {
         provider: o.provider,
         model: o.model,
+        ...Object.fromEntries(["cached","ms","reasoningEffort","provenance"].filter(k=>/** @type {any} */(o)[k]!==undefined).map(k=>[k,/** @type {any} */(o)[k]])),
         // opinion text is the raw provider RESPONSE body - only present when the
         // server included it under sessions.captureText. Secret-scrub is MANDATORY
         // (primary control); stripPII is best-effort defense-in-depth on top.
@@ -274,6 +278,7 @@ function sanitizeRecord(record) {
       // (anything else -> null) so no free-text can ride the unscrubbed verdict
       // field. Issue descriptions are free provider text -> scrub + cap; the
       // category tag is bounded but capped defensively against a bloated value.
+      if(/** @type {any} */(so).provenance)/** @type {any} */(so).provenance=require("./config-history.js").safeCallProvenance(/** @type {any} */(so).provenance);
       if (o.verdict !== undefined) so.verdict = isVerdict(o.verdict) ? o.verdict : null;
       if (Array.isArray(o.criticalIssues)) {
         so.criticalIssues = o.criticalIssues.map((ci) => ({

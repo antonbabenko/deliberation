@@ -78,6 +78,10 @@ Fan-out and single-provider:
   result lands independently as it finishes - visible per-provider progress with parallel
   wall-time, instead of the one opaque `ask-all` call. (The single-call `ask-all` still
   works; `ask-one` is the progressive alternative.)
+  Pass the returned `fanoutId` to every `ask-one` in that group. It exists even
+  with logging disabled, pins panel/settings, rejects duplicates and expires.
+  The longest pinned peer limit supplies a shared deadline; each request still
+  obeys its own host ceiling. Group expiry/shutdown cancels outstanding members.
   Optional `runId` (from `panel`, also accepted by the `ask-*` tools) joins the call to
   that dashboard run; an id this server's `panel` did not open is ignored.
 - `analyze` - read-only run analytics. Reads the opt-in debug log (per-model p50/p95/max
@@ -186,6 +190,31 @@ no tools). When the question turns on latest or current versions, pricing, a
 roadmap, or whether a model or tool exists, verify it first with whatever
 retrieval this host has, and put the facts in the delegation prompt with their
 as-of date and source.
+
+## Config history and human display
+
+Runs pin a sanitized effective config snapshot and full SHA-256 `configId`, plus
+runtime/activation IDs. Config history persists only when debug, sessions or
+dashboard telemetry is enabled. Dashboard manifests require journaling; they
+report observed runtimes, not a complete inventory. Recently observed heartbeats
+are not process-liveness proof. Restart-only edits appear as pending settings.
+
+Use `analyze {groupBy:"config", since:"24h"}` for historical config groups; narrow
+with full `configId` or `unknown`, and optionally `activationId`. Stats uses the
+same intersecting filters, selecting whole runs by start time. Missing CLI usage
+is unknown, not zero; cached results are reuse, not fresh samples or token spend.
+Recommendations are advisory and scoped to config/workload/settings cohorts.
+
+For human reports render `openrouter:<alias>` as `or:<alias>`, retaining canonical
+IDs in tool arguments and stored data. Round durations >=1s to whole seconds
+with minute/hour carry; keep milliseconds below 1s. Show effective Ask effort and
+Consensus effort separately; CLI-inherited values remain unknown.
+
+`routing.timeoutPolicy` defaults to `longest-peer` for parallel peer dispatch,
+intentionally extending shorter configured caps up to the longest selected cap.
+Set `per-provider` to retain individual limits. Host and consensus budgets always
+win; retries consume the same absolute deadline. Single calls and sequential
+arbiter phases retain their own limits.
 
 ## Updating
 

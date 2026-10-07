@@ -52,7 +52,7 @@ export const api = {
   run: (id) => getJSON(`/api/runs/${encodeURIComponent(id)}`),
   config: () => getJSON("/api/config"),
   health: () => getJSON("/api/health"),
-  stats: () => getJSON("/api/stats"),
+  stats: (filter) => getJSON(`/api/stats${query(filter)}`),
 };
 
 /**

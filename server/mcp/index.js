@@ -106,6 +106,9 @@ function analyzeInputSchema() {
   return {
     type: "object",
     properties: {
+      configId:{type:'string',description:'Full recorded config ID, or unknown for legacy.'},
+      activationId:{type:'string',description:'Optional activation UUID.'},
+      groupBy:{type:'string',enum:['config'],description:'Historical config groups ignore current-model filtering.'},
       sessions: { type: "integer", description: "How many recent session records to read for the agreement lens. Default -1 (no caller cap), still bounded to 500 parsed records; truncation is reported in meta.truncated.sessions." },
       limitBytes: { type: "integer", description: "Tail size of the debug log to read, in bytes (default 1048576, or 33554432 when `since` is set). Clamped to 33554432." },
       since: { type: "string", description: "Only analyze runs newer than this window, e.g. \"30m\", \"24h\", \"7d\", or a bare number of seconds. Gates BOTH lenses so timing and agreement cover the same period. Omit for all time. Max 10 years; an invalid or out-of-range value is an error, never a silent fallback." },
@@ -120,6 +123,7 @@ function askOneInputSchema() {
     type: "object",
     required: ["provider", "prompt"],
     properties: {
+      fanoutId:{type:"string",description:"Ephemeral group ID from panel. Rejects invalid, duplicate or expired joins."},
       provider: { type: "string", description: 'A name from `panel` (e.g. "codex", "gemini", "grok", "openrouter:<alias>").' },
       prompt: { type: "string", description: PROP_DESC.prompt },
       expert: { type: "string", description: PROP_DESC.expert },
@@ -380,6 +384,22 @@ const PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05
  */
 function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify, write, journal = NULL_JOURNAL }) {
   const registry = makeRegistry(providers);
+  const startupConfig = structuredClone(getConfig() || {});
+  const {resolveSettings,effectiveConfig} = require('../../core/settings.js');
+  const activeConfig = () => effectiveConfig(getConfig() || {}, startupConfig);
+  for (const p of providers) if (!p.resolveSettings) p.resolveSettings = req => resolveSettings(p.name,activeConfig(),req);
+  const history = require('../../core/config-history.js').makeConfigHistory({
+    getConfig, getError:getConfigError || (()=>null),
+    getActive: (/** @type {boolean} */ pending) => Object.fromEntries(providers.map(p=>[p.name,pending?resolveSettings(p.name,getConfig()):(p.resolveSettings?.({prompt:""})||resolveSettings(p.name,activeConfig()))])),
+    dir:require('node:path').join(require('../../core/paths.js').resolveRunsDir(),'..','history'),
+    enabled:()=>!!(getConfig()?.dashboard?.enabled||getConfig()?.debug?.enabled||getConfig()?.sessions?.persist),
+    dashboardEnabled:()=>!!getConfig()?.dashboard?.enabled,
+  });
+  const {AsyncLocalStorage}=require('node:async_hooks');
+  const runContext=new AsyncLocalStorage();
+  history.observe();
+  const dispatchConfig=()=>runContext.getStore()?.config || activeConfig();
+
 
   // ---- Dashboard run journal --------------------------------------------------------------
   // Every emit is a no-op while dashboard.enabled is off (read per call, so a config hot-reload
@@ -396,20 +416,26 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
    * @returns {(Trace|undefined)}
    */
   function beginRun(tool, workflow, expert, providerNames, prompt, runId) {
-    if (!journal.enabled()) return undefined;
-    const id = runId || journal.newRunId();
+    const context = runContext.getStore() || { ...history.observe(), runId:runId || journal.newRunId(), startedAt:Date.now() };
+    const id = runId || context.runId;
     journal.emit(id, "run_start", {
-      tool, workflow, providers: providerNames,
+      tool, workflow, providers: providerNames, ...require("../../core/config-history.js").safeProvenance(context),
       // Untrusted tool args: only strings reach the journal (a non-string would skip the scrub),
       // and `expert` only as a known persona name, never free text.
       ...(typeof expert === "string" && EXPERTS.includes(expert) ? { expert } : {}),
       ...(typeof prompt === "string" ? { prompt } : {}),
     });
-    return { journal, runId: id };
+    return { journal, runId: id, provenance:require("../../core/config-history.js").safeProvenance(context) };
   }
   // The fan-out runs `panel` opened in this process. Only these can be joined by `runId`: a
   // stale, made-up or recycled id would append after that run's run_end, or recreate a pruned
   // file with no run_start. Insertion-ordered Set, oldest evicted first.
+  const groups=require('../../core/fanout-groups.js').makeFanoutGroups({onClose:(/** @type {any} */ g,/** @type {string} */ reason)=>{
+    const pending=[...g.members.entries()].filter(([,m])=>/** @type {any} */(m).state==='pending').map(([name])=>name);
+    journal.emit(g.context.runId,'run_end',{status:reason==='complete'?'done':'unresolved',stopReason:reason,undispatched:pending});
+    panelRuns.delete(g.context.runId);groupByRun.delete(g.context.runId);
+  }});
+  /** @type {Map<string,string>} */ const groupByRun=new Map();
   const PANEL_RUNS_MAX = 1000;
   /** @type {Set<string>} */ const panelRuns = new Set();
   /** @param {string} id */
@@ -606,7 +632,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         sendNotify("notifications/message", {
           level: "info",
           logger: "deliberation",
-          data: { event: e.event, tool: e.tool, provider: e.provider, ms: e.ms, round: e.round, verdict: e.verdict, isError: e.isError, errorKind: e.errorKind },
+          data: { event: e.event, tool: e.tool, provider: e.provider, providerLabel:e.provider?require('../../core/display.js').providerLabel(e.provider):undefined,duration:require('../../core/display.js').formatDuration(e.ms),ms: e.ms, round: e.round, verdict: e.verdict, isError: e.isError, errorKind: e.errorKind },
         });
       } catch { /* notifications must never break a call */ }
     },
@@ -618,7 +644,9 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
   }
   /** Composite logger: file sink (when debug on) + live notification sink (always). */
   function currentLogger() {
-    return debugLog.composeLoggers([fileSink(), notifySink]);
+    const sink=debugLog.composeLoggers([fileSink(), notifySink]);
+    const ctx=runContext.getStore();
+    return {logEvent(/** @type {any} */ event){sink.logEvent({...event,...(ctx?{configId:ctx.configId,activationId:ctx.activationId,runtimeId:ctx.runtimeId,runId:ctx.runId,runStartedAt:ctx.startedAt}: {})});}};
   }
 
   // Client identity for arbiter-default selection. Connection-scoped: set from the
@@ -664,7 +692,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
    * @returns {(import("../../core/types.js").FileRef[]|undefined)}
    */
   function orient(req) {
-    return orientationFilesFor(getConfig(), req && req.cwd);
+    return orientationFilesFor(dispatchConfig(), req && req.cwd);
   }
 
   // --- session store wiring -------------------------------------------------
@@ -674,7 +702,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
 
   /** @returns {{persist:boolean, maxRecords:number, maxAgeDays:number, captureText:boolean}} */
   function sessionsCfg() {
-    const c = getConfig() || {};
+    const c = dispatchConfig() || {};
     const s = c.sessions || {};
     return {
       persist: !!s.persist,
@@ -736,6 +764,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         model: r && r.model,
         text: r && r.isError === false && typeof r.text === "string" ? r.text : undefined,
       };
+      if(r)for(const k of ['cached','provenance','ms','reasoningEffort'])if(r[k]!==undefined)o[k]=r[k];
       if (r && r.verdict !== undefined) o.verdict = r.verdict;
       if (r && Array.isArray(r.criticalIssues)) o.criticalIssues = r.criticalIssues;
       return o;
@@ -767,7 +796,9 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       id,
       parentId: parts.parentId == null ? null : parts.parentId,
       schemaVersion: sessions.SCHEMA_VERSION,
-      createdAt: new Date().toISOString(),
+      createdAt: new Date((runContext.getStore() || {}).startedAt || Date.now()).toISOString(),
+      provenance: require("../../core/config-history.js").safeProvenance(parts.provenance || runContext.getStore()),
+      runId: (parts.provenance || runContext.getStore() || {}).runId,
       tool,
       question: typeof req.prompt === "string" ? req.prompt : "",
       expert: expert || null,
@@ -834,6 +865,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       expert: ex,
     };
     const parts = {
+      provenance:state.provenance,
       opinions: Array.isArray(state.results) ? state.results : [],
       blindVerdict: state.blindVerdict || null,
       verdict: state.hostVerdict ? state.hostVerdict.verdict : null,
@@ -843,7 +875,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       confidence,
       rounds: state.round,
     };
-    const { id, errorCode } = persistRun("consensus", req, ex, parts);
+    const { id, errorCode } = runContext.run(state.provenance||runContext.getStore(),()=>persistRun("consensus", req, ex, parts));
     if (!id) emitPersistFailed(loopSid, errorCode);
     return { id, persisted: !!id, errorCode };
   }
@@ -856,12 +888,12 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
    * @returns {Promise<{payload:any, parts:any}>}
    */
   async function runAskAll(req, expert, opts = /** @type {{noCache?:boolean, startedAt?:number}} */ ({})) {
-    const { providers: selected, omitted, unavailable } = registry.selectForAskAll({ config: getConfig(), expert: expert || "", unhealthy: await unhealthyMap(providers) });
+    const { providers: selected, omitted, unavailable } = registry.selectForAskAll({ config: dispatchConfig(), expert: expert || "", unhealthy: await unhealthyMap(providers) });
     const lg = currentLogger();
     try { lg.logEvent({ event: "dispatch_start", at: Date.now(), tool: "ask-all", voices: selected.length }); } catch { /* never break */ }
     // session-revisit passes noCache: a revisit is a deliberate RE-RUN of the stored
     // question, so it must never replay a cached opinion from the live tool path.
-    const trace = beginRun("ask-all", "fanout", expert, selected.map((p) => p.name), req.prompt);
+    const trace = beginRun("ask-all", "fanout", expert, selected.map((/** @type {Provider} */ p) => p.name), req.prompt);
     const results = await askAll(selected, withPersona(req, expert), { logger: lg, tool: "ask-all", cache: opts.noCache ? undefined : resultCache, orientationFiles: orient(req), startedAt: opts.startedAt, trace: trace && { ...trace, role: "peer" } });
     endRun(trace, { status: fanoutStatus(results) });
     return {
@@ -881,9 +913,9 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
    * @returns {Promise<{payload:any, parts:any}>}
    */
   async function runConsensus(req, expert, startedAt = Date.now(), begin = () => undefined) {
-    const cfg = getConfig() || {};
+    const cfg = dispatchConfig() || {};
     const { providers: selected, unavailable } = registry.selectForConsensus({ config: cfg, expert: expert || "", unhealthy: await unhealthyMap(providers) });
-    const trace = begin(selected.map((p) => p.name));
+    const trace = begin(selected.map((/** @type {Provider} */ p) => p.name));
     const cc = cfg.consensus || {};
     const arbiterSpec = cc.arbiterDefaulted ? (isClaudeHost() ? "host" : "auto") : (cc.arbiter || "auto");
     const blindVote = !!cc.blindVote;
@@ -892,7 +924,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
     if (cfgErr) warnings.push(`config not loaded: ${cfgErr}`);
     for (const u of unavailable) warnings.push(`provider ${u.name} unavailable: ${u.reason}`);
 
-    const resolved = await resolveArbiter(arbiterSpec, selected, registry, getConfig);
+    const resolved = await resolveArbiter(arbiterSpec, selected, registry, dispatchConfig);
     if (resolved.warning) warnings.push(resolved.warning);
 
     if (resolved.mode === "host") {
@@ -940,9 +972,9 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
    */
   async function runConsensusAuto(req, expert, maxRoundsOverride, startedAt = Date.now(), begin = () => undefined) {
     try {
-      const cfg = getConfig() || {};
+      const cfg = dispatchConfig() || {};
       const { providers: selected, unavailable } = registry.selectForConsensus({ config: cfg, expert: expert || "", unhealthy: await unhealthyMap(providers) });
-      const trace = begin(selected.map((p) => p.name));
+      const trace = begin(selected.map((/** @type {Provider} */ p) => p.name));
       const cc = cfg.consensus || {};
       const arbiterSpec = cc.arbiterDefaulted ? (isClaudeHost() ? "host" : "auto") : (cc.arbiter || "auto");
       /** @type {string[]} */
@@ -950,7 +982,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       const cfgErr = typeof getConfigError === "function" ? getConfigError() : null;
       if (cfgErr) warnings.push(`config not loaded: ${cfgErr}`);
       for (const u of unavailable) warnings.push(`provider ${u.name} unavailable: ${u.reason}`);
-      const resolved = await resolveArbiter(arbiterSpec, selected, registry, getConfig);
+      const resolved = await resolveArbiter(arbiterSpec, selected, registry, dispatchConfig);
       if (resolved.warning) warnings.push(resolved.warning);
 
       const arbiterP = resolved.provider;
@@ -1202,7 +1234,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
     const action = String(args.action || "");
     try {
       if (action === "init") {
-        const cfg = getConfig() || {};
+        const cfg = dispatchConfig() || {};
         const cc = cfg.consensus || {};
         const maxRounds = Number.isInteger(cc.maxRounds) && cc.maxRounds > 0 ? cc.maxRounds : undefined;
         const { providers: allCandidates } = registry.selectForConsensus({ config: cfg, expert: args.expert || "", unhealthy: await unhealthyMap(providers) });
@@ -1224,11 +1256,11 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         // later step checks it, so flipping dashboard.enabled mid-loop cannot leave a run with
         // no run_start or no run_end.
         const journaled = journal.enabled();
-        loopStore.put(sid, { ...entered.state, originalPrompt, startedAt: Date.now(), journaled });
+        loopStore.put(sid, { ...entered.state, originalPrompt, startedAt: Date.now(), journaled, config:cfg, pinnedProviders:allCandidates, provenance:{...require('../../core/config-history.js').safeProvenance(runContext.getStore()),runId:sid} });
         if (journaled) {
           // The panel as config sees it (no health probe): dispatch_peers re-selects each round.
           /** @type {string[]} */ let names = [];
-          try { names = registry.selectForConsensus({ config: cfg, expert: args.expert || expert || "" }).providers.map((p) => p.name); } catch { /* journaling never breaks init */ }
+          try { names = registry.selectForConsensus({ config: cfg, expert: args.expert || expert || "" }).providers.map((/** @type {Provider} */ p) => p.name); } catch { /* journaling never breaks init */ }
           beginRun("consensus-step", "consensus-step", args.expert || expert, names, originalPrompt, sid);
           journal.emit(sid, "state", { state: "init", round: entered.state.round, status: entered.state.status });
         }
@@ -1239,6 +1271,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       if (!sid) return { error: "missing-sessionId", note: "sessionId is required for every action except init" };
       const cur = loopStore.get(sid);
       if (!cur) return { error: "session-expired", note: "no live session for that id (server restart or TTL); restart with action:init" };
+      if(cur.provenance)runContext.enterWith({...cur.provenance,config:cur.config,signal:runContext.getStore()?.signal});
       /** Journal a step event, only for a loop journaled since init. @param {import("../../core/journal.js").JournalKind} kind @param {Record<string, unknown>} fields */
       const jemit = (kind, fields) => { if (cur.journaled) journal.emit(sid, kind, fields); };
 
@@ -1265,14 +1298,14 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         const peerPrompt = cur.peerPrompt || cur.currentPlan || "";
         // One resolved expert for selection, persona, and the request - consistent.
         const ex = cur.expert || expert || undefined;
-        const { providers: allCandidates, unavailable } = registry.selectForConsensus({ config: getConfig() || {}, expert: ex || "", unhealthy: await unhealthyMap(providers) });
+        const { providers: allCandidates, unavailable } = registry.selectForConsensus({ config: dispatchConfig() || {}, expert: ex || "", unhealthy: await unhealthyMap(providers) });
         // Prevent mid-session peer substitution / identity drift:
         // On round 1, lock the initial peer panel. In subsequent rounds, candidates are
         // strictly restricted to this initial set (no new peers may enter mid-session).
         const initialPeerNames = Array.isArray(cur.initialPeerNames)
           ? cur.initialPeerNames
-          : allCandidates.map((p) => p.name);
-        const candidates = allCandidates.filter((p) => initialPeerNames.includes(p.name));
+          : allCandidates.map((/** @type {Provider} */ p) => p.name);
+        const candidates = (cur.pinnedProviders || allCandidates).filter((/** @type {Provider} */ p) => initialPeerNames.includes(p.name));
         // Circuit breaker. selectForConsensus re-reads config every round and has no
         // memory, so without this a peer that has failed every round is re-dispatched
         // every round - paying its full ceiling to contribute nothing. The streak is
@@ -1282,16 +1315,16 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         // since left the config is not "dropped by the breaker", and letting a stale
         // name keep `dropped` non-empty made every later empty panel look circuit-broken.
         const trippedSet = new Set(loop.trippedProviders(cur.errorStreak, loop.CIRCUIT_BREAK_AFTER));
-        const dropped = candidates.filter((p) => trippedSet.has(p.name)).map((p) => p.name);
-        const selected = candidates.filter((p) => !trippedSet.has(p.name));
+        const dropped = candidates.filter((/** @type {Provider} */ p) => trippedSet.has(p.name)).map((/** @type {Provider} */ p) => p.name);
+        const selected = candidates.filter((/** @type {Provider} */ p) => !trippedSet.has(p.name));
         // A dropped peer's streak never decays (it is no longer dispatched), so `dropped`
         // is identical on every later round. Announce only what is newly dropped - the
         // server holds this state, so the docs' "report it once" must not be the model's job.
         const announced = Array.isArray(cur.announcedDropped) ? cur.announcedDropped : [];
-        const newlyDropped = dropped.filter((name) => !announced.includes(name));
+        const newlyDropped = dropped.filter((/** @type {string} */ name) => !announced.includes(name));
         // Budget gate. Like runToConvergence this gates STARTING a fan-out and never
         // interrupts one in flight, so a slow-but-good answer is always collected.
-        const budgetMs = wallBudgetMs(getConfig());
+        const budgetMs = wallBudgetMs(dispatchConfig());
         if (budgetMs !== null && typeof cur.startedAt === "number" && Date.now() - cur.startedAt >= budgetMs) {
           return terminateLoop(sid, cur, "budget-exhausted", dropped);
         }
@@ -1300,18 +1333,18 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         if (!selected.length) return terminateLoop(sid, cur, dropped.length ? "all-providers-circuit-broken" : "no-providers", dropped);
         if (selected.length < cur.quorumFloor) return terminateLoop(sid, cur, "quorum-lost", dropped);
         /** @type {DelegationRequest} */
-        const peerReq = { prompt: peerPrompt, expert: ex, cwd: typeof args.cwd === "string" ? args.cwd : undefined };
+        const peerReq = { prompt: peerPrompt, expert: ex,signal:runContext.getStore()?.signal,provenance:cur.provenance,timeoutPolicy:cur.config?.timeoutPolicy,deadlineAt:budgetMs===null?undefined:cur.startedAt+budgetMs, cwd: typeof args.cwd === "string" ? args.cwd : undefined };
         const lg = currentLogger();
         try { lg.logEvent({ event: "dispatch_start", at: Date.now(), tool: "consensus", round: cur.round, voices: selected.length }); } catch { /* never break */ }
         jemit("state", { state: "peers", round: cur.round, status: cur.status });
-        const peerResults = await askAll(selected, withPersona(peerReq, ex), { logger: lg, tool: "consensus", orientationFiles: orient(peerReq), startedAt: toolStartedAt, trace: cur.journaled ? { journal, runId: sid, role: "peer", round: cur.round } : undefined });
+        const peerResults = await askAll(selected, withPersona(peerReq, ex), { logger: lg, tool: "consensus", orientationFiles: orient(peerReq), startedAt: toolStartedAt, trace: { journal:cur.journaled?journal:NULL_JOURNAL, runId: sid, role: "peer", round: cur.round,provenance:cur.provenance } });
         const results = peerResults.map((r) =>
           r.isError
-            ? { source: r.provider, isError: true, errorKind: r.errorKind, message: plainMessage(r.message), verdict: null, criticalIssues: [], model: r.model, reasoningEffort: r.reasoningEffort ?? null, ms: r.ms }
+            ? { source: r.provider, provenance:r.provenance,cached:r.cached,isError: true, errorKind: r.errorKind, message: plainMessage(r.message), verdict: null, criticalIssues: [], model: r.model, reasoningEffort: r.reasoningEffort ?? null, ms: r.ms }
             // Retain the raw response `text` on the in-memory loop result so a terminal
             // persist can store it WHEN sessions.captureText is on (persistRun gates it;
             // the wire `opinions` mapping below omits text, so it never leaves the loop).
-            : { ...parseReview(typeof r.text === "string" ? r.text : ""), source: r.provider, isError: false, text: typeof r.text === "string" ? r.text : undefined, model: r.model, reasoningEffort: r.reasoningEffort ?? null, ms: r.ms }
+            : { ...parseReview(typeof r.text === "string" ? r.text : ""), source: r.provider,provenance:r.provenance,cached:r.cached, isError: false, text: typeof r.text === "string" ? r.text : undefined, model: r.model, reasoningEffort: r.reasoningEffort ?? null, ms: r.ms }
         );
         const next = loop.addOpinions(cur, results);
         loopStore.put(sid, { ...next, initialPeerNames, announcedDropped: announced.concat(newlyDropped) });
@@ -1417,6 +1450,8 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
     // quietly because a wrong value there costs completeness; a wrong window costs truth -
     // you would get an all-time report labelled "24h".
     const nowMs = Date.now();
+    const filters=require('../../core/config-analysis.js').validateFilters(args);
+    if(filters.error)return {...filters,detail:filters.error};
     /** @type {number|null} */
     let windowMs = null;
     if (args.since !== undefined && args.since !== null) {
@@ -1466,9 +1501,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       // -1 (or omitted) means "no caller cap", still bounded by MAX_SESSION_RECORDS.
       const raw = args.sessions;
       const cap = Number.isInteger(raw) && raw > 0 ? Math.min(raw, MAX_SESSION_RECORDS) : MAX_SESSION_RECORDS;
-      // One clock for both lenses: nowMs is passed to buildAnalysis too, so the event cutoff
-      // and the record cutoff cannot land a few milliseconds apart.
-      const cutoff = windowMs == null ? null : nowMs - windowMs;
+      // One shared evaluation time selects all evidence in the aggregator.
       // listSessions is newest-mtime-first, but it only sorts AFTER stat-ing every entry,
       // so there is no sound way to bound the enumeration without losing recency. Bound the
       // PARSE instead: take the newest `cap` records, then apply the window to those.
@@ -1485,19 +1518,14 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         read += 1;
         const rec = sessions.readSession(e.id, { dir: sessionsDir });
         if (!rec) continue;
-        if (cutoff != null) {
-          // createdAt decides, not mtime: session-annotate rewrites the file and moves mtime
-          // forward. Date.parse returns NaN on garbage and NaN comparisons are always false,
-          // so guard explicitly or an unparseable record silently survives the window.
-          // Closed interval [cutoff, nowMs], matching the event filter: without the upper
-          // bound a future-dated createdAt lands inside every window.
-          const t = typeof rec.createdAt === "string" ? Date.parse(rec.createdAt) : NaN;
-          if (!Number.isFinite(t) || t < cutoff || t > nowMs) continue;
-        }
+        // Select by pinned run start in the shared aggregator. Older records
+        // without that provenance fall back to their record timestamp.
         records.push(rec);
       }
     }
-    return analyzeCore.buildAnalysis(events, records, cfg, {
+    const journals=require('../dashboard/runs.js').createRunIndex({runsDir:require('../../core/paths.js').resolveRunsDir(),sessionsDir,maxRecords:1000,maxFileBytes:2*1024*1024});
+    const allRuns=journals.list();
+    return require('../../core/config-analysis.js').analyzeConfigs(events, records, allRuns.slice(0,1000), cfg, {
       logPath,
       debugEnabled,
       sessionsPersist: persist,
@@ -1505,9 +1533,10 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       windowMs,
       nowMs,
       since: typeof args.since === "string" ? args.since : null,
-      configuredOnly: args.configuredOnly !== false,
+      configuredOnly: args.configuredOnly !== false, configId:args.configId,activationId:args.activationId,groupBy:args.groupBy,
+      history:require("../../core/config-history.js").readHistory(require("node:path").join(require("../../core/paths.js").resolveRunsDir(),"..","history")),
       configError: typeof getConfigError === "function" ? getConfigError() : null,
-      truncated: { log: logTruncated, sessions: sessionsTruncated },
+      truncated: { log: logTruncated, sessions: sessionsTruncated, runs:journals.truncated()||allRuns.length>1000 },
     });
   }
 
@@ -1531,6 +1560,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
     /** @type {DelegationRequest} */
     const req = {
       prompt: args.prompt,
+      signal:runContext.getStore()?.signal,timeoutPolicy:dispatchConfig().timeoutPolicy,provenance:require("../../core/config-history.js").safeProvenance(runContext.getStore()),
       expert: args.expert,
       developerInstructions: args.developerInstructions,
       cwd: args.cwd,
@@ -1555,17 +1585,27 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       // per name in parallel for visible per-provider progress.
       // `for: "consensus"` echoes the consensus panel instead (uncapped, consensus delegates).
       const { unhealthy, needsLogin } = await probeHealth(providers);
-      const sel = { config: getConfig(), expert: expert || "", unhealthy };
+      const sel = { config: dispatchConfig(), expert: expert || "", unhealthy };
       const forConsensus = args.for === "consensus";
       const picked = forConsensus ? { ...registry.selectForConsensus(sel), omitted: [] } : registry.selectForAskAll(sel);
-      const names = picked.providers.map((p) => p.name);
+      const pinned=picked.providers.map(p=>{
+        const base=p.resolveSettings?.({prompt:''})||{},fixedModelEffort=p.capabilities?.fixedModelEffort===true;
+        return {...p,resolveSettings:(/** @type {any} */ req)=>({...base,
+          model:fixedModelEffort?base.model:req.model??base.model,
+          reasoningEffort:fixedModelEffort?base.reasoningEffort:req.reasoningEffort??((req.context==='consensus'?base.consensusEffort:base.askEffort)==='inherited / unknown'?undefined:(req.context==='consensus'?base.consensusEffort:base.askEffort)),
+          temperature:req.temperature??base.temperature,timeoutMs:req.timeoutMs??base.timeoutMs})};
+      });
+      const names = pinned.map((/** @type {Provider} */ p) => p.name);
       // Open the /ask-all fan-out run here: the parallel ask-one calls that follow join it by
       // this runId. A local journal write only - no provider call, no login. The consensus
       // panel opens nothing (consensus-step init opens that run).
       const run = forConsensus ? undefined : beginRun("ask-all", "fanout", expert, names, args.prompt);
       if (run) rememberPanelRun(run.runId);
+      const fanoutId=forConsensus?undefined:groups.create(pinned,{...runContext.getStore(),runId:run?.runId});
+      if(fanoutId&&run)groupByRun.set(run.runId,fanoutId);
       return jsonResult({
-        ...(run ? { runId: run.runId } : {}),
+        ...(run && journal.enabled() ? { runId: run.runId } : {}),
+        ...(fanoutId?{fanoutId}:{}),
         providers: names,
         omitted: (Array.isArray(picked.omitted) ? picked.omitted : []).map((/** @type {any} */ o) => (o && o.alias) || String(o)),
         // Built-ins that cannot answer right now (no CLI, no credential), with the reason.
@@ -1579,8 +1619,22 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       // Resolve ONE provider by name from the SAME selection set (so a pinned
       // openrouter:<alias> resolves and a disabled/over-cap one is rejected).
       const want = typeof args.provider === "string" ? args.provider : "";
-      const { providers: selected, unavailable } = registry.selectForAskAll({ config: getConfig(), expert: expert || "", unhealthy: await unhealthyMap(providers) });
-      const p = selected.find((x) => x.name === want);
+      const { providers: selected, unavailable } = registry.selectForAskAll({ config: dispatchConfig(), expert: expert || "", unhealthy: await unhealthyMap(providers) });
+      const fanoutId=typeof args.fanoutId==='string'?args.fanoutId:groupByRun.get(args.runId);
+      const joined=fanoutId?groups.join(fanoutId,want,req):null;
+      if(joined?.error)return jsonResult({error:joined.error});
+      const p = joined?.provider || selected.find((x) => x.name === want);
+      let disposeSignals=()=>{};
+      if(joined){
+        const configuredTimeoutMs=p.resolveSettings?.({...req,timeoutMs:undefined})?.timeoutMs;
+        const shared=joined.group.context.config?.timeoutPolicy!=='per-provider';
+        runContext.enterWith(joined.group.context);
+        req.provenance={...require("../../core/config-history.js").safeProvenance(joined.group.context),configuredTimeoutMs,limitingReason:shared?'longest-peer / outer budget':'per-provider'};
+        req.deadlineAt=joined.deadlineAt;
+        req.timeoutMs=shared?Math.max(1,joined.deadlineAt-Date.now()):req.timeoutMs??configuredTimeoutMs;
+        const combined=require('../../core/signals.js').combineSignals([joined.signal,...(req.signal?[req.signal]:[])]);
+        req.signal=combined.signal;disposeSignals=combined.dispose;
+      }
       if (!p) {
         const dead = (unavailable || []).find((u) => u.name === want);
         return jsonResult({
@@ -1589,10 +1643,12 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
           unavailable,
         });
       }
-      const { trace, own } = singleTrace("ask-one", args, expert, p.name);
-      const result = await askOne(p, withPersona(req, expert), { logger: currentLogger(), tool: "ask-one", cache: resultCache, orientationFiles: orient(req), startedAt: toolStartedAt, trace });
-      if (own) endRun(trace, { status: result.isError ? "error" : "done" });
-      return jsonResult({ result });
+      const { trace, own } = joined?{trace:{journal,runId:joined.group.context.runId,role:/** @type {const} */ ('peer'),provenance:require("../../core/config-history.js").safeProvenance(joined.group.context)},own:false}:singleTrace("ask-one", args, expert, p.name);
+      try {
+        const result = await askOne(p, withPersona(req, expert), { logger: currentLogger(), tool: "ask-one", cache: resultCache, orientationFiles: orient(req), startedAt: toolStartedAt, trace });
+        if (own) endRun(trace, { status: result.isError ? "error" : "done" });
+        return jsonResult({ result });
+      } finally {disposeSignals();if(fanoutId)groups.settle(fanoutId,want);}
     }
     if (name === "analyze") {
       return jsonResult(runAnalyze(args));
@@ -1686,7 +1742,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       const p = registry.get(ASK_PROVIDER[name]);
       if (!p) return { content: [{ type: "text", text: JSON.stringify({ error: `provider ${ASK_PROVIDER[name]} not registered` }) }] };
       if (name === "ask-openrouter") {
-        const or = getConfig().openrouter || {};
+        const or = dispatchConfig().openrouter || {};
         const dm = or.defaultModel;
         const matched = (or.models || []).find((/** @type {any} */ m) => m.alias === dm);
         if (matched) {
@@ -1700,8 +1756,8 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       return { content: [{ type: "text", text: JSON.stringify({ result }) }] };
     }
     if (EXPERTS.includes(name)) {
-      const { providers: selected, unavailable } = registry.selectForAskAll({ config: getConfig(), expert: name, unhealthy: await unhealthyMap(providers) });
-      const trace = beginRun(name, "fanout", name, selected.map((p) => p.name), req.prompt);
+      const { providers: selected, unavailable } = registry.selectForAskAll({ config: dispatchConfig(), expert: name, unhealthy: await unhealthyMap(providers) });
+      const trace = beginRun(name, "fanout", name, selected.map((/** @type {Provider} */ p) => p.name), req.prompt);
       const results = await askAll(selected, withPersona({ ...req, expert: name }, expert), { logger: currentLogger(), tool: name, cache: resultCache, orientationFiles: orient(req), startedAt: toolStartedAt, trace: trace && { ...trace, role: "peer" } });
       endRun(trace, { status: fanoutStatus(results) });
       // An empty `results` with no reason is indistinguishable from "nobody had anything to
@@ -1711,6 +1767,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
     throw new Error(`unknown tool: ${name}`);
   }
 
+  /** @type {Map<string,AbortController>} */const activeRequests=new Map();
   /** @param {any} msg */
   async function handle(msg) {
     // A reply to a request WE sent (elicitation): route it, never answer it.
@@ -1719,6 +1776,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       if (settle) { pendingRequests.delete(String(msg.id)); settle(msg); }
       return undefined;
     }
+    if(msg?.method==='notifications/cancelled'){activeRequests.get(String(msg.params?.requestId))?.abort();return undefined;}
     try {
       if (msg.method === "initialize") {
         clientCapabilities = (msg.params && msg.params.capabilities) || {};
@@ -1746,8 +1804,11 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       }
       if (msg.method === "tools/list") return { jsonrpc: "2.0", id: msg.id, result: { tools: toolList() } };
       if (msg.method === "tools/call") {
-        const result = await call(msg.params.name, msg.params.arguments || {});
-        return { jsonrpc: "2.0", id: msg.id, result };
+        const controller=new AbortController();activeRequests.set(String(msg.id),controller);
+        try {
+          const result = await runContext.run({...history.observe(),config:structuredClone(activeConfig()),signal:controller.signal,runId:journal.newRunId(),startedAt:Date.now()},()=>call(msg.params.name, msg.params.arguments || {}));
+          return { jsonrpc: "2.0", id: msg.id, result };
+        }finally{activeRequests.delete(String(msg.id));}
       }
       return { jsonrpc: "2.0", id: msg.id, error: { code: -32601, message: `method not found: ${msg.method}` } };
     } catch (e) {
@@ -1756,7 +1817,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
     }
   }
 
-  return { handle, toolList, confirmLogin };
+  return { handle, toolList, confirmLogin, close:()=>{for(const c of activeRequests.values())c.abort();activeRequests.clear();groups.close();history.close();}, history, activeConfig };
 }
 
 /**
@@ -1782,11 +1843,14 @@ function makeLineReader(srv, out) {
       try { msgs.push(JSON.parse(l)); } catch { /* not JSON-RPC */ }
     }
     for (const msg of msgs) if (msg && msg.method === undefined) await srv.handle(msg);
+    const pending=[];
     for (const msg of msgs) {
       if (!msg || msg.method === undefined) continue;
-      const res = await srv.handle(msg);
-      if (msg.id !== undefined && res !== undefined) out(res);
+      const respond=async()=>{const res=await srv.handle(msg);if(msg.id!==undefined&&res!==undefined)out(res);};
+      if(msg.method==='tools/call')pending.push(respond());
+      else await respond();
     }
+    await Promise.all(pending);
   };
 }
 
@@ -1878,6 +1942,9 @@ function makeRuntime({ getServer = () => null } = {}) {
       timeoutMs: providerTimeout("openrouter"),
     }),
   ];
+  const frozen=structuredClone(getConfig());
+  const frozenEnv={...process.env};
+  for(const p of providers)if(!p.resolveSettings)p.resolveSettings=req=>require('../../core/settings.js').resolveSettings(p.name,require('../../core/settings.js').effectiveConfig(getConfig(),frozen),req,frozenEnv);
   const sessionsDir = require("../../core/paths.js").resolveSessionsDir();
   return { providers, getConfig, getConfigError, sessionsDir };
 }
@@ -1904,9 +1971,9 @@ function startStdio() {
   // host closing stdin is MCP's stdio shutdown, and the default SIGTERM/SIGINT exit skips
   // "exit" hooks.
   const { shutdownDeviceLogins } = require("../../core/providers/codex.js");
-  process.stdin.on("end", shutdownDeviceLogins);
+  process.stdin.on("end", ()=>{srv.close();shutdownDeviceLogins();});
   for (const [sig, code] of /** @type {const} */ ([["SIGTERM", 143], ["SIGINT", 130]])) {
-    process.once(sig, () => { shutdownDeviceLogins(); process.exit(code); });
+    process.once(sig, () => { srv.close();shutdownDeviceLogins(); process.exit(code); });
   }
 }
 

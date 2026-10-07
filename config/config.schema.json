@@ -92,6 +92,15 @@
           "examples": [
             3
           ]
+        },
+        "timeoutPolicy": {
+          "type": "string",
+          "enum": [
+            "longest-peer",
+            "per-provider"
+          ],
+          "default": "longest-peer",
+          "description": "Parallel batches intentionally extend shorter peer limits to the longest peer limit; outer budgets always win."
         }
       }
     },

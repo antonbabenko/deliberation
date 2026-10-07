@@ -38,6 +38,13 @@ const { DEFAULT_TTL_MS: STEP_TTL_MS } = require("../../core/loop-store.js");
  * @property {string[]} providers
  * @property {number} rounds
  * @property {number} errors
+ * @property {any} [provenance]
+ * @property {any} [configId]
+ * @property {any} [activationId]
+ * @property {number} [tokenCoverage]
+ * @property {number} [reused]
+ * @property {number} [retries]
+ * @property {number} [attempts]
  * @property {number} tokens
  * @property {boolean} legacy
  * @property {(string|null)} stopReason
@@ -331,6 +338,8 @@ function foldRun(events) {
   let runEnd = null;
   let maxRound = 0;
   let tokens = 0;
+  let tokenCoverage=0,reused=0,attempts=0,retries=0;
+  /** @type {any} */ let provenance=null;
   /** @type {(number|null)} */
   let minAt = null;
   /** @type {Set<string>} */
@@ -351,6 +360,7 @@ function foldRun(events) {
     const callId = typeof ev.callId === "string" ? ev.callId : `seq-${ev.seq}`;
     switch (ev.kind) {
       case "run_start":
+        provenance=require("../../core/config-history.js").safeProvenance(ev);
         if (typeof ev.tool === "string") tool = ev.tool;
         if (typeof ev.workflow === "string") workflow = ev.workflow;
         if (at !== null) runStartAt = at;
@@ -363,11 +373,13 @@ function foldRun(events) {
         if (typeof ev.round === "number") maxRound = Math.max(maxRound, ev.round);
         break;
       case "call_start": {
+        attempts++;
         if (typeof ev.round === "number") maxRound = Math.max(maxRound, ev.round);
         const key = `${ev.provider}|${ev.role}|${ev.round}`;
         keyOf.set(callId, key);
         const prev = erroredByKey.get(key);
         if (prev !== undefined) {
+          retries++;
           errored.delete(prev);
           erroredByKey.delete(key);
         }
@@ -381,7 +393,8 @@ function foldRun(events) {
           const key = keyOf.get(callId);
           if (key !== undefined) erroredByKey.set(key, callId);
         }
-        tokens += tokensOf(ev.usage);
+        if(ev.cached)reused++;
+        else {tokens += tokensOf(ev.usage);if(ev.usage)tokenCoverage++;}
         break;
       default:
         break;
@@ -398,6 +411,7 @@ function foldRun(events) {
     errors: errored.size,
     tokens,
     legacy: false,
+    provenance,configId:provenance?.configId||null,activationId:provenance?.activationId||null,tokenCoverage,reused,attempts,retries,
   };
 }
 
@@ -436,11 +450,13 @@ function legacySummary(id, record) {
     status = record.converged ? "converged" : "unresolved";
   }
   return {
-    runId: id,
+    runId: isSafeId(record.runId)?record.runId:id,
+    provenance:require("../../core/config-history.js").safeProvenance(record.provenance),
+    configId:record.provenance?.configId||null,activationId:record.provenance?.activationId||null,
     tool,
     workflow: tool,
     status,
-    startedAt: at,
+    startedAt: Number.isFinite(record.provenance?.startedAt)?record.provenance.startedAt:at,
     endedAt: at,
     providers: Array.from(providers),
     rounds: typeof record.rounds === "number" ? record.rounds : 0,
@@ -474,10 +490,12 @@ function legacySummary(id, record) {
  * a run with no run_end depends on the clock and on its writer pid, so it is derived
  * again on every read (deriveStatus). ponytail: one liveness probe per open run per
  * read; cache it for a few seconds if the index ever grows past a few hundred runs.
- * @param {{runsDir: string, sessionsDir?: string, isAlive?: IsAliveFn, now?: () => number}} opts
- * @returns {{list: (filter?: RunFilter) => RunSummary[], get: (id: string) => (RunDetail|null), cacheSize: () => number}}
+ * @param {{runsDir: string, sessionsDir?: string, isAlive?: IsAliveFn, now?: () => number, maxRecords?:number,maxFileBytes?:number}} opts
+ * @returns {{list: (filter?: RunFilter) => RunSummary[], get: (id: string) => (RunDetail|null), cacheSize: () => number, truncated:()=>boolean}}
  */
 function createRunIndex(opts) {
+  const maxRecords=opts.maxRecords??Infinity,maxFileBytes=opts.maxFileBytes??Infinity;
+  let truncated=false;
   const runsDir = opts.runsDir;
   const sessionsDir = opts.sessionsDir;
   const aliveCheck = typeof opts.isAlive === "function" ? opts.isAlive : isAlive;
@@ -530,6 +548,7 @@ function createRunIndex(opts) {
       journalCache.delete(id);
       return undefined;
     }
+    if (!stat.isFile() || stat.size > maxFileBytes) { truncated = true; return undefined; }
     const cached = journalCache.get(id);
     if (cached && cached.size === stat.size && cached.mtimeMs === stat.mtimeMs) return cached;
     const { events } = readEvents(file);
@@ -558,7 +577,8 @@ function createRunIndex(opts) {
     for (const id of legacyCache.keys()) {
       if (!currentIds.has(id)) legacyCache.delete(id);
     }
-    for (const e of sessions) {
+    if (sessions.length > maxRecords) truncated = true;
+    for (const e of sessions.slice(0,maxRecords)) {
       const cached = legacyCache.get(e.id);
       if (cached && cached.mtimeMs === e.mtimeMs) {
         out.push(cached);
@@ -568,7 +588,7 @@ function createRunIndex(opts) {
       if (!record) continue;
       const summary = legacySummary(e.id, record);
       const searchText = typeof record.question === "string" ? record.question : "";
-      const entry = { mtimeMs: e.mtimeMs, summary, searchText };
+      const entry = { mtimeMs: e.mtimeMs, summary, searchText,sessionId:e.id };
       legacyCache.set(e.id, entry);
       out.push(entry);
     }
@@ -616,6 +636,10 @@ function createRunIndex(opts) {
     const seenIds = new Set();
     /** @type {Set<string>} */
     const currentJournalIds = new Set();
+    if(Number.isFinite(maxRecords)) {
+      names=names.filter(n=>n.endsWith('.jsonl')).map(n=>{try{return {n,at:fs.statSync(path.join(runsDir,n)).mtimeMs};}catch{return {n,at:0};}}).sort((a,b)=>b.at-a.at).map(f=>f.n);
+      if(names.length>maxRecords)truncated=true;names=names.slice(0,maxRecords);
+    }
     for (const name of names) {
       if (!name.endsWith(".jsonl")) continue;
       const id = name.slice(0, -".jsonl".length);
@@ -658,7 +682,7 @@ function createRunIndex(opts) {
     const summary = entry ? journalSummary(entry) : null;
     if (entry && summary) return { summary, events: entry.events };
     if (!sessionsDir) return null;
-    const record = readSession(id, { dir: sessionsDir });
+    const record = readSession(id, { dir: sessionsDir }) || (()=>{const e=loadLegacyEntries().find(e=>e.summary.runId===id);return e?readSession(/** @type {any} */(e).sessionId,{dir:sessionsDir}):null;})();
     if (!record) return null;
     return { summary: legacySummary(id, record), legacy: record };
   }
@@ -670,7 +694,7 @@ function createRunIndex(opts) {
     return journalCache.size + legacyCache.size;
   }
 
-  return { list, get, cacheSize };
+  return { list, get, cacheSize,truncated:()=>truncated };
 }
 
 module.exports = { readEvents, summarize, deriveStatus, legacySummary, createRunIndex, isAlive, QUIET_MS, NEVER_DISPATCHED_MS };

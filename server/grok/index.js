@@ -399,7 +399,7 @@ function shouldInline(buf, mode) {
 // Set XAI_DISABLE_FILE_CACHE=1 to bypass the cache layer entirely.
 // `mode` controls inline-vs-upload (see shouldInline). Inline refs skip the
 // Files API entirely and are emitted as input_text by turnsToInput.
-async function uploadFile({ filePath, filename, apiKey, apiBase, ttl, roots, cwd, fetchImpl, cacheFile, mode, hostBudgetRemainingMs }) {
+async function uploadFile({ filePath, filename, apiKey, apiBase, ttl, roots, cwd, fetchImpl, cacheFile, mode, hostBudgetRemainingMs, signal }) {
   if (!isNonEmptyString(apiKey)) {
     const e = new Error("XAI_API_KEY is not set; cannot upload files.");
     e.code = "missing-auth";
@@ -480,6 +480,7 @@ async function uploadFile({ filePath, filename, apiKey, apiBase, ttl, roots, cwd
     const upClamp = clampToHostBudget(uploadTimeoutMs() > 0 ? uploadTimeoutMs() : undefined, process.env, hostBudgetRemainingMs);
     const upTimeout = upClamp.timeoutMs || 0;
     const upController = new AbortController();
+    const abortUpload=()=>upController.abort();signal?.addEventListener("abort",abortUpload,{once:true});if(signal?.aborted)abortUpload();
     const upTimer = upTimeout > 0 ? setTimeout(() => upController.abort(), upTimeout) : null;
     if (upTimer) upTimer.unref();
 
@@ -508,7 +509,7 @@ async function uploadFile({ filePath, filename, apiKey, apiBase, ttl, roots, cwd
       e.code = "file-upload";
       throw e;
     } finally {
-      if (upTimer) clearTimeout(upTimer);
+      if (upTimer) clearTimeout(upTimer);signal?.removeEventListener("abort",abortUpload);
     }
 
     if (!res.ok) {
@@ -633,6 +634,7 @@ async function resolveFiles(files, opts) {
           apiBase: opts.apiBase,
           ttl: opts.ttl,
           hostBudgetRemainingMs: budgetNow(),
+          signal: opts.signal,
           roots: [resolved.root],
           fetchImpl: opts.fetchImpl,
           cacheFile: opts.cacheFile,
@@ -692,7 +694,7 @@ const { readResponsesStream } = require("./stream.js");
 
 // One /v1/responses call returning the assistant text. Errors carry `.code`
 // and/or `.status`. `fetchImpl` is injectable for tests.
-async function runGrok({ turns, model, timeoutMs, apiKey, apiBase, fetchImpl, reasoningEffort, forceNoStream, hostBudgetRemainingMs }) {
+async function runGrok({ turns, model, timeoutMs, apiKey, apiBase, fetchImpl, reasoningEffort, forceNoStream, hostBudgetRemainingMs, signal }) {
   const legStartedMs = Date.now();
   // A call that arrived unstamped (the standalone /ask-grok handler) still spends ONE
   // budget across its legs: seed it here so the fallback below cannot start the cap over.
@@ -722,7 +724,9 @@ async function runGrok({ turns, model, timeoutMs, apiKey, apiBase, fetchImpl, re
   const hostClamp = clampToHostBudget((typeof timeoutMs === "number" && timeoutMs > 0) ? timeoutMs : DEFAULT_TIMEOUT_MS, process.env, hostBudgetRemainingMs);
   const t = /** @type {number} */ (hostClamp.timeoutMs);
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), t);
+  const abort=()=>controller.abort();
+  signal?.addEventListener("abort",abort,{once:true});if(signal?.aborted)abort();
+  const timer = setTimeout(abort, t);
 
   // The timer stays armed until the BODY is read, not just the headers. Clearing it at
   // the end of the fetch left `res.text()` unbounded, so a slow body could run far past
@@ -765,7 +769,7 @@ async function runGrok({ turns, model, timeoutMs, apiKey, apiBase, fetchImpl, re
   } catch (err) {
     throw annotateTimeout(fetchFailureError("Grok", err, t), hostClamp);
   } finally {
-    clearTimeout(timer);
+    clearTimeout(timer); signal?.removeEventListener("abort",abort);
   }
 
   if (!res.ok) {
@@ -792,7 +796,7 @@ async function runGrok({ turns, model, timeoutMs, apiKey, apiBase, fetchImpl, re
     // inside /consensus, silently getting it dropped by the circuit breaker).
     if (!streamed.sawEvent && !streamed.final && !trimmedDeltas) {
       // The fallback is a SECOND leg of the same call: hand it what is left, not the whole budget.
-      return await runGrok({ turns, model, timeoutMs, apiKey, apiBase, fetchImpl, reasoningEffort, forceNoStream: true, hostBudgetRemainingMs: spendHostBudget(hostBudgetRemainingMs, Date.now() - legStartedMs) });
+      return await runGrok({ turns, model, timeoutMs, apiKey, apiBase, fetchImpl, reasoningEffort, forceNoStream: true, signal, hostBudgetRemainingMs: spendHostBudget(hostBudgetRemainingMs, Date.now() - legStartedMs) });
     }
     // Whitespace-only deltas are `empty` (retryable), never `parse`: the shape was fine,
     // the content was missing. Truthiness alone let "   " through to the parser, which
@@ -895,7 +899,8 @@ async function runWithFiles(args) {
       apiKey: args.apiKey,
       apiBase: args.apiBase,
       fetchImpl: args.fetchImpl,
-      timeoutMs: args.timeout,
+      timeoutMs: args.deadlineAt?Math.min(args.timeout||Infinity,args.deadlineAt-Date.now()):args.timeout,
+      signal:args.signal,
       model: args.model,
       reasoningEffort: args.reasoningEffort,
       hostBudgetRemainingMs: spendHostBudget(args.hostBudgetRemainingMs, Date.now() - startedMs),

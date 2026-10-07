@@ -1,7 +1,7 @@
 // telemetry.js - pure debate convergence trajectory and provider latency analytics for runs.
 // Pure derivation functions are Node-testable (no DOM); renderers use dom.js element builders.
 
-import { h, s, fmtMs, fmtInt, verdictLabel, num } from "./dom.js";
+import { providerLabel, h, s, fmtMs, fmtInt, verdictLabel, num } from "./dom.js";
 import { inkOf } from "./graph.js";
 
 const isConsensus = (wf) => wf === "consensus" || wf === "consensus-step";
@@ -104,7 +104,7 @@ export function deriveDebateTrajectory(run) {
     if (isConvergedState || (peers.length > 0 && approvedPeers.length === peers.length && (!arbiterVerdict || arbiterVerdict === "APPROVE"))) {
       summary = `Consensus reached (${approvedPeers.length}/${peers.length} agreed)`;
     } else if (dissentingPeers.length > 0) {
-      const dissenterNames = dissentingPeers.map((p) => p.provider).join(", ");
+      const dissenterNames = dissentingPeers.map((p) => providerLabel(p.provider)).join(", ");
       summary = `Dissent: ${dissenterNames}${revEvent ? " (revised)" : ""}`;
     } else if (peers.length > 0) {
       summary = `${approvedPeers.length}/${peers.length} approved`;
@@ -155,7 +155,7 @@ export function deriveProviderLatency(run) {
   const byProvider = new Map();
 
   for (const c of calls) {
-    if (!c.provider) continue;
+    if (!c.provider || c.cached) continue;
     let entry = byProvider.get(c.provider);
     if (!entry) {
       entry = {
@@ -233,8 +233,8 @@ export function renderDebateTrajectory(trajectory, onSelectRound) {
 
   const rows = trajectory.map((item) => {
     const peerPills = item.peers.map((p) =>
-      h("span", { class: "peer-verdict-group", title: `${p.provider}: ${p.verdict || "pending"}${p.ms ? ` (${fmtMs(p.ms)})` : ""}` },
-        h("span", { class: `provider-tag ink-${inkOf(p.provider)}` }, p.provider),
+      h("span", { class: "peer-verdict-group", title: `${providerLabel(p.provider)}: ${p.verdict || "pending"}${p.ms ? ` (${fmtMs(p.ms)})` : ""}` },
+        h("span", { class: `provider-tag ink-${inkOf(p.provider)}` }, providerLabel(p.provider)),
         renderVerdictPill(p.verdict),
         p.issuesCount > 0 ? h("span", { class: "issues-count", title: `${p.issuesCount} critical issues` }, `[${p.issuesCount}]`) : null
       )
@@ -300,7 +300,7 @@ export function renderProviderLatency(latencies) {
 
     return h("tr", {},
       h("td", { class: "strong" },
-        `${m.provider} `,
+        `${providerLabel(m.provider)} `,
         m.model ? h("span", { class: "muted" }, m.model) : null
       ),
       h("td", { class: "num" }, fmtInt(m.calls)),

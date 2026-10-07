@@ -82,10 +82,11 @@ test("C5: askAll caches per-provider (each alias keyed by name)", async () => {
   assert.equal(b.__calls, 1);
 });
 
-test("C6: keyFor ignores threadId/cwd/timeout (retries do not fragment the key)", () => {
+test("C6: keyFor separates workspaces but ignores threadId/timeout (retries do not fragment the key)", () => {
   const k1 = keyFor("a", { prompt: "q", threadId: "t1", cwd: "/x", timeoutMs: 1000 });
   const k2 = keyFor("a", { prompt: "q", threadId: "t2", cwd: "/y", timeoutMs: 2000 });
-  assert.equal(k1, k2);
+  assert.notEqual(k1, k2);
+  assert.equal(k1, keyFor("a", {prompt:"q",threadId:"other",cwd:"/x",timeoutMs:2000}));
 });
 
 test("C7: no cache passed = always calls the provider", async () => {

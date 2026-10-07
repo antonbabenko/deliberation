@@ -65,7 +65,7 @@ function parseCompletion(data) {
 }
 
 // One chat/completions call. Returns { text }. Errors carry .status and/or .code.
-async function callOpenRouter({ apiBase, apiKey, model, messages, reasoningEffort, temperature, timeoutMs, fetchImpl, hostBudgetRemainingMs }) {
+async function callOpenRouter({ apiBase, apiKey, model, messages, reasoningEffort, temperature, timeoutMs, fetchImpl, hostBudgetRemainingMs, signal }) {
   const f = fetchImpl || globalThis.fetch;
   if (typeof f !== "function") { const e = new Error("global fetch unavailable; Node 18+ required"); e.code = "network"; throw e; }
   const base = (apiBase || "https://openrouter.ai/api/v1").replace(/\/+$/, "");
@@ -85,7 +85,10 @@ async function callOpenRouter({ apiBase, apiKey, model, messages, reasoningEffor
   const hostClamp = clampToHostBudget((typeof timeoutMs === "number" && timeoutMs > 0) ? timeoutMs : DEFAULT_TIMEOUT_MS, process.env, hostBudgetRemainingMs);
   const t = /** @type {number} */ (hostClamp.timeoutMs);
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), t);
+  const abort=()=>controller.abort();
+  signal?.addEventListener("abort",abort,{once:true});
+  if(signal?.aborted)abort();
+  const timer = setTimeout(abort, t);
   // The timer stays armed until the BODY is read, not just the headers. Clearing it at
   // the end of the fetch left `res.text()` unbounded - a slow body could run for tens of
   // minutes past the ceiling while sibling calls died exactly on it.
@@ -105,7 +108,7 @@ async function callOpenRouter({ apiBase, apiKey, model, messages, reasoningEffor
     }
   } catch (err) {
     throw annotateTimeout(fetchFailureError("OpenRouter", err, t), hostClamp);
-  } finally { clearTimeout(timer); }
+  } finally { clearTimeout(timer); signal?.removeEventListener("abort",abort); }
 
   if (!res.ok) {
     const e = new Error(`OpenRouter API error ${res.status}: ${truncate(bodyText, 500)}`);

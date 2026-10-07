@@ -117,7 +117,10 @@ reliability behaviors:
 
 - **Soft-timeout drain** - on timeout it keeps `agy` alive, keeps buffering its
   streamed stdout, and returns the answer if `agy` completes cleanly within the
-  grace budget. See [Gemini timeout recovery](#gemini-timeout-recovery).
+  grace budget. The unified MCP orchestration uses hard absolute deadlines for
+  single calls and shared fan-outs, so it disables this drain; it remains available
+  on standalone bridge calls without a hard deadline or host cap.
+  See [Gemini timeout recovery](#gemini-timeout-recovery).
 - **Plain-stdout answer with an `Error:` sentinel** - `agy -p` prints the answer as
   plain UTF-8 text on stdout and exits 0; there is no `-o json` mode. The bridge
   treats stdout as the answer unless it matches `/^\s*Error:/` (agy reports
@@ -717,6 +720,10 @@ then escalates to you. Retries reuse the `threadId` so the expert remembers the
 earlier attempts.
 
 ## Gemini timeout recovery
+
+The recovery below applies to standalone bridge calls with a soft timeout. Unified
+MCP calls use an absolute deadline (retries share it), abort the process group at
+that deadline, and grant no additional drain period. Host caps also disable drain.
 
 `timeout` is a soft deadline (default 300000ms; Gemini 3 deep prompts run
 200-260s). `agy -p` streams its answer to stdout incrementally, so the bridge
@@ -2002,3 +2009,41 @@ to invoke or not invoke. Edit these to change expert behavior for your workflow.
   from the same cwd (for example `/ask-all`, `/consensus`) share that single
   per-cwd slot, so a `gemini-reply` could attach to a sibling run's conversation.
   This mirrors `agy`'s own per-cwd model.
+
+## Config provenance and comparison
+
+`core/config-history.js` hashes a versioned allowlisted effective snapshot.
+Built-in construction settings remain active until restart; hot routing and
+OpenRouter aliases take effect on the next run. Runs pin their snapshot,
+configId, activationId and runtimeId. A -> B -> A reuses its configId and creates
+another activation. Debug events, sessions and journals share a runId. Cache hits
+retain original provenance and add no fresh timing, votes or measured token
+spending. Grounded requests bypass the result cache.
+
+The catalog is opt-in alongside telemetry. Atomic 0600 records in private 0700
+directories are bounded to 500 history/200 runtime manifests and 64KiB per record.
+Runtime manifests require journaling, heartbeat every 30s, and become stale/unknown
+after 90s. Ingestion validates ownership, size, hashes, allowlists and symlinks.
+Catalog failure cannot prevent delegation; runs carry their own snapshots.
+Observed runtimes are not a complete live inventory.
+
+`analyze` accepts `groupBy: "config"`, full SHA-256 `configId` (or `unknown`),
+`activationId`, and existing `since` windows. A closed start-time cohort includes
+attempts and terminal outcomes beyond the window boundary. Uncorrelated legacy
+calls use event time. Whole-run latency/outcomes require journals; live/reused
+runs are separate, and missing token usage remains unknown. Historical groups
+retain recorded membership regardless of configuredOnly. Timing and agreement
+stay separate; advisory recommendations use config/workload/settings cohorts.
+Stats and its daily chart share filters and deduplicate journals/sessions by
+runId. Bounded reads disclose truncation.
+
+`routing.timeoutPolicy` selects longest-peer (default) or per-provider. Fan-outs
+resolve limits before dispatch, with one absolute deadline capped by host and
+consensus budgets; retries/backoff consume it. Short caps are intentionally
+waived under longest-peer. Progressive panel/ask-one uses a UUID fanoutId,
+independently of optional journal runId. Groups pin membership/settings, start
+their clock at first dispatch, reject duplicates/nonmembers/replays, expire
+missing members, and abort attempts on expiry/shutdown. Member host caps and
+cancellation affect only that member. Idle contexts expire after 10 minutes,
+with at most 1000 groups. Single calls and sequential arbiter phases keep their
+own limits while respecting overall consensus budgets.

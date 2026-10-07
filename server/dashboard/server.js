@@ -17,6 +17,7 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const { redact } = require("../../core/redact.js");
 const { isSafeId, JOURNAL_KEYS } = require("../../core/journal.js");
+const SERVER_VERSION = require("../mcp/package.json").version;
 
 const COOKIE = "dlb_dash";
 const KEEPALIVE_MS = 15000;
@@ -147,7 +148,8 @@ function publicConfig(cfg, env) {
  *   tailer: {subscribe: (fn: (m: {id: string, event: object}) => void, since?: string) => () => void, close?: () => void},
  *   getConfig: () => any,
  *   health: () => (object|Promise<object>),
- *   stats: () => (object|Promise<object>),
+ *   stats: (filters?:any) => (object|Promise<object>),
+ *   runtimeReport?: () => any,
  * }} opts
  * @returns {http.Server} not listening
  */
@@ -339,9 +341,14 @@ function createDashboardServer(opts) {
       if (!run) return sendJson(req, res, 404, { error: "run not found" });
       return sendJson(req, res, 200, served(run));
     }
-    if (p === "/api/config") return sendJson(req, res, 200, outward(publicConfig(getConfig(), process.env)));
+    if (p === "/api/config") return sendJson(req, res, 200, outward({...publicConfig(getConfig(), process.env),serverVersion:SERVER_VERSION,...(opts.runtimeReport?{observedRuntimeSettings:opts.runtimeReport()}: {})}));
     if (p === "/api/health") return sendJson(req, res, 200, outward(await health()));
-    if (p === "/api/stats") return sendJson(req, res, 200, outward(await stats()));
+    if (p === "/api/stats") {
+      const filter=Object.fromEntries(['since','configId','activationId'].flatMap(k=>url.searchParams.has(k)?[[k,url.searchParams.get(k)]]:[]));
+      const valid=require('../../core/config-analysis.js').validateFilters(filter);
+      if(valid.error)return sendJson(req,res,400,valid);
+      return sendJson(req,res,200,outward(await stats(filter)));
+    }
     if (p === "/api/events") return sendEvents(req, res);
     return sendJson(req, res, 404, { error: "not found" });
   }

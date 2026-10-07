@@ -123,6 +123,7 @@ noscript { display: block; padding: 24px; font-family: var(--mono); }
   border-bottom: 1px solid var(--rule);
 }
 .brand { font: 700 13px/1 var(--mono); letter-spacing: 0.16em; text-transform: uppercase; }
+.server-version { font: 11px/1 var(--mono); color: var(--fg-2); white-space: nowrap; }
 .modes { display: flex; gap: 4px; }
 .mode-key, .key {
   display: inline-flex;
@@ -453,6 +454,7 @@ input[type="search"] { width: 230px; }
 
 .capture-telemetry { margin-top: 24px; display: grid; gap: 24px; }
 .capture-telemetry:empty { display: none; }
+.capture-telemetry > * { min-width: 0; }
 .trajectory-panel, .latency-panel { margin: 0; }
 .round-btn {
   background: var(--paper-2);
@@ -593,3 +595,10 @@ input[type="search"] { width: 230px; }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
 }
+
+/* Filters wrap within the viewport; wide comparison tables scroll locally. */
+.stats-filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
+.stats-filters label { display: block; min-width: 0; max-width: 100%; }
+.stats-filters label:nth-child(2) { flex: 1; min-width: min(240px, 100%); }
+.stats-filters select { display: block; width: 100%; max-width: 100%; margin-top: 4px; }
+.stats-filters input { display: block; width: 100%; max-width: 100%; margin-top: 4px; }

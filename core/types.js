@@ -12,6 +12,11 @@
 
 /**
  * @typedef {Object} DelegationRequest
+ * @property {AbortSignal} [signal]
+ * @property {string} [timeoutPolicy]
+ * @property {string} [tool]
+ * @property {number} [deadlineAt]
+ * @property {any} [provenance]
  * @property {string}  prompt
  * @property {string}  [developerInstructions]
  * @property {string}  [cwd]
@@ -60,6 +65,7 @@
  * @property {(string|null)} [reasoningEffort]  effective reasoning effort the call
  *   used; `null` for providers with no such knob (Codex, Gemini CLIs).
  * @property {Usage}    [usage]  HTTP-provider token usage; absent for CLIs.
+ * @property {any} [provenance]
  * @property {boolean}  [cached]  true when served from the in-session dedup cache.
  * @property {boolean}  [workspaceMutated]  true when an advisory (read-only) run
  *   nonetheless changed the consulted workspace (git mutation detected); the result
@@ -74,9 +80,11 @@
  * @property {string}   errorKind
  * @property {boolean}  retryable
  * @property {string}   [message]
+ * @property {boolean} [cached]
  * @property {number}   ms
  * @property {(string|null)} [reasoningEffort]
  * @property {number}   [retryAfterMs]  upstream Retry-After hint on a 429, in ms.
+ * @property {any} [provenance]
  * @property {string}   [transportCode]  low-level transport cause behind a coarse
  *   `errorKind` (e.g. UND_ERR_HEADERS_TIMEOUT, ECONNRESET, ENOTFOUND). Content-free,
  *   so it is safe to write to the debug log; see core/debug-log.js `errorCode`.
@@ -89,6 +97,8 @@
  * @property {boolean} canImplement
  * @property {boolean} fileUpload
  * @property {boolean} multiTurn
+ * @property {boolean} [fixedModelEffort]  model and effort are fixed at construction;
+ *   request overrides must not replace their effective settings in pinned fan-outs.
  * @property {boolean} [walksFilesystem]  true when the provider runs locally and can
  *   read any file under cwd itself (Codex/Gemini, read-only sandbox). false/absent for
  *   HTTP advisory providers (Grok/OpenRouter) that only see explicitly-attached files.
@@ -96,6 +106,7 @@
 
 /**
  * @typedef {Object} Provider
+ * @property {(req: DelegationRequest) => any} [resolveSettings]
  * @property {string} name
  * @property {ProviderCapabilities} capabilities
  * @property {() => Promise<{ok:boolean, reason?:string}>} health

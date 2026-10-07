@@ -1,6 +1,7 @@
 // dom.js - element builders and formatters. Every string becomes a text node or an
 // attribute value; nothing is ever parsed as HTML.
 
+import "./display.js";
 const SVG_NS = "http://www.w3.org/2000/svg";
 
 function fill(el, attrs, kids) {
@@ -30,26 +31,11 @@ export const s = (tag, attrs, ...kids) => fill(document.createElementNS(SVG_NS, 
 
 export const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
 
-/** Duration: 840ms, 12.34s, 4m 12.3s. */
-export function fmtMs(ms) {
-  const v = num(ms);
-  if (v === null) return "-";
-  if (v < 1000) return `${Math.round(v)}ms`;
-  if (v < 60000) return `${(v / 1000).toFixed(v < 10000 ? 2 : 1)}s`;
-  const m = Math.floor(v / 60000);
-  return `${m}m ${((v % 60000) / 1000).toFixed(1).padStart(4, "0")}s`;
-}
-
-/** Elapsed clock: 00:42.3 or 1:04:12. */
+/** Whole seconds above 1s; normalize carries by rounding total seconds. */
+export const {providerLabel,formatDuration:fmtMs}=globalThis.deliberationDisplay;
 export function fmtClock(ms) {
-  const v = Math.max(0, num(ms) || 0);
-  const t = Math.floor(v / 100);
-  const tenths = t % 10;
-  const sec = Math.floor(t / 10) % 60;
-  const min = Math.floor(t / 600) % 60;
-  const hr = Math.floor(t / 36000);
-  const p = (n) => String(n).padStart(2, "0");
-  return hr ? `${hr}:${p(min)}:${p(sec)}` : `${p(min)}:${p(sec)}.${tenths}`;
+  const t=Math.round(Math.max(0,num(ms)||0)/1000),sec=t%60,min=Math.floor(t/60)%60,hr=Math.floor(t/3600),p=n=>String(n).padStart(2,'0');
+  return hr?`${hr}:${p(min)}:${p(sec)}`:`${p(min)}:${p(sec)}`;
 }
 
 export function fmtInt(n) {

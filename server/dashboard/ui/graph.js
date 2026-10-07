@@ -2,7 +2,7 @@
 // lanes of calls, phase markers and verdicts from a reduced run; `renderGraph` draws it
 // into an <svg>.
 
-import { s, fmtMs, verdictLabel, num } from "./dom.js";
+import { s, fmtMs, verdictLabel, num, providerLabel } from "./dom.js";
 
 const ENDED = new Set(["done", "converged", "unresolved", "error"]);
 const PHASE_ORDER = ["init", "request", "start", "blind", "peers", "adjudicate", "synthesize", "revise", "converged", "unresolved", "done"];
@@ -154,7 +154,7 @@ function flatNodes(run) {
       let state = last ? callState(last, run) : skipped ? "skipped" : run.status === "abandoned" ? "abandoned" : ended ? "failed" : "pending";
       if (run.dropped.includes(p)) state = "broken";
       const sub = last && last.ms !== null ? fmtMs(last.ms) : skipped ? "not dispatched" : null;
-      return { id: p, label: p, state, key: last ? last.callId : `phase:${p}:1`, round: 1, at: last ? last.startAt : null, sub };
+      return { id: p, label: providerLabel(p), state, key: last ? last.callId : `phase:${p}:1`, round: 1, at: last ? last.startAt : null, sub };
     });
     return [
       { id: "start", label: "start", state: "succeeded", key: "phase:start:1", round: 1, at: run.startedAt, sub: null },
@@ -167,7 +167,7 @@ function flatNodes(run) {
   return [
     { id: "request", label: "request", state: "succeeded", key: "phase:request:1", round: 1, at: run.startedAt, sub: null },
     {
-      id: "provider", label: (call && call.provider) || run.providers[0] || "provider",
+      id: "provider", label: providerLabel((call && call.provider) || run.providers[0] || "provider"),
       state: call ? callState(call, run) : run.status === "running" ? "pending" : endState,
       key: call ? call.callId : "phase:provider:1", round: 1, at: call ? call.startAt : null, sub: call && call.model ? call.model : null,
     },
@@ -218,7 +218,7 @@ function channelsOf(run, health) {
   const byId = new Map();
   const ch = (id, label, kind, provider) => {
     if (!byId.has(id)) {
-      const c = { id, label, kind, provider, ink: kind === "host" ? "host" : inkOf(provider), model: null, effort: null, flags: [], segments: [] };
+      const c = { id, label:providerLabel(label), kind, provider, ink: kind === "host" ? "host" : inkOf(provider), model: null, effort: null, flags: [], segments: [] };
       byId.set(id, c);
       list.push(c);
     }
@@ -234,13 +234,13 @@ function channelsOf(run, health) {
   }
   for (const c of callsOf(run)) {
     const arb = wf === "consensus" && (c.role === "arbiter" || c.role === "blind");
-    const channel = arb ? ch(`arbiter:${c.provider}`, `arbiter ${c.provider}`, "arbiter", c.provider) : ch(c.provider, c.provider, "provider", c.provider);
+    const channel = arb ? ch(`arbiter:${c.provider}`, `arbiter ${providerLabel(c.provider)}`, "arbiter", c.provider) : ch(c.provider, c.provider, "provider", c.provider);
     if (c.model) channel.model = c.model;
     if (c.reasoningEffort) channel.effort = c.reasoningEffort;
     channel.segments.push({
       key: c.callId, kind: "call", t0: c.startAt, t1: c.endAt, state: callState(c, run), round: roundOf(c.round),
       decode: decodeOf(c, verdicts), ceiling: num(c.timeoutMs) ? c.startAt + c.timeoutMs : null, call: c,
-      label: `${c.provider} ${c.role || "call"}`,
+      label: `${providerLabel(c.provider)} ${c.role || "call"}`,
     });
   }
   const hp = new Map(((health && health.providers) || []).map((p) => [p.name, p]));
@@ -302,13 +302,7 @@ const ROW = 13;
 const PAD = 12; // inner left margin of the scope face
 let uid = 0;
 
-const tick = (ms) => {
-  const v = Math.abs(ms);
-  if (v < 1000) return `+${Math.round(ms)}ms`;
-  if (v < 10000) return `+${(Math.floor(ms / 100) / 10).toFixed(1)}s`;
-  if (v < 60000) return `+${Math.floor(ms / 1000)}s`;
-  return `+${Math.floor(ms / 60000)}m${String(Math.floor((ms % 60000) / 1000)).padStart(2, "0")}`;
-};
+const tick = ms => `+${fmtMs(ms)}`;
 
 const SEVERITY = ["succeeded", "skipped", "pending", "running", "abandoned", "broken", "timeout", "failed"];
 
@@ -424,21 +418,45 @@ function hexagon(xa, xb, y, hgt) {
   return `${xa},${m} ${xa + n},${y} ${xb - n},${y} ${xb},${m} ${xb - n},${y + hgt} ${xa + n},${y + hgt}`;
 }
 
-/** Keyboard + click activation for an SVG control. */
-function control(el, label, activate, extraKeys) {
+/** Update geometry/text in place so a pressed SVG control survives a live redraw. */
+function patchControl(el, draft) {
+  for (const attr of [...el.attributes]) if (!draft.hasAttribute(attr.name)) el.removeAttribute(attr.name);
+  for (const attr of draft.attributes) el.setAttribute(attr.name, attr.value);
+  const children=[...draft.childNodes];
+  children.forEach((next,i)=>{
+    const prev=el.childNodes[i];
+    if(prev&&prev.nodeType===next.nodeType&&prev.nodeName===next.nodeName) {
+      if(next.nodeType===3)prev.nodeValue=next.nodeValue;
+      else patchControl(prev,next);
+    }else if(prev)el.replaceChild(next,prev);
+    else el.append(next);
+  });
+  while(el.childNodes.length>children.length)el.lastChild.remove();
+}
+
+/** Keyboard + click activation for an SVG control, retaining its DOM identity. */
+function control(el, label, activate, extraKeys, previous) {
   el.setAttribute("tabindex", "0");
   el.setAttribute("aria-label", label);
+  el.append(s("title", { text: label }));
+  if(previous&&previous.nodeName===el.nodeName) {
+    patchControl(previous,el);
+    previous.__activate=activate;
+    previous.__extraKeys=extraKeys;
+    return previous;
+  }
+  el.__activate=activate;
+  el.__extraKeys=extraKeys;
   el.addEventListener("click", (e) => {
     if (e.defaultPrevented) return;
-    activate();
+    el.__activate();
   });
   el.addEventListener("keydown", (e) => {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
-      activate();
-    } else if (extraKeys) extraKeys(e);
+      el.__activate();
+    } else if (el.__extraKeys) el.__extraKeys(e);
   });
-  el.append(s("title", { text: label }));
   return el;
 }
 
@@ -451,6 +469,8 @@ function control(el, label, activate, extraKeys) {
  */
 export function renderGraph(svg, workflow, model) {
   const ui = model.ui || {};
+  const previousControls=new Map([...svg.querySelectorAll('[data-key]')].map(el=>[el.getAttribute('data-key'),el]));
+  const bindControl=(el,label,activate,extraKeys)=>control(el,label,activate,extraKeys,previousControls.get(el.getAttribute('data-key')));
   const active = document.activeElement;
   const focusKey = active && svg.contains(active) && active.matches(":focus-visible") ? active.getAttribute("data-key") : null;
   const id = svg.dataset.uid || (svg.dataset.uid = `g${++uid}`);
@@ -484,11 +504,11 @@ export function renderGraph(svg, workflow, model) {
       const sel = r.n === model.round;
       const wide = xb - xa;
       const text = wide > 70 ? `R${r.n} ${fmtMs(r.t1 - r.t0)}` : `R${r.n}`;
-      const g = s("g", { class: `round-tab${sel ? " is-selected" : ""}`, role: "tab", "aria-selected": sel ? "true" : "false", "data-key": `round:${r.n}`, "data-round": r.n },
+      let g = s("g", { class: `round-tab${sel ? " is-selected" : ""}`, role: "tab", "aria-selected": sel ? "true" : "false", "data-key": `round:${r.n}`, "data-round": r.n },
         s("rect", { x: xa, y: y + 1, width: wide, height: 22, class: "tab-hit" }),
         s("rect", { x: xa + 1, y: y + 9, width: wide - 2, height: 8, class: "tab-bar" }),
         wide >= 18 ? s("text", { x: xa + 3, y: y + 7, class: "tab-label" }, text) : null);
-      control(g, `Round ${r.n}, ${fmtMs(r.t1 - r.t0)}${sel ? ", selected" : ""}`, () => ui.onRound && ui.onRound(r.n), (e) => {
+      g=bindControl(g, `Round ${r.n}, ${fmtMs(r.t1 - r.t0)}${sel ? ", selected" : ""}`, () => ui.onRound && ui.onRound(r.n), (e) => {
         if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
           e.preventDefault();
           const n = r.n + (e.key === "ArrowRight" ? 1 : -1);
@@ -541,14 +561,14 @@ export function renderGraph(svg, workflow, model) {
     const x = c.x;
     const { lx, row } = c;
     const single = c.nodes.length === 1;
-    const g = s("g", { class: `trig st-${c.state}`, "data-key": `trig:${n.key}`, role: "button", ...(single ? { "data-node": n.id, "data-state": n.state } : { "data-cluster": c.nodes.length }) },
+    let g = s("g", { class: `trig st-${c.state}`, "data-key": `trig:${n.key}`, role: "button", ...(single ? { "data-node": n.id, "data-state": n.state } : { "data-cluster": c.nodes.length }) },
       s("rect", { x: x - 7, y: rulerTop + 2, width: 14, height: base - rulerTop - 2, class: "trig-hit" }),
       s("path", { d: `M${x - 5},${base - 18} L${x + 5},${base - 18} L${x},${base - 10} Z`, class: "trig-mark" }),
       single ? null : s("path", { d: `M${x - 5},${base - 21} L${x + 5},${base - 21}`, class: "trig-stack" }),
       s("text", { x: lx, y: rulerTop + 11 + row * 13, class: "trig-label" }, c.label),
       single ? null : c.nodes.map((m) => s("g", { class: "trig-member", "data-node": m.id, "data-state": m.state })));
     const said = c.nodes.map((m) => `${m.label}${m.round && model.rounds.length ? ` round ${m.round}` : ""}: ${m.state}`).join("; ");
-    control(g, `${said}, ${tick(rel(n.at))}${single ? "" : `. Opens ${n.label}; the sequence row lists each one.`}`, () => ui.onSelect && ui.onSelect(n.key));
+    g=bindControl(g, `${said}, ${tick(rel(n.at))}${single ? "" : `. Opens ${n.label}; the sequence row lists each one.`}`, () => ui.onSelect && ui.onSelect(n.key));
     kids.push(g);
   }
   y = base + 30;
@@ -562,8 +582,8 @@ export function renderGraph(svg, workflow, model) {
     const x = x0 + ((x1 - x0) * i) / divs;
     grid.push(s("line", { x1: x, x2: x, y1: top - 4, y2: bottom, class: i === 0 || i === divs ? "grat edge" : "grat" }));
   }
-  const bg = s("rect", { x: x0, y: top - 4, width: x1 - x0, height: plotH + 4, class: "plot", "data-key": "plot" });
-  control(bg, "Capture plot. Drag to place cursors A and B. Arrow keys move cursor A, Shift with arrow keys moves cursor B, Escape clears them.", () => {}, (e) => {
+  let bg = s("rect", { x: x0, y: top - 4, width: x1 - x0, height: plotH + 4, class: "plot", "data-key": "plot" });
+  bg=bindControl(bg, "Capture plot. Drag to place cursors A and B. Arrow keys move cursor A, Shift with arrow keys moves cursor B, Escape clears them.", () => {}, (e) => {
     const step = span / 100;
     const c = { ...(ui.cursors || {}) };
     if (e.key === "Escape") return ui.onCursor && ui.onCursor(null, null);
@@ -666,12 +686,12 @@ export function renderGraph(svg, workflow, model) {
         kids.push(s("text", { x: (xa + xe) / 2, y: dy + 12, class: `decode-text tone-${tone}${dim}`, "text-anchor": "middle" }, text));
       }
       const hitW = Math.max(10, xb - xa);
-      const hit = s("rect", {
+      let hit = s("rect", {
         x: xa - (hitW - (xb - xa)) / 2, y: ly, width: hitW, height: TRACE_H + DECODE_H + 2,
         class: `hit${ui.selected === g.key ? " is-selected" : ""}`, "data-key": g.key, role: "button",
       });
       const len = g.t1 !== null && g.t1 !== undefined ? fmtMs(g.t1 - g.t0) : "running";
-      control(hit, `${g.label}${model.rounds.length ? ` round ${g.round}` : ""}: ${g.state}, ${len}${g.decode ? `, ${g.decode}` : ""}`, () => ui.onSelect && ui.onSelect(g.key));
+      hit=bindControl(hit, `${g.label}${model.rounds.length ? ` round ${g.round}` : ""}: ${g.state}, ${len}${g.decode ? `, ${g.decode}` : ""}`, () => ui.onSelect && ui.onSelect(g.key));
       hits.push(hit);
     }
   });
@@ -703,7 +723,9 @@ export function renderGraph(svg, workflow, model) {
   if (a !== null && b !== null) parts.push(`B-A ${fmtMs(Math.abs(b - a))}`);
   kids.push(s("text", { x: x1, y: fy, class: "cursor-readout", "text-anchor": "end" }, parts.length ? parts.join("   ") : narrow ? "drag: cursors" : "drag across the plot to place cursors A and B"));
 
-  svg.replaceChildren(...kids);
+  // Move retained controls instead of removing them between pointerdown and click.
+  kids.forEach((kid,i)=>{if(svg.childNodes[i]!==kid)svg.insertBefore(kid,svg.childNodes[i]||null);});
+  while(svg.childNodes.length>kids.length)svg.lastChild.remove();
   const H = fy + 8;
   svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
   svg.setAttribute("width", String(W));
@@ -718,12 +740,17 @@ export function renderGraph(svg, workflow, model) {
       const g = svg.__geom;
       if (!g || e.button !== 0) return;
       const p = g.point(e);
-      if (p.x < g.x0 || p.x > g.x1 || p.y < g.top - 4) return;
-      start = { x: p.x, moved: false, id: e.pointerId };
+      const target=e.target.closest('[data-key]');
+      const activate=target?.__activate;
+      const canDrag=p.x>=g.x0&&p.x<=g.x1&&p.y>=g.top-4;
+      if (!canDrag && !activate) return;
+      start = { x: p.x, moved: false, id: e.pointerId, canDrag, activate };
+      // Keep the press on this SVG even if a live redraw moves the hit geometry.
+      svg.setPointerCapture(e.pointerId);
     });
     svg.addEventListener("pointermove", (e) => {
       const g = svg.__geom;
-      if (!start || !g || e.pointerId !== start.id) return;
+      if (!start || !g || e.pointerId !== start.id || !start.canDrag) return;
       const p = g.point(e);
       if (!start.moved && Math.abs(p.x - start.x) < 4) return;
       if (!start.moved) svg.setPointerCapture(e.pointerId);
@@ -731,13 +758,15 @@ export function renderGraph(svg, workflow, model) {
       g.ui.onCursor && g.ui.onCursor(g.t(start.x), g.t(p.x));
     });
     const finish = (e) => {
-      if (start && start.moved) {
+      const gesture=start;
+      if (gesture && (gesture.moved || gesture.activate)) {
         const stop = (ev) => { ev.preventDefault(); ev.stopPropagation(); };
         svg.addEventListener("click", stop, { capture: true, once: true });
         setTimeout(() => svg.removeEventListener("click", stop, { capture: true }), 0);
       }
       start = null;
       if (svg.hasPointerCapture && e && svg.hasPointerCapture(e.pointerId)) svg.releasePointerCapture(e.pointerId);
+      if(gesture&&!gesture.moved&&e.type==='pointerup')gesture.activate?.();
     };
     svg.addEventListener("pointerup", finish);
     svg.addEventListener("pointercancel", finish);
