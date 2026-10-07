@@ -128,3 +128,18 @@ test("C10: a provider that REJECTS yields a logged error result, never a throw",
   assert.equal(events.length, 1, "the thrown failure must still emit a provider_result event");
   assert.equal(events[0].isError, true);
 });
+
+test("C11: keyFor separates ask and consensus contexts (prevents low-effort consensus polluting ask)", async () => {
+  const kAsk = keyFor("a", { prompt: "q", context: "ask" });
+  const kConsensus = keyFor("a", { prompt: "q", context: "consensus" });
+  const kDefault = keyFor("a", { prompt: "q" });
+  assert.equal(kAsk, kDefault, "default context should resolve to ask");
+  assert.notEqual(kAsk, kConsensus, "consensus context must produce distinct key");
+
+  const cache = makeResultCache();
+  const p = countingProvider("a");
+  const r1 = /** @type {any} */ (await askOne(p, { prompt: "q", context: "ask" }, { cache }));
+  const r2 = /** @type {any} */ (await askOne(p, { prompt: "q", context: "consensus" }, { cache }));
+  assert.equal(p.__calls, 2, "cross-context request must not reuse cached result");
+  assert.equal(r2.cached, undefined);
+});

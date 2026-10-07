@@ -86,6 +86,7 @@ const REVIEW_FORMAT_INSTRUCTION =
  * @property {Decision[]} decisions
  * @property {(HostVerdict|null)} hostVerdict
  * @property {string} [diffSummary]
+ * @property {string} [verdict]
  */
 
 /**
@@ -142,6 +143,18 @@ function initConsensusLoop(opts) {
 }
 
 /**
+ * Sanitize and bound a text description to cap multi-round prompt growth.
+ * @param {string} text
+ * @param {number} [max]
+ * @returns {string}
+ */
+function sanitizeDesc(text, max = 120) {
+  if (typeof text !== "string") return "";
+  const clean = text.replace(/[\r\n]+/g, " ").trim();
+  return clean.length <= max ? clean : clean.slice(0, max) + "...";
+}
+
+/**
  * Compute a concise diff summary between two plan versions.
  * @param {string} prev
  * @param {string} next
@@ -151,6 +164,9 @@ function summarizePlanDiff(prev, next) {
   if (prev === next) return "no changes";
   const prevLines = (prev || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   const nextLines = (next || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  if (prevLines.length === nextLines.length && prevLines.every((l, i) => l === nextLines[i])) {
+    return "no changes";
+  }
   const prevSet = new Set(prevLines);
   const nextSet = new Set(nextLines);
   const added = nextLines.filter((l) => !prevSet.has(l));
@@ -163,17 +179,25 @@ function summarizePlanDiff(prev, next) {
 
 /**
  * Summarize a round record into a compact structured digest.
- * Extracts addressed, deferred, and dismissed issues along with diffSummary.
+ * Extracts addressed, deferred, and dismissed issues along with diffSummary and hostVerdict.
  * @param {RoundRecord} record
  * @returns {string}
  */
 function buildRoundDigest(record) {
   const decisions = record.decisions || [];
-  const accepted = decisions.filter((d) => d.action === "accept").map((d) => `[${d.category}] ${d.description}`);
-  const deferred = decisions.filter((d) => d.action === "defer").map((d) => `[${d.category}] ${d.description}${d.reason ? ` (Reason: ${d.reason})` : ""}`);
-  const dismissed = decisions.filter((d) => d.action === "dismiss").map((d) => `[${d.category}] ${d.description}${d.reason ? ` (Reason: ${d.reason})` : ""}`);
+  const formatDecision = (/** @type {any} */ d) => {
+    const cat = d && d.category ? d.category : "issue";
+    const desc = sanitizeDesc((d && d.description) || "");
+    const reason = d && d.reason ? ` (Reason: ${sanitizeDesc(d.reason, 80)})` : "";
+    return `[${cat}] ${desc}${reason}`;
+  };
+  const accepted = decisions.filter((d) => d && d.action === "accept").map(formatDecision);
+  const deferred = decisions.filter((d) => d && d.action === "defer").map(formatDecision);
+  const dismissed = decisions.filter((d) => d && d.action === "dismiss").map(formatDecision);
 
-  const lines = [`Round ${record.round}: ${record.diffSummary || "(revised)"}`];
+  const verdict = (record.hostVerdict && record.hostVerdict.verdict) || record.verdict || null;
+  const verdictStr = verdict ? ` (${verdict})` : "";
+  const lines = [`Round ${record.round}${verdictStr}: ${record.diffSummary || "(revised)"}`];
   if (accepted.length) {
     lines.push(`  - Addressed (${accepted.length}): ${accepted.slice(0, 3).join("; ")}${accepted.length > 3 ? "..." : ""}`);
   }
@@ -199,7 +223,11 @@ function prepareRound(state) {
   assertStatus(state, "await_blind", "prepareRound");
   const hist = state.history || [];
   const recent = hist.slice(-2).map((r) => buildRoundDigest(r));
-  const older = hist.slice(0, -2).map((r) => `Round ${r.round}: ${r.diffSummary || "revised"}`);
+  const older = hist.slice(0, -2).map((r) => {
+    const v = (r.hostVerdict && r.hostVerdict.verdict) || r.verdict || null;
+    const vStr = v ? ` (${v})` : "";
+    return `Round ${r.round}${vStr}: ${r.diffSummary || "revised"}`;
+  });
   const meta = [...older, ...recent].join("\n");
   const header = `Round ${state.round} of ${state.maxRounds}.`;
   const body = [

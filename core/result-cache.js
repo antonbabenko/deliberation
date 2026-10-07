@@ -3,7 +3,7 @@
 /**
  * core/result-cache.js - an in-session (MCP-process-lifetime) dedup cache for
  * advisory provider results. A no-tradeoff latency win: an identical re-ask
- * (same provider + model + reasoning effort + developer instructions + prompt +
+ * (same provider + model + reasoning effort + context + developer instructions + prompt +
  * file fingerprint) returns the prior SUCCESS instantly instead of re-calling the
  * model. Distinct prompts behave exactly as before.
  *
@@ -53,6 +53,7 @@ function keyFor(providerName, req) {
     providerName,
     req.model || "",
     req.reasoningEffort || "",
+    req.context || "ask",
     typeof req.temperature === "number" ? req.temperature : "",
     req.developerInstructions || "",
     req.prompt || "",
