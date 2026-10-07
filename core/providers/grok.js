@@ -7,6 +7,7 @@ const { toErrorResult } = require("../provider.js");
  * @param {Object} [opts.bridge]
  * @param {string} [opts.model]
  * @param {string} [opts.reasoningEffort]  default effort from providers.grok.reasoningEffort
+ * @param {string} [opts.consensusReasoningEffort]  default effort from providers.grok.consensusReasoningEffort
  * @param {string} [opts.apiBase]
  * @param {number} [opts.timeoutMs]  construction-time default per-call ceiling (ms), from
  *   providers.grok.timeout / providers.defaults.timeout. Falls through to the bridge default.
@@ -33,23 +34,27 @@ function makeGrokProvider(opts = {}) {
     },
     async ask(req) {
       const started = Date.now();
-      // opts.reasoningEffort carries providers.grok.reasoningEffort from the
-      // composition root; the request still wins. Core never reads config itself.
-      const reasoningEffort = bridge.resolveReasoningEffort(req.reasoningEffort ?? opts.reasoningEffort);
+      // opts.reasoningEffort / consensusReasoningEffort carry providers.grok config
+      // from the composition root; an explicit request wins. Core never reads config itself.
+      const isConsensus = req && req.context === "consensus";
+      const defaultEffort = isConsensus
+        ? (opts.consensusReasoningEffort ?? opts.reasoningEffort)
+        : opts.reasoningEffort;
+      const reasoningEffort = bridge.resolveReasoningEffort((req && req.reasoningEffort) ?? defaultEffort);
       const apiKey = (req && req.apiKey) || process.env.XAI_API_KEY;
-      const timeoutMs = typeof req.timeoutMs === "number" && req.timeoutMs > 0 ? req.timeoutMs : defaultTimeoutMs;
+      const timeoutMs = req && typeof req.timeoutMs === "number" && req.timeoutMs > 0 ? req.timeoutMs : defaultTimeoutMs;
       try {
         // runWithFiles builds its own turns from prompt + developer-instructions;
         // runGrok takes pre-built turns. Both return { text, output }.
-        const out = (req.files && req.files.length)
+        const out = (req && req.files && req.files.length)
           ? await bridge.runWithFiles({
               files: req.files, prompt: req.prompt, "developer-instructions": req.developerInstructions,
               apiKey, apiBase, model, reasoningEffort, timeout: timeoutMs, cwd: req.cwd,
               hostBudgetRemainingMs: req.hostBudgetRemainingMs,
             })
           : await bridge.runGrok({
-              turns: bridge.buildInitialTurns(req.developerInstructions, req.prompt, []),
-              model, apiKey, apiBase, reasoningEffort, timeoutMs, hostBudgetRemainingMs: req.hostBudgetRemainingMs,
+              turns: bridge.buildInitialTurns(req && req.developerInstructions, req && req.prompt, []),
+              model, apiKey, apiBase, reasoningEffort, timeoutMs, hostBudgetRemainingMs: req && req.hostBudgetRemainingMs,
             });
         return { provider: "grok", model, text: out.text || "", isError: false, ms: Date.now() - started, reasoningEffort: reasoningEffort ?? null, usage: out.usage };
       } catch (e) {

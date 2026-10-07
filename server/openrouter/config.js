@@ -77,6 +77,7 @@ function validateConfig(raw) {
   // are hoisted into resolved.openrouter below.
   const providersRaw = isObject(raw.providers) ? raw.providers : {};
   const orProviderRaw = isObject(providersRaw.openrouter) ? providersRaw.openrouter : null;
+  const sharedDefaultsRaw = isObject(providersRaw.defaults) ? providersRaw.defaults : null;
 
   // routing = global fan-out policy. Pulled out of openrouter. Bad maxFanout hard-fails.
   const routingRaw = isObject(raw.routing) ? raw.routing : {};
@@ -91,7 +92,7 @@ function validateConfig(raw) {
   const apiKeyEnv = (orProviderRaw && orProviderRaw.apiKeyEnv) || DEFAULT_API_KEY_ENV;
   const apiBase = (orProviderRaw && orProviderRaw.apiBase) || DEFAULT_API_BASE;
   const allowRawModel = !!orProviderRaw && orProviderRaw.allowRawModel === true;
-  const { defaults, warnings: defaultsWarnings } = resolveDefaults(orProviderRaw && orProviderRaw.defaults);
+  const { defaults, warnings: defaultsWarnings } = resolveDefaults(orProviderRaw && orProviderRaw.defaults, sharedDefaultsRaw);
 
   // models = a MAP keyed by id. Resolve each entry into the legacy array shape with
   // alias === id. Per-entry soft-fail: a bad entry lands in invalidModels and does
@@ -269,29 +270,55 @@ function resolveDashboard(raw) {
 // `.reasoning_effort` the bridge call site reads; `temperature`/`timeout` pass
 // through unchanged. Each value is type-checked with the SAME rules as per-model
 // overrides; a bad value is DROPPED (not sent to the wire) and surfaced as a warning,
-// so the validator agrees with config.schema.json. Unknown keys are dropped silently.
+// so the validator agrees with config.schema.json. If own defaults omit an effort
+// or timeout, it inherits from shared providers.defaults. Unknown keys are dropped silently.
+// @param {*} raw  providers.openrouter.defaults
+// @param {*} [shared]  providers.defaults
 // @returns {{defaults: object, warnings: string[]}}
-function resolveDefaults(raw) {
+function resolveDefaults(raw, shared) {
   const out = {};
   const warnings = [];
-  if (!isObject(raw)) return { defaults: out, warnings };
-  if (raw.reasoningEffort !== undefined) {
-    if (typeof raw.reasoningEffort === "string" && raw.reasoningEffort.trim()) out.reasoning_effort = raw.reasoningEffort;
-    else warnings.push(`providers.openrouter.defaults.reasoningEffort must be a non-empty string (got ${JSON.stringify(raw.reasoningEffort)}); dropped`);
+  const own = isObject(raw) ? raw : {};
+  const sh = isObject(shared) ? shared : {};
+
+  const ownEffort = own.reasoningEffort;
+  const shEffort = sh.reasoningEffort;
+  const targetEffort = ownEffort !== undefined ? ownEffort : shEffort;
+  if (targetEffort !== undefined) {
+    if (typeof targetEffort === "string" && targetEffort.trim()) {
+      out.reasoning_effort = targetEffort.trim();
+    } else {
+      warnings.push(`providers.openrouter.defaults.reasoningEffort must be a non-empty string (got ${JSON.stringify(targetEffort)}); dropped`);
+    }
   }
-  if (raw.temperature !== undefined) {
-    if (typeof raw.temperature === "number" && Number.isFinite(raw.temperature)) out.temperature = raw.temperature;
-    else warnings.push(`providers.openrouter.defaults.temperature must be a finite number (got ${JSON.stringify(raw.temperature)}); dropped`);
+
+  const ownConsensusEffort = own.consensusReasoningEffort;
+  const shConsensusEffort = sh.consensusReasoningEffort;
+  const targetConsensusEffort = ownConsensusEffort !== undefined ? ownConsensusEffort : shConsensusEffort;
+  if (targetConsensusEffort !== undefined) {
+    if (typeof targetConsensusEffort === "string" && targetConsensusEffort.trim()) {
+      out.consensus_reasoning_effort = targetConsensusEffort.trim();
+    } else {
+      warnings.push(`providers.openrouter.defaults.consensusReasoningEffort must be a non-empty string (got ${JSON.stringify(targetConsensusEffort)}); dropped`);
+    }
   }
-  if (raw.timeout !== undefined) {
-    if (Number.isInteger(raw.timeout) && raw.timeout > 0) out.timeout = raw.timeout;
-    else warnings.push(`providers.openrouter.defaults.timeout must be a positive integer (got ${JSON.stringify(raw.timeout)}); dropped`);
+
+  if (own.temperature !== undefined) {
+    if (typeof own.temperature === "number" && Number.isFinite(own.temperature)) out.temperature = own.temperature;
+    else warnings.push(`providers.openrouter.defaults.temperature must be a finite number (got ${JSON.stringify(own.temperature)}); dropped`);
+  }
+  const ownTimeout = own.timeout;
+  const shTimeout = sh.timeout;
+  const targetTimeout = ownTimeout !== undefined ? ownTimeout : shTimeout;
+  if (targetTimeout !== undefined) {
+    if (Number.isInteger(targetTimeout) && targetTimeout > 0) out.timeout = targetTimeout;
+    else warnings.push(`providers.openrouter.defaults.timeout must be a positive integer (got ${JSON.stringify(targetTimeout)}); dropped`);
   }
   return { defaults: out, warnings };
 }
 
-// Build resolved.providers as { name: { enabled, model?, reasoningEffort? } }. The
-// enable flag is the registry/arbiter contract; `model` and `reasoningEffort` are
+// Build resolved.providers as { name: { enabled, model?, reasoningEffort?, consensusReasoningEffort?, timeout? } }. The
+// enable flag is the registry/arbiter contract; `model`, `reasoningEffort`, and `consensusReasoningEffort` are
 // carried through for the providers that accept a pin so the composition root (and
 // the standalone Grok bridge) can hand them to the adapter. openrouter-specific
 // connection keys stay hoisted into resolved.openrouter, and openrouter's own model
@@ -307,12 +334,18 @@ function resolveDefaults(raw) {
 // models.<id>.timeout still wins over all of it - registry.js merges that into the
 // request itself. `defaults` is a shared block, NOT a provider: it never becomes an
 // entry in the resolved map.
-const PINNABLE_KEYS = ["model", "reasoningEffort"];
+const PINNABLE_KEYS = ["model", "reasoningEffort", "consensusReasoningEffort"];
 const KNOWN_PROVIDERS = ["codex", "gemini", "grok", "openrouter"];
 const positiveInt = (/** @type {any} */ v) => (Number.isInteger(v) && v > 0 ? v : undefined);
 function resolveProviders(providersRaw) {
   const out = {};
   const sharedTimeout = positiveInt(isObject(providersRaw.defaults) ? providersRaw.defaults.timeout : undefined);
+  const sharedEffort = isObject(providersRaw.defaults) && typeof providersRaw.defaults.reasoningEffort === "string" && providersRaw.defaults.reasoningEffort.trim()
+    ? providersRaw.defaults.reasoningEffort.trim()
+    : undefined;
+  const sharedConsensusEffort = isObject(providersRaw.defaults) && typeof providersRaw.defaults.consensusReasoningEffort === "string" && providersRaw.defaults.consensusReasoningEffort.trim()
+    ? providersRaw.defaults.consensusReasoningEffort.trim()
+    : undefined;
   // Union the known providers in so a config that sets ONLY providers.defaults still
   // produces an entry per provider to carry the shared timeout. Absent = enabled, which
   // is what an omitted block already meant to the registry.
@@ -320,22 +353,28 @@ function resolveProviders(providersRaw) {
   for (const name of names) {
     if (name === "defaults") continue;
     const block = providersRaw[name];
-    /** @type {{enabled:boolean, model?:string, reasoningEffort?:string, timeout?:number}} */
+    /** @type {{enabled:boolean, model?:string, reasoningEffort?:string, consensusReasoningEffort?:string, timeout?:number}} */
     const resolved = { enabled: !(isObject(block) && block.enabled === false) };
     if (isObject(block)) {
       if (name !== "openrouter") {
         for (const key of PINNABLE_KEYS) {
           const v = block[key];
-          if (typeof v === "string" && v.trim()) resolved[key] = v;
+          if (typeof v === "string" && v.trim()) resolved[key] = v.trim();
         }
+        if (!resolved.reasoningEffort && sharedEffort) resolved.reasoningEffort = sharedEffort;
+        if (!resolved.consensusReasoningEffort && sharedConsensusEffort) resolved.consensusReasoningEffort = sharedConsensusEffort;
       }
       const own = name === "openrouter"
         ? positiveInt(isObject(block.defaults) ? block.defaults.timeout : undefined)
         : positiveInt(block.timeout);
       const t = own !== undefined ? own : sharedTimeout;
       if (t !== undefined) resolved.timeout = t;
-    } else if (sharedTimeout !== undefined) {
-      resolved.timeout = sharedTimeout;
+    } else {
+      if (sharedTimeout !== undefined) resolved.timeout = sharedTimeout;
+      if (name !== "openrouter") {
+        if (sharedEffort) resolved.reasoningEffort = sharedEffort;
+        if (sharedConsensusEffort) resolved.consensusReasoningEffort = sharedConsensusEffort;
+      }
     }
     out[name] = resolved;
   }
@@ -421,8 +460,11 @@ function resolveModels(modelsRaw) {
     if (m.consensus !== undefined && typeof m.consensus !== "boolean") {
       addInvalid(i, id, `models["${id}"] consensus must be a boolean`); continue;
     }
-    if (m.reasoningEffort !== undefined && typeof m.reasoningEffort !== "string") {
-      addInvalid(i, id, `models["${id}"] reasoningEffort must be a string`); continue;
+    if (m.reasoningEffort !== undefined && !(typeof m.reasoningEffort === "string" && m.reasoningEffort.trim())) {
+      addInvalid(i, id, `models["${id}"] reasoningEffort must be a non-empty string`); continue;
+    }
+    if (m.consensusReasoningEffort !== undefined && !(typeof m.consensusReasoningEffort === "string" && m.consensusReasoningEffort.trim())) {
+      addInvalid(i, id, `models["${id}"] consensusReasoningEffort must be a non-empty string`); continue;
     }
     if (m.timeout !== undefined && !(Number.isInteger(m.timeout) && m.timeout > 0)) {
       addInvalid(i, id, `models["${id}"] timeout must be a positive integer`); continue;
@@ -446,7 +488,8 @@ function resolveModels(modelsRaw) {
       // camelCase -> wire mapping happens HERE (the one place): the on-disk
       // `reasoningEffort` becomes the resolved `.reasoning_effort` the bridge call
       // site (server/openrouter/index.js) sends to the API as `reasoning_effort`.
-      reasoning_effort: m.reasoningEffort,
+      reasoning_effort: typeof m.reasoningEffort === "string" ? m.reasoningEffort.trim() : undefined,
+      consensus_reasoning_effort: typeof m.consensusReasoningEffort === "string" ? m.consensusReasoningEffort.trim() : undefined,
       timeout: m.timeout,
       temperature: m.temperature,
       apiBase: m.apiBase,
@@ -580,23 +623,36 @@ function fail(message) {
 function makeConfigReader(filePath) {
   let cachedMtimeMs = null;
   let cachedResult = null;
-
   function read() {
-    let text;
+    let raw;
     try {
-      text = fs.readFileSync(filePath, "utf8");
-    } catch (_) {
-      return { ok: true, error: null, resolved: { version: 1, providers: {}, openrouter: disabledOpenRouter(), consensus: { arbiter: DEFAULT_ARBITER, arbiterDefaulted: true, blindVote: false, maxWallMs: DEFAULT_CONSENSUS_MAX_WALL_MS, quorumFloor: DEFAULT_CONSENSUS_QUORUM_FLOOR }, sessions: { persist: false, maxRecords: DEFAULT_SESSIONS_MAX_RECORDS, maxAgeDays: DEFAULT_SESSIONS_MAX_AGE_DAYS, captureText: false }, dashboard: { enabled: false, capture: DEFAULT_DASHBOARD_CAPTURE, showPII: false, port: DEFAULT_DASHBOARD_PORT, maxRuns: DEFAULT_DASHBOARD_MAX_RUNS, maxAgeDays: DEFAULT_DASHBOARD_MAX_AGE_DAYS }, consensusWarnings: [] } };
+      raw = fs.readFileSync(filePath, "utf8");
+    } catch (err) {
+      if (err && /** @type {any} */ (err).code === "ENOENT") {
+        return {
+          ok: true,
+          error: null,
+          resolved: {
+            version: 1,
+            providers: {},
+            openrouter: disabledOpenRouter(),
+            consensus: { arbiter: DEFAULT_ARBITER, arbiterDefaulted: true, blindVote: false, maxWallMs: DEFAULT_CONSENSUS_MAX_WALL_MS, quorumFloor: DEFAULT_CONSENSUS_QUORUM_FLOOR },
+            sessions: { persist: false, maxRecords: DEFAULT_SESSIONS_MAX_RECORDS, maxAgeDays: DEFAULT_SESSIONS_MAX_AGE_DAYS, captureText: false },
+            dashboard: { enabled: false, capture: DEFAULT_DASHBOARD_CAPTURE, showPII: false, port: DEFAULT_DASHBOARD_PORT, maxRuns: DEFAULT_DASHBOARD_MAX_RUNS, maxAgeDays: DEFAULT_DASHBOARD_MAX_AGE_DAYS },
+          },
+          consensusWarnings: [],
+        };
+      }
+      return fail(`read failed: ${err && /** @type {any} */ (err).message ? /** @type {any} */ (err).message : String(err)}`);
     }
     let parsed;
     try {
-      parsed = JSON.parse(text);
-    } catch (e) {
-      return { ok: false, resolved: null, error: `config JSON parse error: ${e.message}` };
+      parsed = JSON.parse(raw);
+    } catch (err) {
+      return fail(`JSON parse failed: ${err && /** @type {any} */ (err).message ? /** @type {any} */ (err).message : String(err)}`);
     }
     return validateConfig(parsed);
   }
-
   return {
     get() {
       let mtimeMs = null;

@@ -151,6 +151,7 @@ function withRole(trace, role, round) {
  * @returns {Promise<(DelegationResult|null)>}
  */
 async function tracedAsk(trace, provider, req, onError) {
+  req = { ...req, context: req.context ?? "ask" };
   const started = Date.now();
   const callId = traceCallStart(trace, provider.name, req);
   try {
@@ -243,6 +244,8 @@ function withOrientation(provider, req, orientationFiles) {
  * @returns {Promise<DelegationResult>}
  */
 async function callProvider(provider, req, logger, tool, cache, orientationFiles, startedAt, trace) {
+  const context = req.context ?? (tool === "consensus" || tool === "consensus-step" ? "consensus" : "ask");
+  req = { ...req, context };
   // Auto-attach orientation to file-blind providers BEFORE the cache key is computed,
   // so the now-file-bearing request correctly bypasses the cwd-agnostic dedup cache
   // (keyFor excludes cwd; caching an oriented result would risk a cross-repo false hit).
@@ -432,6 +435,7 @@ async function consensus(providers, req, opts = {}) {
         traceState(trace, { state: "blind" });
         const blindReq = withOrientation(arbiter, {
           ...req,
+          context: "consensus",
           files: req.files ? req.files.map((f) => ({ ...f })) : undefined,
           developerInstructions: opts.arbiterInstructions || req.developerInstructions,
         }, opts.orientationFiles);
@@ -456,6 +460,7 @@ async function consensus(providers, req, opts = {}) {
     // A second sequential leg: fitted into what the fan-out left of the host's cap.
     const verdict = await tracedAsk(withRole(trace, "arbiter"), arbiter, fitToHostBudget({
       ...req,
+      context: "consensus",
       files: req.files ? req.files.map((f) => ({ ...f })) : undefined,
       prompt: buildArbiterPrompt(req.prompt, ok),
       developerInstructions: opts.arbiterInstructions || req.developerInstructions,
@@ -477,7 +482,7 @@ async function consensus(providers, req, opts = {}) {
 function buildAdjudicationPrompt(state, results) {
   const peerBlocks = results.map((r) => {
     if (r.isError) return `Peer ${r.source}: ERRORED`;
-    const issues = (r.criticalIssues || []).map((i) => `  - [${i.category}] ${i.description}`).join("\n");
+    const issues = (r.criticalIssues || []).map((/** @type {any} */ i) => `  - [${i.category}] ${i.description}`).join("\n");
     // Cap each peer block (same bound as buildArbiterPrompt): a peer with many
     // long issue descriptions must not blow the arbiter's per-round context.
     return capPeerOpinion(`Peer ${r.source}: ${r.verdict || "UNKNOWN"}${issues ? "\n" + issues : ""}`);
@@ -491,7 +496,8 @@ function buildAdjudicationPrompt(state, results) {
 }
 
 /**
- * Build the per-round revision prompt for the provider arbiter.
+ * Build the revision prompt for the provider arbiter when peer reviews dissented.
+ * Only non-APPROVE feedback is fed in; asks for ONLY the revised plan back.
  * @param {{currentPlan:string}} state
  * @param {Array<{source:string, isError:boolean, verdict:(string|null), criticalIssues:{category:string,description:string}[]}>} results
  * @returns {string}
@@ -499,7 +505,7 @@ function buildAdjudicationPrompt(state, results) {
 function buildRevisionPrompt(state, results) {
   const feedback = results
     .filter((r) => !r.isError && r.verdict !== "APPROVE")
-    .flatMap((r) => (r.criticalIssues || []).map((i) => `- [${i.category}] ${i.description}`))
+    .flatMap((r) => (r.criticalIssues || []).map((/** @type {any} */ i) => `- [${i.category}] ${i.description}`))
     .join("\n");
   return [
     "REVISE THE PLAN to address the critical issues below. Return ONLY the revised plan.",
@@ -583,10 +589,10 @@ async function runToConvergence(providers, req, opts = {}) {
       traceState(trace, { state: "blind", round: roundNo, status: state.status });
       traceState(trace, { state: "peers", round: roundNo, status: state.status });
       const [blindRes, peerResults] = await Promise.all([
-        tracedAsk(blindTrace, arbiter, fitToHostBudget(withOrientation(arbiter, { ...req, prompt: blindPrompt }, opts.orientationFiles), capStartedAt), "null"),
+        tracedAsk(blindTrace, arbiter, fitToHostBudget(withOrientation(arbiter, { ...req, context: "consensus", prompt: blindPrompt }, opts.orientationFiles), capStartedAt), "null"),
         // Later rounds run on the SAME cap clock as round one - a fresh clock per fan-out
         // would hand round two the whole cap again.
-        askAll(activeProviders, { ...req, prompt: peerPrompt }, { logger, tool: "consensus", orientationFiles: opts.orientationFiles, startedAt: capStartedAt, trace: peerTrace }),
+        askAll(activeProviders, { ...req, context: "consensus", prompt: peerPrompt }, { logger, tool: "consensus", orientationFiles: opts.orientationFiles, startedAt: capStartedAt, trace: peerTrace }),
       ]);
       state = loop.recordBlindVerdict(state, okText(blindRes) || "(blind pass unavailable)");
 
@@ -631,7 +637,7 @@ async function runToConvergence(providers, req, opts = {}) {
       // Every arbiter leg after the fan-out is fitted into what is left of the host's cap.
       const arbiterTrace = withRole(trace, "arbiter", roundNo);
       const askIsolated = (/** @type {string} */ prompt) =>
-        tracedAsk(arbiterTrace, arbiter, fitToHostBudget({ ...req, prompt }, capStartedAt), "null");
+        tracedAsk(arbiterTrace, arbiter, fitToHostBudget({ ...req, context: "consensus", prompt }, capStartedAt), "null");
       /** @param {(DelegationResult|null)} res @returns {"APPROVE"|"REQUEST_CHANGES"|"REJECT"} */
       const verdictFrom = (res) => {
         const t = okText(res);
@@ -640,30 +646,31 @@ async function runToConvergence(providers, req, opts = {}) {
       };
 
       /** @type {"APPROVE"|"REQUEST_CHANGES"|"REJECT"} */
-      let verdict = "REQUEST_CHANGES";
+      let hostVerdict;
+      /** @type {string} */
       let revised = state.currentPlan;
+
       if (peerDissent) {
-        // Guaranteed non-final: adjudication || revision, both used (no waste). Both
-        // entry states fire before the parallel legs they describe.
         traceState(trace, { state: "adjudicate", round: roundNo, status: state.status, verdicts });
         traceState(trace, { state: "revise", round: roundNo, status: state.status });
-        const [adjRes, revRes] = await Promise.all([
+        const [adjudicateRes, reviseRes] = await Promise.all([
           askIsolated(buildAdjudicationPrompt(state, lastResults)),
           askIsolated(buildRevisionPrompt(state, lastResults)),
         ]);
-        verdict = verdictFrom(adjRes);
-        revised = okText(revRes) || state.currentPlan;
+        hostVerdict = verdictFrom(adjudicateRes);
+        revised = okText(reviseRes) || state.currentPlan;
       } else {
-        // May converge: adjudication only - do not burn a revision call we might discard.
         traceState(trace, { state: "adjudicate", round: roundNo, status: state.status, verdicts });
-        verdict = verdictFrom(await askIsolated(buildAdjudicationPrompt(state, lastResults)));
+        const adjudicateRes = await askIsolated(buildAdjudicationPrompt(state, lastResults));
+        hostVerdict = verdictFrom(adjudicateRes);
       }
-      state = loop.submitAdjudication(state, { verdict, decisions: [] });
+
+      state = loop.submitAdjudication(state, { verdict: hostVerdict, decisions: [] });
       if (state.status === "converged") traceState(trace, { state: "converged", round: roundNo, status: state.status });
       try {
         logger.logEvent({
           event: "round", at: Date.now(), tool: "consensus", round: roundNo,
-          verdict, converged: state.status === "converged",
+          verdict: hostVerdict, converged: state.status === "converged",
           blindVerdict: okText(blindRes) ? "(recorded)" : null,
           voices: lastResults.length,
         });

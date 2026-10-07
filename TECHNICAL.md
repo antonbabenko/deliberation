@@ -286,7 +286,7 @@ This is the single source of truth for the bridge environment variables.
 | `XAI_API_KEY` | Grok | unset (required) | xAI API key; missing key returns `missing-auth` |
 | `GROK_DEFAULT_MODEL` | Grok | `grok-4.6` | Default model when neither the call nor `providers.grok.model` sets one |
 | `XAI_API_BASE` | Grok | `https://api.x.ai/v1` | API endpoint override |
-| `GROK_REASONING_EFFORT` | Grok | `high` | `low`/`medium`/`high`; `none` or `off` omits the field. Overridden by `providers.grok.reasoningEffort` |
+| `GROK_REASONING_EFFORT` | Grok | `high` | `low`/`medium`/`high`; `none` or `off` omits the field. Overridden by `providers.grok.reasoningEffort` (`providers.grok.consensusReasoningEffort` during consensus) |
 | `GROK_FILE_TTL_SECONDS` | Grok | `604800` (7 days) | Upload lifetime, clamped 1h..30d |
 | `GROK_UPLOAD_TIMEOUT_MS` | Grok | `120000` | Ceiling for one Files API upload (separate from the answer timeout). `0` disables it |
 | `GROK_STREAM` | Grok | unset (streaming on) | `0` forces the legacy non-streaming request, which reinstates undici's 300s transport ceiling (see [Grok streaming](#grok-streaming)) |
@@ -303,10 +303,12 @@ Codex has no bridge and no MCP server of its own: the `core` provider
 (`core/providers/codex.js`) spawns `codex exec` and lets the CLI read `~/.codex/config.toml`
 directly. `CODEX_BIN` above overrides which binary is spawned. The **model** and **reasoning
 effort** can be pinned in `config.json` as `providers.codex.model` and
-`providers.codex.reasoningEffort` (`none`/`minimal`/`low`/`medium`/`high`/`xhigh`/`max`/`ultra`). They are
+`providers.codex.reasoningEffort` (`none`/`minimal`/`low`/`medium`/`high`/`xhigh`/`max`/`ultra`), as well as `providers.codex.consensusReasoningEffort` (for `/consensus` and `consensus-step`). They are
 passed as `--model <id>` and `-c model_reasoning_effort="<value>"`, so they win over
-`~/.codex/config.toml`. Unset, codex uses that file. Both are read once at startup, and there is
-no per-call override: the `reasoningEffort` tool argument is still ignored for codex. Each value
+`~/.codex/config.toml`. Unset, codex uses that file. Precedence for reasoning effort: per-call `reasoningEffort` tool argument, then
+`providers.codex.reasoningEffort` (or `providers.codex.consensusReasoningEffort` during consensus), then
+`providers.defaults.reasoningEffort` (or `providers.defaults.consensusReasoningEffort` during consensus),
+then `~/.codex/config.toml`. Each value
 is checked against a closed shape (model `^[A-Za-z0-9][A-Za-z0-9._:/-]*$`, effort from the enum)
 before it reaches argv, so a value starting with `-` or carrying a quote is dropped and never
 becomes a flag or a TOML injection. Results report the pinned model and effort (`"default"` /
@@ -951,7 +953,7 @@ are not globalized):
 | `apiBase` | string | `https://openrouter.ai/api/v1` | OpenAI-compatible base URL |
 | `allowRawModel` | boolean | `false` | Allow raw slugs (not just configured records) |
 | `defaultModel` | string | absent | Slug for the bare `/ask-openrouter` call |
-| `defaults` | object | `{}` | Per-call defaults: `reasoningEffort`, `temperature`, `timeout` |
+| `defaults` | object | `{}` | Per-call defaults: `reasoningEffort`, `consensusReasoningEffort`, `temperature`, `timeout` |
 
 **`models` record fields** (the map key is the record id, matching `^[a-z0-9-]+$` and not
 the reserved `openrouter-default`):
@@ -963,7 +965,8 @@ the reserved `openrouter-default`):
 | `experts` | array or absent | absent = all 7 | `[]` = none / explicit-only; array = subset of the 7 expert keys |
 | `askAll` | boolean | `true` | Include this record in `/ask-all` fan-out when eligible |
 | `consensus` | boolean | `false` | Include this record in `/consensus` voting |
-| `reasoningEffort` | string | from `defaults` | Per-record override (maps to the wire `reasoning_effort`) |
+| `reasoningEffort` | string | from `defaults` | Per-record override for ask calls (maps to wire `reasoning_effort`) |
+| `consensusReasoningEffort` | string | from `defaults` | Per-record override for consensus calls (maps to wire `reasoning_effort` when context is consensus) |
 | `timeout` | number (ms) | from `defaults` | Per-record override |
 | `temperature` | number | from `defaults` | Per-record override |
 | `apiBase` | string | from `providers.openrouter.apiBase` | Per-record override (use for mixing endpoints) |
@@ -1154,7 +1157,16 @@ always use the same model.
 
 ### Consensus cost model
 
-Each consensus round uses approximately `N models x bundle tokens x rounds` tokens.
+Each consensus round historically used approximately `N models x bundle tokens x rounds` tokens.
+To reduce token consumption and improve convergence efficiency:
+
+1. **Multi-Round Context Digests (`core/consensus-loop.js`)**: Rather than carrying full verbatim plans across rounds, earlier round history is compressed:
+   - Older rounds (> 2 rounds ago) are summarized on a single line (`Round N: +X lines, -Y lines`).
+   - Recent rounds (last 2 rounds) format accepted, deferred (with reasons), and dismissed (with reasons) issues alongside the plan diff summary (`summarizePlanDiff`).
+   - Only the latest plan under review is displayed in full, bounding token growth to $O(1)$ across rounds.
+2. **Canonical Prefix Ordering (`server/openrouter/index.js`)**: Static file context blocks (`inlineBlocks`) precede dynamic user prompt text in user messages. Sequential turns or calls sharing file attachments hit upstream KV prompt caches (e.g. Anthropic, DeepSeek, OpenAI), dramatically reducing input token costs.
+3. **Decoupled Reasoning Effort (`consensusReasoningEffort`)**: Multi-round debates can use lighter reasoning tiers than single-shot questions, cutting reasoning token generation by setting `consensusReasoningEffort` lower than `reasoningEffort` in provider defaults or model definitions.
+
 When more than 3 models participate, the bridge emits a warning with an estimated
 token count. There is no hard spend cap - the warning is informational only.
 

@@ -91,7 +91,7 @@ built-in default. Both are read once at MCP start, so changing them needs a rest
 reasons, on the same ladder: per-call `reasoning_effort`, then this key, then
 `GROK_REASONING_EFFORT`, then `high`. `none` omits the field entirely so the model uses
 its own default. Unlike the model pin this one is read per call, so it picks up an edit
-without a restart. Gemini has no equivalent key - agy fuses reasoning effort into the
+without a restart. You can also decouple reasoning effort between standalone questions and consensus debates: `consensusReasoningEffort` (`low` / `medium` / `high` / `none`) can be configured under `providers.grok.consensusReasoningEffort` (as well as `providers.codex.consensusReasoningEffort`, `providers.defaults.consensusReasoningEffort`, and `providers.openrouter.defaults.consensusReasoningEffort`). During `/consensus` and `consensus-step`, consensus reasoning effort is used; during `/ask-all` and standalone ask tools, standard `reasoningEffort` applies. Gemini has no equivalent key - agy fuses reasoning effort into the
 model id itself (`gemini-3.6-flash-high` vs `gemini-3.6-flash-low`), so you change it by
 changing `providers.gemini.model`.
 
@@ -113,8 +113,8 @@ Codex takes `providers.codex.model` and `providers.codex.reasoningEffort`
 `-c model_reasoning_effort="<value>"`, so they win over `~/.codex/config.toml`. Leave
 either one out and codex uses its own setting from that file. Not every model accepts every
 effort, and a value the model or your codex version rejects fails the GPT call rather than
-falling back. A malformed value is ignored with one stderr warning at startup. Both are read once at MCP
-startup, so a change needs a restart.
+falling back. A malformed value is ignored with one stderr warning at startup. The model pin is read once at MCP
+startup; reasoning effort can also be overridden per call or tuned for debates via `consensusReasoningEffort`.
 
 ```json
 "codex": { "enabled": true, "model": "gpt-5.5", "reasoningEffort": "high" }

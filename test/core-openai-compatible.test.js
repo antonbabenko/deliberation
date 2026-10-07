@@ -64,7 +64,7 @@ test("OC5: attached files are inlined as text blocks (no [object Object])", asyn
     // Mirror the real buildMessages join so the [object Object] coercion would surface.
     buildMessages: (/** @type {any} */ turns) => turns.map((/** @type {any} */ t) =>
       (t.role === "user" && Array.isArray(t.inlineBlocks) && t.inlineBlocks.length)
-        ? { role: "user", content: [t.text, ...t.inlineBlocks].join("\n\n") }
+        ? { role: "user", content: [...t.inlineBlocks, t.text].join("\n\n") }
         : { role: t.role, content: t.text }),
     callOpenRouter: async (/** @type {any} */ { messages }) => { captured = messages; return { text: "ok" }; },
   };

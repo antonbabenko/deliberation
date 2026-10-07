@@ -34,6 +34,20 @@
                 600000
               ],
               "description": "Per-call wall-time ceiling in ms for EVERY provider. Overridden by providers.<name>.timeout (providers.openrouter.defaults.timeout for OpenRouter), and by a pinned alias's models.<id>.timeout. Read once at MCP startup, so a change needs a restart."
+            },
+            "reasoningEffort": {
+              "type": "string",
+              "examples": [
+                "high"
+              ],
+              "description": "Default reasoning effort across providers that support it."
+            },
+            "consensusReasoningEffort": {
+              "type": "string",
+              "examples": [
+                "medium"
+              ],
+              "description": "Default reasoning effort for consensus across providers that support it."
             }
           }
         },
@@ -320,6 +334,20 @@
           ],
           "description": "Passed as `-c model_reasoning_effort=...`, winning over the same key in ~/.codex/config.toml. The values are the ones codex-cli 0.160 accepts; not every model accepts every one, and a value the installed codex or the model rejects fails the call. Absent: codex's own setting. Read once at MCP startup, so a change needs a restart."
         },
+        "consensusReasoningEffort": {
+          "type": "string",
+          "enum": [
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "description": "Passed as `-c model_reasoning_effort=...` during consensus loops (peer reviews / arbiter), winning over reasoningEffort. Falls back to reasoningEffort when unset."
+        },
         "timeout": {
           "type": "integer",
           "minimum": 1,
@@ -382,6 +410,16 @@
           ],
           "description": "How hard Grok reasons. \"none\" omits the field so the model uses its own default. Precedence: per-call reasoning_effort > this key > GROK_REASONING_EFFORT > \"high\"."
         },
+        "consensusReasoningEffort": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "none"
+          ],
+          "description": "How hard Grok reasons during consensus loops. Falls back to reasoningEffort when unset."
+        },
         "timeout": {
           "type": "integer",
           "minimum": 1,
@@ -433,6 +471,13 @@
               "examples": [
                 "high"
               ]
+            },
+            "consensusReasoningEffort": {
+              "type": "string",
+              "examples": [
+                "low"
+              ],
+              "description": "Default reasoning effort for OpenRouter models in consensus loops. Falls back to reasoningEffort when unset."
             },
             "temperature": {
               "type": "number",
@@ -514,6 +559,13 @@
           "examples": [
             "high"
           ]
+        },
+        "consensusReasoningEffort": {
+          "type": "string",
+          "examples": [
+            "low"
+          ],
+          "description": "Reasoning effort when participating in consensus loops. Falls back to reasoningEffort when unset."
         },
         "temperature": {
           "type": "number",

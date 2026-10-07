@@ -43,7 +43,8 @@ After it runs, report the printed status to the user.
 ### Optional provider tuning (no extra setup calls needed)
 
 - **Codex model and effort:** set `providers.codex.model` and `providers.codex.reasoningEffort`
-  (`none`/`minimal`/`low`/`medium`/`high`/`xhigh`/`max`/`ultra`) in `~/.config/deliberation/config.json`. They
+  (`none`/`minimal`/`low`/`medium`/`high`/`xhigh`/`max`/`ultra`), as well as `providers.codex.consensusReasoningEffort` (for consensus rounds),
+  in `~/.config/deliberation/config.json`. They
   win over `~/.codex/config.toml`; leave them out and codex uses that file. No per-call override;
   a change needs an MCP restart.
 - **Grok key (env vs manifest):** the `deliberation-grok` manifest entry sets no `env`, so the

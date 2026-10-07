@@ -844,3 +844,39 @@ test("CX-login-abandon-dead: a login that dies also closes its dialog", async ()
   await new Promise((r) => setTimeout(r, 20));
   assert.equal(/** @type {any} */ (seen).aborted, true, "a dead code's dialog is closed too");
 });
+
+test("CX-consensus-effort-1: consensusReasoningEffort is forwarded when req.context === 'consensus'", async () => {
+  /** @type {any} */ let pinned;
+  const p = mkCx({
+    reasoningEffort: "high",
+    consensusReasoningEffort: "low",
+    run: async ({ pin }) => { pinned = pin; return { code: 0, stdout: "ok", stderr: "" }; },
+  });
+  const res = await p.ask({ prompt: "evaluate", context: "consensus" });
+  assert.equal(pinned.reasoningEffort, "low");
+  assert.equal(res.reasoningEffort, "low");
+});
+
+test("CX-consensus-effort-2: reasoningEffort is forwarded when req.context is ask or omitted", async () => {
+  /** @type {any} */ let pinned;
+  const p = mkCx({
+    reasoningEffort: "high",
+    consensusReasoningEffort: "low",
+    run: async ({ pin }) => { pinned = pin; return { code: 0, stdout: "ok", stderr: "" }; },
+  });
+  const res = await p.ask({ prompt: "explain" });
+  assert.equal(pinned.reasoningEffort, "high");
+  assert.equal(res.reasoningEffort, "high");
+});
+
+test("CX-consensus-effort-3: explicit req.reasoningEffort overrides configured efforts", async () => {
+  /** @type {any} */ let pinned;
+  const p = mkCx({
+    reasoningEffort: "high",
+    consensusReasoningEffort: "low",
+    run: async ({ pin }) => { pinned = pin; return { code: 0, stdout: "ok", stderr: "" }; },
+  });
+  const res = await p.ask({ prompt: "evaluate", context: "consensus", reasoningEffort: "medium" });
+  assert.equal(pinned.reasoningEffort, "medium");
+  assert.equal(res.reasoningEffort, "medium");
+});

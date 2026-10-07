@@ -1836,6 +1836,7 @@ function makeRuntime({ getServer = () => null } = {}) {
     makeCodexProvider({
       model: codexCfg.model,
       reasoningEffort: codexCfg.reasoningEffort,
+      consensusReasoningEffort: codexCfg.consensusReasoningEffort,
       timeoutMs: providerTimeout("codex"),
       deviceLogin: true,
       // Every argument forwarded: the third is the AbortSignal that cancels an abandoned dialog.
@@ -1857,6 +1858,7 @@ function makeRuntime({ getServer = () => null } = {}) {
       bridge: require("../grok/index.js"),
       model: grokCfg.model,
       reasoningEffort: grokCfg.reasoningEffort,
+      consensusReasoningEffort: grokCfg.consensusReasoningEffort,
       timeoutMs: providerTimeout("grok"),
     }),
     makeOpenAICompatibleProvider({
