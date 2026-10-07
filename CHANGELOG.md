@@ -1,3 +1,10 @@
+## [3.24.0](https://github.com/antonbabenko/deliberation/compare/v3.23.0...v3.24.0) (2026-10-07)
+
+
+### Features
+
+* decouple consensus reasoning effort and add prompt cache and digest optimizations ([#228](https://github.com/antonbabenko/deliberation/issues/228)) ([aafee4e](https://github.com/antonbabenko/deliberation/commit/aafee4ebc88213e6e78af1b6e6b5ec74d1e97437))
+
 ## [3.23.0](https://github.com/antonbabenko/deliberation/compare/v3.22.0...v3.23.0) (2026-10-06)
 
 
@@ -29,11 +36,4 @@
 ### Features
 
 * local read-only dashboard for live and past runs ([#213](https://github.com/antonbabenko/deliberation/issues/213)) ([6ade68f](https://github.com/antonbabenko/deliberation/commit/6ade68f1b7ec5cdd2420ba020c9427bc515cdd9a))
-
-## [3.19.0](https://github.com/antonbabenko/deliberation/compare/v3.18.0...v3.19.0) (2026-10-03)
-
-
-### Features
-
-* pin GPT model and reasoning effort in config.json ([#214](https://github.com/antonbabenko/deliberation/issues/214)) ([e3e2b7e](https://github.com/antonbabenko/deliberation/commit/e3e2b7e1d9dadc1d0344350e63a1fb60a7ec4cf7))
 
