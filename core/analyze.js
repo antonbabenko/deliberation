@@ -261,7 +261,7 @@ function aggregateByModel(events) {
   /** @type {Map<string, {provider:string, model:string, ms:number[], errors:number, calls:number, tokens:number[], efforts:Set<string>, tools:Set<string>}>} */
   const groups = new Map();
   for (const e of Array.isArray(events) ? events : []) {
-    if (!e || e.event !== "provider_result" || typeof e.provider !== "string") continue;
+    if (!e || e.cached || e.event !== "provider_result" || typeof e.provider !== "string") continue;
     const provider = e.provider;
     const model = typeof e.model === "string" ? e.model : "";
     const key = `${provider}|${model}`;
@@ -330,6 +330,7 @@ function aggregateAgreement(records) {
     for (const op of rec.opinions) {
       if (!op || typeof op.provider !== "string") continue;
       const provider = op.provider;
+      if(/** @type {any} */ (op).cached)continue;
       const model = typeof op.model === "string" ? op.model : "";
       const key = `${provider}|${model}`;
       let g = groups.get(key);
@@ -718,7 +719,7 @@ function buildCompare(stats, outliers, variants, levers) {
  * @param {DebugEvent[]} events
  * @param {SessionRecord[]} records  already time-filtered by the caller
  * @param {any} config  the RESOLVED config
- * @param {{logPath?:string, debugEnabled?:boolean, sessionsPersist?:boolean, sessionsDir?:(string|null), windowMs?:(number|null), since?:(string|null), nowMs?:number, configuredOnly?:boolean, configError?:(string|null), truncated?:{log?:boolean, sessions?:boolean}}} [meta]
+ * @param {{logPath?:string, debugEnabled?:boolean, sessionsPersist?:boolean, sessionsDir?:(string|null), windowMs?:(number|null), cohortSelected?:boolean, since?:(string|null), nowMs?:number, configuredOnly?:boolean, configError?:(string|null), truncated?:{log?:boolean, sessions?:boolean}}} [meta]
  * @returns {Analysis}
  */
 function buildAnalysis(events, records, config, meta) {
@@ -736,7 +737,7 @@ function buildAnalysis(events, records, config, meta) {
   // Closed interval [fromMs, nowMs]: without the upper bound a future-dated event (clock
   // skew, a hand-edited log) lands inside every window.
   const allEvents = Array.isArray(events) ? events : [];
-  const evs = fromMs == null
+  const evs = fromMs == null || m.cohortSelected===true
     ? allEvents
     : allEvents.filter((e) => e && typeof e.at === "number" && Number.isFinite(e.at) && e.at >= fromMs && e.at <= nowMs);
 
@@ -872,7 +873,7 @@ function buildWindow(m, windowMs, fromMs, nowMs, evs, recs) {
   for (const e of evs) {
     if (!e || e.event !== "provider_result" || typeof e.provider !== "string") continue;
     if (!inReport(e.provider, e.model)) continue;
-    if (typeof e.at === "number" && Number.isFinite(e.at)) earliest.push(e.at);
+    if (typeof e.at === "number" && Number.isFinite(e.at)) earliest.push(/** @type {any} */(e).runStartedAt??e.at);
   }
   for (const r of recs) {
     if (!r || !Array.isArray(r.opinions) || !r.opinions.length) continue;

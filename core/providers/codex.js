@@ -234,10 +234,10 @@ function codexHealth(o = {}) {
  * which costs a few `existsSync` probes on Windows and nothing at all anywhere else. The Gemini
  * bridge resolves once at module scope instead because it also gates startup on the result.
  *
- * @param {{prompt:string, cwd?:string, timeoutMs?:number, mode?:("advisory"|"implement"), env?:Record<string,(string|undefined)>, pin?:{model?:string, reasoningEffort?:string}}} args
+ * @param {{prompt:string, cwd?:string, timeoutMs?:number, mode?:("advisory"|"implement"), env?:Record<string,(string|undefined)>, pin?:{model?:string, reasoningEffort?:string},signal?:AbortSignal}} args
  * @returns {Promise<{code:number, stdout:string, stderr:string, timedOut:boolean, spawnFailed?:boolean}>}
  */
-function defaultRun({ prompt, cwd, timeoutMs, mode, env, pin }) {
+function defaultRun({ prompt, cwd, timeoutMs, mode, env, pin, signal }) {
   return new Promise((resolve) => {
     const plan = buildSpawnPlan({ mode, env, pin });
     // Only a shell shim was found. Spawning it fails with a bare EINVAL that explains nothing,
@@ -250,18 +250,20 @@ function defaultRun({ prompt, cwd, timeoutMs, mode, env, pin }) {
       });
       return;
     }
-    const child = spawn(plan.cmd, plan.argv, { cwd: cwd || process.cwd(), env: codexEnv(env) });
+    const child = spawn(plan.cmd, plan.argv, { cwd: cwd || process.cwd(), env: codexEnv(env),detached:process.platform!=="win32" });
     let stdout = "", stderr = "", settled = false, timedOut = false;
     // A SIGKILL'd codex usually writes nothing, so classifyCodex(stderr) would map the
     // kill to `unknown` (or worse, to `auth` - "author" contains "auth"). Report the
     // kill explicitly instead of inferring it from a stream that may be empty.
-    const timer = timeoutMs ? setTimeout(() => { timedOut = true; child.kill("SIGKILL"); }, timeoutMs) : null;
+    const abort=()=>{timedOut=true;killTree(child);};
+    const timer = timeoutMs ? setTimeout(abort, timeoutMs) : null;
+    signal?.addEventListener('abort',abort,{once:true});if(signal?.aborted)abort();
     if (timer) timer.unref(); // never hold the event loop open on the timeout timer
     child.stdout.on("data", (d) => (stdout += d));
     child.stderr.on("data", (d) => (stderr += d));
     child.on("error", (e) => {
       if (settled) return; settled = true;
-      if (timer) clearTimeout(timer);
+      if (timer) clearTimeout(timer);signal?.removeEventListener("abort",abort);
       // An `error` event means the process never started - name what was tried, since the
       // stock "spawn codex ENOENT" does not say which codex, and on Windows the answer is
       // usually a shim rather than a missing install.
@@ -271,7 +273,7 @@ function defaultRun({ prompt, cwd, timeoutMs, mode, env, pin }) {
     });
     child.on("close", (code) => {
       if (settled) return; settled = true;
-      if (timer) clearTimeout(timer);
+      if (timer) clearTimeout(timer);signal?.removeEventListener("abort",abort);
       resolve({ code: code == null ? 1 : code, stdout, stderr, timedOut });
     });
     child.stdin.end(prompt);
@@ -515,7 +517,7 @@ function loginMessage(prompt) {
 
 /**
  * @param {Object} [opts]
- * @param {(args:{prompt:string,cwd?:string,timeoutMs?:number,mode?:("advisory"|"implement"),env?:Record<string,(string|undefined)>,pin?:{model?:string,reasoningEffort?:string,consensusReasoningEffort?:string}})=>Promise<{code:number,stdout:string,stderr:string,timedOut?:boolean,spawnFailed?:boolean}>} [opts.run]
+ * @param {(args:{prompt:string,cwd?:string,timeoutMs?:number,mode?:("advisory"|"implement"),env?:Record<string,(string|undefined)>,pin?:{model?:string,reasoningEffort?:string,consensusReasoningEffort?:string},signal?:AbortSignal})=>Promise<{code:number,stdout:string,stderr:string,timedOut?:boolean,spawnFailed?:boolean}>} [opts.run]
  * @param {string} [opts.model]  providers.codex.model; absent -> codex's own (~/.codex/config.toml)
  * @param {string} [opts.reasoningEffort]  providers.codex.reasoningEffort (none|minimal|low|medium|high|xhigh|max|ultra)
  * @param {string} [opts.consensusReasoningEffort]  providers.codex.consensusReasoningEffort
@@ -666,7 +668,7 @@ function makeCodexProvider(opts = {}) {
     const timeoutMs = /** @type {number} */ (clamp.timeoutMs);
     const effort = resolveEffort(req);
     const effectivePin = { model: pin.model, reasoningEffort: effort };
-    const { code, stdout, stderr, timedOut, spawnFailed } = await run({ prompt: full, cwd: req.cwd, timeoutMs, mode, env, pin: effectivePin });
+    const { code, stdout, stderr, timedOut, spawnFailed } = await run({ prompt: full, cwd: req.cwd, timeoutMs, mode, env, pin: effectivePin,signal:req.signal });
     if (code === 0) {
       return { result: { provider: "codex", model, text: stdout.trim(), isError: false, ms: Date.now() - started, reasoningEffort: effort || null } };
     }
@@ -706,6 +708,11 @@ function makeCodexProvider(opts = {}) {
 
   return {
     name: "codex",
+    resolveSettings(req) {
+      return {model:pin.model||'CLI inherited / unknown',reasoningEffort:resolveEffort(req),
+        askEffort:pin.reasoningEffort||'inherited / unknown',consensusEffort:pin.consensusReasoningEffort??pin.reasoningEffort??'inherited / unknown',
+        effortSource:pin.reasoningEffort||pin.consensusReasoningEffort?'config/default resolution':'CLI inherited / unknown',timeoutMs:req.timeoutMs??defaultTimeoutMs};
+    },
     // canImplement reflects the construction lock so discovery (panel) is honest about THIS
     // process. Option A: no threadId continuity (multiTurn:false).
     capabilities: { canImplement: allowImplement, fileUpload: false, multiTurn: false, walksFilesystem: true },

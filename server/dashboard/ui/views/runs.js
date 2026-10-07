@@ -2,7 +2,7 @@
 // the run's duration. Filters go to the server; live runs update in place.
 
 import { api, store } from "../api.js";
-import { h, put, fmtMs, fmtK, fmtTime, midId } from "../dom.js";
+import { h, put, fmtMs, fmtK, fmtTime, midId, providerLabel } from "../dom.js";
 import { statusMark } from "./run.js";
 
 const STATUSES = ["running", "done", "converged", "unresolved", "error", "abandoned"];

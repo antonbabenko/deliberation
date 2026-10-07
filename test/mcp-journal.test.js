@@ -51,7 +51,7 @@ test("MJ1: panel returns a runId; two ask-one calls with it join that one run", 
   assert.equal(starts[0].tool, "ask-all");
   assert.deepEqual([...starts[0].providers].sort(), ["codex", "grok"]);
   assert.equal(evs.filter((e) => e.kind === "call_end").length, 2);
-  assert.equal(evs.filter((e) => e.kind === "run_end").length, 0, "a grouped fan-out has no explicit end");
+  assert.equal(evs.filter((e) => e.kind === "run_end").length, 1, "a completed grouped fan-out ends explicitly");
 });
 
 test("MJ2: ask-one without runId is its own single run with run_start and run_end", async () => {

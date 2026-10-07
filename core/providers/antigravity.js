@@ -65,7 +65,7 @@ function makeAntigravityProvider(opts = {}) {
       try {
         // runGemini(args, cwd, timeoutMs, recoveryGraceMs, opts). recovered:true => normal success.
         const timeoutMs = typeof req.timeoutMs === "number" && req.timeoutMs > 0 ? req.timeoutMs : defaultTimeoutMs;
-        const out = await bridge.runGemini(args, req.cwd, timeoutMs, undefined, { readOnly: !implement, includeDirs, hostBudgetRemainingMs: req.hostBudgetRemainingMs });
+        const out = await bridge.runGemini(args, req.cwd, timeoutMs, req.deadlineAt?0:undefined, { readOnly: !implement, includeDirs, hostBudgetRemainingMs: req.hostBudgetRemainingMs, signal:req.signal });
         // out.response can be undefined on a degenerate clean run; coerce to ""
         // so the DelegationSuccess.text contract (string, not string|undefined) holds.
         // Gemini (agy CLI) has no per-call reasoning-effort knob -> null.

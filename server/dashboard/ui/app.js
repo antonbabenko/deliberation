@@ -40,6 +40,7 @@ function step(r, ev, at) {
     case "run_start":
       return {
         ...r,
+        provenance:ev.configId?{configId:ev.configId,snapshot:ev.snapshot,activationId:ev.activationId,runtimeId:ev.runtimeId}:null,
         tool: typeof ev.tool === "string" ? ev.tool : r.tool,
         workflow: typeof ev.workflow === "string" ? ev.workflow : r.workflow,
         expert: typeof ev.expert === "string" ? ev.expert : r.expert,
@@ -58,6 +59,7 @@ function step(r, ev, at) {
         callId: id, provider: String(ev.provider || "unknown"), model: ev.model || null, role: ev.role || null,
         round: num(ev.round), startAt: at, endAt: null, ms: null, timeoutMs: num(ev.timeoutMs),
         reasoningEffort: ev.reasoningEffort || null, request: typeof ev.request === "string" ? ev.request : undefined,
+        settings:ev.settings||null,configuredTimeoutMs:num(ev.configuredTimeoutMs),deadlineAt:num(ev.deadlineAt),limitingReason:ev.limitingReason||null,
         usage: null, isError: false, errorKind: null, errorCode: null, verdict: null, criticalIssues: [], response: undefined,
       };
       const key = retryKey(c);
@@ -81,7 +83,7 @@ function step(r, ev, at) {
       const c = {
         ...prev,
         provider: ev.provider || prev.provider, model: ev.model || prev.model, endAt: at, ms: num(ev.ms),
-        usage: ev.usage || null, isError: !!ev.isError, errorKind: ev.errorKind || null, errorCode: ev.errorCode || null,
+        cached:!!ev.cached,provenance:ev.provenance||null,observedEffort:ev.reasoningEffort??null,usage:ev.cached?null:ev.usage || null, isError: !!ev.isError, errorKind: ev.errorKind || null, errorCode: ev.errorCode || null,
         verdict: ev.verdict || null, criticalIssues: Array.isArray(ev.criticalIssues) ? ev.criticalIssues : [],
         response: typeof ev.response === "string" ? ev.response : undefined,
       };
@@ -92,7 +94,7 @@ function step(r, ev, at) {
         calls,
         callOrder: r.calls[id] ? r.callOrder : [...r.callOrder, id],
         erroredByKey: c.isError && r.calls[id] ? { ...r.erroredByKey, [retryKey(c)]: id } : r.erroredByKey,
-        tokens: r.tokens + tokensOf(ev.usage),
+        tokens: r.tokens + (ev.cached?0:tokensOf(ev.usage)),
         errors: errorsOf(calls),
       };
     }
@@ -160,6 +162,7 @@ export function applySummary(runs, sum) {
       status,
       rounds: Math.max(r.rounds, sum.rounds || 0),
       tokens: r.loaded ? r.tokens : sum.tokens || 0,
+      tokenCoverage:sum.tokenCoverage||0,
       errors: r.loaded ? r.errors : sum.errors || 0,
       isLegacy: !!sum.legacy,
     },
@@ -321,6 +324,7 @@ function boot() {
   put(document.body, 
     h("header", { class: "topbar" },
       h("span", { class: "brand" }, "deliberation"),
+      h("span", { class: "server-version", "aria-label": "Deliberation version", title: "Running dashboard server version" }, "version …"),
       h("nav", { class: "modes", "aria-label": "Mode" }, keys),
       h("div", { class: "status-line" }, badge, link, themeKey)),
     h("div", { class: "shell" }, main, drawer),
@@ -536,7 +540,10 @@ function boot() {
   });
   const refreshHealth = () => api.health().then((body) => { S.health = body; invalidate(); }).catch(() => {});
 
-  Promise.all([refreshIndex(), api.config().then((c) => { S.config = c; }).catch(() => {})]).then(() => {
+  Promise.all([refreshIndex(), api.config().then((c) => {
+    S.config = c;
+    document.querySelector('.server-version').textContent=c.serverVersion?`v${c.serverVersion}`:'version unknown';
+  }).catch(() => {document.querySelector('.server-version').textContent='version unknown';})]).then(() => {
     const list = ctx.runList();
     for (const r of list.filter((x) => x.status === "running")) ensureLoaded(r.runId);
     if (list[0]) ensureLoaded(list[0].runId);

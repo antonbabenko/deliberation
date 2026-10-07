@@ -550,6 +550,7 @@ async function runGeminiOnce(args, cwd, timeoutMs, recoveryGraceMs, opts = {}) {
       // API keys / GIT_ASKPASS / SSH_AUTH_SOCK - the human commits and pushes, not agy.
       env: advisoryEnv(process.env),
       shell: false,
+      detached: process.platform !== "win32",
       cwd: effCwd,
       // agy -p (print mode) waits for stdin EOF before returning; if the stdin
       // pipe is left open it hangs until the timeout. Give it /dev/null so it
@@ -557,7 +558,10 @@ async function runGeminiOnce(args, cwd, timeoutMs, recoveryGraceMs, opts = {}) {
       stdio: ["ignore", "pipe", "pipe"]
     });
 
-    function clearTimers() { clearTimeout(killTimer); if (graceTimer) clearTimeout(graceTimer); }
+    function clearTimers() { clearTimeout(killTimer); if (graceTimer) clearTimeout(graceTimer); opts.signal?.removeEventListener("abort",abort); }
+    function killGroup(signal) {
+      try {if(process.platform!=="win32"&&agyProcess.pid)process.kill(-agyProcess.pid,signal);else agyProcess.kill(signal);}catch{try{agyProcess.kill(signal);}catch{}}
+    }
     function destroyStreams() {
       try { agyProcess.stdout.destroy(); } catch (_) {}
       try { agyProcess.stderr.destroy(); } catch (_) {}
@@ -572,12 +576,12 @@ async function runGeminiOnce(args, cwd, timeoutMs, recoveryGraceMs, opts = {}) {
       if (settled) return;
       settled = true;
       clearTimers();
-      try { agyProcess.kill("SIGTERM"); } catch (_) {}
-      setTimeout(() => { try { agyProcess.kill("SIGKILL"); } catch (_) {} }, 1_000);
+      killGroup("SIGKILL");
       destroyStreams();
       reject(timeoutError());
     }
 
+    const abort=()=>finishTimeout();
     const killTimer = setTimeout(() => {
       if (settled) return;
       if (grace > 0) {
@@ -598,6 +602,7 @@ async function runGeminiOnce(args, cwd, timeoutMs, recoveryGraceMs, opts = {}) {
     }, t);
 
     agyProcess.on("close", clearTimers);
+    opts.signal?.addEventListener("abort",abort,{once:true});if(opts.signal?.aborted)abort();
     agyProcess.on("error", clearTimers);
 
     // exit fires when the process itself exits even if child pipes are still

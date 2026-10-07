@@ -105,6 +105,7 @@ function buildArtifacts() {
       all[rel] = content;
     }
   }
+  all["server/dashboard/ui/display.js"] = fs.readFileSync(path.join(REPO_ROOT,"core/display.js"),"utf8");
   return all;
 }
 

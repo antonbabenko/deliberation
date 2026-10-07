@@ -50,11 +50,11 @@ function makeGrokProvider(opts = {}) {
           ? await bridge.runWithFiles({
               files: req.files, prompt: req.prompt, "developer-instructions": req.developerInstructions,
               apiKey, apiBase, model, reasoningEffort, timeout: timeoutMs, cwd: req.cwd,
-              hostBudgetRemainingMs: req.hostBudgetRemainingMs,
+              hostBudgetRemainingMs: req.hostBudgetRemainingMs,signal:req.signal,deadlineAt:req.deadlineAt,
             })
           : await bridge.runGrok({
               turns: bridge.buildInitialTurns(req && req.developerInstructions, req && req.prompt, []),
-              model, apiKey, apiBase, reasoningEffort, timeoutMs, hostBudgetRemainingMs: req && req.hostBudgetRemainingMs,
+              model, apiKey, apiBase, reasoningEffort, timeoutMs, hostBudgetRemainingMs: req && req.hostBudgetRemainingMs,signal:req.signal,
             });
         return { provider: "grok", model, text: out.text || "", isError: false, ms: Date.now() - started, reasoningEffort: reasoningEffort ?? null, usage: out.usage };
       } catch (e) {

@@ -54,6 +54,8 @@ function keyFor(providerName, req) {
     req.model || "",
     req.reasoningEffort || "",
     req.context || "ask",
+    req.cwd || "",
+    req.tool || "", req.expert || "", req.provenance?.configId || "",
     typeof req.temperature === "number" ? req.temperature : "",
     req.developerInstructions || "",
     req.prompt || "",

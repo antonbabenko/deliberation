@@ -20,6 +20,12 @@
  * One debug event. All fields optional except `event` + `at`; a record only
  * carries the fields relevant to its event kind.
  * @typedef {Object} DebugEvent
+ * @property {any} [configId]
+ * @property {any} [activationId]
+ * @property {any} [runtimeId]
+ * @property {any} [runId]
+ * @property {any} [runStartedAt]
+ * @property {boolean} [cached]
  * @property {string} event  // "provider_result" | "round" | "dispatch_start" | ...
  * @property {number} at     // epoch ms (injected by the caller; core has no clock policy)
  * @property {string} [tool] // "ask-all" | "ask-one" | "consensus"
@@ -59,6 +65,7 @@ const ALLOWED_KEYS = Object.freeze([
   "event", "at", "tool", "provider", "model", "reasoningEffort", "ms", "isError",
   "errorKind", "usage", "round", "verdict", "blindVerdict", "converged",
   "acceptedCritical", "voices", "errorCode", "loopSessionId",
+  "configId","activationId","runtimeId","runId","runStartedAt","callId","attemptId","cached","settings","expert","context","role","configuredTimeoutMs","limitingReason",
 ]);
 
 /**
@@ -75,6 +82,7 @@ function sanitizeEvent(event) {
     const v = /** @type {Record<string, unknown>} */ (event)[k];
     if (v !== undefined) out[k] = v;
   }
+  if(out.settings)out.settings=require('./config-history.js').safeCallProvenance({settings:out.settings}).settings;
   return out;
 }
 

@@ -1,7 +1,7 @@
 // views/run.js - one run as a capture (header strip, trigger sequence, waveform, event
 // table), the inspector drawer, and the run detail route (#/runs/<id>).
 
-import { h, put, fmtMs, fmtClock, fmtInt, fmtK, fmtTime, midId, verdictLabel, num } from "../dom.js";
+import { h, put, fmtMs, fmtClock, fmtInt, fmtK, fmtTime, midId, verdictLabel, num, providerLabel } from "../dom.js";
 import { graphModel, renderGraph } from "../graph.js";
 import { deriveDebateTrajectory, deriveProviderLatency, renderDebateTrajectory, renderProviderLatency } from "../telemetry.js";
 
@@ -30,15 +30,15 @@ function eventDetail(e) {
       break;
     case "state":
       parts.push(e.state, kv("status", e.status));
-      for (const v of e.verdicts || []) parts.push(`${v.provider}:${verdictLabel(v.verdict) || "-"}`);
+      for (const v of e.verdicts || []) parts.push(`${providerLabel(v.provider)}:${verdictLabel(v.verdict) || "-"}`);
       break;
     case "call_start":
       parts.push(kv("role", e.role), kv("effort", e.reasoningEffort), kv("limit", num(e.timeoutMs) ? fmtMs(e.timeoutMs) : null));
       break;
     case "call_end":
       if (e.isError) parts.push("ERR", e.errorKind, kv("code", e.errorCode));
-      else parts.push("ok", verdictLabel(e.verdict));
-      parts.push(fmtMs(e.ms), e.usage ? `${fmtK((e.usage.totalTokens) ?? ((e.usage.promptTokens || 0) + (e.usage.completionTokens || 0)))} tok` : null, kv("model", e.model));
+      else parts.push(e.cached?"reuse":"ok", verdictLabel(e.verdict));
+      parts.push(fmtMs(e.ms), !e.cached&&e.usage ? `${fmtK((e.usage.totalTokens) ?? ((e.usage.promptTokens || 0) + (e.usage.completionTokens || 0)))} tok` : null, kv("model", e.model));
       break;
     case "arbiter":
       parts.push(String(e.action || "").replace(/_/g, " "), verdictLabel(e.verdict));
@@ -52,7 +52,7 @@ function eventDetail(e) {
   return parts.filter(Boolean).join("  ");
 }
 
-const channelOf = (e) => (e.kind === "arbiter" ? "arbiter (host)" : e.provider || "");
+const channelOf = (e) => (e.kind === "arbiter" ? "arbiter (host)" : providerLabel(e.provider || ""));
 
 function eventTable(ctx, run, events = run.events) {
   const rows = events.map((e) => {
@@ -94,6 +94,7 @@ export function createCapture(ctx, runId, opts = {}) {
   const telemetry = h("div", { class: "capture-telemetry" });
   const events = h("details", { class: "events-panel", ontoggle: () => ctx.panel("events", events.open) });
   let eventsLen = "";
+  let sequenceSig = "";
   let lastRun = null;
   let clock = null;
   el.append(strip, seq, scope, note, telemetry);
@@ -137,11 +138,12 @@ export function createCapture(ctx, runId, opts = {}) {
     put(strip,
       readout("tool", run.tool || "-"),
       readout("workflow", run.workflow || "-"),
+      readout("config",run.provenance?h("a",{href:`?configId=${run.provenance.configId}#/stats`,title:run.provenance.configId},run.provenance.configId.slice(0,12)):"Unknown / legacy"),
       readout("run", h("a", { href: `#/runs/${encodeURIComponent(run.runId)}`, title: run.runId }, midId(run.runId, 22))),
       clock = readout("elapsed", el2 === null ? "-" : fmtClock(el2), "is-clock"),
       readout("status", statusMark(run.status)),
       model && model.rounds.length ? readout("round", `${model.round}/${model.rounds.length}`) : null,
-      readout("tokens", fmtK(run.tokens)),
+      readout("measured tokens", Object.values(run.calls).some(c=>c.usage)||run.tokenCoverage?fmtK(run.tokens):"unknown"),
       readout("errors", String(run.errors || 0), run.errors ? "has-errors" : ""),
       run.expert ? readout("expert", run.expert) : null,
     );
@@ -149,6 +151,9 @@ export function createCapture(ctx, runId, opts = {}) {
 
   // One flat line of trigger keys: mark, name, time into the run, then a detail if any.
   function drawSeq(run, model) {
+    const sig=JSON.stringify([model.nodes,ctx.S.selection?.runId===runId?ctx.S.selection.key:null]);
+    if(sig===sequenceSig)return;
+    sequenceSig=sig;
     put(seq, ...model.nodes.map((n) => h("li", {}, h("button", {
       type: "button", class: `seq-key st-${n.state}`, "data-node": n.id, "data-state": n.state,
       "aria-pressed": ctx.S.selection && ctx.S.selection.key === n.key ? "true" : "false",
@@ -225,7 +230,7 @@ function legacyPanel(run) {
     typeof rec.question === "string" ? h("section", { class: "block" }, h("h3", {}, "Question"), h("pre", { class: "payload" }, rec.question)) : null,
     ops.length ? h("table", { class: "grid-table" },
       h("thead", {}, h("tr", {}, h("th", {}, "provider"), h("th", {}, "model"), h("th", {}, "verdict"), h("th", { class: "num" }, "ms"))),
-      h("tbody", {}, ops.map((o) => h("tr", {}, h("td", {}, o.provider || "-"), h("td", {}, o.model || "-"), h("td", {}, verdictLabel(o.verdict) || "-"), h("td", { class: "num" }, fmtMs(o.ms)))))) : null,
+      h("tbody", {}, ops.map((o) => h("tr", {}, h("td", {}, providerLabel(o.provider) || "-"), h("td", {}, o.model || "-"), h("td", {}, verdictLabel(o.verdict) || "-"), h("td", { class: "num" }, fmtMs(o.ms)))))) : null,
     rec.converged !== undefined ? h("p", {}, `Converged: ${rec.converged ? "yes" : "no"}. Rounds: ${rec.rounds ?? "-"}.`) : null);
 }
 
@@ -245,9 +250,10 @@ function callInspector(ctx, run, c) {
   const u = c.usage || {};
   const state = c.endAt === null ? (run.status === "running" ? "running" : "abandoned") : c.isError ? (c.errorKind === "timeout" ? "timeout" : "failed") : "succeeded";
   return [
-    h("header", { class: "insp-head" }, h("h2", {}, `${c.provider} ${c.role || "call"}`), h("span", { class: `status-mark st-${state}` }, state)),
+    h("header", { class: "insp-head" }, h("h2", {}, `${providerLabel(c.provider)} ${c.role || "call"}`), h("span", { class: `status-mark st-${state}` }, state)),
     facts([
-      ["model", c.model || "pending"], ["effort", c.reasoningEffort], ["round", c.round],
+      ["model", c.model || "pending"], ["dispatch effort", c.reasoningEffort || "inherited / unknown"], ["returned effort", c.observedEffort ?? "unknown"], ["reused result", c.cached ? "yes" : null], ["round", c.round],
+      ["configured limit", num(c.configuredTimeoutMs) ? fmtMs(c.configuredTimeoutMs) : null], ["limiting reason", c.limitingReason],
       ["started", run.startedAt ? `+${fmtMs(c.startAt - run.startedAt)}` : fmtTime(c.startAt)],
       ["duration", c.endAt !== null ? fmtMs(c.ms ?? c.endAt - c.startAt) : "running"], ["limit", num(c.timeoutMs) ? fmtMs(c.timeoutMs) : null],
       ["tokens in", num(u.promptTokens) !== null ? fmtInt(u.promptTokens) : null], ["tokens out", num(u.completionTokens) !== null ? fmtInt(u.completionTokens) : null],
@@ -289,7 +295,7 @@ function phaseInspector(ctx, run, phase, round) {
     for (const st of run.states) if ((st.round || 1) === round) for (const v of st.verdicts || []) verdicts.set(v.provider, v.verdict);
     return [head, h("p", { class: "insp-lede" }, run.workflow === "fanout" ? `${peers.length} answers.` : `${peers.length} opinions from round ${round}.`),
       h("div", { class: "opinions" }, peers.map((c) => h("article", { class: "opinion" },
-        h("h3", {}, c.provider, " ", h("span", { class: "decode-inline" }, verdictLabel(c.verdict || verdicts.get(c.provider)) || (c.isError ? String(c.errorKind || "error").toUpperCase() : c.endAt === null ? "RUNNING" : "OK"))),
+        h("h3", {}, providerLabel(c.provider), " ", h("span", { class: "decode-inline" }, verdictLabel(c.verdict || verdicts.get(c.provider)) || (c.isError ? String(c.errorKind || "error").toUpperCase() : c.endAt === null ? "RUNNING" : "OK"))),
         h("p", { class: "opinion-meta" }, [c.model, c.endAt !== null ? fmtMs(c.ms) : null].filter(Boolean).join("  ")),
         typeof c.response === "string" ? h("pre", { class: "payload", tabindex: "0" }, c.response)
           : c.isError ? h("p", { class: "absent" }, `no answer: ${c.errorKind || "error"}${c.errorCode ? ` (${c.errorCode})` : ""}`)
@@ -320,6 +326,7 @@ function phaseInspector(ctx, run, phase, round) {
   // Terminal or template-only nodes: the run's outcome.
   return [head, facts([["status", run.status], ["stop reason", run.stopReason], ["rounds", run.rounds || null], ["dropped", run.dropped.join(", ")], ["not dispatched", (run.undispatched || []).join(", ")]]),
     ENDED.has(run.status) ? contentBlock(ctx, "Final report", run.finalReport) : h("p", { class: "absent" }, "Not reached yet."),
+    run.provenance?h('details',{},h('summary',{},h('a',{href:`?configId=${run.provenance.configId}#/stats`},`Config ${run.provenance.configId.slice(0,12)}`),' — recorded run settings'),h('pre',{class:'payload'},JSON.stringify(run.provenance,null,2))):h('p',{class:'hint'},'Unknown / legacy config'),
     contentBlock(ctx, "Prompt", run.prompt)];
 }
 

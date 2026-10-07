@@ -174,7 +174,7 @@ async function healthReport(rt) {
         ok: !unhealthy.has(p.name),
         reason: unhealthy.get(p.name) || null,
         needsLogin: needsLogin.has(p.name),
-        model: c.model || null,
+        ...(p.resolveSettings?.({prompt:""})||require("../../core/settings.js").resolveSettings(p.name,cfg)),
         reasoningEffort: c.reasoningEffort || null,
         askAll: askNames.includes(p.name),
         consensus: consNames.includes(p.name),
@@ -182,8 +182,7 @@ async function healthReport(rt) {
     });
   const models = ((cfg.openrouter && cfg.openrouter.models) || []).map((/** @type {any} */ m) => ({
     name: `openrouter:${m.alias}`,
-    model: m.model,
-    reasoningEffort: m.reasoning_effort || null,
+    ...require("../../core/settings.js").resolveSettings(`openrouter:${m.alias}`,cfg),
     askAll: askNames.includes(`openrouter:${m.alias}`),
     consensus: consNames.includes(`openrouter:${m.alias}`),
   }));
@@ -237,14 +236,14 @@ async function main(argv, io = {}) {
   // `analyze` reuses the MCP tool handler as-is (debug-log tail + session records);
   // an in-process server with no-op transport, never a provider call.
   const mcp = buildServer({ ...rt, notify: () => {}, write: () => {} });
-  const stats = async () => {
-    const r = await mcp.handle({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "analyze", arguments: {} } });
-    return { ...analysisOf(r), daily: dailyStats(index.list()) };
+  const stats = async (filters={}) => {
+    const r = await mcp.handle({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "analyze", arguments: {...filters,groupBy:"config",configuredOnly:false} } });
+    const report=analysisOf(r);return { ...report, daily: dailyStats(/** @type {any} */(report).cohortRuns||[]) };
   };
 
   const token = crypto.randomBytes(32).toString("hex");
   const port = args.port !== undefined ? args.port : cfg.dashboard.port;
-  const server = createDashboardServer({ port, token, uiDir: UI_DIR, index, tailer, getConfig: rt.getConfig, health: () => healthReport(rt), stats });
+  const server = createDashboardServer({ port, token, uiDir: UI_DIR, index, tailer, getConfig: rt.getConfig, runtimeReport:()=>({dashboardRuntimeId:mcp.history.runtimeId,runtimes:require('../../core/config-history.js').readRuntimes(path.join(runsDir,'..','history')),note:'Only processes with dashboard journaling enabled are discoverable. Heartbeat freshness is observation, not proof of liveness.'}), health: () => healthReport(rt), stats });
   try {
     await new Promise((resolve, reject) => {
       server.once("error", reject);
@@ -276,7 +275,7 @@ async function main(argv, io = {}) {
   process.once("exit", removeState);
   for (const sig of /** @type {const} */ (["SIGINT", "SIGTERM", "SIGHUP"])) {
     process.once(sig, () => {
-      removeState();
+      removeState();mcp.close();
       process.exit(0);
     });
   }

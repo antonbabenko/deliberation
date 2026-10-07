@@ -195,17 +195,17 @@ test("state: verdicts (per-peer, categories only) round-trips under metadata cap
 
 test("JOURNAL_KEYS matches the spec table for all six kinds", () => {
   assert.deepEqual(Object.keys(JOURNAL_KEYS).sort(), ["arbiter", "call_end", "call_start", "run_end", "run_start", "state"].sort());
-  assert.deepEqual(JOURNAL_KEYS.run_start.meta, ["tool", "pid", "procStartedAt", "expert", "workflow", "providers"]);
+  assert.deepEqual(JOURNAL_KEYS.run_start.meta, ["tool", "pid", "procStartedAt", "expert", "workflow", "providers", "configId", "activationId", "runtimeId", "firstSeenAt", "activatedAt", "snapshot", "configLoadState"]);
   assert.deepEqual(JOURNAL_KEYS.run_start.content, ["prompt"]);
   assert.deepEqual(JOURNAL_KEYS.state.meta, ["state", "round", "status", "verdicts"]);
   assert.deepEqual(JOURNAL_KEYS.state.content, []);
-  assert.deepEqual(JOURNAL_KEYS.call_start.meta, ["callId", "provider", "model", "role", "round", "timeoutMs", "reasoningEffort"]);
+  assert.deepEqual(JOURNAL_KEYS.call_start.meta, ["callId", "provider", "model", "role", "round", "timeoutMs", "reasoningEffort", "settings", "configuredTimeoutMs", "deadlineAt", "limitingReason"]);
   assert.deepEqual(JOURNAL_KEYS.call_start.content, ["request"]);
-  assert.deepEqual(JOURNAL_KEYS.call_end.meta, ["callId", "provider", "model", "ms", "usage", "isError", "errorKind", "errorCode", "verdict", "criticalIssues[].category"]);
+  assert.deepEqual(JOURNAL_KEYS.call_end.meta, ["callId", "provider", "model", "ms", "usage", "isError", "errorKind", "errorCode", "verdict", "criticalIssues[].category", "cached", "provenance", "reasoningEffort"]);
   assert.deepEqual(JOURNAL_KEYS.call_end.content, ["response", "criticalIssues[].description"]);
   assert.deepEqual(JOURNAL_KEYS.arbiter.meta, ["action", "round", "verdict"]);
   assert.deepEqual(JOURNAL_KEYS.arbiter.content, ["text"]);
-  assert.deepEqual(JOURNAL_KEYS.run_end.meta, ["status", "stopReason", "rounds", "droppedProviders"]);
+  assert.deepEqual(JOURNAL_KEYS.run_end.meta, ["status", "stopReason", "rounds", "droppedProviders", "undispatched"]);
   assert.deepEqual(JOURNAL_KEYS.run_end.content, ["finalReport"]);
 });
 

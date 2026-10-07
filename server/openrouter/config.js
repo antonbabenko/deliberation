@@ -86,6 +86,8 @@ function validateConfig(raw) {
     return fail(`routing.maxFanout must be an integer >= 1 (got ${String(maxFanout)})`);
   }
 
+  const timeoutPolicy=routingRaw.timeoutPolicy??'longest-peer';
+  if(!['longest-peer','per-provider'].includes(timeoutPolicy))return fail('routing.timeoutPolicy must be longest-peer or per-provider');
   // Resolve the connection layer for openrouter. When the openrouter provider block
   // is absent OR enabled:false, openrouter is disabled (no fan-out, no arbiter pin).
   const enabled = !!orProviderRaw && orProviderRaw.enabled !== false; // present + not disabled
@@ -128,6 +130,8 @@ function validateConfig(raw) {
     error: null,
     resolved: {
       version,
+      timeoutPolicy,
+      orientation:isObject(raw.orientation)?{enabled:raw.orientation.enabled===true,maxFiles:Number.isInteger(raw.orientation.maxFiles)&&raw.orientation.maxFiles>0?raw.orientation.maxFiles:6}:{enabled:false,maxFiles:6},
       providers: resolveProviders(providersRaw),
       openrouter: { enabled, apiKeyEnv, apiBase, allowRawModel, maxFanout, defaultModel, defaults, models, invalidModels },
       consensus,
@@ -633,6 +637,7 @@ function makeConfigReader(filePath) {
           ok: true,
           error: null,
           resolved: {
+            configLoadState: "missing",
             version: 1,
             providers: {},
             openrouter: disabledOpenRouter(),

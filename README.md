@@ -350,3 +350,12 @@ Contributions welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow, 
 ## License
 
 [MIT](LICENSE)
+
+Config history records sanitized effective snapshots and run provenance when
+telemetry is enabled. Dashboard Stats shares analyze time/config filters; Config
+shows separate Ask/Consensus effort and observed runtime active/pending settings.
+Parallel peers share the longest selected timeout within host/consensus budgets
+(`routing.timeoutPolicy: "per-provider"` opts out). Pass the panel `fanoutId` to
+every progressive `ask-one` to pin settings and share a deadline, even without
+dashboard logging. Use `analyze {groupBy:"config", since:"24h"}` for historical
+cohorts, optionally narrowed by full `configId` or `activationId`.

@@ -37,7 +37,13 @@ correlated by timestamp:
    mcp__deliberation__analyze({})
    ```
    Optional args:
-   - `since` - only analyze runs newer than this window: `30m`, `24h`, `7d`, or a
+   - `groupBy: "config"` - compare recorded config snapshots and activations.
+     Narrow with full SHA-256 `configId` (or `unknown`) and optional `activationId`.
+     Historical groups retain recorded models regardless of `configuredOnly`.
+     Recommendations are scoped to one config and tool/expert/context cohort.
+     Whole-run outcomes require journals; timing and agreement stay independent.
+   - `since` - select runs by start time, including their later terminal outcomes:
+     `30m`, `24h`, `7d`, or a
      bare number of seconds. Omit for all time. It gates BOTH lenses so timing and
      agreement cover the same period; an invalid value comes back as
      `{ error: "invalid-since" }` rather than a silent all-time report.
@@ -175,3 +181,7 @@ External (not deliberation config):
   tool actually achieved rather than the window that was asked for.
 - **Never describe a model from memory** - see step 7. Names are free; claims are
   not. Fail closed and say nothing rather than guess.
+
+Human display: shorten OpenRouter aliases to `or:<alias>`; retain canonical wire IDs.
+Round durations >=1s to whole seconds with minute/hour carry; keep milliseconds
+below 1s. Report reuse separately from fresh timing, votes and token spending.

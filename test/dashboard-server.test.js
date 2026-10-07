@@ -149,6 +149,7 @@ test("S5: /api/config never carries a key value", async () => {
     assert.ok(!r.body.includes(SENTINEL));
     assert.match(r.body, /"set":true/);
     const body = JSON.parse(r.body);
+    assert.equal(body.serverVersion,require('../server/mcp/package.json').version);
     assert.deepEqual(body.providers.grok.apiKeyEnv, { env: "XAI_API_KEY", set: true });
     assert.equal(body.openrouter.apiKeyEnv.env, "OPENROUTER_API_KEY");
   } finally {

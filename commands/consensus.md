@@ -177,7 +177,7 @@ in-memory `LoopState` for that `sessionId` may be gone, so recover by re-running
        - codex                          (built-in)    reasoning: n/a (CLI)
        - gemini                         (built-in)    reasoning: n/a (CLI)
        - grok                           (built-in)    reasoning: high
-       - openrouter:<alias>             (delegate)    reasoning: high
+       - or:<alias>                     (delegate)    reasoning: high
      ```
      If `opinions[]` has > 3 voices, also print:
      `Warning: N voting voices x up to maxRounds rounds = significant token cost AND a stricter convergence bar (every responding voice must APPROVE).`
@@ -193,6 +193,8 @@ in-memory `LoopState` for that `sessionId` may be gone, so recover by re-running
      This is the fallback for a login that Setup step 3 cannot see (a spent `auth.json`).
      Never skip or work around the codex voice because it looks logged out; the dispatch is
      what starts the login and returns the code (`/deliberation:codex-login` does only the login).
+   - Use `or:<alias>` for human labels and canonical IDs in tool arguments. Round
+     durations >=1s to whole seconds with minute/hour carry; retain ms below 1s.
    - After the per-voice lines, print a one-line round time footer from the voices' `ms`
      (the fan-out is parallel, so the round wall time ~ the slowest voice):
      ```

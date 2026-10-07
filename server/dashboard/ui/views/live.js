@@ -1,7 +1,7 @@
 // views/live.js - the default view: every running run as a capture. With nothing
 // running, the scope reads ARMED over the most recent run.
 
-import { h, put } from "../dom.js";
+import { h, put, providerLabel } from "../dom.js";
 import { createCapture } from "./run.js";
 
 export function create(ctx) {

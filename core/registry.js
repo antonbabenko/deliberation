@@ -88,6 +88,11 @@ function pinAlias(orProvider, delegate, defaults) {
     name: `openrouter:${delegate.alias}`,
     capabilities: orProvider.capabilities,
     health: orProvider.health.bind(orProvider),
+    resolveSettings(req) {
+      const base=orProvider.resolveSettings?.(req);
+      const config={openrouter:{models:[delegate],defaults},providers:{openrouter:{timeout:base?.timeoutMs}}};
+      return require("./settings.js").resolveSettings(`openrouter:${delegate.alias}`,config,req);
+    },
     async ask(req) {
       // Forward the delegate's configured params with ARG-WINS precedence (an
       // explicit caller value beats the model default), mapping config/wire field
@@ -102,7 +107,7 @@ function pinAlias(orProvider, delegate, defaults) {
         // delegate.reasoning_effort / consensus_reasoning_effort is validated as a string upstream;
         // cast to the DelegationRequest union (the bridge tolerates any effort string).
         reasoningEffort: req.reasoningEffort ?? /** @type {("low"|"medium"|"high"|"none"|undefined)} */ (defaultEffort),
-        temperature: req.temperature ?? delegate.temperature,
+        temperature: req.temperature ?? delegate.temperature ?? (defaults && defaults.temperature),
         timeoutMs: req.timeoutMs ?? delegate.timeout,
       });
       return { ...r, provider: `openrouter:${delegate.alias}` };
