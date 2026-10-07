@@ -1,3 +1,10 @@
+## [3.25.0](https://github.com/antonbabenko/deliberation/compare/v3.24.0...v3.25.0) (2026-10-07)
+
+
+### Features
+
+* record config provenance and improve dashboard analytics and live interaction ([#231](https://github.com/antonbabenko/deliberation/issues/231)) ([a3163f2](https://github.com/antonbabenko/deliberation/commit/a3163f2ce1afd89e363e4b2274f4602612ed82b0))
+
 ## [3.24.0](https://github.com/antonbabenko/deliberation/compare/v3.23.0...v3.24.0) (2026-10-07)
 
 
@@ -29,11 +36,4 @@
 * **hosts:** add native Antigravity CLI and Gemini host generator and sync ([#219](https://github.com/antonbabenko/deliberation/issues/219)) ([df100b7](https://github.com/antonbabenko/deliberation/commit/df100b77e28038cfb477e2883ad6b329ebb1fd02))
 * **security:** syntax-aware secret scrubbing and credential redaction ([#221](https://github.com/antonbabenko/deliberation/issues/221)) ([7b46f97](https://github.com/antonbabenko/deliberation/commit/7b46f97b0327d610fbaaeec8fc0cd77ce2938452))
 * **test:** hermetic multi-host contract test suite ([#220](https://github.com/antonbabenko/deliberation/issues/220)) ([27c8def](https://github.com/antonbabenko/deliberation/commit/27c8deffdb219b3910b7d0359de41cec97e5ee02))
-
-## [3.20.0](https://github.com/antonbabenko/deliberation/compare/v3.19.0...v3.20.0) (2026-10-03)
-
-
-### Features
-
-* local read-only dashboard for live and past runs ([#213](https://github.com/antonbabenko/deliberation/issues/213)) ([6ade68f](https://github.com/antonbabenko/deliberation/commit/6ade68f1b7ec5cdd2420ba020c9427bc515cdd9a))
 
