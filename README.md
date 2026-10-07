@@ -337,6 +337,15 @@ Full setup and configuration reference lives in **[SETUP.md](SETUP.md)**. It cov
 - **Session persistence** - opt-in on-disk run history (incl. the host-driven `/consensus` loop) and the `session-*` tools; `sessions.captureText` (default off) additionally stores provider response bodies (scrubbed)
 - **Dashboard** - opt-in local, read-only browser view of live and past runs as state graphs, with config, provider health, and usage stats. `dashboard.capture` picks metadata only (default) or full prompts and responses; secrets are scrubbed on write and PII is redacted on serve unless `dashboard.showPII` is on. Loopback only, token-protected. Start it with `/deliberation:dashboard` or `deliberation-mcp dashboard`
 
+Config history records sanitized effective snapshots and run provenance when
+telemetry is enabled. Dashboard Stats shares analyze time/config filters; Config
+shows separate Ask/Consensus effort and observed runtime active/pending settings.
+Parallel peers share the longest selected timeout within host/consensus budgets
+(`routing.timeoutPolicy: "per-provider"` opts out). Pass the panel `fanoutId` to
+every progressive `ask-one` to pin settings and share a deadline, even without
+dashboard logging. Use `analyze {groupBy:"config", since:"24h"}` for historical
+cohorts, optionally narrowed by full `configId` or `activationId`.
+
 For provider internals, environment variables, and manual MCP setup, see **[TECHNICAL.md](TECHNICAL.md)**.
 
 ## Author
@@ -350,12 +359,3 @@ Contributions welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow, 
 ## License
 
 [MIT](LICENSE)
-
-Config history records sanitized effective snapshots and run provenance when
-telemetry is enabled. Dashboard Stats shares analyze time/config filters; Config
-shows separate Ask/Consensus effort and observed runtime active/pending settings.
-Parallel peers share the longest selected timeout within host/consensus budgets
-(`routing.timeoutPolicy: "per-provider"` opts out). Pass the panel `fanoutId` to
-every progressive `ask-one` to pin settings and share a deadline, even without
-dashboard logging. Use `analyze {groupBy:"config", since:"24h"}` for historical
-cohorts, optionally narrowed by full `configId` or `activationId`.
