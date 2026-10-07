@@ -7,6 +7,7 @@
 const { parseReview } = require("./provider.js");
 const loop = require("./consensus-loop.js");
 const { NULL_LOGGER } = require("./debug-log.js");
+const { safeCallProvenance } = require("./config-history.js");
 const { fitToHostBudget, remainingHostBudgetMs, HOST_BUDGET_MIN_MS } = require("./host-budget.js");
 
 /** @typedef {import("./debug-log.js").Logger} Logger */
@@ -54,18 +55,17 @@ function nextCallId(providerName) {
 
 /**
  * Emit `call_start` for one provider call. Returns the callId to pair with
- * traceCallEnd, or null when there is no trace (or the emit itself failed) -
- * the caller does not need to branch on that, traceCallEnd is a no-op for a
- * null callId too. Never throws.
+ * traceCallEnd. Identity exists even without telemetry or when an emit fails.
+ * Never throws.
  * @param {(Trace|undefined)} trace
  * @param {string} providerName
  * @param {DelegationRequest} req
- * @returns {(string|null)}
+ * @returns {string}
  */
 function traceCallStart(trace, providerName, req) {
-  if (!trace || !trace.journal) return null;
+  const callId = nextCallId(providerName);
+  if (!trace || !trace.journal) return callId;
   try {
-    const callId = nextCallId(providerName);
     trace.journal.emit(trace.runId, "call_start", {
       callId,
       provider: providerName,
@@ -80,7 +80,7 @@ function traceCallStart(trace, providerName, req) {
     });
     return callId;
   } catch {
-    return null;
+    return callId;
   }
 }
 
@@ -157,7 +157,7 @@ function withRole(trace, role, round) {
 async function tracedAsk(trace, provider, req, onError) {
   const context=req.context??'ask',settings=provider.resolveSettings?.({...req,context})||{};
   req = { ...req,...Object.fromEntries(Object.entries(settings).filter(([k,v])=>['model','reasoningEffort','temperature','timeoutMs'].includes(k)&&v!==undefined&&v!=='CLI inherited / unknown')),context,
-    provenance:{...trace?.provenance,...req.provenance,settings,configuredTimeoutMs:settings.timeoutMs,expert:req.expert,context,role:trace?.role,round:trace?.round} };
+    provenance:safeCallProvenance({...trace?.provenance,...req.provenance,settings,configuredTimeoutMs:settings.timeoutMs,expert:req.expert,context,role:trace?.role,round:trace?.round}) };
   const started = Date.now();
   const callId = traceCallStart(trace, provider.name, req);
   try {
@@ -255,7 +255,7 @@ async function callProvider(provider, req, logger, tool, cache, orientationFiles
   const context = req.context ?? (tool === "consensus" || tool === "consensus-step" ? "consensus" : "ask");
   const resolved=provider.resolveSettings?.({...req,context}) || {};
   req = { ...req, ...Object.fromEntries(Object.entries(resolved).filter(([k,v])=>['model','reasoningEffort','temperature','timeoutMs'].includes(k)&&v!==undefined&&v!=='CLI inherited / unknown')), context,tool,
-    provenance:{...trace?.provenance,...req.provenance,configuredTimeoutMs:req.provenance?.configuredTimeoutMs??resolved.timeoutMs,settings:resolved,expert:req.expert,context,role:trace?.role,round:trace?.round} };
+    provenance:safeCallProvenance({...trace?.provenance,...req.provenance,configuredTimeoutMs:req.provenance?.configuredTimeoutMs??resolved.timeoutMs,settings:resolved,expert:req.expert,context,role:trace?.role,round:trace?.round}) };
   if(req.deadlineAt===undefined&&typeof req.timeoutMs==='number')req.deadlineAt=Date.now()+req.timeoutMs;
   // Auto-attach orientation to file-blind providers BEFORE the cache key is computed,
   // so the now-file-bearing request bypasses cache reuse of stale grounding bytes.
@@ -266,9 +266,10 @@ async function callProvider(provider, req, logger, tool, cache, orientationFiles
   if (useCache) {
     const hit = cache.get(provider.name, req);
     if (hit) {
-      const reused={...hit,provenance:{...req.provenance,original:hit.provenance,callId:nextCallId(provider.name)}};
+      const callId=traceCallStart(trace, provider.name, req);
+      const reused={...hit,provenance:safeCallProvenance({...req.provenance,original:hit.provenance,callId})};
       logProviderResult(logger, tool, reused);
-      traceCallEnd(trace, traceCallStart(trace, provider.name, req), reused);
+      traceCallEnd(trace, callId, reused);
       return reused;
     }
   }
@@ -321,7 +322,6 @@ async function callProvider(provider, req, logger, tool, cache, orientationFiles
     // below, so without this a retry that succeeds erases every trace of the
     // rate-limit / stub - and the debug log is exactly how provider health is
     // diagnosed. A retried call therefore emits two provider_result rows.
-    logProviderResult(logger, tool, r);
     const delay = r.errorKind === "rate-limit" ? retryDelayMs(r) : r.errorKind === "network" ? NETWORK_RETRY_DELAY_MS : 0;
     // Under a host cap, a retry with no budget left AFTER its backoff is a guaranteed
     // second failure the host would kill first - and a 30s Retry-After at 40s into a
@@ -329,7 +329,11 @@ async function callProvider(provider, req, logger, tool, cache, orientationFiles
     const remaining = remainingHostBudgetMs(capStartedAt);
     if (!req.signal?.aborted && (req.deadlineAt===undefined || req.deadlineAt-Date.now()-delay>0) && (remaining === null || remaining - delay > HOST_BUDGET_MIN_MS)) {
       if (delay) await new Promise(resolve=>{const timer=setTimeout(done,delay);function done(){clearTimeout(timer);req.signal?.removeEventListener("abort",done);resolve(undefined);}req.signal?.addEventListener("abort",done,{once:true});});
-      r = await attempt();
+      const retryRemaining=remainingHostBudgetMs(capStartedAt);
+      if (!req.signal?.aborted && (req.deadlineAt===undefined||req.deadlineAt>Date.now()) && (retryRemaining===null||retryRemaining>HOST_BUDGET_MIN_MS)) {
+        logProviderResult(logger, tool, r);
+        r = await attempt();
+      }
     }
   }
   logProviderResult(logger, tool, r);

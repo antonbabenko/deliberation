@@ -97,7 +97,7 @@ function safeProvenance(p) {
 /** Content-free dispatch metadata only. @param {any} p @returns {any} */
 function safeCallProvenance(p) {
   if(!p||typeof p!=='object')return null;
-  return {...safeProvenance(p),...pick(p,['runId','callId','attemptId','configuredTimeoutMs','limitingReason','expert','context','role','round']),
+  return {...safeProvenance(p),...(/^[a-f0-9]{64}$/.test(p.configId)?{configId:p.configId}:{}),...pick(p,['runId','callId','attemptId','configuredTimeoutMs','limitingReason','expert','context','role','round']),
     settings:pick(p.settings,KEYS),...(p.original?{original:safeCallProvenance({...p.original,original:undefined})}: {})};
 }
 /** @param {string} dir @param {number} [cap] @returns {any[]} */

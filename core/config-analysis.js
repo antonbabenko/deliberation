@@ -22,12 +22,12 @@ function analyzeConfigs(events,records,runs,cfg,meta={}) {
   const inTime=t=>(!meta.windowMs&&!grouped)||Number.isFinite(t)&&t>=from&&t<=now;
   /** @param {any} r */
   const matches=r=>(!meta.configId||identity(r)===meta.configId)&&(!meta.activationId||(provenanceOf(r)?.activationId||r.activationId)===meta.activationId);
-  const chosenRuns=runs.filter(r=>!r.legacy&&inTime(r.startedAt)&&matches(r));
+  const chosenRuns=runs.filter(r=>inTime(r.startedAt)&&matches(r));
   const chosenRecords=records.filter(r=>inTime(r.provenance?.startedAt??Date.parse(r.createdAt))&&matches(r));
   /** @type {Map<string,number>} */ const origins=new Map(/** @type {any} */ ([...runs.map(r=>[r.runId,r.startedAt]),...records.map(r=>[r.runId,r.provenance?.startedAt??Date.parse(r.createdAt)])]));
   const chosenEvents=events.filter(e=>matches(e)&&inTime(e.runStartedAt??origins.get(e.runId)??e.at));
   /** @type {any} */ const result=core.buildAnalysis(chosenEvents,chosenRecords,cfg,{...meta,cohortSelected:true,configuredOnly:grouped?false:meta.configuredOnly});
-  result.meta.timeBoundary='run start in closed [from, now]; uncorrelated legacy events use event time';
+  result.meta.timeBoundary='run start in closed [from, now]; legacy sessions without a recorded start use record time, uncorrelated events use event time';
   /** @type {Map<string,any>} */const groups=new Map();
   const allEvidence=[...(meta.history||[]),...runs,...records,...events];
   for(const r of allEvidence) {
@@ -43,7 +43,7 @@ function analyzeConfigs(events,records,runs,cfg,meta={}) {
   const groupsOut=[];
   for(const g of groups.values()) {
     const rs=chosenRuns.filter(r=>identity(r)===g.configId),es=chosenEvents.filter(e=>identity(e)===g.configId),recs=chosenRecords.filter(r=>identity(r)===g.configId);
-    const terminal=rs.filter(r=>r.endedAt!=null&&r.status!=='running'),fresh=terminal.filter(r=>!r.reused);
+    const terminal=rs.filter(r=>r.endedAt!=null&&r.status!=='running'),fresh=terminal.filter(r=>!r.legacy&&!r.reused);
     const elapsed=fresh.map(r=>r.endedAt-r.startedAt).filter(n=>n>=0).sort((a,b)=>a-b);
     const evidence=[...rs,...recs];
     const activations=new Map();
@@ -72,7 +72,7 @@ function analyzeConfigs(events,records,runs,cfg,meta={}) {
     }
     const timings=rs.map(r=>r.startedAt).filter(Number.isFinite);
     groupsOut.push({...g,activations:[...activations.values()],usagePeriod:timings.length?{from:Math.min(...timings),to:Math.max(...timings)}:null,
-      sessionEvidenceCount:recs.length,runCount:rs.length,liveRuns:rs.length-terminal.length,terminalRuns:terminal.length,freshQualityRuns:fresh.length,
+      sessionEvidenceCount:recs.length,runCount:rs.length,legacyRuns:rs.filter(r=>r.legacy).length,liveRuns:rs.length-terminal.length,terminalRuns:terminal.length,freshQualityRuns:fresh.length,
       successRuns:fresh.filter(r=>!r.errors&&!['error','unresolved','abandoned'].includes(r.status)).length,
       errorRuns:fresh.filter(r=>r.errors||r.status==='error').length,timeoutAttempts:es.filter(e=>!e.cached&&e.errorKind==='timeout').length,
       elapsed:{p50:elapsed.length?core.percentile(elapsed,50):null,p95:elapsed.length?core.percentile(elapsed,95):null,samples:elapsed.length},
@@ -80,7 +80,7 @@ function analyzeConfigs(events,records,runs,cfg,meta={}) {
       reusedResults:Math.max(es.filter(e=>e.cached).length,rs.reduce((n,r)=>n+(r.reused||0),0)),retries:rs.reduce((n,r)=>n+(r.retries||0),0),attempts:es.filter(e=>!e.cached&&e.event==='provider_result').length,
       consensus:{runs:terminal.filter(r=>r.workflow?.startsWith('consensus')).length,converged:terminal.filter(r=>r.status==='converged').length,rounds:terminal.reduce((n,r)=>n+(r.rounds||0),0)},
       stats:detail.stats,agreement:detail.agreement,partitions:[...partitions.entries()].map(([key,ev])=>({key,stats:core.aggregateByModel(ev)})),recommendations,
-      warnings:[...(rs.length<5?['Small sample: fewer than five whole runs.']:[]),'Workload and override partitions are descriptive; no causal config-quality comparison.']});
+      warnings:[...(rs.length<5?['Small sample: fewer than five whole runs.']:[]),...(rs.some(r=>r.legacy)?['Session-only runs count as evidence; elapsed/outcome quality uses journals only. Legacy sessions without a recorded start use record time.']:[]),'Workload and override partitions are descriptive; no causal config-quality comparison.']});
   }
   /** @type {any} */const out={...result,configs:groupsOut.filter(g=>(!meta.configId||g.configId===meta.configId)),configOptions:[...groups.values()],cohortRuns:chosenRuns};
   out.meta={...result.meta,groupBy:meta.groupBy||null,currentModelFilter:grouped?'ignored for historical groups':'current configuration',

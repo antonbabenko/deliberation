@@ -601,3 +601,4 @@ input[type="search"] { width: 230px; }
 .stats-filters label { display: block; min-width: 0; max-width: 100%; }
 .stats-filters label:nth-child(2) { flex: 1; min-width: min(240px, 100%); }
 .stats-filters select { display: block; width: 100%; max-width: 100%; margin-top: 4px; }
+.stats-filters input { display: block; width: 100%; max-width: 100%; margin-top: 4px; }

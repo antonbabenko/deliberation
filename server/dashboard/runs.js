@@ -456,7 +456,7 @@ function legacySummary(id, record) {
     tool,
     workflow: tool,
     status,
-    startedAt: at,
+    startedAt: Number.isFinite(record.provenance?.startedAt)?record.provenance.startedAt:at,
     endedAt: at,
     providers: Array.from(providers),
     rounds: typeof record.rounds === "number" ? record.rounds : 0,

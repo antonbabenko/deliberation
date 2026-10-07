@@ -117,7 +117,10 @@ reliability behaviors:
 
 - **Soft-timeout drain** - on timeout it keeps `agy` alive, keeps buffering its
   streamed stdout, and returns the answer if `agy` completes cleanly within the
-  grace budget. See [Gemini timeout recovery](#gemini-timeout-recovery).
+  grace budget. The unified MCP orchestration uses hard absolute deadlines for
+  single calls and shared fan-outs, so it disables this drain; it remains available
+  on standalone bridge calls without a hard deadline or host cap.
+  See [Gemini timeout recovery](#gemini-timeout-recovery).
 - **Plain-stdout answer with an `Error:` sentinel** - `agy -p` prints the answer as
   plain UTF-8 text on stdout and exits 0; there is no `-o json` mode. The bridge
   treats stdout as the answer unless it matches `/^\s*Error:/` (agy reports
@@ -717,6 +720,10 @@ then escalates to you. Retries reuse the `threadId` so the expert remembers the
 earlier attempts.
 
 ## Gemini timeout recovery
+
+The recovery below applies to standalone bridge calls with a soft timeout. Unified
+MCP calls use an absolute deadline (retries share it), abort the process group at
+that deadline, and grant no additional drain period. Host caps also disable drain.
 
 `timeout` is a soft deadline (default 300000ms; Gemini 3 deep prompts run
 200-260s). `agy -p` streams its answer to stdout incrementally, so the bridge

@@ -425,7 +425,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       ...(typeof expert === "string" && EXPERTS.includes(expert) ? { expert } : {}),
       ...(typeof prompt === "string" ? { prompt } : {}),
     });
-    return { journal, runId: id, provenance:context };
+    return { journal, runId: id, provenance:require("../../core/config-history.js").safeProvenance(context) };
   }
   // The fan-out runs `panel` opened in this process. Only these can be joined by `runId`: a
   // stale, made-up or recycled id would append after that run's run_end, or recreate a pruned
@@ -1518,8 +1518,8 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         read += 1;
         const rec = sessions.readSession(e.id, { dir: sessionsDir });
         if (!rec) continue;
-        // Select by pinned run start in the shared aggregator; createdAt is the
-        // terminal time and may cross the selected window boundary.
+        // Select by pinned run start in the shared aggregator. Older records
+        // without that provenance fall back to their record timestamp.
         records.push(rec);
       }
     }
@@ -1618,7 +1618,17 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       const joined=fanoutId?groups.join(fanoutId,want,req):null;
       if(joined?.error)return jsonResult({error:joined.error});
       const p = joined?.provider || selected.find((x) => x.name === want);
-      if(joined){runContext.enterWith(joined.group.context);req.provenance=require("../../core/config-history.js").safeProvenance(joined.group.context);req.deadlineAt=joined.deadlineAt;req.timeoutMs=joined.group.context.config?.timeoutPolicy==='per-provider'?p.resolveSettings?.(req)?.timeoutMs:Math.max(1,joined.deadlineAt-Date.now());req.signal=AbortSignal.any([joined.signal,...(req.signal?[req.signal]:[])]);}
+      let disposeSignals=()=>{};
+      if(joined){
+        const configuredTimeoutMs=p.resolveSettings?.({...req,timeoutMs:undefined})?.timeoutMs;
+        const shared=joined.group.context.config?.timeoutPolicy!=='per-provider';
+        runContext.enterWith(joined.group.context);
+        req.provenance={...require("../../core/config-history.js").safeProvenance(joined.group.context),configuredTimeoutMs,limitingReason:shared?'longest-peer / outer budget':'per-provider'};
+        req.deadlineAt=joined.deadlineAt;
+        req.timeoutMs=shared?Math.max(1,joined.deadlineAt-Date.now()):req.timeoutMs??configuredTimeoutMs;
+        const combined=require('../../core/signals.js').combineSignals([joined.signal,...(req.signal?[req.signal]:[])]);
+        req.signal=combined.signal;disposeSignals=combined.dispose;
+      }
       if (!p) {
         const dead = (unavailable || []).find((u) => u.name === want);
         return jsonResult({
@@ -1627,12 +1637,12 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
           unavailable,
         });
       }
-      const { trace:single, own } = singleTrace("ask-one", args, expert, p.name);
-      const trace=joined?{journal,runId:joined.group.context.runId,provenance:require("../../core/config-history.js").safeProvenance(joined.group.context)}:single;
-      const result = await askOne(p, withPersona(req, expert), { logger: currentLogger(), tool: "ask-one", cache: resultCache, orientationFiles: orient(req), startedAt: toolStartedAt, trace });
-      if(fanoutId)groups.settle(fanoutId,want);
-      if (own && !joined) endRun(trace, { status: result.isError ? "error" : "done" });
-      return jsonResult({ result });
+      const { trace, own } = joined?{trace:{journal,runId:joined.group.context.runId,role:/** @type {const} */ ('peer'),provenance:require("../../core/config-history.js").safeProvenance(joined.group.context)},own:false}:singleTrace("ask-one", args, expert, p.name);
+      try {
+        const result = await askOne(p, withPersona(req, expert), { logger: currentLogger(), tool: "ask-one", cache: resultCache, orientationFiles: orient(req), startedAt: toolStartedAt, trace });
+        if (own) endRun(trace, { status: result.isError ? "error" : "done" });
+        return jsonResult({ result });
+      } finally {disposeSignals();if(fanoutId)groups.settle(fanoutId,want);}
     }
     if (name === "analyze") {
       return jsonResult(runAnalyze(args));
@@ -1827,11 +1837,14 @@ function makeLineReader(srv, out) {
       try { msgs.push(JSON.parse(l)); } catch { /* not JSON-RPC */ }
     }
     for (const msg of msgs) if (msg && msg.method === undefined) await srv.handle(msg);
+    const pending=[];
     for (const msg of msgs) {
       if (!msg || msg.method === undefined) continue;
-      const res = await srv.handle(msg);
-      if (msg.id !== undefined && res !== undefined) out(res);
+      const respond=async()=>{const res=await srv.handle(msg);if(msg.id!==undefined&&res!==undefined)out(res);};
+      if(msg.method==='tools/call')pending.push(respond());
+      else await respond();
     }
+    await Promise.all(pending);
   };
 }
 

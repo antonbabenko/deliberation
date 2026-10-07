@@ -12,7 +12,7 @@ function resolveSettings(name,cfg={},req={},env=process.env) {
   const model=alias?.model??c.model??(base==='codex'?'CLI inherited / unknown':base==='gemini'?env.GEMINI_DEFAULT_MODEL||'auto-gemini-3':base==='grok'?env.GROK_DEFAULT_MODEL||'grok-4.6':req.model||defaultModel||'');
   const fused=base==='gemini'&&/^gemini-/.test(model)?model.match(/(?:^|-)(low|medium|high)(?:$|-)/)?.[1]:null;
   const effort=base==='gemini'?fused:ask;
-  return {model:req.model??model, reasoningEffort:req.reasoningEffort??(req.context==='consensus'?consensus:effort)??undefined,
+  return {model:base==='gemini'?model:req.model??model, reasoningEffort:base==='gemini'?(fused??undefined):req.reasoningEffort??(req.context==='consensus'?consensus:effort)??undefined,
     askEffort:effort??'inherited / unknown',consensusEffort:(base==='gemini'?fused:consensus)??'inherited / unknown',
     effortSource:base==='gemini'?(fused?'model pin':'CLI inherited / unknown'):alias||c.reasoningEffort||c.consensusReasoningEffort||base==='openrouter'?'config/default resolution':base==='grok'?'environment / built-in':'CLI inherited / unknown',
     temperature:req.temperature??alias?.temperature??(base==='openrouter'?d.temperature:undefined),
