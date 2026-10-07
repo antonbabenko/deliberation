@@ -68,7 +68,7 @@ export function create() {
   let configOptions=[];
   function load(){const n=++generation;api.stats(filters).then(st=>{if(!disposed&&n===generation)draw(st);},e=>{if(!disposed&&n===generation)draw({error:e.message});});}
   function change(key,value){filters={...filters,[key]:value||undefined};const url=new URL(location.href);for(const [k,v]of Object.entries(filters)){if(v)url.searchParams.set(k,v);else url.searchParams.delete(k);}history.replaceState(null,'',url);load();}
-  function configLink(id){const url=new URL(location.href);url.searchParams.set('configId',id);url.hash='/stats';return url.pathname+url.search+url.hash;}
+  function configLink(id){const url=new URL(location.href);if(id)url.searchParams.set('configId',id);else url.searchParams.delete('configId');url.hash='/stats';return url.pathname+url.search+url.hash;}
   function draw(st) {
     if(Array.isArray(st.configOptions))configOptions=st.configOptions;
     const meta = st.meta || {};

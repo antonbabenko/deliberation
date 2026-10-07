@@ -1589,10 +1589,10 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       const forConsensus = args.for === "consensus";
       const picked = forConsensus ? { ...registry.selectForConsensus(sel), omitted: [] } : registry.selectForAskAll(sel);
       const pinned=picked.providers.map(p=>{
-        const base=p.resolveSettings?.({prompt:''})||{},gemini=p.name==='gemini';
+        const base=p.resolveSettings?.({prompt:''})||{},fixedModelEffort=p.capabilities?.fixedModelEffort===true;
         return {...p,resolveSettings:(/** @type {any} */ req)=>({...base,
-          model:gemini?base.model:req.model??base.model,
-          reasoningEffort:gemini?base.reasoningEffort:req.reasoningEffort??((req.context==='consensus'?base.consensusEffort:base.askEffort)==='inherited / unknown'?undefined:(req.context==='consensus'?base.consensusEffort:base.askEffort)),
+          model:fixedModelEffort?base.model:req.model??base.model,
+          reasoningEffort:fixedModelEffort?base.reasoningEffort:req.reasoningEffort??((req.context==='consensus'?base.consensusEffort:base.askEffort)==='inherited / unknown'?undefined:(req.context==='consensus'?base.consensusEffort:base.askEffort)),
           temperature:req.temperature??base.temperature,timeoutMs:req.timeoutMs??base.timeoutMs})};
       });
       const names = pinned.map((/** @type {Provider} */ p) => p.name);

@@ -97,6 +97,8 @@
  * @property {boolean} canImplement
  * @property {boolean} fileUpload
  * @property {boolean} multiTurn
+ * @property {boolean} [fixedModelEffort]  model and effort are fixed at construction;
+ *   request overrides must not replace their effective settings in pinned fan-outs.
  * @property {boolean} [walksFilesystem]  true when the provider runs locally and can
  *   read any file under cwd itself (Codex/Gemini, read-only sandbox). false/absent for
  *   HTTP advisory providers (Grok/OpenRouter) that only see explicitly-attached files.

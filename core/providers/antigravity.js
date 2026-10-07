@@ -34,7 +34,7 @@ function makeAntigravityProvider(opts = {}) {
   return {
     name: "gemini",
     // canImplement reflects the construction lock so discovery (panel) is honest about THIS process.
-    capabilities: { canImplement: allowImplement, fileUpload: false, multiTurn: true, walksFilesystem: true },
+    capabilities: { canImplement: allowImplement, fileUpload: false, multiTurn: true, walksFilesystem: true, fixedModelEffort: true },
     async health() {
       if (typeof bridge.runGemini !== "function") return { ok: false, reason: "agy bridge unavailable" };
       // Stat-only CLI presence (the bridge owns AGY_BIN resolution). A missing `agy` used to be
