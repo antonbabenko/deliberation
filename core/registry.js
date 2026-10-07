@@ -11,6 +11,7 @@
  * @property {boolean} [consensus]
  * @property {(string[]|null)} [experts]
  * @property {string}  [reasoning_effort]
+ * @property {string}  [consensus_reasoning_effort]
  * @property {number}  [temperature]
  * @property {number}  [timeout]
  */
@@ -20,6 +21,7 @@
  * @typedef {Object} OrConfig
  * @property {OrModel[]} [models]
  * @property {number}    [maxFanout]
+ * @property {Record<string, any>} [defaults]
  */
 
 /**
@@ -78,9 +80,10 @@ const BUILTINS = ["codex", "gemini", "grok"];
 /**
  * @param {Provider} orProvider
  * @param {OrModel} delegate
+ * @param {Record<string, any>} [defaults]
  * @returns {Provider}
  */
-function pinAlias(orProvider, delegate) {
+function pinAlias(orProvider, delegate, defaults) {
   return {
     name: `openrouter:${delegate.alias}`,
     capabilities: orProvider.capabilities,
@@ -88,15 +91,17 @@ function pinAlias(orProvider, delegate) {
     async ask(req) {
       // Forward the delegate's configured params with ARG-WINS precedence (an
       // explicit caller value beats the model default), mapping config/wire field
-      // names to the DelegationRequest fields openai-compatible.js reads. NOTE: only
-      // reasoningEffort/temperature/timeout flow here; per-model apiBase and the
-      // openrouter.defaults block apply on the standalone /ask-openrouter bridge path.
+      // names to the DelegationRequest fields openai-compatible.js reads.
+      const isConsensus = req.context === "consensus";
+      const defaultEffort = isConsensus
+        ? (delegate.consensus_reasoning_effort ?? (defaults && defaults.consensus_reasoning_effort) ?? delegate.reasoning_effort ?? (defaults && defaults.reasoning_effort))
+        : (delegate.reasoning_effort ?? (defaults && defaults.reasoning_effort));
       const r = await orProvider.ask({
         ...req,
         model: delegate.model,
-        // delegate.reasoning_effort is validated as a string upstream; cast to the
-        // DelegationRequest union (the bridge tolerates any effort string).
-        reasoningEffort: req.reasoningEffort ?? /** @type {("low"|"medium"|"high"|"none"|undefined)} */ (delegate.reasoning_effort),
+        // delegate.reasoning_effort / consensus_reasoning_effort is validated as a string upstream;
+        // cast to the DelegationRequest union (the bridge tolerates any effort string).
+        reasoningEffort: req.reasoningEffort ?? /** @type {("low"|"medium"|"high"|"none"|undefined)} */ (defaultEffort),
         temperature: req.temperature ?? delegate.temperature,
         timeoutMs: req.timeoutMs ?? delegate.timeout,
       });
@@ -136,10 +141,10 @@ function makeRegistry(providers) {
     }
     return { providers, unavailable };
   };
-  /** @param {OrModel[]} delegates @returns {Provider[]} */
-  const pinDelegates = (delegates) => {
+  /** @param {OrModel[]} delegates @param {Record<string, any>} [defaults] @returns {Provider[]} */
+  const pinDelegates = (delegates, defaults) => {
     const orProvider = byName.get("openrouter");
-    return orProvider ? delegates.map((/** @type {OrModel} */ d) => pinAlias(orProvider, d)) : [];
+    return orProvider ? delegates.map((/** @type {OrModel} */ d) => pinAlias(orProvider, d, defaults)) : [];
   };
 
   return {
@@ -153,7 +158,7 @@ function makeRegistry(providers) {
       const or = (config && config.openrouter) || {};
       const { selected, omitted } = askAllDelegates(or, expert);
       const b = builtinsFor(config, unhealthy);
-      return { providers: [...b.providers, ...pinDelegates(selected)], omitted, unavailable: b.unavailable };
+      return { providers: [...b.providers, ...pinDelegates(selected, or.defaults)], omitted, unavailable: b.unavailable };
     },
 
     // Uncapped: healthy built-ins + per-alias OR consensus delegates.
@@ -161,7 +166,7 @@ function makeRegistry(providers) {
     selectForConsensus({ config, expert, unhealthy }) {
       const or = (config && config.openrouter) || {};
       const b = builtinsFor(config, unhealthy);
-      return { providers: [...b.providers, ...pinDelegates(consensusDelegates(or, expert))], unavailable: b.unavailable };
+      return { providers: [...b.providers, ...pinDelegates(consensusDelegates(or, expert), or.defaults)], unavailable: b.unavailable };
     },
   };
 }

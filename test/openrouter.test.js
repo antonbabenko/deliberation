@@ -16,15 +16,14 @@ function startMock(handler) {
 }
 function reply(res, status, obj) { res.writeHead(status, { "content-type": "application/json" }); res.end(JSON.stringify(obj)); }
 
-test("O1: buildMessages emits system + user with inline blocks appended", () => {
+test("O1: buildMessages emits system + user with canonical prefix ordering (inline blocks before text)", () => {
   const msgs = buildMessages([
     { role: "system", text: "sys" },
     { role: "user", text: "hi", inlineBlocks: ["=== a.txt ===\nAAA"] },
   ]);
   assert.equal(msgs[0].role, "system");
   assert.equal(msgs[1].role, "user");
-  assert.match(msgs[1].content, /hi/);
-  assert.match(msgs[1].content, /AAA/);
+  assert.equal(msgs[1].content, "=== a.txt ===\nAAA\n\nhi");
 });
 
 test("O2: callOpenRouter posts chat/completions and returns assistant text", async () => {

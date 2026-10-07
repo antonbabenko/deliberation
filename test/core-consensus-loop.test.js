@@ -272,3 +272,56 @@ test("CB7: malformed verdict (null / not in VERDICTS) increments the error strea
   assert.equal(streak.codex, 1, "null verdict is a parsing fault and increments the streak");
   assert.equal(streak.grok, 1, "unrecognized verdict is a fault and increments the streak");
 });
+
+test("DIGEST-1: summarizePlanDiff detects line additions, deletions, and no changes", () => {
+  const diffSame = loop.summarizePlanDiff("line 1\nline 2", "line 1\nline 2");
+  assert.equal(diffSame, "no changes");
+
+  const diffAdd = loop.summarizePlanDiff("line 1", "line 1\nline 2\nline 3");
+  assert.equal(diffAdd, "+2 lines");
+
+  const diffDel = loop.summarizePlanDiff("line 1\nline 2", "line 1");
+  assert.equal(diffDel, "-1 lines");
+
+  const diffBoth = loop.summarizePlanDiff("line 1\nold", "line 1\nnew");
+  assert.equal(diffBoth, "+1 lines, -1 lines");
+});
+
+test("DIGEST-2: buildRoundDigest creates structured summary of addressed, deferred, and dismissed issues", () => {
+  /** @type {any} */
+  const record = {
+    round: 1,
+    plan: "plan",
+    diffSummary: "+2 lines",
+    decisions: [
+      { source: "codex", category: "security", description: "sanitize inputs", action: "accept" },
+      { source: "grok", category: "performance", description: "cache responses", action: "defer", reason: "v2 scope" },
+      { source: "gemini", category: "ops", description: "add metrics", action: "dismiss", reason: "already in datadog" },
+    ],
+  };
+  const digest = loop.buildRoundDigest(record);
+  assert.match(digest, /Round 1: \+2 lines/);
+  assert.match(digest, /Addressed \(1\): \[security\] sanitize inputs/);
+  assert.match(digest, /Deferred \(1\): \[performance\] cache responses \(Reason: v2 scope\)/);
+  assert.match(digest, /Dismissed \(1\): \[ops\] add metrics \(Reason: already in datadog\)/);
+});
+
+test("DIGEST-3: prepareRound includes multi-round structured digests in prior rounds section", () => {
+  let s = loop.initConsensusLoop({ plan: "original plan", maxRounds: 4 });
+  s = loop.recordBlindVerdict(s, "VERDICT: REQUEST_CHANGES");
+  s = loop.addOpinions(s, [
+    { source: "peer1", isError: false, verdict: "REQUEST_CHANGES", criticalIssues: [{ category: "security", description: "fix sql injection" }] },
+  ]);
+  s = loop.submitAdjudication(s, {
+    verdict: "REQUEST_CHANGES",
+    decisions: [{ source: "peer1", category: "security", description: "fix sql injection", action: "accept" }],
+  });
+  s = loop.submitRevision(s, "revised plan with parameterized queries");
+
+  const { peerPrompt, blindPrompt } = loop.prepareRound(s);
+  assert.match(peerPrompt, /Round 2 of 4/);
+  assert.match(peerPrompt, /Prior rounds:/);
+  assert.match(peerPrompt, /Addressed \(1\): \[security\] fix sql injection/);
+  assert.match(peerPrompt, /## Plan under review\nrevised plan with parameterized queries/);
+  assert.equal(peerPrompt.includes("original plan"), false, "old full plan text is not dumped in prior rounds");
+});

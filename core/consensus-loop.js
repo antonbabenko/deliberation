@@ -142,8 +142,54 @@ function initConsensusLoop(opts) {
 }
 
 /**
+ * Compute a concise diff summary between two plan versions.
+ * @param {string} prev
+ * @param {string} next
+ * @returns {string}
+ */
+function summarizePlanDiff(prev, next) {
+  if (prev === next) return "no changes";
+  const prevLines = (prev || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const nextLines = (next || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const prevSet = new Set(prevLines);
+  const nextSet = new Set(nextLines);
+  const added = nextLines.filter((l) => !prevSet.has(l));
+  const removed = prevLines.filter((l) => !nextSet.has(l));
+  const parts = [];
+  if (added.length) parts.push(`+${added.length} lines`);
+  if (removed.length) parts.push(`-${removed.length} lines`);
+  return parts.length ? parts.join(", ") : "modified";
+}
+
+/**
+ * Summarize a round record into a compact structured digest.
+ * Extracts addressed, deferred, and dismissed issues along with diffSummary.
+ * @param {RoundRecord} record
+ * @returns {string}
+ */
+function buildRoundDigest(record) {
+  const decisions = record.decisions || [];
+  const accepted = decisions.filter((d) => d.action === "accept").map((d) => `[${d.category}] ${d.description}`);
+  const deferred = decisions.filter((d) => d.action === "defer").map((d) => `[${d.category}] ${d.description}${d.reason ? ` (Reason: ${d.reason})` : ""}`);
+  const dismissed = decisions.filter((d) => d.action === "dismiss").map((d) => `[${d.category}] ${d.description}${d.reason ? ` (Reason: ${d.reason})` : ""}`);
+
+  const lines = [`Round ${record.round}: ${record.diffSummary || "(revised)"}`];
+  if (accepted.length) {
+    lines.push(`  - Addressed (${accepted.length}): ${accepted.slice(0, 3).join("; ")}${accepted.length > 3 ? "..." : ""}`);
+  }
+  if (deferred.length) {
+    lines.push(`  - Deferred (${deferred.length}): ${deferred.slice(0, 3).join("; ")}${deferred.length > 3 ? "..." : ""}`);
+  }
+  if (dismissed.length) {
+    lines.push(`  - Dismissed (${dismissed.length}): ${dismissed.slice(0, 3).join("; ")}${dismissed.length > 3 ? "..." : ""}`);
+  }
+  return lines.join("\n");
+}
+
+/**
  * Build the round's prompts. Pure read. Bounds history: the last 2 rounds appear
- * verbatim (verdict + diff), older rounds as a one-line summary, to cap growth.
+ * as structured digests (verdict, decisions, and diff summary), older rounds as a
+ * one-line summary, to cap prompt growth.
  * Guarded to `await_blind` so a terminated/mid-round state cannot emit a stale
  * "next round" prompt.
  * @param {LoopState} state
@@ -152,8 +198,8 @@ function initConsensusLoop(opts) {
 function prepareRound(state) {
   assertStatus(state, "await_blind", "prepareRound");
   const hist = state.history || [];
-  const recent = hist.slice(-2).map((r) => `Round ${r.round}: ${r.diffSummary || "(revised)"}`);
-  const older = hist.slice(0, -2).map((r) => `Round ${r.round}: revised`);
+  const recent = hist.slice(-2).map((r) => buildRoundDigest(r));
+  const older = hist.slice(0, -2).map((r) => `Round ${r.round}: ${r.diffSummary || "revised"}`);
   const meta = [...older, ...recent].join("\n");
   const header = `Round ${state.round} of ${state.maxRounds}.`;
   const body = [
@@ -320,6 +366,7 @@ function checkConvergence(state) {
  */
 function submitRevision(state, revisedPlan, diffSummary) {
   assertStatus(state, "await_revision", "submitRevision");
+  const diff = (diffSummary && diffSummary.trim()) || summarizePlanDiff(state.currentPlan, revisedPlan);
   /** @type {RoundRecord} */
   const record = {
     round: state.round,
@@ -328,7 +375,7 @@ function submitRevision(state, revisedPlan, diffSummary) {
     results: state.results || [],
     decisions: state.decisions || [],
     hostVerdict: state.hostVerdict || null,
-    diffSummary: diffSummary || "(revised)",
+    diffSummary: diff,
   };
   const history = [...state.history, record];
   if (state.round >= state.maxRounds) {
@@ -387,4 +434,6 @@ module.exports = {
   checkConvergence,
   submitRevision,
   finalize,
+  summarizePlanDiff,
+  buildRoundDigest,
 };

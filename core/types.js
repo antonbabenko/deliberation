@@ -29,6 +29,7 @@
  *   Phase-3 note: when this is used for real multi-tenancy, the remote adapter must also
  *   scope any per-thread session state (e.g. the openai-compatible `threadId` map) by tenant,
  *   so a reused threadId cannot resume another tenant's context under a different key.
+ * @property {("ask"|"consensus")} [context]  calling context: "consensus" applies consensusReasoningEffort, "ask" (default) applies reasoningEffort
  * @property {("advisory"|"implement")} [mode]  delegation mode. Absent/"advisory" keeps the
  *   call read-only (OS-sandboxed). Only the literal "implement" requests workspace-write, and
  *   only takes effect when the provider was constructed with `allowImplement:true` (the second

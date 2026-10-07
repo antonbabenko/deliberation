@@ -65,6 +65,11 @@ function configuredReasoningEffort() {
   const e = grokConfigBlock().reasoningEffort;
   return isNonEmptyString(e) ? e : undefined;
 }
+/** @returns {(string|undefined)} */
+function configuredConsensusReasoningEffort() {
+  const e = grokConfigBlock().consensusReasoningEffort;
+  return isNonEmptyString(e) ? e : undefined;
+}
 /**
  * providers.grok.timeout, already merged with providers.defaults.timeout by the config
  * layer. Without this the standalone bridge (what /ask-grok calls) would stay pinned to
@@ -1212,7 +1217,7 @@ const handlers = {
         cwd: args.cwd,
         cacheFile: process.env.XAI_DISABLE_FILE_CACHE ? null : DEFAULT_CACHE_FILE,
         model: args.model,
-        reasoningEffort: resolveReasoningEffort(args.reasoning_effort ?? configuredReasoningEffort()),
+        reasoningEffort: resolveReasoningEffort(args.reasoning_effort ?? (args.context === "consensus" ? (configuredConsensusReasoningEffort() ?? configuredReasoningEffort()) : configuredReasoningEffort())),
         // Precedence: per-call arg > providers.grok.timeout / providers.defaults.timeout
         // (resolved in the config layer) > the 180s built-in inside runGrok.
         timeout: args.timeout ?? configuredTimeout(),

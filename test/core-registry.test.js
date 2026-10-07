@@ -122,3 +122,45 @@ test("G7: a disabled built-in is neither dispatched nor reported unavailable; no
   assert.deepEqual(a.unavailable, []);
   assert.deepEqual(reg.selectForAskAll({ config: cfg, expert: "" }).unavailable, []);
 });
+
+test("G4d: a per-alias OR wrapper selects consensus_reasoning_effort when req.context === 'consensus'", async () => {
+  /** @type {any} */ let gotReq;
+  const orp = /** @type {any} */ ({ name: "openrouter", capabilities: {}, async health() { return { ok: true }; },
+    async ask(/** @type {any} */ req) { gotReq = req; return { provider: "openrouter", model: req.model, isError: false, ms: 0 }; } });
+  const cfg = {
+    providers: {},
+    openrouter: {
+      defaults: { reasoning_effort: "low", consensus_reasoning_effort: "medium" },
+      models: [
+        { alias: "m1", model: "a/1", askAll: true, consensus: true, reasoning_effort: "high", consensus_reasoning_effort: "low" },
+        { alias: "m2", model: "a/2", askAll: true, consensus: true, reasoning_effort: "high" }, // falls back to defaults.consensus_reasoning_effort
+      ],
+    },
+  };
+  const reg = makeRegistry([orp]);
+  const cProviders = reg.selectForConsensus({ config: cfg, expert: "" }).providers;
+  const m1 = cProviders.find((p) => p.name === "openrouter:m1");
+  const m2 = cProviders.find((p) => p.name === "openrouter:m2");
+  assert.ok(m1);
+  assert.ok(m2);
+
+  // In consensus context: m1 uses its own consensus_reasoning_effort ("low")
+  await m1.ask({ prompt: "x", context: "consensus" });
+  assert.ok(gotReq);
+  assert.equal(gotReq.reasoningEffort, "low");
+
+  // In ask context: m1 uses its own reasoning_effort ("high")
+  await m1.ask({ prompt: "x", context: "ask" });
+  assert.ok(gotReq);
+  assert.equal(gotReq.reasoningEffort, "high");
+
+  // In consensus context: m2 lacks model-level consensus_reasoning_effort, falls back to defaults.consensus_reasoning_effort ("medium")
+  await m2.ask({ prompt: "x", context: "consensus" });
+  assert.ok(gotReq);
+  assert.equal(gotReq.reasoningEffort, "medium");
+
+  // Explicit caller override still wins over both
+  await m1.ask({ prompt: "x", context: "consensus", reasoningEffort: "high" });
+  assert.ok(gotReq);
+  assert.equal(gotReq.reasoningEffort, "high");
+});

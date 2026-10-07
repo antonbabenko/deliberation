@@ -151,6 +151,7 @@ function withRole(trace, role, round) {
  * @returns {Promise<(DelegationResult|null)>}
  */
 async function tracedAsk(trace, provider, req, onError) {
+  req = { ...req, context: req.context ?? "consensus" };
   const started = Date.now();
   const callId = traceCallStart(trace, provider.name, req);
   try {
@@ -243,6 +244,8 @@ function withOrientation(provider, req, orientationFiles) {
  * @returns {Promise<DelegationResult>}
  */
 async function callProvider(provider, req, logger, tool, cache, orientationFiles, startedAt, trace) {
+  const context = req.context ?? (tool === "consensus" || tool === "consensus-step" ? "consensus" : "ask");
+  req = { ...req, context };
   // Auto-attach orientation to file-blind providers BEFORE the cache key is computed,
   // so the now-file-bearing request correctly bypasses the cwd-agnostic dedup cache
   // (keyFor excludes cwd; caching an oriented result would risk a cross-repo false hit).
@@ -678,7 +681,7 @@ async function runToConvergence(providers, req, opts = {}) {
         traceState(trace, { state: "revise", round: roundNo, status: state.status });
         revised = okText(await askIsolated(buildRevisionPrompt(state, lastResults))) || state.currentPlan;
       }
-      state = loop.submitRevision(state, revised, "arbiter revision");
+      state = loop.submitRevision(state, revised, loop.summarizePlanDiff(state.currentPlan, revised));
       if (state.status === "unresolved") traceState(trace, { state: "unresolved", round: roundNo, status: state.status });
     }
   } catch (e) {

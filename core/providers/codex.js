@@ -515,9 +515,10 @@ function loginMessage(prompt) {
 
 /**
  * @param {Object} [opts]
- * @param {(args:{prompt:string,cwd?:string,timeoutMs?:number,mode?:("advisory"|"implement"),env?:Record<string,(string|undefined)>,pin?:{model?:string,reasoningEffort?:string}})=>Promise<{code:number,stdout:string,stderr:string,timedOut?:boolean,spawnFailed?:boolean}>} [opts.run]
+ * @param {(args:{prompt:string,cwd?:string,timeoutMs?:number,mode?:("advisory"|"implement"),env?:Record<string,(string|undefined)>,pin?:{model?:string,reasoningEffort?:string,consensusReasoningEffort?:string}})=>Promise<{code:number,stdout:string,stderr:string,timedOut?:boolean,spawnFailed?:boolean}>} [opts.run]
  * @param {string} [opts.model]  providers.codex.model; absent -> codex's own (~/.codex/config.toml)
  * @param {string} [opts.reasoningEffort]  providers.codex.reasoningEffort (none|minimal|low|medium|high|xhigh|max|ultra)
+ * @param {string} [opts.consensusReasoningEffort]  providers.codex.consensusReasoningEffort
  * @param {boolean} [opts.allowImplement]  construction-time lock (first of two AND-ed locks).
  *   When false/absent, this provider is read-only no matter what `req.mode` says. Set ONLY in a
  *   composition root that has a local workspace + a human-gated write surface (section 3).
@@ -539,11 +540,19 @@ function loginMessage(prompt) {
 function makeCodexProvider(opts = {}) {
   const run = opts.run || defaultRun;
   const env = opts.env || process.env;
-  const pin = { model: codexModel(opts.model), reasoningEffort: codexEffort(opts.reasoningEffort) };
+  const pin = {
+    model: codexModel(opts.model),
+    reasoningEffort: codexEffort(opts.reasoningEffort),
+    consensusReasoningEffort: codexEffort(opts.consensusReasoningEffort),
+  };
   const model = pin.model || "default"; // unpinned: codex resolves its own model from config.toml
   const reasoningEffort = pin.reasoningEffort || null;
   // A typo would otherwise run on codex's own default with nothing saying why.
-  for (const [key, given, kept] of /** @type {const} */ ([["model", opts.model, pin.model], ["reasoningEffort", opts.reasoningEffort, pin.reasoningEffort]])) {
+  for (const [key, given, kept] of /** @type {const} */ ([
+    ["model", opts.model, pin.model],
+    ["reasoningEffort", opts.reasoningEffort, pin.reasoningEffort],
+    ["consensusReasoningEffort", opts.consensusReasoningEffort, pin.consensusReasoningEffort],
+  ])) {
     if (given !== undefined && kept === undefined) {
       process.stderr.write(`[deliberation] providers.codex.${key} ${JSON.stringify(given)} is not valid; ignored, codex uses ~/.codex/config.toml\n`);
     }
@@ -556,13 +565,23 @@ function makeCodexProvider(opts = {}) {
     ? opts.timeoutMs
     : CODEX_DEFAULT_TIMEOUT_MS;
 
+  const resolveEffort = (/** @type {Partial<DelegationRequest>|undefined} */ req) => {
+    const isConsensus = req && req.context === "consensus";
+    const defaultEffort = isConsensus
+      ? (pin.consensusReasoningEffort ?? pin.reasoningEffort)
+      : pin.reasoningEffort;
+    const reqEffort = codexEffort(req && req.reasoningEffort);
+    return reqEffort !== undefined ? reqEffort : defaultEffort;
+  };
+
   /**
    * @param {number} started
    * @param {string} message
    * @param {Partial<LoginResult>} [state]
+   * @param {string|null} [effort]
    */
-  const authError = (started, message, state = {}) =>
-    ({ provider: "codex", model, isError: true, errorKind: "auth", retryable: false, message, deviceLogin: { ...state, message }, ms: Date.now() - started, reasoningEffort });
+  const authError = (started, message, state = {}, effort = reasoningEffort) =>
+    ({ provider: "codex", model, isError: true, errorKind: "auth", retryable: false, message, deviceLogin: { ...state, message }, ms: Date.now() - started, reasoningEffort: effort });
 
   /**
    * What the host still allows after `started`: a call that waited for a login must not hand
@@ -594,10 +613,11 @@ function makeCodexProvider(opts = {}) {
     const acquireLeft = /** @type {number} */ (clampToHostBudget(Number.MAX_SAFE_INTEGER, env, afterWait(req, started).hostBudgetRemainingMs).timeoutMs);
     const acquireMs = Math.min(acquireLeft / 2, DEVICE_PROMPT_WAIT_MS + 1000);
     const acquire = deadline(acquireMs, null);
+    const effort = resolveEffort(req) || null;
     const flight = /** @type {DeviceFlight|null} */ (await Promise.race([login.start(env), acquire.promise]));
     acquire.stop();
-    if (!flight) return authError(started, `GPT (Codex) needs a ChatGPT login on this machine; \`codex login --device-auth\` is starting but has no code yet within this call's time. The next GPT call shows it.${tail}`, { status: "starting" });
-    if (!flight.prompt) return authError(started, `GPT (Codex) has no working ChatGPT login here, and \`codex login --device-auth\` gave no code: ${flight.error}${tail}`, { status: "failed" });
+    if (!flight) return authError(started, `GPT (Codex) needs a ChatGPT login on this machine; \`codex login --device-auth\` is starting but has no code yet within this call's time. The next GPT call shows it.${tail}`, { status: "starting" }, effort);
+    if (!flight.prompt) return authError(started, `GPT (Codex) has no working ChatGPT login here, and \`codex login --device-auth\` gave no code: ${flight.error}${tail}`, { status: "failed" }, effort);
     const prompt = flight.prompt;
     // The dialog is sent, never awaited: the code goes back now. Its outcome matters to the
     // LOGIN, not to this call - accept just lets the shared login land, decline ends it.
@@ -621,8 +641,8 @@ function makeCodexProvider(opts = {}) {
     // auth.json is still sitting there.
     if (flight.ended && (await flight.done.catch(() => false))) return null;
     // A login that ended without landing has a dead code: say so rather than show it.
-    if (flight.ended) return authError(started, `\`codex login --device-auth\` ended before the login landed: ${flight.error}. The next GPT call starts a fresh one.${tail}`, { status: "failed" });
-    return authError(started, `${loginMessage(prompt)}${tail}`, { status: "pending", url: prompt.url, code: prompt.code, expiresAt: prompt.expiresAt });
+    if (flight.ended) return authError(started, `\`codex login --device-auth\` ended before the login landed: ${flight.error}. The next GPT call starts a fresh one.${tail}`, { status: "failed" }, effort);
+    return authError(started, `${loginMessage(prompt)}${tail}`, { status: "pending", url: prompt.url, code: prompt.code, expiresAt: prompt.expiresAt }, effort);
   }
 
   /**
@@ -644,9 +664,11 @@ function makeCodexProvider(opts = {}) {
     // host would kill mid-flight fails HERE first, as a timeout that names the cap.
     const clamp = clampToHostBudget(typeof req.timeoutMs === "number" && req.timeoutMs > 0 ? req.timeoutMs : defaultTimeoutMs, env, req.hostBudgetRemainingMs);
     const timeoutMs = /** @type {number} */ (clamp.timeoutMs);
-    const { code, stdout, stderr, timedOut, spawnFailed } = await run({ prompt: full, cwd: req.cwd, timeoutMs, mode, env, pin });
+    const effort = resolveEffort(req);
+    const effectivePin = { model: pin.model, reasoningEffort: effort };
+    const { code, stdout, stderr, timedOut, spawnFailed } = await run({ prompt: full, cwd: req.cwd, timeoutMs, mode, env, pin: effectivePin });
     if (code === 0) {
-      return { result: { provider: "codex", model, text: stdout.trim(), isError: false, ms: Date.now() - started, reasoningEffort } };
+      return { result: { provider: "codex", model, text: stdout.trim(), isError: false, ms: Date.now() - started, reasoningEffort: effort || null } };
     }
     // The kill timer is authoritative: a run we killed is a timeout regardless of what
     // (if anything) landed on stderr. Without this a codex timeout classifies as
@@ -677,7 +699,7 @@ function makeCodexProvider(opts = {}) {
           ? annotateTimeout({ code: "timeout", message: `codex timed out after ${Math.round(timeoutMs / 1000)}s` }, clamp).message
           : refreshLine ? `${refreshLine}\n${CODEX_REFRESH_HINT}\n\n${output}` : output,
         ms: Date.now() - started,
-        reasoningEffort,
+        reasoningEffort: effort || null,
       },
     };
   }

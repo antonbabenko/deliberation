@@ -20,7 +20,7 @@ const BRIDGE = path.join(__dirname, "..", "server", "grok", "index.js");
 function startGrokBridge(env = {}) {
   return spawn(process.execPath, [BRIDGE], {
     // Transport tests reply with one-word fixtures; the answer floor has its own tests (GF*).
-    env: { ...process.env, GROK_MIN_ANSWER_CHARS: "0", ...env },
+    env: { ...process.env, GROK_MIN_ANSWER_CHARS: "0", DELIBERATION_CONFIG: path.join(__dirname, "fixtures", "nonexistent.json"), ...env },
     stdio: ["pipe", "pipe", "pipe"],
   });
 }

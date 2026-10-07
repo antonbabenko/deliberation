@@ -279,6 +279,10 @@ function resolveDefaults(raw) {
     if (typeof raw.reasoningEffort === "string" && raw.reasoningEffort.trim()) out.reasoning_effort = raw.reasoningEffort;
     else warnings.push(`providers.openrouter.defaults.reasoningEffort must be a non-empty string (got ${JSON.stringify(raw.reasoningEffort)}); dropped`);
   }
+  if (raw.consensusReasoningEffort !== undefined) {
+    if (typeof raw.consensusReasoningEffort === "string" && raw.consensusReasoningEffort.trim()) out.consensus_reasoning_effort = raw.consensusReasoningEffort;
+    else warnings.push(`providers.openrouter.defaults.consensusReasoningEffort must be a non-empty string (got ${JSON.stringify(raw.consensusReasoningEffort)}); dropped`);
+  }
   if (raw.temperature !== undefined) {
     if (typeof raw.temperature === "number" && Number.isFinite(raw.temperature)) out.temperature = raw.temperature;
     else warnings.push(`providers.openrouter.defaults.temperature must be a finite number (got ${JSON.stringify(raw.temperature)}); dropped`);
@@ -307,12 +311,18 @@ function resolveDefaults(raw) {
 // models.<id>.timeout still wins over all of it - registry.js merges that into the
 // request itself. `defaults` is a shared block, NOT a provider: it never becomes an
 // entry in the resolved map.
-const PINNABLE_KEYS = ["model", "reasoningEffort"];
+const PINNABLE_KEYS = ["model", "reasoningEffort", "consensusReasoningEffort"];
 const KNOWN_PROVIDERS = ["codex", "gemini", "grok", "openrouter"];
 const positiveInt = (/** @type {any} */ v) => (Number.isInteger(v) && v > 0 ? v : undefined);
 function resolveProviders(providersRaw) {
   const out = {};
   const sharedTimeout = positiveInt(isObject(providersRaw.defaults) ? providersRaw.defaults.timeout : undefined);
+  const sharedEffort = isObject(providersRaw.defaults) && typeof providersRaw.defaults.reasoningEffort === "string" && providersRaw.defaults.reasoningEffort.trim()
+    ? providersRaw.defaults.reasoningEffort.trim()
+    : undefined;
+  const sharedConsensusEffort = isObject(providersRaw.defaults) && typeof providersRaw.defaults.consensusReasoningEffort === "string" && providersRaw.defaults.consensusReasoningEffort.trim()
+    ? providersRaw.defaults.consensusReasoningEffort.trim()
+    : undefined;
   // Union the known providers in so a config that sets ONLY providers.defaults still
   // produces an entry per provider to carry the shared timeout. Absent = enabled, which
   // is what an omitted block already meant to the registry.
@@ -320,7 +330,7 @@ function resolveProviders(providersRaw) {
   for (const name of names) {
     if (name === "defaults") continue;
     const block = providersRaw[name];
-    /** @type {{enabled:boolean, model?:string, reasoningEffort?:string, timeout?:number}} */
+    /** @type {{enabled:boolean, model?:string, reasoningEffort?:string, consensusReasoningEffort?:string, timeout?:number}} */
     const resolved = { enabled: !(isObject(block) && block.enabled === false) };
     if (isObject(block)) {
       if (name !== "openrouter") {
@@ -328,14 +338,18 @@ function resolveProviders(providersRaw) {
           const v = block[key];
           if (typeof v === "string" && v.trim()) resolved[key] = v;
         }
+        if (!resolved.reasoningEffort && sharedEffort) resolved.reasoningEffort = sharedEffort;
+        if (!resolved.consensusReasoningEffort && sharedConsensusEffort) resolved.consensusReasoningEffort = sharedConsensusEffort;
       }
       const own = name === "openrouter"
         ? positiveInt(isObject(block.defaults) ? block.defaults.timeout : undefined)
         : positiveInt(block.timeout);
       const t = own !== undefined ? own : sharedTimeout;
       if (t !== undefined) resolved.timeout = t;
-    } else if (sharedTimeout !== undefined) {
-      resolved.timeout = sharedTimeout;
+    } else {
+      if (sharedTimeout !== undefined) resolved.timeout = sharedTimeout;
+      if (sharedEffort) resolved.reasoningEffort = sharedEffort;
+      if (sharedConsensusEffort) resolved.consensusReasoningEffort = sharedConsensusEffort;
     }
     out[name] = resolved;
   }
@@ -424,6 +438,9 @@ function resolveModels(modelsRaw) {
     if (m.reasoningEffort !== undefined && typeof m.reasoningEffort !== "string") {
       addInvalid(i, id, `models["${id}"] reasoningEffort must be a string`); continue;
     }
+    if (m.consensusReasoningEffort !== undefined && typeof m.consensusReasoningEffort !== "string") {
+      addInvalid(i, id, `models["${id}"] consensusReasoningEffort must be a string`); continue;
+    }
     if (m.timeout !== undefined && !(Number.isInteger(m.timeout) && m.timeout > 0)) {
       addInvalid(i, id, `models["${id}"] timeout must be a positive integer`); continue;
     }
@@ -447,6 +464,7 @@ function resolveModels(modelsRaw) {
       // `reasoningEffort` becomes the resolved `.reasoning_effort` the bridge call
       // site (server/openrouter/index.js) sends to the API as `reasoning_effort`.
       reasoning_effort: m.reasoningEffort,
+      consensus_reasoning_effort: m.consensusReasoningEffort,
       timeout: m.timeout,
       temperature: m.temperature,
       apiBase: m.apiBase,

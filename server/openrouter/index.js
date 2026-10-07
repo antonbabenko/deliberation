@@ -22,11 +22,12 @@ function isNonEmptyString(v) { return typeof v === "string" && v.trim().length >
 function truncate(s, n) { s = String(s == null ? "" : s); return s.length > n ? s.slice(0, n) + "..." : s; }
 
 // A "turn" is { role: 'system'|'user'|'assistant', text, inlineBlocks?: string[] }.
-// Build the OpenAI chat `messages` array; inline blocks are appended to the user text.
+// Build the OpenAI chat `messages` array. Inline blocks (static file context) precede
+// user text to establish a canonical prefix for prompt cache hits.
 function buildMessages(turns) {
   return (turns || []).map((t) => {
     if (t.role === "user" && Array.isArray(t.inlineBlocks) && t.inlineBlocks.length) {
-      return { role: "user", content: [t.text, ...t.inlineBlocks].join("\n\n") };
+      return { role: "user", content: [...t.inlineBlocks, t.text].join("\n\n") };
     }
     return { role: t.role, content: t.text };
   });
