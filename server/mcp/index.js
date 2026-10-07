@@ -1588,7 +1588,13 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       const sel = { config: dispatchConfig(), expert: expert || "", unhealthy };
       const forConsensus = args.for === "consensus";
       const picked = forConsensus ? { ...registry.selectForConsensus(sel), omitted: [] } : registry.selectForAskAll(sel);
-      const pinned=picked.providers.map(p=>{const base=p.resolveSettings?.({prompt:''})||{};return {...p,resolveSettings:(/** @type {any} */ req)=>({...base,model:req.model??base.model,reasoningEffort:req.reasoningEffort??((req.context==='consensus'?base.consensusEffort:base.askEffort)==='inherited / unknown'?undefined:(req.context==='consensus'?base.consensusEffort:base.askEffort)),temperature:req.temperature??base.temperature,timeoutMs:req.timeoutMs??base.timeoutMs})};});
+      const pinned=picked.providers.map(p=>{
+        const base=p.resolveSettings?.({prompt:''})||{},gemini=p.name==='gemini';
+        return {...p,resolveSettings:(/** @type {any} */ req)=>({...base,
+          model:gemini?base.model:req.model??base.model,
+          reasoningEffort:gemini?base.reasoningEffort:req.reasoningEffort??((req.context==='consensus'?base.consensusEffort:base.askEffort)==='inherited / unknown'?undefined:(req.context==='consensus'?base.consensusEffort:base.askEffort)),
+          temperature:req.temperature??base.temperature,timeoutMs:req.timeoutMs??base.timeoutMs})};
+      });
       const names = pinned.map((/** @type {Provider} */ p) => p.name);
       // Open the /ask-all fan-out run here: the parallel ask-one calls that follow join it by
       // this runId. A local journal write only - no provider call, no login. The consensus

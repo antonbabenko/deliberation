@@ -65,13 +65,12 @@ export function create() {
   const params=new URLSearchParams(location.search);
   let filters={since:params.get('since')||undefined,configId:params.get('configId')||undefined,activationId:params.get('activationId')||undefined};
   let generation=0,disposed=false;
+  let configOptions=[];
   function load(){const n=++generation;api.stats(filters).then(st=>{if(!disposed&&n===generation)draw(st);},e=>{if(!disposed&&n===generation)draw({error:e.message});});}
   function change(key,value){filters={...filters,[key]:value||undefined};const url=new URL(location.href);for(const [k,v]of Object.entries(filters)){if(v)url.searchParams.set(k,v);else url.searchParams.delete(k);}history.replaceState(null,'',url);load();}
+  function configLink(id){const url=new URL(location.href);url.searchParams.set('configId',id);url.hash='/stats';return url.pathname+url.search+url.hash;}
   function draw(st) {
-    if (st.error) {
-      put(el, h("section", { class: "panel" }, h("h2", {}, "Stats"), h("p", { class: "error-note" }, `Stats are unavailable: ${st.error}`)));
-      return;
-    }
+    if(Array.isArray(st.configOptions))configOptions=st.configOptions;
     const meta = st.meta || {};
     const stats = Array.isArray(st.stats) ? st.stats : [];
     const agreement = Array.isArray(st.agreement) ? st.agreement : [];
@@ -79,12 +78,14 @@ export function create() {
     const outliers = Array.isArray(st.outliers) ? st.outliers : [];
     const daily = Array.isArray(st.daily) ? st.daily : [];
     const time=h('select',{'aria-label':'Time window',onchange:e=>change('since',e.target.value)},[['','All time'],['1h','Last hour'],['24h','Last 24 hours'],['7d','Last 7 days'],['14d','Last 14 days']].map(([v,t])=>h('option',{value:v,selected:(filters.since||'')===v},t)));
-    const configs=h('select',{'aria-label':'Configuration',onchange:e=>change('configId',e.target.value)},h('option',{value:'',selected:!filters.configId},'All configs'),(st.configOptions||[]).map(c=>h('option',{value:c.configId,selected:c.configId===filters.configId},c.configId==='unknown'?'Unknown / legacy config':`${c.label} — first used ${fmtTime(c.firstSeenAt)} ${Intl.DateTimeFormat().resolvedOptions().timeZone}`)));
+    const configs=h('select',{'aria-label':'Configuration',onchange:e=>change('configId',e.target.value)},h('option',{value:'',selected:!filters.configId},'All configs'),filters.configId&&!configOptions.some(c=>c.configId===filters.configId)?h('option',{value:filters.configId,selected:true},`Selected config ${filters.configId.slice(0,12)}`):null,configOptions.map(c=>h('option',{value:c.configId,selected:c.configId===filters.configId},c.configId==='unknown'?'Unknown / legacy config':`${c.label} — first used ${fmtTime(c.firstSeenAt)} ${Intl.DateTimeFormat().resolvedOptions().timeZone}`)));
     const activation=h('input',{'aria-label':'Activation ID',placeholder:'All activations',value:filters.activationId||'',onchange:e=>change('activationId',e.target.value.trim())});
+    const controls=h('section',{class:'panel stats-filters'},h('label',{},'Time ',time),h('label',{},'Configuration ',configs),h('label',{},'Activation ',activation),h('button',{onclick:load},'Refresh'));
+    if(st.error){put(el,controls,h('section',{class:'panel'},h('h2',{},'Stats'),h('p',{class:'error-note'},`Stats are unavailable: ${st.error}`)));return;}
     put(el,
-      h('section',{class:'panel stats-filters'},h('label',{},'Time ',time),h('label',{},'Configuration ',configs),h('label',{},'Activation ',activation),h('button',{onclick:load},'Refresh')),
+      controls,
       h('section',{class:'panel'},h('h2',{},'Configuration comparison'),h('p',{class:'hint'},'Whole runs selected by start time. Timing and agreement remain independent. CLI tokens are unknown; reuse is excluded from fresh samples.'),
-        h('div',{class:'table-wrap'},h('table',{class:'grid-table'},h('thead',{},h('tr',{},['config','runs','live','success','errors','p50','p95','measured tokens','usage coverage','reuse'].map(t=>h('th',{},t)))),h('tbody',{},(st.configs||[]).map(c=>h('tr',{},h('td',{},h('a',{href:`?configId=${c.configId}#/stats`},c.label)),...[c.runCount,c.liveRuns,c.successRuns,c.errorRuns,fmtMs(c.elapsed?.p50),fmtMs(c.elapsed?.p95),c.tokenCoverageRuns?fmtK(c.measuredTokens):"unknown",`${c.tokenCoverageRuns}/${c.runCount}`,c.reusedResults].map(v=>h('td',{},String(v)))))))),
+        h('div',{class:'table-wrap'},h('table',{class:'grid-table'},h('thead',{},h('tr',{},['config','runs','live','success','errors','p50','p95','measured tokens','usage coverage','reuse'].map(t=>h('th',{},t)))),h('tbody',{},(st.configs||[]).map(c=>h('tr',{},h('td',{},h('a',{href:configLink(c.configId)},c.label)),...[c.runCount,c.liveRuns,c.successRuns,c.errorRuns,fmtMs(c.elapsed?.p50),fmtMs(c.elapsed?.p95),c.tokenCoverageRuns?fmtK(c.measuredTokens):"unknown",`${c.tokenCoverageRuns}/${c.runCount}`,c.reusedResults].map(v=>h('td',{},String(v)))))))),
         (st.configs||[]).map(c=>h('details',{},h('summary',{},`${c.label}: recorded settings and activations`),h('pre',{class:'payload'},JSON.stringify({snapshot:c.snapshot,activations:c.activations,legacyRuns:c.legacyRuns,partitions:c.partitions,warnings:c.warnings},null,2))))),
       h("section", { class: "panel" }, h("h2", {}, "Latency and measured tokens per model"),
         stats.length ? [h("p", { class: "hint" }, "p50 tick and p95 bar share one scale, successful calls only. Slowest p95 first."), latencyTable(stats)]

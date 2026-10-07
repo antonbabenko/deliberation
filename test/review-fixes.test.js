@@ -79,6 +79,16 @@ test('composed cancellation releases listeners on settle and preserves preexisti
  a.abort('stop');const cancelled=combineSignals([a.signal,b.signal]);assert.equal(cancelled.signal.aborted,true);assert.equal(cancelled.signal.reason,'stop');assert.equal(getEventListeners(b.signal,'abort').length,0);
 });
 
+test('progressive Gemini provenance retains the actual model pin despite unsupported request overrides',async t=>{
+ const c={...cfg,providers:{gemini:{model:'gemini-3.8-flash-high',consensusReasoningEffort:'medium'}}};
+ let pin;
+ const gemini=require('../core/providers/antigravity.js').makeAntigravityProvider({model:c.providers.gemini.model,bridge:{buildAgyArgs:args=>{pin=args.model;return [];},runGemini:async()=>({response:'answer'})}});
+ const srv=buildServer({providers:[gemini],getConfig:()=>c});t.after(()=>srv.close());
+ const panel=parse(await srv.handle(message(1,'panel',{})));
+ const out=parse(await srv.handle(message(2,'ask-one',{provider:'gemini',fanoutId:panel.fanoutId,prompt:'pin',model:'ignored',reasoningEffort:'low'})));
+ assert.equal(pin,'gemini-3.8-flash-high');assert.equal(out.result.model,pin);assert.equal(out.result.provenance.settings.model,pin);assert.equal(out.result.provenance.settings.reasoningEffort,'high');
+});
+
 test('cancellation during rate-limit backoff does not create another attempt',async()=>{
  const controller=new AbortController(),events=[],logs=[];let calls=0;
  const p={...provider('grok'),ask:async()=>{calls++;setImmediate(()=>controller.abort());return {provider:'grok',model:'fixture',ms:1,isError:true,errorKind:'rate-limit',retryable:true,retryAfterMs:50};}};
