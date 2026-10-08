@@ -108,12 +108,17 @@ const realDeps = {
  */
 function unproven(state, deps) {
   if (typeof state.procStartedAt !== "number") return "the pidfile predates --stop (no recorded start time)";
-  const argv = deps.argvOf(state.pid);
-  if (!argv) return "its command line could not be read";
-  const recorded = Array.isArray(state.argv) ? state.argv : null;
-  // macOS `ps` splits on spaces: if the recorded argv has an element with whitespace, or the
-  // element count differs, the split cannot be trusted.
-  if (deps.platform !== "linux" && recorded && (recorded.some((/** @type {any} */ a) => /\s/.test(String(a))) || recorded.length !== argv.length)) return "its command line does not split back into the recorded arguments";
+  const read = deps.argvOf(state.pid);
+  if (!read) return "its command line could not be read";
+  let argv = read;
+  /** @type {(string[]|null)} */
+  const recorded = Array.isArray(state.argv) ? state.argv.map(String) : null;
+  if (deps.platform !== "linux" && recorded) {
+    // macOS `ps` joins argv with spaces. The exact recorded line proves it even with spaces
+    // in a path; any other line is only trusted when it splits back into the same shape.
+    if (argv.join(" ") === recorded.join(" ")) argv = recorded;
+    else if (recorded.some((/** @type {string} */ a) => /\s/.test(a)) || recorded.length !== argv.length) return "its command line does not split back into the recorded arguments";
+  }
   if (!matchArgv(argv, recorded ? recorded[1] : undefined)) return `it is not running the dashboard (${argv.slice(0, 3).join(" ")})`;
   const started = deps.startedAtOf(state.pid);
   if (started === null) return "its start time could not be read";
@@ -136,7 +141,7 @@ async function stopDashboard(statePath, inject = {}) {
   if (!state || !Number.isInteger(state.pid) || state.pid <= 0) { remove(); return { code: 0, message: "no running dashboard" }; }
   if (!deps.alive(state.pid)) { remove(); return { code: 0, message: "no running dashboard (removed a stale pidfile)" }; }
   const why = unproven(state, deps);
-  if (why) return { code: 2, message: `pid ${state.pid} from the pidfile was left alone: ${why}. Stop it yourself if it is the dashboard.` };
+  if (why) return { code: 2, message: `pid ${state.pid} from the pidfile was left alone: ${why}. If it is the dashboard, end it yourself (kill ${state.pid}), then remove ${statePath}.` };
   deps.kill(state.pid, "SIGTERM");
   for (let waited = 0; waited < deps.waitMs && deps.alive(state.pid); waited += POLL_MS) await deps.sleep(POLL_MS);
   if (deps.alive(state.pid)) {

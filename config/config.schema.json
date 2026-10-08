@@ -251,7 +251,7 @@
             "content"
           ],
           "default": "metadata",
-          "description": "Threat model: \"metadata\" (default) journals run/verdict metadata only, never prompt or response bodies. \"content\" additionally journals prompt/response text (secret-scrubbed then capped at 100 KB per field) to local disk at <cache>/deliberation/runs/<runId>.jsonl (mode 0600) - only set this on a machine where that is acceptable. It also gates what the dashboard serves: unless it is \"content\", prompts, responses and legacy session text already on disk are stripped from every served payload and \"?q=\" searches metadata only."
+          "description": "Threat model: \"metadata\" (default) journals run/verdict metadata only, never prompt or response bodies; that metadata includes request sizes and the calling project's absolute path (masked when served unless showPII). \"content\" additionally journals prompt/response text (secret-scrubbed then capped at 100 KB per field) to local disk at <cache>/deliberation/runs/<runId>.jsonl (mode 0600) - only set this on a machine where that is acceptable. It also gates what the dashboard serves: unless it is \"content\", prompts, responses and legacy session text already on disk are stripped from every served payload and \"?q=\" searches metadata only."
         },
         "showPII": {
           "type": "boolean",

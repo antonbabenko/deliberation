@@ -35,7 +35,7 @@ function modelsPanel(models, C) {
   return h("section", { class: "panel" }, h("h2", {}, "Models: agreement vs findings"),
     h("p", { class: "hint" },
       `Consensus rounds only (ask-all answers carry no verdict). "Adds nothing" = every issue category it raised was also raised by another voice that round. `,
-      `A drop candidate has at least ${C.MIN_ROUNDS} rounds, adds nothing in ${pct(C.ADDS_NOTHING_MIN)}+ of them, is the lone dissenter in ${pct(C.LONE_DISSENT_MAX)} or fewer, `,
+      `A drop candidate has at least ${C.MIN_ROUNDS} rounds, adds nothing in ${pct(C.ADDS_NOTHING_MIN)}+ of them, is the lone objector in ${pct(C.LONE_DISSENT_MAX)} or fewer (a lone APPROVE does not count), `,
       `had ${pct(C.ACCEPTED_MAX)} or fewer of its rounds produce an issue the arbiter accepted (over ${C.MIN_DECISION_ROUNDS}+ rounds with decisions), `,
       `and is slow (${C.SLOW_RATIO}x the other responders' median in ${pct(C.SLOW_SHARE_MIN)}+ of rounds) or errors in ${pct(C.ERROR_RATE_MIN)}+ of calls. Categories are coarse, so treat it as advice.`),
     rows.length

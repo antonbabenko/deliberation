@@ -148,3 +148,17 @@ test("ST8: a real child process launched as the dashboard is stopped with the re
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("ST9: macOS: a path with spaces is proven by the exact recorded line, not by a whitespace split", async () => {
+  const spaced = [NODE, "/Users/me/My Projects/deliberation/server/mcp/index.js", "dashboard", "--no-open"];
+  const file = stateFile({ ...pidfile, argv: spaced });
+  const psSplit = spaced.join(" ").split(/\s+/);
+  const { deps, signals } = fakeDeps({ 42: { argv: psSplit, startedAt: 1_000_000 } });
+  const r = await stopDashboard(file, deps);
+  assert.equal(r.code, 0, r.message);
+  assert.deepEqual(signals, [[42, "SIGTERM"]]);
+  const other = stateFile({ ...pidfile, argv: spaced });
+  const odd = await stopDashboard(other, fakeDeps({ 42: { argv: [NODE, "/Users/me/My", "Projects/x.js", "dashboard"], startedAt: 1_000_000 } }).deps);
+  assert.equal(odd.code, 2);
+  assert.match(odd.message, /remove .*dashboard\.json/);
+});

@@ -1933,7 +1933,9 @@ round counts when it has two or more such voices and is not a unanimous APPROVE 
 issues. Per model:
 
 - `addsNothing` - its issue categories are all among the other voices' categories that round.
-- `loneDissent` - its verdict differs from every other voice.
+- `loneDissent` - it objected (REQUEST_CHANGES or REJECT) with a verdict no other voice
+  gave. A lone APPROVE while the others object is a missed finding, not a contribution, so
+  it does not count.
 - `acceptedRate` - of its rounds that carry arbiter decisions, how many had at least one of
   its issues accepted (joined on the voice id: `codex`, `gemini`, `grok`, `openrouter:<alias>`;
   a decision naming no voice is ignored). Only `consensus-step` records decisions; rounds of

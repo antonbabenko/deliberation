@@ -521,4 +521,6 @@ test("S-AN1: /api/analyzer is guarded, masks the project root, and filters by pr
   assert.equal((await req("/api/analyzer?days=abc", { cookie: true })).status, 400);
   const runs = JSON.parse((await req(`/api/runs?project=${project.id}`, { cookie: true })).body).runs;
   assert.deepEqual(runs.map((/** @type {any} */ r) => r.runId), ["run-an"]);
+  assert.ok(!JSON.stringify(runs).includes(home), "the project root is masked in /api/runs too");
+  assert.equal(runs[0].project.id, project.id, "the id survives redaction");
 });

@@ -83,7 +83,7 @@ test("AN4: acceptedRate denominator is only rounds the model voted in; sources m
 
 test("AN5: lone dissent and boundary constants decide candidacy", () => {
   const base = { a: { verdict: "REQUEST_CHANGES", cats: ["ops", "scope"] }, b: { verdict: "REQUEST_CHANGES", cats: ["ops"] }, x: { verdict: "REQUEST_CHANGES", cats: ["ops"], ms: 5000 } };
-  const dissent = { a: { verdict: "REQUEST_CHANGES", cats: ["ops", "scope"] }, b: { verdict: "REQUEST_CHANGES", cats: ["ops"] }, x: { verdict: "APPROVE", cats: [], ms: 5000 } };
+  const dissent = { a: { verdict: "REQUEST_CHANGES", cats: ["ops", "scope"] }, b: { verdict: "REQUEST_CHANGES", cats: ["ops"] }, x: { verdict: "REJECT", cats: ["ops"], ms: 5000 } };
   const decisions = () => [{ source: "a", category: "ops", action: "accept" }];
   // 2 dissent rounds of 20 = 0.10 -> still within LONE_DISSENT_MAX
   const at = analyze([consensusRun({ rounds: [...times(18, base), ...times(2, dissent)], decisions })]).models.find((/** @type {any} */ m) => m.provider === "x");
@@ -239,4 +239,18 @@ test("AN16: a small bucket with many timeouts warns without a number", () => {
   assert.equal(big.advice.kind, "early-warning");
   assert.equal(big.advice.suggestedMs, undefined);
   assert.equal(big.advice.configKey, "providers.grok.timeout");
+});
+
+test("AN17: a yes-man that approves alone while others object is flagged, not protected as a dissenter", () => {
+  const rounds = times(12, {
+    a: { verdict: "REQUEST_CHANGES", cats: ["ops", "scope"] },
+    b: { verdict: "REQUEST_CHANGES", cats: ["ops"] },
+    yes: { verdict: "APPROVE", cats: [], ms: 5000 },
+  });
+  const decisions = () => [{ source: "a", category: "ops", action: "accept" }];
+  const yes = analyze([consensusRun({ rounds, decisions })]).models.find((/** @type {any} */ m) => m.provider === "yes");
+  assert.equal(yes.loneDissent, 0);
+  assert.equal(yes.addsNothing, 1);
+  assert.equal(yes.acceptedRate, 0, "zero issues filed = zero accepted, not unknown");
+  assert.equal(yes.candidate, true);
 });

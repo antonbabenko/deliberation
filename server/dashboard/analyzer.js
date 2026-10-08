@@ -159,7 +159,9 @@ function modelsView(runs) {
         const union = new Set(others.flatMap(cats));
         r.rounds++;
         if (cats(v).every((/** @type {string} */ c) => union.has(c))) r.addsNothingN++;
-        if (others.every((/** @type {any} */ o) => o.verdict !== v.verdict)) r.loneN++;
+        // A lone objection is a contribution; a lone APPROVE while everyone else objects is a
+        // missed finding, so it never protects a model from the drop rule.
+        if (v.verdict !== "APPROVE" && others.every((/** @type {any} */ o) => o.verdict !== v.verdict)) r.loneN++;
         if (decisions) {
           r.decisionRounds++;
           if (decisions.some((/** @type {any} */ d) => d && d.action === "accept" && d.source === v.provider)) r.acceptedN++;
