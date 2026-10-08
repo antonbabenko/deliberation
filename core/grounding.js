@@ -7,7 +7,7 @@
 // run with no tools, so "run `date -u`" in prose would be an instruction they cannot
 // follow. The no-denial rule travels with it, because a date alone still lets a model
 // reject a name it does not know. Retrieving the actual facts is the HOST's job (see
-// AGENTS.md "Time-sensitive questions"); a delegate is only told not to deny from memory.
+// docs/tool-guide.md "Time-sensitive questions"); a delegate is only told not to deny from memory.
 //
 // Kept to one short paragraph: it is paid on every delegate call, times panel size,
 // times rounds.

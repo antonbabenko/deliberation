@@ -1,229 +1,92 @@
 # AGENTS.md
 
-Host-neutral guidance for any AI coding agent connected to the deliberation MCP
-server. This file is standalone on purpose - it is not an include of CLAUDE.md,
-so it stays portable across hosts (Cursor, Codex, Kiro, Windsurf, Zed, and
-others). Claude Code users get the same routing from CLAUDE.md and the README;
-this file is for everyone else.
+Instructions for any coding agent (Claude Code, Codex, Cursor, Gemini, Kiro, OpenCode, ...)
+working on this repository. For how to USE deliberation as an MCP server, read
+[docs/tool-guide.md](docs/tool-guide.md) instead.
 
-## What deliberation is
+## What this repo is
 
-A single MCP server that exposes GPT (via the Codex CLI), Gemini 3 (via the
-Antigravity CLI), Grok (via the xAI API), and OpenRouter models (400+, advisory)
-as expert subagents. You stay the primary agent. When a task benefits from a
-second opinion or cross-model review, call one of the tools below, read the
-result, and apply your own judgment. Every tool here is ADVISORY: this server
-reads and reasons, it never edits your files. (Implementation exists only in the
-Claude Code plugin's standalone Gemini bridge, which this server does not expose.)
+deliberation gives a host agent GPT (Codex CLI), Gemini 3 (Antigravity CLI `agy`), Grok
+(xAI API) and OpenRouter models as expert reviewers over MCP. It ships as a Claude Code
+plugin, as native plugins/skills for other hosts, and as one standalone MCP server
+(`@antonbabenko/deliberation-mcp`). Seven expert personas live in `prompts/`. Every provider
+is advisory except Gemini, which can also implement (`workspace-write`).
 
-## Tools
+Plain Node (18+; CI runs 20), no runtime dependencies, no build step for development. `core/` is
+host-neutral and strict-typed (`checkJs`); `server/mcp/` is the MCP server over it;
+`server/{gemini,grok,openrouter}/` are the provider bridges; `server/dashboard/` is the
+local read-only dashboard.
 
-Fan-out and single-provider:
-
-- `ask-all` - send one question to GPT, Gemini, Grok, and configured OpenRouter
-  models in parallel, get every answer back independently (no cross-talk).
-- `consensus` - run the FULL multi-round convergence loop server-side with a provider
-  arbiter (blind pass + peer fan-out -> adjudicate -> revise) and get the converged
-  verdict in one call. Depth is `consensus.maxRounds` (config, default 5); pass
-  `maxRounds` to override. Pass `synthesizeAlways:true` for a SINGLE arbiter synthesis
-  pass instead of the loop (best for open questions): it returns a free-text `synthesis`
-  (the enum `verdict` and `converged`/`confidence` are null, `rounds` is 1). Set a concrete
-  `consensus.arbiter` (a provider or `openrouter:<alias>`) for the server-side pass; in
-  `host` mode the tool returns the opinions for YOU to synthesize. An optional blind
-  pre-vote (`consensus.blindVote`) is available on the synthesize path.
-- `consensus-step` - drive the loop yourself as the arbiter, one action per call:
-  `init` (returns a `sessionId` + blind prompt) -> `record_blind` (your pre-commit
-  verdict) -> `dispatch_peers` (the server fans out to the panel) ->
-  `submit_adjudication` (your verdict + per-issue accept/dismiss/defer, each dismiss
-  needs a reason) -> `submit_revision` (your revised plan), looping until converged
-  or the round cap. State is held server-side by `sessionId` (ephemeral).
-  `dispatch_peers` may report `droppedProviders[]` - peers the circuit breaker removed
-  after 2 consecutive failed rounds, so they are no longer dispatched or billed; print
-  them once, and stop listing them as errored. It can also return a TERMINAL
-  `status: "unresolved"` with `stopReason` `all-providers-circuit-broken` (every peer
-  dropped), `no-providers`, or `budget-exhausted` (`consensus.maxWallMs` spent) - report the reason and
-  the `finalReport`, then stop; there is no session left to step.
-- `ask-gpt` / `ask-gemini` / `ask-grok` / `ask-openrouter` - one question to one
-  provider for a single-shot second opinion.
-- `panel` - return the exact provider names `ask-all` would dispatch for the current
-  config + expert (enabled, healthy built-ins + eligible OpenRouter aliases, fanout cap
-  applied), WITHOUT calling them. `unavailable[]` names enabled built-ins that cannot answer
-  right now (CLI not on PATH, no credential) with the reason - they are skipped by every
-  fan-out, so report them once rather than treating them as errors. `needsLogin[]` names
-  panel members that have no login yet but stay on the panel (codex on a fresh machine):
-  run `codex-login` and let the user approve BEFORE dispatching, so GPT answers from the first
-  call. Pass `for: "consensus"` for the consensus panel. No provider calls and never starts
-  a login; the only write is one local dashboard journal line, and only when that journal is on.
-  When the local dashboard journal is on (`dashboard.enabled`), it also returns a `runId`
-  (the ask-all panel only): pass it to every `ask-one` of that fan-out so the dashboard
-  draws them as one run. Optional `prompt` is recorded on that run, never sent to a provider.
-- `codex-login` - start (or join) the ChatGPT device login for GPT and return its link and
-  one-time code, without asking GPT anything. Show the returned `message` to the user as-is;
-  GPT answers once they approve. Call it before a fan-out when `panel.needsLogin` contains
-  `codex`, then ask the user to approve and call it again to confirm `authenticated`. Never
-  skip a GPT call because GPT looks logged out: with no login, `ask-gpt` / `ask-one codex`
-  start the same login and return the same code.
-- `ask-one { provider, prompt }` - one question to ONE provider named by `panel`
-  (e.g. `codex`, `grok`, `openrouter:<alias>`). The progress pattern: call `panel`, then
-  issue one `ask-one` per name **in a single turn** so they run concurrently and each
-  result lands independently as it finishes - visible per-provider progress with parallel
-  wall-time, instead of the one opaque `ask-all` call. (The single-call `ask-all` still
-  works; `ask-one` is the progressive alternative.)
-  Pass the returned `fanoutId` to every `ask-one` in that group. It exists even
-  with logging disabled, pins panel/settings, rejects duplicates and expires.
-  The longest pinned peer limit supplies a shared deadline; each request still
-  obeys its own host ceiling. Group expiry/shutdown cancels outstanding members.
-  Optional `runId` (from `panel`, also accepted by the `ask-*` tools) joins the call to
-  that dashboard run; an id this server's `panel` did not open is ignored.
-- `analyze` - read-only run analytics. Reads the opt-in debug log (per-model p50/p95/max
-  latency over SUCCESSFUL calls, mean tokens, error rate, reasoning effort) and the session
-  store (verdict agreement rate), then returns advisory tuning suggestions (disable a
-  slow/redundant model in `ask-all`, lower an OpenRouter model's reasoning, adjust
-  `maxFanout`), plus OpenRouter compare links. Two lenses reported side by side - timing and
-  agreement are NOT joined. `configuredOnly` (default true) hides models missing from the
-  current config so a retired model cannot drive the numbers; `since` (`24h`, `7d`, ...)
-  windows both lenses. Needs `debug.enabled` for the timing lens. Writes nothing.
-
-Every result carries `provider`, `model`, `text`, `ms` (wall time), and the effective
-`reasoningEffort` (real value for HTTP providers; `null` for the Codex/Gemini CLIs). HTTP
-providers (Grok, OpenRouter) also include token `usage`.
-
-Expert personas (pass as the tool, or via the `expert` argument on the fan-out
-tools to apply one persona to every delegate):
-
-- `architect` - system design, tradeoffs, complex decisions.
-- `plan-reviewer` - check a plan is executable before work starts.
-- `scope-analyst` - catch ambiguities and hidden requirements before planning.
-- `code-reviewer` - bugs, security holes, maintainability on a diff or file.
-- `security-analyst` - threat modeling and vulnerability assessment.
-- `researcher` - external libraries, APIs, and best practices, with evidence.
-- `debugger` - ranked root-cause hypotheses and the smallest safe fix.
-
-Session tools (only useful when `sessions.persist` is enabled in config; they report
-"persistence disabled" otherwise). When on, `consensus`, the host-driven `consensus-step`
-loop (on a terminal converged/unresolved transition), and `ask-all` return a `sessionId`.
-By default the record stores the question + verdict/issue summaries only; set
-`sessions.captureText: true` to also persist each provider's response body (secret-scrubbed
-plus a best-effort PII pass). The metrics-only debug log never stores body text either way:
-
-- `session-get { sessionId }` - fetch a recorded run (opinions, verdict, annotations).
-- `session-revisit { sessionId }` - re-run the recorded question with the current
-  providers/config and save a linked child record. A `consensus` record replays its
-  mode (the loop, or a synthesize pass).
-- `session-annotate { sessionId, note }` - append a note to a run's audit trail.
-
-There is no list tool: get the `sessionId` from the original run's result, or browse the store dir
-(`~/.cache/deliberation/sessions/`). See TECHNICAL.md "Session persistence" for a worked example.
-
-Every fan-out, single-provider, and expert tool takes a `prompt`. Give it full context: the goal, the relevant code
-or paths, and any prior attempts. The experts do not share your session, so a
-self-contained prompt gets a better answer.
-
-## Performance + debugging (optional)
-
-These apply to every MCP host, not just Claude Code:
-
-- **Per-provider progress** - prefer `panel` + parallel `ask-one` (above) when you want
-  to watch each model finish instead of waiting on one opaque `ask-all` call.
-- **Orientation auto-attach** - set `"orientation": { "enabled": true }` in `config.json`
-  to have the server automatically attach a small repo bundle (CLAUDE.md, AGENTS.md,
-  README.md, and key entrypoints, up to `maxFiles` files, default 6) to file-blind
-  providers (Grok, OpenRouter) when they carry no files of their own. This gives them the
-  same repo grounding that Codex and Gemini get by walking the filesystem. OFF by default;
-  enable when file-blind providers underperform on repo-wide questions.
-- **Timeouts** - each provider ships its own ceiling (codex 600s, gemini 300s, grok 180s,
-  OpenRouter 180s). Raise them all with `"providers": { "defaults": { "timeout": 600000 } }`;
-  override one with `providers.<name>.timeout` (`providers.openrouter.defaults.timeout` for
-  OpenRouter), and a pinned model's `models.<id>.timeout` beats both. Read at server start,
-  so a change needs a restart. A result that errors with `errorKind: "timeout"` at almost
-  exactly the ceiling hit the limit rather than the model stalling. If the host itself caps
-  tool calls (`MCP_TOOL_TIMEOUT`; Claude Code on the web sets 60000), every ceiling is clamped
-  5s under it and the timeout message names the cap. Hosts that take a per-server `timeout`
-  in the MCP server entry (Claude Code does, ahead of `MCP_TOOL_TIMEOUT`) get it from the
-  server config - the Claude Code plugin manifest declares 1800000 and mirrors it into the
-  server env so the clamp follows the real cap; on other hosts raise the cap where the host
-  is launched, not in `config.json`.
-- **Retries** - a failed call is retried once, and only for `network`, `rate-limit` (waiting
-  for the upstream's `Retry-After`), and `empty` (a provider that exited clean but returned a
-  stub instead of an answer). `timeout` and auth/config errors are not retried.
-- **Debug log** - set `"debug": { "enabled": true }` in `config.json` to append one JSON
-  line per provider call and per consensus round to `<XDG cache>/deliberation/debug.jsonl`
-  (override with `DELIBERATION_DEBUG_LOG`). It records latency, reasoning effort, HTTP
-  token usage, and voting/approval outcomes - never prompts, responses, or issue text.
-  OFF by default.
-- **Dashboard** - set `"dashboard": { "enabled": true }` in `config.json` to journal every
-  run to `<XDG cache>/deliberation/runs/` (override with `DELIBERATION_RUNS`), then run
-  `deliberation-mcp dashboard` (or `node server/mcp/index.js dashboard` from a checkout) and
-  open the printed `http://127.0.0.1:<port>/?t=<token>` URL. It is a read-only browser view
-  of live and past runs as state graphs, with config, provider health, stats, and an Analyzer
-  (drop candidates, per-project health, request size vs timeouts; every run records its
-  calling project from the tool's `cwd`). `deliberation-mcp dashboard --stop` stops it. Loopback
-  only, token-protected; `dashboard.capture` is `metadata` (default) or `content` (prompts
-  and responses, secret-scrubbed), and PII is redacted in the browser unless
-  `dashboard.showPII`. Needs a browser on the same machine. OFF by default.
-- **Live progress notifications** - the server declares the MCP `logging` capability and
-  emits `notifications/message` per provider as it settles during a fan-out. Hosts that
-  render server log notifications mid-call show this automatically (Claude Code does not -
-  hence the `panel` + `ask-one` pattern there).
-
-## When to delegate
-
-- Reviewing a plan or an architecture decision before you commit to it.
-- A security review of auth, untrusted input, or a new endpoint.
-- A second opinion when you are unsure, or after a fix has failed twice.
-- Cross-model consensus on a high-stakes or contested call.
-
-Skip delegation for simple edits, the first attempt at a fix, and trivial
-questions you can answer directly.
-
-**Time-sensitive questions.** Every delegate prompt already carries today's UTC
-date and a rule not to call an unrecognized model, tool, or version
-non-existent. Delegates still cannot look anything up (Grok and OpenRouter have
-no tools). When the question turns on latest or current versions, pricing, a
-roadmap, or whether a model or tool exists, verify it first with whatever
-retrieval this host has, and put the facts in the delegation prompt with their
-as-of date and source.
-
-## Config history and human display
-
-Runs pin a sanitized effective config snapshot and full SHA-256 `configId`, plus
-runtime/activation IDs. Config history persists only when debug, sessions or
-dashboard telemetry is enabled. Dashboard manifests require journaling; they
-report observed runtimes, not a complete inventory. Recently observed heartbeats
-are not process-liveness proof. Restart-only edits appear as pending settings.
-
-Use `analyze {groupBy:"config", since:"24h"}` for historical config groups; narrow
-with full `configId` or `unknown`, and optionally `activationId`. Stats uses the
-same intersecting filters, selecting whole runs by start time. Missing CLI usage
-is unknown, not zero; cached results are reuse, not fresh samples or token spend.
-Recommendations are advisory and scoped to config/workload/settings cohorts.
-
-For human reports render `openrouter:<alias>` as `or:<alias>`, retaining canonical
-IDs in tool arguments and stored data. Round durations >=1s to whole seconds
-with minute/hour carry; keep milliseconds below 1s. Show effective Ask effort and
-Consensus effort separately; CLI-inherited values remain unknown.
-
-`routing.timeoutPolicy` defaults to `longest-peer` for parallel peer dispatch,
-intentionally extending shorter configured caps up to the longest selected cap.
-Set `per-provider` to retain individual limits. Host and consensus budgets always
-win; retries consume the same absolute deadline. Single calls and sequential
-arbiter phases retain their own limits.
-
-## Updating
-
-If you run the standalone server via `npx -y @antonbabenko/deliberation-mcp`,
-each fresh resolve picks up the latest published version. `npx` caches resolved
-packages, so if you keep getting an old build, clear the cache
-(`rm -rf ~/.npm/_npx`) or pin/refresh the version in your host's MCP config.
-(The Claude Code plugin manifest is a separate mechanism and does not affect
-non-Claude hosts.)
-
-To cycle the background dashboard daemon and audit MCP processes after an update
-without dropping active host connections, run:
+## Commands
 
 ```bash
-bash scripts/commands/reload-mcp.sh
+npm run check                 # typecheck + every test suite; must pass before any PR
+npm run test:contracts        # hermetic multi-host contract suite
+npm run sync                  # regenerate every generated file (personas, host files, command fallbacks)
+npm run sync:check            # fail if any generated file is stale (CI runs the same check)
+node server/mcp/index.js      # run the MCP server from this checkout (any host)
+claude --plugin-dir .         # Claude Code: load the plugin from this checkout
 ```
 
-or invoke the `reload-mcp` skill/command supported on your host (Claude Code,
-Codex, Antigravity, OpenCode).
+Some bridge tests listen on `127.0.0.1` and `npm run sync` writes `.mcp.json` files; an
+agent sandbox may block both, so rerun outside it when you see `EPERM`.
+
+## Rules for every change
+
+**Docs ship in the same PR.** A tool, config key, flag, default, persisted shape, or any
+user-visible behavior is not done until every surface it touches is current:
+
+- `README.md` - feature list and config summaries
+- `TECHNICAL.md` - deep reference: config tables, shapes, threat-model notes
+- `SETUP.md` - user config walkthrough and examples
+- `docs/tool-guide.md` - host-neutral tool and behavior surface
+- `docs/dev/architecture.md` and `docs/dev/design-decisions.md` - when structure changes or
+  you make a choice a future reader would question
+- `config/config.schema.json` AND `config/config.default.json` - every new key needs both
+  (state any threat model in the schema description); the `validate` check fails on drift
+- `commands/` and skill prose, when the behavior they describe changed
+
+**Generated files.** `npm run sync` writes three kinds of output. Edit the source, regenerate,
+and commit both:
+
+- `scripts/sync-prompts.js`: `prompts/*.md` -> `core/prompts/index.js`
+- `scripts/sync-fallbacks.js`: `prompts/*.md` -> the fallback block at the end of
+  `commands/ask-*.md` (everything else in those commands is hand-written)
+- `scripts/sync-hosts.js`: `docs/tool-guide.md`, `prompts/`, `rules/`, `examples/` ->
+  `POWER.md`, `steering/`, `.cursor/rules/`, `plugins/deliberation/` (skills,
+  `.codex-plugin/`, `.mcp.json`), `.agents/`, `.gemini/`, `.opencode/`, `mcp.json`, `.mcp.json`
+
+Markdown outputs carry a `GENERATED by scripts/...` banner; JSON outputs cannot, so trust the
+list above and `npm run sync:check`, which fails on any stale output.
+
+**Release files.** `CHANGELOG.md`, `version.json` and every synced version field belong to
+the release automation. Commits follow Conventional Commits; only `feat:`, `fix:` and
+breaking changes cut a release ([CONTRIBUTING.md](CONTRIBUTING.md#release-process)).
+
+**Done means:** `npm run check` and `npm run sync:check` pass, and `git grep` for any old name or flag finds no
+stale reference in docs.
+
+## Pre-PR cross-model review
+
+Before opening a PR, run a consensus code review of `git diff master...HEAD` plus the goal,
+asking for correctness, regressions, missing tests and doc drift. Your host needs this
+checkout's MCP server (`node server/mcp/index.js`) and at least one working provider
+(a logged-in `codex` or `agy` CLI, or `XAI_API_KEY` / `OPENROUTER_API_KEY`):
+
+- Claude Code: `/consensus` (you arbitrate, driven by `commands/consensus.md`).
+- Any other host: call the `consensus-step` MCP tool and arbitrate per
+  `commands/consensus.md`, or call `consensus` for a server-side provider arbiter.
+
+Run `npm run check` first so the panel reviews green code. Fix every accepted CRITICAL
+issue and rerun until it converges; put the reason for each dismissed issue in the PR
+description. Skip only for `chore(release):` commits and doc-only typo fixes.
+
+## Where to read next
+
+| Working on | Read |
+|------------|------|
+| `core/`, `server/`, the consensus loop, providers, repo layout | [docs/dev/architecture.md](docs/dev/architecture.md) |
+| Behavior with a history: timeouts, retries, circuit breaker, Codex login, Windows CLI resolution, stub answers, date grounding, dashboard | [docs/dev/design-decisions.md](docs/dev/design-decisions.md) |
+| Config keys, record shapes, threat model, any subsystem in depth | [TECHNICAL.md](TECHNICAL.md) |
+| Per-host packaging (Codex, Cursor, Kiro, Antigravity, OpenCode) | [docs/hosts/](docs/hosts/) |
+| Releases, PR process, adding a provider | [CONTRIBUTING.md](CONTRIBUTING.md) |

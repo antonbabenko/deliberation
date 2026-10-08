@@ -96,7 +96,7 @@ dismissed issue. The loop stops on agreement or at `consensus.maxRounds` (defaul
 
 Configuration reference, the Claude Code plugin, per-host guides, and architecture docs are
 in the repo: **https://github.com/antonbabenko/deliberation**
-(see `AGENTS.md` for the tool guide and `TECHNICAL.md` for the full config reference).
+(see `docs/tool-guide.md` for the tool guide and `TECHNICAL.md` for the full config reference).
 
 ## License
 

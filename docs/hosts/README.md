@@ -16,7 +16,7 @@ and the seven expert personas (`architect`, `plan-reviewer`, `scope-analyst`,
 `code-reviewer`, `security-analyst`, `researcher`, `debugger`). Every result carries
 `ms` + reasoning effort (HTTP providers add token usage), and an optional config-gated
 debug log records latency / tokens / votes - all server-side, so they apply on every
-host (see [AGENTS.md](../../AGENTS.md)). Provider credentials come from the host
+host (see [the tool guide](../tool-guide.md)). Provider credentials come from the host
 environment - set only the providers you use; missing keys just disable that one provider.
 
 For the Claude Code plugin itself, see the repo [README](../../README.md).

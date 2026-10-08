@@ -4,7 +4,7 @@
  * Dev-only generator for the NATIVE per-host plugin artifacts.
  *
  * Single source of truth -> many hosts. Reads the canonical repo sources
- * (version.json, prompts/*.md, AGENTS.md, examples/*.md) and emits each host's
+ * (version.json, prompts/*.md, docs/tool-guide.md, examples/*.md) and emits each host's
  * native files so they never drift from the Claude Code plugin surface.
  *
  * Each host is a self-contained module under scripts/hosts/<host>.js exporting

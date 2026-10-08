@@ -13,7 +13,7 @@
  * subdirectory. So the manifest, its `.mcp.json`, and `skills/` all live under
  * plugins/deliberation/ and the marketplace entry points at "./plugins/deliberation".
  *
- * Source of truth: AGENTS.md (the "when to delegate" meta-skill) and
+ * Source of truth: docs/tool-guide.md (the "when to delegate" meta-skill) and
  * prompts/<expert>.md (one skill per expert). The MCP server injects personas
  * server-side too; the skills give Codex the same guidance natively.
  *
@@ -75,8 +75,8 @@ function build(ctx) {
     ],
   });
 
-  // "When to delegate" meta-skill, generated from the host-neutral AGENTS.md.
-  const agents = S.readText(ctx.repoRoot, "AGENTS.md").replace(/^# AGENTS\.md\n/, "# Deliberation\n");
+  // "When to delegate" meta-skill, generated from the host-neutral docs/tool-guide.md.
+  const agents = S.readText(ctx.repoRoot, "docs/tool-guide.md").replace(/^# Deliberation tool guide\n/, "# Deliberation\n");
   out[`${PLUGIN_DIR}/skills/deliberation/SKILL.md`] = S.frontmatterDoc({
     name: "deliberation",
     description:
