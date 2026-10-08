@@ -496,3 +496,31 @@ test("S-sh: dashboard.sh names an install that predates the dashboard instead of
     fs.rmSync(old, { recursive: true, force: true });
   }
 });
+
+test("S-AN1: /api/analyzer is guarded, masks the project root, and filters by project id", async () => {
+  const home = os.homedir();
+  const project = { id: "bbbbbbbbbbbb", name: "app", root: path.join(home, "work", "app") };
+  const at = Date.now() - 1000;
+  const ev = (/** @type {any} */ e, /** @type {number} */ i) => JSON.stringify({ v: 1, runId: "run-an", at: at + i, seq: i, ...e });
+  fs.writeFileSync(path.join(runsDir, "run-an.jsonl"), [
+    { kind: "run_start", tool: "ask-one", workflow: "single", pid: 999999, procStartedAt: 1, providers: ["grok"], project },
+    { kind: "call_start", callId: "c1", provider: "grok", role: "single", promptChars: 10, fileCount: 0, fileBytes: 0, grantedMs: 1000, ceilingSource: "own" },
+    { kind: "call_end", callId: "c1", provider: "grok", model: "g", ms: 5, isError: false },
+    { kind: "run_end", status: "done" },
+  ].map(ev).join("\n") + "\n");
+  assert.equal((await req("/api/analyzer")).status, 401);
+  cfg.dashboard.showPII = false;
+  const body = JSON.parse((await req("/api/analyzer", { cookie: true })).body);
+  const row = body.projects.find((/** @type {any} */ r) => r.id === project.id);
+  assert.ok(row, "the project row is served");
+  assert.ok(!row.root.includes(home), "home dir masked");
+  assert.equal(body.window.days, 30);
+  const only = JSON.parse((await req(`/api/analyzer?project=${project.id}`, { cookie: true })).body);
+  assert.equal(only.runs, 1);
+  assert.equal((await req("/api/analyzer?project=..%2Fx", { cookie: true })).status, 400);
+  assert.equal((await req("/api/analyzer?days=abc", { cookie: true })).status, 400);
+  const runs = JSON.parse((await req(`/api/runs?project=${project.id}`, { cookie: true })).body).runs;
+  assert.deepEqual(runs.map((/** @type {any} */ r) => r.runId), ["run-an"]);
+  assert.ok(!JSON.stringify(runs).includes(home), "the project root is masked in /api/runs too");
+  assert.equal(runs[0].project.id, project.id, "the id survives redaction");
+});

@@ -294,7 +294,8 @@ and `session-annotate` (append a note to the audit trail). Full details:
 A local, read-only browser view of deliberation runs: each `/consensus`, `/ask-all`, and
 `/ask-*` run drawn as a state graph while it runs (which state is active, what each
 provider was sent and returned, timing, tokens), plus run history, the effective config,
-provider health, and usage stats. Opt-in, **default off**, and it needs a browser on the
+provider health, usage stats, and an Analyzer (which models agree more than they add,
+per-project failures and latency, request size vs timeouts). Opt-in, **default off**, and it needs a browser on the
 same machine as the MCP server, so it does not work from Claude Code on the web.
 
 1. Turn on the journal in the config (it hot-reloads, no restart needed):
@@ -327,6 +328,26 @@ same machine as the MCP server, so it does not work from Claude Code on the web.
 
 3. Run `/consensus` or `/ask-all` and watch the graph fill in.
 
+Each run records the project it was called from: the git repo of the tool call's `cwd`
+(or the MCP server's directory), with worktrees grouped under their main repo. The Runs
+tab shows it as a column with a project filter; the Analyzer tab uses the same filter.
+
+Restart or stop it:
+
+```text
+/deliberation:dashboard restart
+```
+
+```bash
+bash scripts/commands/dashboard-restart.sh   # stop the running one, start fresh, print the new URL
+npm run dashboard:restart                    # the same, from a checkout
+deliberation-mcp dashboard --stop            # stop only
+```
+
+A restart always prints a new token. `--stop` only signals a process it can prove is the
+dashboard (its command line and start time match the pidfile); otherwise it names the pid
+and leaves it running (restart exits 3), so a reused pid is never killed.
+
 Options, all in the `dashboard` block:
 
 | Key | Default | Meaning |
@@ -348,8 +369,10 @@ Troubleshooting:
   start with `--port <n>`.
 - `deliberation <version> at <path> has no dashboard; update it: ...` - `/deliberation:dashboard`
   found an install older than the dashboard; update the plugin and run `/reload-plugins`.
-- To stop it, end the process (Ctrl+C in the terminal that runs it, or kill the pid in
-  `<XDG cache>/deliberation/dashboard.json`).
+- To stop it, run `deliberation-mcp dashboard --stop` (or Ctrl+C in the terminal that runs
+  it). `pid <n> from the pidfile was left alone: ...` means that pid is not provably the
+  dashboard (for example one started before this version, which recorded no start time):
+  check it with `ps -p <n>` and end it yourself if it is.
 
 Security details (loopback bind, Host/Origin checks, token and cookie, redaction) are in
 [TECHNICAL.md - Dashboard](TECHNICAL.md#dashboard).

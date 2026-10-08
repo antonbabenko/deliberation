@@ -53,6 +53,7 @@ export const api = {
   config: () => getJSON("/api/config"),
   health: () => getJSON("/api/health"),
   stats: (filter) => getJSON(`/api/stats${query(filter)}`),
+  analyzer: (filter) => getJSON(`/api/analyzer${query(filter)}`),
 };
 
 /**

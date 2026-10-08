@@ -699,3 +699,104 @@ test("HBX7: with the host budget already spent, runToConvergence stops with budg
     assert.equal(calls, 0, "no provider leg is started on a spent budget");
   });
 });
+
+// --- Request size + effective ceiling on call_start (dashboard analyzer) ---------------
+/** A fake provider whose own configured timeout is `ms`. @param {string} name @param {number} ms @param {any} [caps] */
+function timedProvider(name, ms, caps = {}) {
+  return /** @type {any} */ ({
+    ...fakeProvider(name),
+    capabilities: { canImplement: false, fileUpload: false, multiTurn: false, ...caps },
+    resolveSettings: (/** @type {any} */ req) => ({ timeoutMs: req.timeoutMs ?? ms }),
+  });
+}
+const startsOf = (/** @type {any[]} */ events) => events.filter((e) => e.k === "call_start").map((e) => e.f);
+
+test("OS1: a lone call is limited by its own timeout and records the request size", async () => {
+  const { journal, events } = recordingJournal();
+  await askOne(timedProvider("a", 5000), { prompt: "hello" }, { trace: /** @type {any} */ ({ journal, runId: "r", role: "single" }) });
+  const [s] = startsOf(events);
+  assert.equal(s.ceilingSource, "own");
+  assert.ok(s.grantedMs > 4000 && s.grantedMs <= 5000);
+  assert.equal(s.promptChars, 5);
+  assert.equal(s.fileCount, 0);
+  assert.equal(s.orientationFiles, 0);
+  assert.equal(s.fileBytes, 0);
+  assert.equal(s.hostCapMs, null);
+});
+
+test("OS2: a shared fan-out is attributed to the shared deadline, naming the longest SELECTED peer", async () => {
+  const { journal, events } = recordingJournal();
+  await askAll([timedProvider("fast", 2000), timedProvider("slow", 9000)], { prompt: "q" }, { trace: /** @type {any} */ ({ journal, runId: "r", role: "peer" }) });
+  const starts = startsOf(events);
+  assert.equal(starts.length, 2);
+  for (const s of starts) {
+    assert.equal(s.ceilingSource, "shared");
+    assert.deepEqual(s.sharedBy, ["slow"]);
+    assert.equal(s.sharedLimitMs, 9000);
+    assert.ok(s.grantedMs > 8000);
+  }
+});
+
+test("OS3: a caller deadline shorter than every peer makes the fan-out ceiling `outer`", async () => {
+  const { journal, events } = recordingJournal();
+  await askAll([timedProvider("a", 9000), timedProvider("b", 9000)], { prompt: "q", deadlineAt: Date.now() + 1500 }, { trace: /** @type {any} */ ({ journal, runId: "r", role: "peer" }) });
+  for (const s of startsOf(events)) {
+    assert.equal(s.ceilingSource, "outer");
+    assert.ok(s.grantedMs <= 1500);
+  }
+});
+
+test("OS4: a host cap below the provider timeout makes the ceiling `host` and records the cap", async () => {
+  await withHostCap("8000", async () => {
+    const { journal, events } = recordingJournal();
+    await askOne(timedProvider("a", 60000), { prompt: "q" }, { trace: /** @type {any} */ ({ journal, runId: "r", role: "single" }) });
+    const [s] = startsOf(events);
+    assert.equal(s.ceilingSource, "host");
+    assert.equal(s.hostCapMs, 8000);
+    assert.ok(s.grantedMs <= 3000);
+  });
+});
+
+test("OS5: file sizes: orientation counted, unknown or capped sizes are null, never partial", async () => {
+  const fs = require("node:fs"), os = require("node:os"), path = require("node:path");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "os5-"));
+  const f1 = path.join(dir, "a.txt"); fs.writeFileSync(f1, "12345");
+  const f2 = path.join(dir, "b.txt"); fs.writeFileSync(f2, "123");
+  const run = async (/** @type {any} */ req, /** @type {any} */ opts = {}, caps = {}) => {
+    const { journal, events } = recordingJournal();
+    await askOne(timedProvider("a", 5000, caps), req, { ...opts, trace: /** @type {any} */ ({ journal, runId: "r", role: "single" }) });
+    return startsOf(events)[0];
+  };
+  const both = await run({ prompt: "q", files: [{ path: f1 }, { path: f2 }] });
+  assert.equal(both.fileCount, 2);
+  assert.equal(both.fileBytes, 8);
+  assert.equal((await run({ prompt: "q", files: [{ path: f1 }, { dir }] })).fileBytes, null);
+  assert.equal((await run({ prompt: "q", files: [{ path: path.join(dir, "missing") }] })).fileBytes, null);
+  assert.equal((await run({ prompt: "q", files: Array.from({ length: 51 }, () => ({ path: f1 })) })).fileBytes, null);
+  const oriented = await run({ prompt: "q" }, { orientationFiles: [{ path: f1 }] }, { walksFilesystem: false });
+  assert.equal(oriented.orientationFiles, 1);
+  assert.equal(oriented.fileCount, 1);
+  assert.equal(oriented.fileBytes, 5);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("OS6: a retry records its own ceiling, still `own`", async () => {
+  const { journal, events } = recordingJournal();
+  const p = /** @type {any} */ ({ ...countingProvider([errResult({ errorKind: "network" }), okResult]), resolveSettings: (/** @type {any} */ req) => ({ timeoutMs: req.timeoutMs ?? 5000 }) });
+  await askOne(p, { prompt: "x" }, { trace: /** @type {any} */ ({ journal, runId: "r", role: "single" }) });
+  const starts = startsOf(events);
+  assert.equal(starts.length, 2);
+  assert.ok(starts.every((s) => s.ceilingSource === "own" && typeof s.grantedMs === "number"));
+});
+
+test("OS7: a cache hit carries size but no ceiling", async () => {
+  const cache = makeResultCache();
+  const p = timedProvider("a", 5000);
+  await askOne(p, { prompt: "same" }, { cache });
+  const { journal, events } = recordingJournal();
+  await askOne(p, { prompt: "same" }, { cache, trace: /** @type {any} */ ({ journal, runId: "r", role: "single" }) });
+  const [s] = startsOf(events);
+  assert.equal(s.promptChars, 4);
+  assert.ok(!("grantedMs" in s) || s.grantedMs === undefined);
+  assert.ok(!s.ceilingSource);
+});

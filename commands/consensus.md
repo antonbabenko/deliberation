@@ -158,7 +158,12 @@ in-memory `LoopState` for that `sessionId` may be gone, so recover by re-running
    before the call, print a short expectation note so the wait never looks like a hang (the
    call returns only after ALL voices finish; no partial output mid-call):
    ```
-   Round R of [maxRounds]: dispatching the panel in parallel... ETA ~30-90s (longer if Gemini runs deep).
+   Round R of [maxRounds]: dispatching the panel in parallel...
+   ```
+   From round 2 on, append the previous round's measured time (its slowest voice's `ms`,
+   formatted like the round time footer) so the estimate is real, not a guess:
+   ```
+   Round R of [maxRounds]: dispatching the panel in parallel... (last round: 4m 42s, slowest: grok)
    ```
    Then call:
    ```

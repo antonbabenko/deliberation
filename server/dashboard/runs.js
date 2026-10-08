@@ -49,6 +49,7 @@ const { DEFAULT_TTL_MS: STEP_TTL_MS } = require("../../core/loop-store.js");
  * @property {boolean} legacy
  * @property {(string|null)} stopReason
  * @property {string[]} [undispatched]  a quiet fan-out's listed providers that were never called
+ * @property {({id:string, name:string, root:string}|null)} [project]  where the run was called from (run_start), null when unknown
  */
 
 /** @typedef {(pid: number, procStartedAt: number) => boolean} IsAliveFn */
@@ -339,6 +340,7 @@ function foldRun(events) {
   let maxRound = 0;
   let tokens = 0;
   let tokenCoverage=0,reused=0,attempts=0,retries=0;
+  /** @type {({id:string, name:string, root:string}|null)} */ let project=null;
   /** @type {any} */ let provenance=null;
   /** @type {(number|null)} */
   let minAt = null;
@@ -365,6 +367,7 @@ function foldRun(events) {
         if (typeof ev.workflow === "string") workflow = ev.workflow;
         if (at !== null) runStartAt = at;
         if (Array.isArray(ev.providers)) providersFromStart = ev.providers.filter((/** @type {any} */ p) => typeof p === "string");
+        if (ev.project && typeof ev.project === "object" && typeof ev.project.id === "string") project = { id: ev.project.id, name: String(ev.project.name || ev.project.id), root: String(ev.project.root || "") };
         break;
       case "run_end":
         runEnd = ev;
@@ -411,6 +414,7 @@ function foldRun(events) {
     errors: errored.size,
     tokens,
     legacy: false,
+    project,
     provenance,configId:provenance?.configId||null,activationId:provenance?.activationId||null,tokenCoverage,reused,attempts,retries,
   };
 }
@@ -476,6 +480,7 @@ function legacySummary(id, record) {
  * @property {string} [provider]
  * @property {string} [status]
  * @property {(number|string)} [since]  epoch ms, or an ISO/Date.parse-able string; keeps runs starting at/after it
+ * @property {string} [project]  a project id; `unknown` matches runs that recorded none
  */
 
 /**
@@ -604,6 +609,7 @@ function createRunIndex(opts) {
   function matchesFilter(s, entry, filter) {
     if (filter.tool && s.tool !== filter.tool) return false;
     if (filter.status && s.status !== filter.status) return false;
+    if (filter.project && (s.project ? s.project.id : "unknown") !== filter.project) return false;
     if (filter.provider && s.providers.indexOf(filter.provider) === -1) return false;
     if (filter.since !== undefined && filter.since !== null) {
       const sinceMs = typeof filter.since === "number" ? filter.since : Date.parse(String(filter.since));

@@ -8,6 +8,7 @@ import * as runsView from "./views/runs.js";
 import * as runView from "./views/run.js";
 import * as configView from "./views/config.js";
 import * as statsView from "./views/stats.js";
+import * as analyzerView from "./views/analyzer.js";
 
 const TERMINAL = new Set(["done", "converged", "unresolved", "error"]);
 
@@ -18,9 +19,12 @@ export function emptyRun(runId) {
     startedAt: 0, endedAt: null, lastAt: 0, seq: -1, rounds: 0, tokens: 0, errors: 0,
     prompt: undefined, stopReason: null, finalReport: undefined, dropped: [], undispatched: [], ended: false,
     states: [], calls: {}, callOrder: [], arbiter: [], events: [], erroredByKey: {},
-    loaded: false, legacy: null,
+    loaded: false, legacy: null, project: null,
   };
 }
+
+/** A run_start/summary project, or null when absent or the wrong shape. */
+const projectOf = (p) => (p && typeof p === "object" && typeof p.id === "string" ? { id: p.id, name: String(p.name || p.id), root: String(p.root || "") } : null);
 
 function tokensOf(usage) {
   if (!usage || typeof usage !== "object") return 0;
@@ -47,6 +51,7 @@ function step(r, ev, at) {
         providers: [...new Set([...strings(ev.providers), ...r.providers])],
         startedAt: at,
         prompt: typeof ev.prompt === "string" ? ev.prompt : r.prompt,
+        project: projectOf(ev.project) || r.project,
         loaded: r.loaded || ev.seq === 0,
       };
     case "state": {
@@ -165,6 +170,7 @@ export function applySummary(runs, sum) {
       tokenCoverage:sum.tokenCoverage||0,
       errors: r.loaded ? r.errors : sum.errors || 0,
       isLegacy: !!sum.legacy,
+      project: r.project || projectOf(sum.project),
     },
   };
 }
@@ -263,6 +269,7 @@ export function summaryOf(r) {
     runId: r.runId, tool: r.tool, workflow: r.workflow, status: r.status, startedAt: r.startedAt, endedAt: r.endedAt,
     providers: r.providers, rounds: r.rounds, errors: r.errors, tokens: r.tokens, stopReason: r.stopReason, undispatched: r.undispatched,
     legacy: !!(r.isLegacy !== undefined ? r.isLegacy : r.legacy),
+    project: r.project || null,
   };
 }
 
@@ -290,8 +297,8 @@ export function compactRuns(runs, index, keep) {
 
 // ---------------------------------------------------------------------------- browser
 
-const VIEWS = { live, runs: runsView, run: runView, config: configView, stats: statsView };
-const MODES = [["live", "Live", "l"], ["runs", "Runs", "r"], ["config", "Config", "c"], ["stats", "Stats", "s"]];
+const VIEWS = { live, runs: runsView, run: runView, config: configView, stats: statsView, analyzer: analyzerView };
+const MODES = [["live", "Live", "l"], ["runs", "Runs", "r"], ["config", "Config", "c"], ["stats", "Stats", "s"], ["analyzer", "Analyzer", "a"]];
 const THEMES = ["auto", "light", "dark"];
 
 function boot() {

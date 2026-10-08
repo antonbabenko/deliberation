@@ -209,3 +209,58 @@ test("C-older: an older dashboard still on the port (answers ?t= with a 302) is 
     fs.rmSync(statePath, { force: true });
   }
 });
+
+test("C-stop: --stop ends a running dashboard (recorded procStartedAt + argv), then reports nothing running", { skip: process.platform === "win32" }, async () => {
+  writeConfig({ enabled: true });
+  const { child } = await spawnDashboard();
+  const exited = new Promise((r) => child.on("exit", r));
+  try {
+    const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+    assert.equal(typeof state.procStartedAt, "number");
+    assert.equal(state.argv[2], "dashboard", "node, script, then the subcommand");
+    const out = sink();
+    const err = sink();
+    const code = await main(["--stop"], { stdout: out, stderr: err });
+    if (code === 2 && /could not be read/.test(err.text)) return; // no ps//proc in this sandbox
+    assert.equal(code, 0, err.text);
+    assert.match(out.text, /stopped the dashboard/);
+    await exited;
+    assert.ok(!fs.existsSync(statePath));
+    const again = sink();
+    assert.equal(await main(["--stop"], { stdout: again, stderr: sink() }), 0);
+    assert.match(again.text, /no running dashboard/);
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) await stop(child, "SIGKILL");
+  }
+});
+
+test("C-stop-args: --stop takes no other flags", async () => {
+  const err = sink();
+  assert.equal(await main(["--stop", "--port", "1"], { stdout: sink(), stderr: err }), 1);
+  assert.match(err.text, /--stop/);
+});
+
+test("C-restart: dashboard-restart.sh replaces a running dashboard with a fresh token, then --stop cleans up", { skip: process.platform === "win32" }, async () => {
+  writeConfig({ enabled: true });
+  const { spawnSync } = require("node:child_process");
+  const repo = path.join(__dirname, "..");
+  const env = { ...process.env, CLAUDE_PLUGIN_ROOT: repo, CLAUDE_CODE_REMOTE: "" };
+  const script = path.join(repo, "scripts/commands/dashboard-restart.sh");
+  const tokenOf = (/** @type {string} */ s) => (/\?t=([0-9a-f]{64})/.exec(s) || [])[1];
+  const first = spawnSync("bash", [script, "--no-open", "--port", "0"], { env, encoding: "utf8", timeout: 30000 });
+  try {
+    if (first.status === 3 || /could not be read/.test(first.stderr)) return; // no ps//proc in this sandbox
+    assert.equal(first.status, 0, first.stdout + first.stderr);
+    const t1 = tokenOf(first.stdout);
+    assert.ok(t1, first.stdout);
+    const second = spawnSync("bash", [script, "--no-open", "--port", "0"], { env, encoding: "utf8", timeout: 30000 });
+    assert.equal(second.status, 0, second.stdout + second.stderr);
+    assert.match(second.stdout, /stopped the dashboard/);
+    const t2 = tokenOf(second.stdout);
+    assert.ok(t2 && t2 !== t1, "a restart prints a new token");
+  } finally {
+    const out = sink();
+    await main(["--stop"], { stdout: out, stderr: sink() });
+  }
+  assert.ok(!fs.existsSync(statePath));
+});

@@ -296,3 +296,63 @@ test("MJ17: two racing terminal calls on one loop journal a single run_end", asy
   assert.ok(outs.every((o) => o.stopReason === "no-providers"));
   assert.equal(events().filter((e) => e.kind === "run_end").length, 1);
 });
+
+test("MJ18: run_start records the calling project from the tool's cwd, else the server cwd", async () => {
+  const { journal, events } = setup();
+  const repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "delib-mj-proj-")));
+  fs.mkdirSync(path.join(repo, ".git"));
+  fs.mkdirSync(path.join(repo, "sub"));
+  const srv = buildServer({ providers: [fakeProvider("codex"), fakeProvider("grok")], getConfig: () => config, journal });
+  await callTool(srv, "ask-one", { provider: "codex", prompt: "q", cwd: path.join(repo, "sub") });
+  await callTool(srv, "ask-all", { prompt: "q", cwd: repo });
+  await callTool(srv, "ask-one", { provider: "codex", prompt: "q" });
+  // Run files come back in directory order, not write order: tell them apart by content.
+  const starts = events().filter((e) => e.kind === "run_start");
+  assert.equal(starts.length, 3);
+  const fanout = starts.find((e) => e.workflow === "fanout");
+  const singles = starts.filter((e) => e.workflow === "single");
+  assert.equal(fanout.project.root, repo);
+  assert.equal(fanout.project.name, path.basename(repo));
+  const inRepo = singles.find((e) => e.project.root === repo);
+  assert.ok(inRepo, "ask-one from a subdir resolves to the repo root");
+  assert.equal(inRepo.project.id, fanout.project.id);
+  const other = singles.find((e) => e !== inRepo);
+  assert.equal(other.project.root, require("../core/project.js").resolveProject(process.cwd())?.root);
+  fs.rmSync(repo, { recursive: true, force: true });
+});
+
+test("MJ19: consensus-step init records the project from its cwd", async () => {
+  const { journal, events } = setup();
+  const repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "delib-mj-cs-")));
+  const srv = buildServer({ providers: [fakeProvider("codex")], getConfig: () => config, journal });
+  await callTool(srv, "consensus-step", { action: "init", prompt: "plan", cwd: repo });
+  const start = events().find((e) => e.kind === "run_start");
+  assert.equal(start.project.root, repo);
+  fs.rmSync(repo, { recursive: true, force: true });
+});
+
+test("MJ20: a panel fan-out names the longest SELECTED peer as the ceiling setter, even if it was never dispatched", async () => {
+  const { journal, events } = setup();
+  const timed = (/** @type {string} */ n, /** @type {number} */ ms) => ({ ...fakeProvider(n), resolveSettings: (/** @type {any} */ req) => ({ timeoutMs: req.timeoutMs ?? ms }) });
+  const srv = buildServer({ providers: [timed("codex", 2000), timed("grok", 9000)], getConfig: () => config, journal });
+  const panel = await callTool(srv, "panel", { prompt: "q" });
+  await callTool(srv, "ask-one", { provider: "codex", prompt: "q", runId: panel.runId });
+  const start = events().find((e) => e.kind === "call_start");
+  assert.equal(start.ceilingSource, "shared");
+  assert.deepEqual(start.sharedBy, ["grok"]);
+  assert.equal(start.sharedLimitMs, 9000);
+  assert.ok(start.grantedMs > 8000);
+});
+
+test("MJ21: consensus-step submit_adjudication journals per-issue decisions as metadata", async () => {
+  const { journal, events } = setup();
+  const rc = (/** @type {string} */ n) => fakeProvider(n, () => "**Verdict**: REQUEST CHANGES\n- [correctness] bug");
+  const srv = buildServer({ providers: [rc("codex"), rc("grok")], getConfig: () => config, journal });
+  const { sessionId: sid } = await callTool(srv, "consensus-step", { action: "init", prompt: "plan" });
+  await callTool(srv, "consensus-step", { action: "record_blind", sessionId: sid, blindVerdict: "APPROVE" });
+  await callTool(srv, "consensus-step", { action: "dispatch_peers", sessionId: sid });
+  const decisions = [{ source: "codex", category: "correctness", description: "bug", action: "accept", reason: "real" }, { source: "grok", category: "correctness", description: "bug", action: "dismiss", reason: "dup" }];
+  await callTool(srv, "consensus-step", { action: "submit_adjudication", sessionId: sid, verdict: "REQUEST_CHANGES", decisions });
+  const adj = events().find((e) => e.kind === "arbiter" && e.action === "submit_adjudication");
+  assert.deepEqual(adj.decisions, [{ source: "codex", category: "correctness", action: "accept" }, { source: "grok", category: "correctness", action: "dismiss" }]);
+});

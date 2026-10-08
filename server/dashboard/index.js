@@ -14,6 +14,10 @@ const crypto = require("node:crypto");
 const { spawn } = require("node:child_process");
 const { createDashboardServer } = require("./server.js");
 const { createRunIndex } = require("./runs.js");
+const { stopDashboard } = require("./stop.js");
+
+const INDEX_MAX_RUNS = 2000;
+const INDEX_MAX_FILE_BYTES = 5 * 1024 * 1024;
 const { createTailer } = require("./tail.js");
 const { createJournal } = require("../../core/journal.js");
 const { makeRegistry } = require("../../core/registry.js");
@@ -24,19 +28,21 @@ const UI_DIR = [path.join(__dirname, "ui"), path.join(__dirname, "dashboard-ui")
 
 /**
  * @param {string[]} argv
- * @returns {{port?: number, open: boolean}|{error: string}}
+ * @returns {{port?: number, open: boolean, stop?: boolean}|{error: string}}
  */
 function parseArgs(argv) {
-  /** @type {{port?: number, open: boolean}} */ const out = { open: true };
+  /** @type {{port?: number, open: boolean, stop?: boolean}} */ const out = { open: true };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--no-open") out.open = false;
+    else if (a === "--stop") out.stop = true;
     else if (a === "--port") {
       const v = argv[++i];
       if (!v || !/^\d+$/.test(v) || Number(v) > 65535) return { error: "--port needs an integer 0-65535" };
       out.port = Number(v);
     } else return { error: `unknown argument: ${a}` };
   }
+  if (out.stop && argv.length > 1) return { error: "--stop takes no other flags" };
   return out;
 }
 
@@ -207,8 +213,14 @@ async function main(argv, io = {}) {
   const err = io.stderr || process.stderr;
   const args = parseArgs(argv);
   if ("error" in args) {
-    err.write(`${args.error}\nusage: deliberation-mcp dashboard [--port N] [--no-open]\n`);
+    err.write(`${args.error}\nusage: deliberation-mcp dashboard [--port N] [--no-open] | --stop\n`);
     return 1;
+  }
+  // Works with the dashboard disabled too: stopping must not depend on today's config.
+  if (args.stop) {
+    const r = await stopDashboard(resolveDashboardStatePath());
+    (r.code === 0 ? out : err).write(`${r.message}\n`);
+    return r.code;
   }
 
   const { makeRuntime, buildServer } = require("../mcp/index.js");
@@ -231,7 +243,9 @@ async function main(argv, io = {}) {
   const dashboardSettings = () => (rt.getConfig() || {}).dashboard || { enabled: false };
   createJournal({ dir: runsDir, getSettings: dashboardSettings }).prune();
 
-  const index = createRunIndex({ runsDir, sessionsDir: rt.sessionsDir });
+  // Bounded: the newest INDEX_MAX_RUNS journals, and none bigger than INDEX_MAX_FILE_BYTES
+  // (counted as truncated). Without this every view re-read every journal ever kept.
+  const index = createRunIndex({ runsDir, sessionsDir: rt.sessionsDir, maxRecords: INDEX_MAX_RUNS, maxFileBytes: INDEX_MAX_FILE_BYTES });
   const tailer = createTailer({ runsDir });
   // `analyze` reuses the MCP tool handler as-is (debug-log tail + session records);
   // an in-process server with no-op transport, never a provider call.
@@ -265,7 +279,8 @@ async function main(argv, io = {}) {
   server.on("error", (e) => err.write(`dashboard server error: ${String((e && e.message) || e)}\n`));
 
   fs.mkdirSync(path.dirname(statePath), { recursive: true, mode: 0o700 });
-  fs.writeFileSync(statePath, JSON.stringify({ pid: process.pid, port: bound, token, startedAt: Date.now() }), { mode: 0o600 });
+  // procStartedAt + argv let --stop prove a pid is this dashboard before signalling it.
+  fs.writeFileSync(statePath, JSON.stringify({ pid: process.pid, port: bound, token, startedAt: Date.now(), procStartedAt: Math.round(Date.now() - process.uptime() * 1000), argv: process.argv }), { mode: 0o600 });
   fs.chmodSync(statePath, 0o600); // a stale file keeps its old mode through writeFileSync
   const removeState = () => {
     const s = readState(statePath);

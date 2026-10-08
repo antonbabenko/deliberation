@@ -16,6 +16,9 @@
  * @property {string} [timeoutPolicy]
  * @property {string} [tool]
  * @property {number} [deadlineAt]
+ * @property {("own"|"shared"|"outer"|"host")} [deadlineOrigin]  what set deadlineAt (a fan-out says; a caller's own is `outer`)
+ * @property {string[]} [sharedBy]  the peer(s) whose configured limit set a shared fan-out deadline
+ * @property {number} [sharedLimitMs]  that limit
  * @property {any} [provenance]
  * @property {string}  prompt
  * @property {string}  [developerInstructions]

@@ -7,6 +7,7 @@
 const { makeRegistry, pinAlias } = require("../../core/registry.js");
 const { askAll, askOne, consensus, runToConvergence } = require("../../core/orchestrate.js");
 const { orientationFilesFor } = require("../../core/orientation.js");
+const { resolveProject } = require("../../core/project.js");
 const { PROMPTS } = require("../../core/prompts/index.js");
 const analyzeCore = require("../../core/analyze.js");
 const { fitToHostBudget } = require("../../core/host-budget.js");
@@ -406,6 +407,16 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
   // applies), and none of these can throw into a delegation (core/journal.js contract).
   /** @typedef {import("../../core/orchestrate.js").Trace} Trace */
   /**
+   * Where the run was called from, for the dashboard's per-project views. Only a
+   * string cwd from the (untrusted) tool args is used; anything else -> the server cwd.
+   * @param {unknown} cwd
+   * @returns {{project?: import("../../core/project.js").ProjectRef}}
+   */
+  function projectField(cwd) {
+    const project = resolveProject(typeof cwd === "string" && cwd ? cwd : process.cwd());
+    return project ? { project } : {};
+  }
+  /**
    * Open a run: emit run_start and return its Trace, or undefined when the journal is off.
    * @param {string} tool
    * @param {("single"|"fanout"|"consensus"|"consensus-step")} workflow
@@ -413,9 +424,10 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
    * @param {string[]} providerNames
    * @param {unknown} prompt
    * @param {string} [runId]  use this id (consensus-step: the loop sessionId) instead of a new one
+   * @param {unknown} [cwd]  the tool call's cwd arg; the project falls back to the server's own cwd
    * @returns {(Trace|undefined)}
    */
-  function beginRun(tool, workflow, expert, providerNames, prompt, runId) {
+  function beginRun(tool, workflow, expert, providerNames, prompt, runId, cwd) {
     const context = runContext.getStore() || { ...history.observe(), runId:runId || journal.newRunId(), startedAt:Date.now() };
     const id = runId || context.runId;
     journal.emit(id, "run_start", {
@@ -424,6 +436,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       // and `expert` only as a known persona name, never free text.
       ...(typeof expert === "string" && EXPERTS.includes(expert) ? { expert } : {}),
       ...(typeof prompt === "string" ? { prompt } : {}),
+      ...projectField(cwd),
     });
     return { journal, runId: id, provenance:require("../../core/config-history.js").safeProvenance(context) };
   }
@@ -469,7 +482,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
    */
   function singleTrace(tool, args, expert, providerName) {
     if (isSafeId(args.runId) && panelRuns.has(args.runId)) return { trace: { journal, runId: args.runId, role: "peer" }, own: false };
-    const t = beginRun(tool, "single", expert, [providerName], args.prompt);
+    const t = beginRun(tool, "single", expert, [providerName], args.prompt, undefined, args.cwd);
     return { trace: t && { ...t, role: "single" }, own: true };
   }
   // Server->client notification sender (Phase 4 spike). Injected by the stdio loop
@@ -893,7 +906,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
     try { lg.logEvent({ event: "dispatch_start", at: Date.now(), tool: "ask-all", voices: selected.length }); } catch { /* never break */ }
     // session-revisit passes noCache: a revisit is a deliberate RE-RUN of the stored
     // question, so it must never replay a cached opinion from the live tool path.
-    const trace = beginRun("ask-all", "fanout", expert, selected.map((/** @type {Provider} */ p) => p.name), req.prompt);
+    const trace = beginRun("ask-all", "fanout", expert, selected.map((/** @type {Provider} */ p) => p.name), req.prompt, undefined, req.cwd);
     const results = await askAll(selected, withPersona(req, expert), { logger: lg, tool: "ask-all", cache: opts.noCache ? undefined : resultCache, orientationFiles: orient(req), startedAt: opts.startedAt, trace: trace && { ...trace, role: "peer" } });
     endRun(trace, { status: fanoutStatus(results) });
     return {
@@ -1063,7 +1076,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
    */
   async function runConsensusTool(req, expert, opts = {}) {
     /** @type {(Trace|undefined)} */ let trace;
-    const begin = (/** @type {string[]} */ names) => (trace = beginRun("consensus", "consensus", expert, names, req.prompt));
+    const begin = (/** @type {string[]} */ names) => (trace = beginRun("consensus", "consensus", expert, names, req.prompt, undefined, req.cwd));
     const out = await runConsensusToolInner(req, expert, opts, begin);
     const p = out.payload;
     // An error names why the run stopped; `internal: ...` / `loop-failed: ...` keep only the tag.
@@ -1261,7 +1274,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
           // The panel as config sees it (no health probe): dispatch_peers re-selects each round.
           /** @type {string[]} */ let names = [];
           try { names = registry.selectForConsensus({ config: cfg, expert: args.expert || expert || "" }).providers.map((/** @type {Provider} */ p) => p.name); } catch { /* journaling never breaks init */ }
-          beginRun("consensus-step", "consensus-step", args.expert || expert, names, originalPrompt, sid);
+          beginRun("consensus-step", "consensus-step", args.expert || expert, names, originalPrompt, sid, args.cwd);
           journal.emit(sid, "state", { state: "init", round: entered.state.round, status: entered.state.status });
         }
         return { sessionId: sid, status: entered.state.status, round: entered.state.round, blindPrompt: entered.blindPrompt, note: "write your blind verdict, then call record_blind" };
@@ -1384,7 +1397,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         } catch { /* logging must never break the step */ }
         // submitAdjudication above already rejects a verdict outside the enum; check again here so
         // the journal never depends on that ordering.
-        jemit("arbiter", { action: "submit_adjudication", round: cur.round, verdict: loop.VERDICTS.includes(args.verdict) ? args.verdict : null, text: JSON.stringify(decisions) });
+        jemit("arbiter", { action: "submit_adjudication", round: cur.round, verdict: loop.VERDICTS.includes(args.verdict) ? args.verdict : null, decisions, text: JSON.stringify(decisions) });
         if (next.status === "converged") {
           const { finalReport, confidence } = loop.finalize(next);
           // Atomic take: remove-and-return in ONE synchronous step so a concurrent/
@@ -1599,7 +1612,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       // Open the /ask-all fan-out run here: the parallel ask-one calls that follow join it by
       // this runId. A local journal write only - no provider call, no login. The consensus
       // panel opens nothing (consensus-step init opens that run).
-      const run = forConsensus ? undefined : beginRun("ask-all", "fanout", expert, names, args.prompt);
+      const run = forConsensus ? undefined : beginRun("ask-all", "fanout", expert, names, args.prompt, undefined, args.cwd);
       if (run) rememberPanelRun(run.runId);
       const fanoutId=forConsensus?undefined:groups.create(pinned,{...runContext.getStore(),runId:run?.runId});
       if(fanoutId&&run)groupByRun.set(run.runId,fanoutId);
@@ -1631,6 +1644,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         runContext.enterWith(joined.group.context);
         req.provenance={...require("../../core/config-history.js").safeProvenance(joined.group.context),configuredTimeoutMs,limitingReason:shared?'longest-peer / outer budget':'per-provider'};
         req.deadlineAt=joined.deadlineAt;
+        if(shared){req.deadlineOrigin=joined.deadlineOrigin;req.sharedBy=joined.sharedBy;req.sharedLimitMs=joined.sharedLimitMs;}
         req.timeoutMs=shared?Math.max(1,joined.deadlineAt-Date.now()):req.timeoutMs??configuredTimeoutMs;
         const combined=require('../../core/signals.js').combineSignals([joined.signal,...(req.signal?[req.signal]:[])]);
         req.signal=combined.signal;disposeSignals=combined.dispose;
@@ -1757,7 +1771,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
     }
     if (EXPERTS.includes(name)) {
       const { providers: selected, unavailable } = registry.selectForAskAll({ config: dispatchConfig(), expert: name, unhealthy: await unhealthyMap(providers) });
-      const trace = beginRun(name, "fanout", name, selected.map((/** @type {Provider} */ p) => p.name), req.prompt);
+      const trace = beginRun(name, "fanout", name, selected.map((/** @type {Provider} */ p) => p.name), req.prompt, undefined, req.cwd);
       const results = await askAll(selected, withPersona({ ...req, expert: name }, expert), { logger: currentLogger(), tool: name, cache: resultCache, orientationFiles: orient(req), startedAt: toolStartedAt, trace: trace && { ...trace, role: "peer" } });
       endRun(trace, { status: fanoutStatus(results) });
       // An empty `results` with no reason is indistinguishable from "nobody had anything to

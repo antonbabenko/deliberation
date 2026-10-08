@@ -30,11 +30,17 @@ function makeFanoutGroups({max=1000,idleMs=600000,onClose=()=>{}}={}) {
       if(g.deadlineAt!==null&&Date.now()>=g.deadlineAt){close(g,'deadline-expired');return {error:'expired-fanout'};}
       if(g.deadlineAt===null) {
         clearTimeout(g.timer);
-        g.deadlineAt=Math.min(Date.now()+Math.max(1,...g.providers.map((/** @type {any} */p)=>p.resolveSettings?.({prompt:'',context:'ask'})?.timeoutMs??600000)),g.context.sharedDeadlineAt??Infinity);
+        // Every SELECTED peer counts, dispatched or not: the longest one sets the shared ceiling.
+        const limits=g.providers.map((/** @type {any} */p)=>p.resolveSettings?.({prompt:'',context:'ask'})?.timeoutMs??600000);
+        const longest=Math.max(1,...limits),sharedAt=Date.now()+longest,outerAt=g.context.sharedDeadlineAt??Infinity;
+        g.deadlineAt=Math.min(sharedAt,outerAt);
+        g.deadlineOrigin=outerAt<=sharedAt?'outer':'shared';
+        g.sharedBy=g.providers.filter((/** @type {any} */_p,/** @type {number} */i)=>limits[i]===longest).map((/** @type {any} */p)=>p.name);
+        g.sharedLimitMs=longest;
         g.timer=setTimeout(()=>close(g,'deadline-expired'),Math.max(0,g.deadlineAt-Date.now()));g.timer.unref();
       }
       member.state='running';member.controller=new AbortController();
-      return {group:g,provider:g.providers.find((/** @type {any} */ p)=>p.name===name),signal:member.controller.signal,deadlineAt:g.deadlineAt};
+      return {group:g,provider:g.providers.find((/** @type {any} */ p)=>p.name===name),signal:member.controller.signal,deadlineAt:g.deadlineAt,deadlineOrigin:g.deadlineOrigin,sharedBy:g.sharedBy,sharedLimitMs:g.sharedLimitMs};
     },
     /** @param {string} id @param {string} name */
     settle(id,name){const g=groups.get(id);if(!g)return;g.members.get(name).state='settled';if([...g.members.values()].every(m=>m.state==='settled'))close(g,'complete');},
