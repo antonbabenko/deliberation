@@ -1,3 +1,10 @@
+## [3.27.0](https://github.com/antonbabenko/deliberation/compare/v3.26.0...v3.27.0) (2026-10-08)
+
+
+### Features
+
+* cap orientation bundle size with a byte budget ([#236](https://github.com/antonbabenko/deliberation/issues/236)) ([29a0443](https://github.com/antonbabenko/deliberation/commit/29a044396fda1a61a834a5868c14757691c11ec8))
+
 ## [3.26.0](https://github.com/antonbabenko/deliberation/compare/v3.25.0...v3.26.0) (2026-10-08)
 
 
@@ -25,11 +32,4 @@
 ### Features
 
 * add /deliberation:reload-mcp command, skill, and script across hosts ([#226](https://github.com/antonbabenko/deliberation/issues/226)) ([9138f41](https://github.com/antonbabenko/deliberation/commit/9138f41156cec7671495de94f538a12d77814546))
-
-## [3.22.0](https://github.com/antonbabenko/deliberation/compare/v3.21.0...v3.22.0) (2026-10-06)
-
-
-### Features
-
-* **openrouter:** support default model property and remove generic provider row from dashboard ([#224](https://github.com/antonbabenko/deliberation/issues/224)) ([4d7f821](https://github.com/antonbabenko/deliberation/commit/4d7f82188094d9a55f35f3d59d3bb810ea5f55fa))
 
