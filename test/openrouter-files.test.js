@@ -71,3 +71,34 @@ test("F7: over-cap {path} is skipped via stat without reading (size in note)", (
   assert.equal(blocks.length, 0);
   assert.match(notes[0], /5000 bytes/);
 });
+
+test("F-head1: a path entry with headBytes is truncated, not skipped, even over the per-file cap", () => {
+  const dir = tmpDir();
+  fs.writeFileSync(path.join(dir, "big.md"), "x".repeat(300 * 1024));
+  const { blocks, notes } = inlineFiles([{ path: "big.md", headBytes: 1 << 30 }], { roots: [dir] });
+  assert.deepEqual(notes, []);
+  assert.equal(blocks.length, 1);
+  assert.match(blocks[0], /\[truncated: first \d+ of 307200 bytes\]$/);
+  assert.ok(blocks[0].length <= 256 * 1024 + "=== big.md ===\n".length);
+});
+
+test("F-head2: headBytes is rejected on dir entries and when not a positive integer; dir maxBytes still caps the walk", () => {
+  const dir = tmpDir();
+  fs.writeFileSync(path.join(dir, "a.txt"), "AAA");
+  fs.writeFileSync(path.join(dir, "b.txt"), "BBB");
+  assert.throws(() => inlineFiles([{ dir: ".", headBytes: 10 }], { roots: [dir] }), /only to path/);
+  assert.throws(() => inlineFiles([{ path: "a.txt", headBytes: 0 }], { roots: [dir] }), /positive integer/);
+  assert.throws(() => inlineFiles([{ path: "a.txt", headBytes: 10, mode: "upload" }], { roots: [dir] }), /upload/);
+  const { blocks, notes } = inlineFiles([{ dir: ".", include: ["**/*.txt"], maxBytes: 3 }], { roots: [dir] });
+  assert.equal(blocks.length, 0, "dir maxBytes keeps its walk-cap meaning (overflow refuses the walk)");
+  assert.equal(notes.length, 1);
+});
+
+test("F-head3: headBytes on a path outside roots is still refused", () => {
+  const dir = tmpDir();
+  const other = tmpDir();
+  fs.writeFileSync(path.join(other, "secret.txt"), "S");
+  const { blocks, notes } = inlineFiles([{ path: path.join(other, "secret.txt"), headBytes: 10 }], { roots: [dir] });
+  assert.equal(blocks.length, 0);
+  assert.match(notes[0], /not found under roots/);
+});

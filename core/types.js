@@ -8,6 +8,7 @@
  * @property {string} [file_id]
  * @property {string} [file_url]
  * @property {("auto"|"inline"|"upload")} [mode]
+ * @property {number} [headBytes]  path entries only: read at most this many bytes (head truncation; see core/head-read.js)
  */
 
 /**

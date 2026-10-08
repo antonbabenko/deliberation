@@ -231,6 +231,12 @@
           "minimum": 1,
           "default": 6,
           "description": "Cap on how many orientation files to attach, in priority order."
+        },
+        "maxBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 16000,
+          "description": "Content-byte budget for the whole bundle (file content plus truncation markers; the per-file name header a bridge adds is not counted). Files that fit go whole; then the highest-priority file skipped for size is cut to fit the rest (dropping lower-priority whole files if needed), when at least 2048 bytes remain. Each file is also capped at 256 KiB. 0 = no budget (only maxFiles and the per-file cap apply). Default 16000, about 4K tokens."
         }
       }
     },

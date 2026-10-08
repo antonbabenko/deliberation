@@ -753,6 +753,15 @@ Grok reads attached files via the `files[]` parameter. Each entry has EXACTLY ON
 - `dir` - a local directory expanded recursively. Same `mode` rules; the walker
   applies the chosen mode to every selected file (see below).
 
+A `path` entry may also set `headBytes` (positive integer) to send only the start of
+the file: the bridge reads at most that many bytes (never the whole file), cuts at the
+last line break (or a UTF-8 character boundary), and appends
+`[truncated: first N of M bytes]`. A `headBytes` entry is always inline and is rejected
+with `mode: "upload"`; content plus marker is clamped to `GROK_INLINE_MAX_BYTES`, and
+a FIFO or other non-regular file is refused. `headBytes` is not allowed on `dir`,
+`file_id`, or `file_url`; a `dir` entry keeps `maxBytes` as its walk cap. The
+OpenRouter bridge accepts the same field on `path` entries.
+
 A `path` or `dir` resolves against the top-level `roots[]` array (absolute directories,
 first-root-wins for relative entries) or, when `roots` is omitted, against `cwd`. A
 path that resolves outside every declared root is refused (no exfiltration); symlinks
@@ -1156,6 +1165,13 @@ Per-file cap: `OPENROUTER_INLINE_MAX_BYTES` (default 262144 = 256 KB).
 Aggregate cap: `OPENROUTER_INLINE_MAX_TOTAL_BYTES` (default 1048576 = 1 MB).
 Exceeding either cap returns a hard error with counts.
 
+A `{path}` entry with `headBytes` (positive integer) is read head-only and truncated
+instead of skipped: content plus the `[truncated: first N of M bytes]` marker stays
+within the per-file cap, and the aggregate cap counts the truncated size.
+`headBytes` on a `{dir}` entry or with `mode: "upload"` is rejected; `{dir}` keeps
+`maxBytes` as its walk cap. A per-file cap of 64 bytes or less is too small for the
+marker, so a `headBytes` read is refused with a note.
+
 ### Session model persistence
 
 A model alias is bound at the start of a session via `mcp__deliberation__openrouter`
@@ -1488,27 +1504,55 @@ is `true`.
 ### Configuration
 
 ```json
-"orientation": { "enabled": false, "maxFiles": 6 }
+"orientation": { "enabled": false, "maxFiles": 6, "maxBytes": 16000 }
 ```
 
 | Key | Type | Default | Meaning |
 |-----|------|---------|---------|
 | `enabled` | boolean | `false` | Attach the bundle to file-blind providers when they carry no files. |
 | `maxFiles` | integer | `6` | Cap on the number of files in the bundle. |
+| `maxBytes` | integer | `16000` | Content-byte budget for the whole bundle (about 4K tokens). `0` = no budget. |
 
 ### How it works
 
-**`core/orientation.js`** - `resolveOrientationFiles(cwd, { maxFiles })` returns an
-array of `FileRef` objects (absolute paths of EXISTING files only) in fixed priority
-order:
+**`core/orientation.js`** - `resolveOrientationFiles(cwd, { maxFiles, maxBytes })`
+returns an array of `FileRef` objects (absolute paths of EXISTING, non-empty regular
+files) in fixed priority order:
 
 ```
-CLAUDE.md, AGENTS.md, README.md, package.json, pyproject.toml,
-Cargo.toml, go.mod, tsconfig.json, main.tf
+AGENTS.md (else CLAUDE.md - never both), package.json, pyproject.toml,
+Cargo.toml, go.mod, tsconfig.json, main.tf, README.md
 ```
 
-Results are capped to `maxFiles`. The function is stat-only (never reads file
-content), never throws, and silently skips missing files.
+AGENTS.md is the guide written for non-Claude agents, which are exactly the providers
+that receive the bundle. The small manifests come before README so a large README
+cannot crowd them out.
+
+**Byte budget** - `maxBytes` counts file content plus truncation markers; the
+`=== name ===` header each bridge adds per file (under 100 bytes) is not counted.
+Selection runs two passes:
+
+1. Files that fit the remaining budget are added whole, in priority order, up to
+   `maxFiles`.
+2. The highest-priority file skipped for size is added cut to the rest of the budget
+   (minus a 64-byte marker reserve), but only when at least 2048 bytes remain and
+   `maxFiles` is not reached. It outranks every whole file after it, so when those
+   files are what leaves too little room (or fill `maxFiles`), they are dropped,
+   lowest priority first, until it fits. Nothing is dropped if even that would not
+   leave 2048 bytes. At most one file is cut for the budget.
+
+Every file is also capped at 256 KiB minus the marker reserve (both bridges' default
+per-file inline cap); a file over that cap is charged its marker against the budget
+too, and `maxBytes: 0` turns the budget off (only `maxFiles` and the
+per-file cap apply). Each entry is `{ path, headBytes, mode: "inline" }`: the bridge
+reads at most `headBytes` (so a file that grows after selection is still bounded) and
+appends `[truncated: first N of M bytes]` when it cuts. Grok receives the bundle
+inline rather than uploaded, so what is sent equals what was budgeted. If
+`GROK_INLINE_MAX_BYTES` or `OPENROUTER_INLINE_MAX_BYTES` is set below 256 KiB, the
+bridge's lower cap wins.
+
+The function is stat-only (never reads file content), never throws, and silently
+skips missing or empty files.
 `orientationFilesFor(config, cwd)` is the public entry-point: it returns the bundle
 array when `orientation.enabled` is `true`, else `undefined`.
 
@@ -1540,8 +1584,8 @@ every provider; only the file list differs for file-blind delegates.
 
 **Bridge caps apply** - each bridge enforces its own size limits. OpenRouter inlines
 files as text (256 KB/file, 1 MB aggregate); Grok delivers them as inline or uploaded
-attachments per the usual `mode` rules. The orientation bundle is intentionally small
-(up to 6 high-signal files), so it fits comfortably within both caps.
+attachments per the usual `mode` rules. Bundle entries carry `headBytes` and
+`mode: "inline"`, so both bridges read only the budgeted head of each file.
 
 ### Manual override
 

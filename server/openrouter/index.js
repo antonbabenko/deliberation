@@ -197,7 +197,7 @@ const TOOL_PROPS = {
   reasoning_effort: { type: "string", description: "low|medium|high (provider-dependent)" },
   temperature: { type: "number" },
   timeout: { type: "number", description: "Soft timeout ms, 1..600000" },
-  files: { type: "array", description: "Text-inline files: each item has path or dir (file_id/file_url rejected)" },
+  files: { type: "array", description: "Text-inline files: each item has path or dir (file_id/file_url rejected). A path entry may set headBytes (positive integer) to send only the first N bytes, cut at a line break and marked as truncated; dir entries keep maxBytes as the walk cap." },
   roots: { type: "array", items: { type: "string" }, description: "Absolute dirs to resolve files[].path/dir" },
   cwd: { type: "string" },
   sandbox: { type: "string", description: "Accepted for parity; ignored." },
