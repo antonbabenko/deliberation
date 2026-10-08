@@ -131,7 +131,7 @@ function validateConfig(raw) {
     resolved: {
       version,
       timeoutPolicy,
-      orientation:isObject(raw.orientation)?{enabled:raw.orientation.enabled===true,maxFiles:Number.isInteger(raw.orientation.maxFiles)&&raw.orientation.maxFiles>0?raw.orientation.maxFiles:6}:{enabled:false,maxFiles:6},
+      orientation:isObject(raw.orientation)?{enabled:raw.orientation.enabled===true,maxFiles:Number.isInteger(raw.orientation.maxFiles)&&raw.orientation.maxFiles>0?raw.orientation.maxFiles:6,maxBytes:Number.isInteger(raw.orientation.maxBytes)&&raw.orientation.maxBytes>=0?raw.orientation.maxBytes:16000}:{enabled:false,maxFiles:6,maxBytes:16000},
       providers: resolveProviders(providersRaw),
       openrouter: { enabled, apiKeyEnv, apiBase, allowRawModel, maxFanout, defaultModel, defaults, models, invalidModels },
       consensus,

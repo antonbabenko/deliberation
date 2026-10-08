@@ -4,6 +4,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const glob = require("../grok/glob.js");
+const { readHead, isValidHeadBytes } = require("../../core/head-read.js");
 
 const DEFAULT_PER_FILE_CAP = Number(process.env.OPENROUTER_INLINE_MAX_BYTES) > 0
   ? Math.floor(Number(process.env.OPENROUTER_INLINE_MAX_BYTES)) : 256 * 1024;
@@ -55,12 +56,17 @@ function inlineFiles(files, opts = {}) {
   const notes = [];
   let total = 0;
 
-  function addFile(abs, label) {
-    let st;
-    try { st = fs.statSync(abs); } catch (e) { notes.push(`${label}: skipped (stat error: ${e.message})`); return; }
-    if (st.size > perFileCap) { notes.push(`${label}: skipped (${st.size} bytes > per-file cap ${perFileCap})`); return; }
+  function addFile(abs, label, headBytes) {
     let buf;
-    try { buf = fs.readFileSync(abs); } catch (e) { notes.push(`${label}: skipped (read error: ${e.message})`); return; }
+    if (headBytes !== undefined) {
+      // Head read: truncates instead of skipping, and content plus marker stays within perFileCap.
+      try { ({ buf } = readHead(abs, headBytes, perFileCap)); } catch (e) { notes.push(`${label}: skipped (read error: ${e.message})`); return; }
+    } else {
+      let st;
+      try { st = fs.statSync(abs); } catch (e) { notes.push(`${label}: skipped (stat error: ${e.message})`); return; }
+      if (st.size > perFileCap) { notes.push(`${label}: skipped (${st.size} bytes > per-file cap ${perFileCap})`); return; }
+      try { buf = fs.readFileSync(abs); } catch (e) { notes.push(`${label}: skipped (read error: ${e.message})`); return; }
+    }
     if (!isProbablyText(buf)) { notes.push(`${label}: skipped (binary)`); return; }
     if (total + buf.length > totalCap) { notes.push(`${label}: omitted (aggregate inline budget ${totalCap} bytes exceeded)`); return; }
     total += buf.length;
@@ -71,10 +77,15 @@ function inlineFiles(files, opts = {}) {
     if (entry.file_id !== undefined || entry.file_url !== undefined) {
       throw new Error("file_id / file_url are not supported by the OpenRouter bridge (text-inline only)");
     }
+    if (entry.headBytes !== undefined) {
+      if (!entry.path) throw new Error("headBytes applies only to path entries");
+      if (!isValidHeadBytes(entry.headBytes)) throw new Error("headBytes must be a positive integer");
+      if (entry.mode === "upload") throw new Error('headBytes cannot be combined with mode "upload"');
+    }
     if (entry.path) {
       const abs = resolveUnderRoots(entry.path, roots);
       if (!abs) { notes.push(`${entry.path}: skipped (not found under roots)`); continue; }
-      addFile(abs, path.basename(entry.path));
+      addFile(abs, path.basename(entry.path), entry.headBytes);
     } else if (entry.dir) {
       const absDir = resolveUnderRoots(entry.dir, roots);
       if (!absDir) { notes.push(`${entry.dir}: skipped (dir not found under roots)`); continue; }

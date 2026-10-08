@@ -125,8 +125,10 @@ These apply to every MCP host, not just Claude Code:
 - **Per-provider progress** - prefer `panel` + parallel `ask-one` (above) when you want
   to watch each model finish instead of waiting on one opaque `ask-all` call.
 - **Orientation auto-attach** - set `"orientation": { "enabled": true }` in `config.json`
-  to have the server automatically attach a small repo bundle (CLAUDE.md, AGENTS.md,
-  README.md, and key entrypoints, up to `maxFiles` files, default 6) to file-blind
+  to have the server automatically attach a small repo bundle (AGENTS.md or CLAUDE.md,
+  manifests, and README.md, up to `maxFiles` files, default 6, within a `maxBytes`
+  content budget, default 16000 bytes, about 4K tokens; a file that does not fit is
+  cut and marked as truncated) to file-blind
   providers (Grok, OpenRouter) when they carry no files of their own. This gives them the
   same repo grounding that Codex and Gemini get by walking the filesystem. OFF by default;
   enable when file-blind providers underperform on repo-wide questions.

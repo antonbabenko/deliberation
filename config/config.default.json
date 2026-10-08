@@ -62,7 +62,8 @@
   },
   "orientation": {
     "enabled": false,
-    "maxFiles": 6
+    "maxFiles": 6,
+    "maxBytes": 16000
   },
   "dashboard": {
     "enabled": false,

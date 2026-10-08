@@ -84,6 +84,7 @@ function fileItems() {
         file_id: { type: "string", description: "Id of a file already uploaded to the provider (e.g. Grok Files API)." },
         file_url: { type: "string", description: "Public URL for the provider to fetch." },
         mode: { type: "string", enum: ["auto", "inline", "upload"], description: "Delivery: auto (size-based), inline (embed as text), or upload (provider Files API)." },
+        headBytes: { type: "integer", minimum: 1, description: "Path entries only: send only the first N bytes, cut at a line break and marked as truncated (inline; not with mode upload)." },
       },
     },
   };

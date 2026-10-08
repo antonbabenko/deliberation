@@ -399,7 +399,7 @@ function shouldInline(buf, mode) {
 // Set XAI_DISABLE_FILE_CACHE=1 to bypass the cache layer entirely.
 // `mode` controls inline-vs-upload (see shouldInline). Inline refs skip the
 // Files API entirely and are emitted as input_text by turnsToInput.
-async function uploadFile({ filePath, filename, apiKey, apiBase, ttl, roots, cwd, fetchImpl, cacheFile, mode, hostBudgetRemainingMs, signal }) {
+async function uploadFile({ filePath, filename, apiKey, apiBase, ttl, roots, cwd, fetchImpl, cacheFile, mode, headBytes, hostBudgetRemainingMs, signal }) {
   if (!isNonEmptyString(apiKey)) {
     const e = new Error("XAI_API_KEY is not set; cannot upload files.");
     e.code = "missing-auth";
@@ -419,6 +419,31 @@ async function uploadFile({ filePath, filename, apiKey, apiBase, ttl, roots, cwd
     const e = new Error(`Cannot read file "${filePath}": ${(err && err.message) || err}`);
     e.code = "file-read";
     throw e;
+  }
+
+  // Head read (path entries with headBytes): always inline, since upload cannot truncate.
+  // Content plus marker stays within the inline cap; nothing past the head is read.
+  if (headBytes !== undefined) {
+    if (mode === "upload") {
+      const e = new Error(`File "${filePath}": headBytes cannot be combined with mode "upload"`);
+      e.code = "file-read";
+      throw e;
+    }
+    let head;
+    try { head = require("../../core/head-read.js").readHead(resolved.abs, headBytes, resolveInlineMaxBytes()); }
+    catch (err) {
+      const e = new Error(`Cannot read file "${filePath}": ${(err && err.message) || err}`);
+      e.code = "file-read";
+      throw e;
+    }
+    return {
+      _inline: true,
+      inline_text: head.buf.toString("utf8"),
+      inline_filename: require("node:path").basename(filename || resolved.abs),
+      _sourcePath: resolved.abs,
+      _sourceRoot: resolved.root,
+      _bytes: head.buf.length,
+    };
   }
 
   if (resolved.size > MAX_FILE_BYTES) {
@@ -571,6 +596,7 @@ async function resolveFiles(files, opts) {
       filePath: entry.path,
       filename: entry.filename,
       mode: entry.mode,
+      headBytes: entry.headBytes,
       ...opts,
       hostBudgetRemainingMs: budgetNow(),
     });
@@ -876,6 +902,13 @@ function isStaleFileError(err) {
 // appended to priorTurns so accumulated conversation context is preserved on
 // the actual /v1/responses payload.
 async function runWithFiles(args) {
+  // The unified adapter calls this directly, skipping the tool handler's check.
+  const filesErr = validateFiles(args.files);
+  if (filesErr) {
+    const e = new Error(filesErr);
+    e.code = "file-read";
+    throw e;
+  }
   // File resolution (uploads) and a stale-file re-upload + retry all spend the same host
   // budget as the answer itself; every runGrok leg below gets what is LEFT.
   const startedMs = Date.now();
@@ -1022,6 +1055,7 @@ const FILES_SCHEMA = {
       maxFiles: { type: "number", description: "Hard cap on files per dir expansion. Default 50." },
       maxBytes: { type: "number", description: "Hard cap on bytes per dir expansion. Default 134217728 (128 MB)." },
       filename: { type: "string", description: "Override stored filename for a path upload" },
+      headBytes: { type: "integer", minimum: 1, description: "Path entries only: send only the first N bytes, cut at a line break and ending in a truncation marker; always inline (rejected with mode 'upload'). Clamped so content plus marker fits GROK_INLINE_MAX_BYTES. Not allowed on dir/file_id/file_url (dir entries use maxBytes as the walk cap)." },
       mode: { type: "string", enum: ["auto", "inline", "upload"], default: "upload", description: "How to deliver this file to Grok. 'upload' (default) uses the xAI Files API (input_file); 'inline' embeds the file content directly as input_text (best for source code so Grok reads line-by-line); 'auto' inlines when the file is probably text and <= GROK_INLINE_MAX_BYTES (default 256 KB), otherwise uploads. For {dir} entries the mode is inherited by every walked file. Must NOT be set on file_id/file_url entries (those bypass the upload path; setting mode there returns -32602)." },
     },
   },
@@ -1053,6 +1087,11 @@ function validateFiles(files) {
       if (typeof entry.mode !== "string") return "'files' entry mode must be a string when provided";
       if (!["auto", "inline", "upload"].includes(entry.mode)) return `'files' entry mode "${entry.mode}" must be one of: auto, inline, upload`;
       if (entry.file_id !== undefined || entry.file_url !== undefined) return "'files' entry mode applies only to path/dir entries (not file_id/file_url)";
+    }
+    if (entry.headBytes !== undefined) {
+      if (entry.path === undefined) return "'headBytes' applies only to path entries";
+      if (!Number.isInteger(entry.headBytes) || entry.headBytes <= 0) return "'headBytes' must be a positive integer";
+      if (entry.mode === "upload") return "'headBytes' cannot be combined with mode \"upload\"";
     }
     if (entry.excludeReset !== undefined && typeof entry.excludeReset !== "boolean") {
       return "'excludeReset' must be a boolean";
