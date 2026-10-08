@@ -220,6 +220,16 @@ test("AN13: per-project table groups by id, unknown when no project, with latenc
   assert.equal(unknown.runs, 1);
 });
 
+test("AN13b: a project row nests its workspaces with their own metrics", () => {
+  const a = { id: "aaaaaaaaaaaa", name: "acme/svc", root: "/x/svc", ws: "111111111111" };
+  const b = { ...a, root: "/tmp/rev", ws: "222222222222" };
+  const out = analyze([call({ project: a, ms: 1000 }), call({ project: a, ms: 2000 }), call({ project: b, ms: 3000, error: "timeout" })]);
+  const row = out.projects.find((/** @type {any} */ r) => r.id === a.id);
+  assert.equal(row.runs, 3);
+  assert.equal(row.timeouts, 1);
+  assert.deepEqual(row.workspaces.map((/** @type {any} */ w) => [w.ws, w.root, w.runs, w.timeouts]), [[a.ws, a.root, 2, 0], [b.ws, b.root, 1, 1]]);
+});
+
 test("AN14: OpenRouter models use models.<alias> keys", () => {
   assert.equal(A.timeoutKey("openrouter:kimi"), "models.kimi.timeout");
   assert.equal(A.dropKey("openrouter:kimi"), "models.kimi.consensus");

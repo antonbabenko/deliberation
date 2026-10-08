@@ -6,12 +6,16 @@
  * Pure: takes `{summary, events}` run details (server/dashboard/runs.js `get`) and returns
  * plain JSON. Reads metadata fields only, never prompt or response text. Never throws on
  * junk input; a malformed event is skipped. Three views:
- *   - projects: per calling project, runs, call timeouts, latency, error kinds;
+ *   - projects: per repo group (git remote) and per workspace under it: runs, call
+ *               timeouts, latency, error kinds. A run recorded before `ws` existed is
+ *               re-resolved from its root (core/project.js normalizeProject: stat only);
  *   - models:   per consensus voice, how often it agrees instead of adding findings, and
  *               whether it is a drop candidate (all thresholds in C, shared with the tests);
  *   - size:     request size vs latency and timeouts per provider + model, with timeout
  *               advice that treats timeouts as censored (their real latency is unknown).
  */
+
+const { normalizeProject } = require("../../core/project.js");
 
 /** Thresholds. Exported so tests and the UI's method notes use the same numbers. */
 const C = Object.freeze({
@@ -42,7 +46,7 @@ const BUCKETS = [
 ];
 /** Ceilings this config controls: only these drive advice and model speed/error. */
 const ADVISABLE = new Set(["own", "shared"]);
-const UNKNOWN_PROJECT = { id: "unknown", name: "(unknown)", root: "" };
+const UNKNOWN_PROJECT = { id: "unknown", name: "(unknown)", root: "", ws: "unknown" };
 
 /** @param {string} p */
 const timeoutKey = (p) => (p.startsWith("openrouter:") ? `models.${p.slice(11)}.timeout` : `providers.${p}.timeout`);
@@ -98,37 +102,56 @@ function calls(events) {
 function projectOf(run) {
   const p = run.summary && run.summary.project;
   const start = run.events.find((/** @type {any} */ e) => e && e.kind === "run_start");
-  const ref = p && typeof p.id === "string" ? p : start && start.project;
-  return ref && typeof ref.id === "string" ? { id: ref.id, name: String(ref.name || ref.id), root: String(ref.root || "") } : UNKNOWN_PROJECT;
+  return normalizeProject(p && typeof p.id === "string" ? p : start && start.project) || UNKNOWN_PROJECT;
 }
 
-/** @param {any[]} runs */
+/** One metrics bucket (a repo group or one of its workspaces). */
+const emptyRow = () => ({ runs: 0, status: /** @type {Record<string, number>} */ ({}), calls: 0, timeouts: 0, errors: 0, ms: /** @type {number[]} */ ([]), kinds: new Map() });
+
+/** @param {any} row @param {any} run */
+function addRun(row, run) {
+  row.runs++;
+  const st = String((run.summary && run.summary.status) || "unknown");
+  row.status[st] = (row.status[st] || 0) + 1;
+  for (const { end } of calls(run.events)) {
+    if (end.cached) continue;
+    row.calls++;
+    if (end.isError) {
+      row.errors++;
+      const k = String(end.errorKind || "unknown");
+      if (k === "timeout") row.timeouts++;
+      row.kinds.set(k, (row.kinds.get(k) || 0) + 1);
+    } else if (num(end.ms)) row.ms.push(end.ms);
+  }
+}
+
+/** @param {any} r */
+const metrics = (r) => ({
+  runs: r.runs, status: r.status, calls: r.calls,
+  timeouts: r.timeouts, timeoutRate: ratio(r.timeouts, r.calls), errorRate: ratio(r.errors, r.calls),
+  p50: median(r.ms), p95: quantile(r.ms, 0.95),
+  topErrors: [...r.kinds.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([kind, n]) => ({ kind, n })),
+});
+
+/**
+ * Per repo group, with the same metrics per workspace (checkout) under it.
+ * @param {any[]} runs
+ */
 function projectsView(runs) {
   /** @type {Map<string, any>} */
   const by = new Map();
   for (const run of runs) {
     const p = projectOf(run);
-    const row = by.get(p.id) || { ...p, runs: 0, status: {}, calls: 0, timeouts: 0, errors: 0, ms: [], kinds: new Map() };
-    by.set(p.id, row);
-    row.runs++;
-    const st = String((run.summary && run.summary.status) || "unknown");
-    row.status[st] = (row.status[st] || 0) + 1;
-    for (const { end } of calls(run.events)) {
-      if (end.cached) continue;
-      row.calls++;
-      if (end.isError) {
-        row.errors++;
-        const k = String(end.errorKind || "unknown");
-        if (k === "timeout") row.timeouts++;
-        row.kinds.set(k, (row.kinds.get(k) || 0) + 1);
-      } else if (num(end.ms)) row.ms.push(end.ms);
-    }
+    const g = by.get(p.id) || { id: p.id, name: p.name, root: p.root, row: emptyRow(), ws: new Map() };
+    by.set(p.id, g);
+    addRun(g.row, run);
+    const w = g.ws.get(p.ws) || { ws: p.ws, root: p.root, row: emptyRow() };
+    g.ws.set(p.ws, w);
+    addRun(w.row, run);
   }
-  return [...by.values()].map((r) => ({
-    id: r.id, name: r.name, root: r.root, runs: r.runs, status: r.status, calls: r.calls,
-    timeouts: r.timeouts, timeoutRate: ratio(r.timeouts, r.calls), errorRate: ratio(r.errors, r.calls),
-    p50: median(r.ms), p95: quantile(r.ms, 0.95),
-    topErrors: [...r.kinds.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([kind, n]) => ({ kind, n })),
+  return [...by.values()].map((g) => ({
+    id: g.id, name: g.name, root: g.root, ...metrics(g.row),
+    workspaces: [...g.ws.values()].map((w) => ({ ws: w.ws, root: w.root, ...metrics(w.row) })).sort((a, b) => b.runs - a.runs || a.root.localeCompare(b.root)),
   })).sort((a, b) => b.runs - a.runs);
 }
 

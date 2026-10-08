@@ -109,3 +109,65 @@ test("PRJ7: a malformed .git file is treated as a plain repo root, not a throw",
   assert.equal(p.name, "odd");
   assert.equal(p.root, dir);
 });
+
+/** Write `[remote]` sections into a git dir's config. @param {string} gitDir @param {Record<string, string>} remotes */
+function remotes(gitDir, remotes) {
+  fs.writeFileSync(path.join(gitDir, "config"), "[core]\n\tbare = false\n" + Object.entries(remotes).map(([n, u]) => `[remote "${n}"]\n\turl = ${u}\n\tfetch = +refs/heads/*:refs/remotes/${n}/*\n`).join(""));
+}
+
+test("PRJ8: parseRemote reads org/repo from scp, ssh and https forms and rejects local remotes", () => {
+  const { parseRemote } = require("../core/project.js");
+  const cases = /** @type {[string, (null|{host: string, path: string})][]} */ ([
+    ["git@github.com:acme/app.git", { host: "github.com", path: "acme/app" }],
+    ["ssh://git@github.com:22/acme/app", { host: "github.com", path: "acme/app" }],
+    ["https://user:secret@GitHub.com/acme/app.git/", { host: "github.com", path: "acme/app" }],
+    ["https://gitlab.com/group/sub/repo", { host: "gitlab.com", path: "group/sub/repo" }],
+    ["file:///srv/git/app.git", null],
+    ["/srv/git/app.git", null],
+    ["../app", null],
+    ["C:/repos/app", null],
+    ["git@host:onlyname", null],
+  ]);
+  for (const [url, want] of cases) assert.deepEqual(parseRemote(url), want, url);
+});
+
+test("PRJ9: clones and worktrees of one remote share the group id and org/repo name, with separate workspaces", () => {
+  const base = tmp();
+  const main = mainRepo(base, "app");
+  remotes(path.join(main, ".git"), { upstream: "git@github.com:someone/other.git", origin: "git@github.com:acme/app.git" });
+  const wt = worktree(base, main, "t3-1234");
+  const clone = mainRepo(base, "app-review");
+  remotes(path.join(clone, ".git"), { origin: "https://github.com/acme/app" });
+  const m = resolveProject(main), w = resolveProject(wt), c = resolveProject(clone);
+  assert.ok(m && w && c);
+  assert.equal(m.name, "acme/app", "origin wins over the first remote");
+  assert.equal(w.id, m.id);
+  assert.equal(c.id, m.id, "a separate clone joins the group");
+  assert.equal(c.name, "acme/app");
+  assert.equal(c.root, clone);
+  assert.equal(new Set([m.ws, w.ws, c.ws]).size, 3, "each checkout is its own workspace");
+  assert.equal(m.ws, projectIdOf(main));
+  assert.ok(!JSON.stringify(c).includes("github.com"), "no URL or host is stored");
+});
+
+test("PRJ10: a repo with no usable remote keeps the git-dir id it had before remotes were read", () => {
+  const root = mainRepo(tmp(), "local");
+  remotes(path.join(root, ".git"), { origin: "/srv/git/local.git" });
+  const p = resolveProject(root);
+  assert.ok(p);
+  assert.equal(p.id, projectIdOf(path.join(root, ".git")));
+  assert.equal(p.name, "local");
+});
+
+test("PRJ11: normalizeProject regroups a pre-ws run whose root still exists, keeps the old group otherwise", () => {
+  const { normalizeProject } = require("../core/project.js");
+  const root = mainRepo(tmp(), "svc");
+  remotes(path.join(root, ".git"), { origin: "git@github.com:acme/svc.git" });
+  const now = resolveProject(root);
+  assert.deepEqual(normalizeProject({ id: "aaaaaaaaaaaa", name: "svc", root }), now);
+  const gone = normalizeProject({ id: "bbbbbbbbbbbb", name: "old", root: "/no/such/dir" });
+  assert.deepEqual(gone, { id: "bbbbbbbbbbbb", name: "old", root: "/no/such/dir", ws: projectIdOf("/no/such/dir") });
+  const current = { id: "cccccccccccc", name: "acme/svc", root: "/elsewhere", ws: "dddddddddddd" };
+  assert.deepEqual(normalizeProject(current), current, "a run that has ws is taken as recorded");
+  assert.equal(normalizeProject("/raw"), null);
+});

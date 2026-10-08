@@ -344,9 +344,22 @@ test("RR15: run summaries carry the run_start project; ?project= filters by id, 
   writeRun(dir, "r-bad", [runStart({ project: "/raw" }), runEnd({})]);
   const index = createRunIndex({ runsDir: dir, isAlive: () => false });
   const all = index.list();
-  assert.deepEqual(all.find((r) => r.runId === "r-app")?.project, app);
+  assert.deepEqual(all.find((r) => r.runId === "r-app")?.project, { ...app, ws: require("../core/project.js").projectIdOf(app.root) }, "a missing root keeps its group and gets a ws");
   assert.equal(all.find((r) => r.runId === "r-none")?.project, null);
   assert.equal(all.find((r) => r.runId === "r-bad")?.project, null);
   assert.deepEqual(index.list({ project: app.id }).map((r) => r.runId), ["r-app"]);
   assert.deepEqual(index.list({ project: "unknown" }).map((r) => r.runId).sort(), ["r-bad", "r-none"]);
+});
+
+test("RR16: ?project= matches every workspace of the group, ?ws= one workspace and wins over project", () => {
+  const dir = tmpDir();
+  const a = { id: "aaaaaaaaaaaa", name: "acme/svc", root: "/x/svc", ws: "111111111111" };
+  const b = { ...a, root: "/tmp/svc-rev", ws: "222222222222" };
+  writeRun(dir, "r-a", [runStart({ project: a }), runEnd({})]);
+  writeRun(dir, "r-b", [runStart({ project: b }), runEnd({})]);
+  writeRun(dir, "r-none", [runStart({}), runEnd({})]);
+  const index = createRunIndex({ runsDir: dir, isAlive: () => false });
+  assert.deepEqual(index.list({ project: a.id }).map((r) => r.runId).sort(), ["r-a", "r-b"]);
+  assert.deepEqual(index.list({ ws: b.ws }).map((r) => r.runId), ["r-b"]);
+  assert.deepEqual(index.list({ project: "unknown", ws: a.ws }).map((r) => r.runId), ["r-a"]);
 });

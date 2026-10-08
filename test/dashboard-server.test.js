@@ -518,6 +518,10 @@ test("S-AN1: /api/analyzer is guarded, masks the project root, and filters by pr
   const only = JSON.parse((await req(`/api/analyzer?project=${project.id}`, { cookie: true })).body);
   assert.equal(only.runs, 1);
   assert.equal((await req("/api/analyzer?project=..%2Fx", { cookie: true })).status, 400);
+  assert.equal((await req("/api/analyzer?ws=unknown", { cookie: true })).status, 400, "ws takes a 12-hex id only");
+  const ws = JSON.parse((await req(`/api/analyzer?ws=${row.workspaces[0].ws}`, { cookie: true })).body);
+  assert.equal(ws.runs, 1);
+  assert.equal(ws.window.ws, row.workspaces[0].ws);
   assert.equal((await req("/api/analyzer?days=abc", { cookie: true })).status, 400);
   const runs = JSON.parse((await req(`/api/runs?project=${project.id}`, { cookie: true })).body).runs;
   assert.deepEqual(runs.map((/** @type {any} */ r) => r.runId), ["run-an"]);

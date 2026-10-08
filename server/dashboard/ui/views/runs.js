@@ -13,24 +13,53 @@ function field(label, control) {
 }
 
 /**
- * Project choices from the runs in view: value = project id, label = name, plus the short
- * id when two projects share a name. The selected id stays listed even if no run shows it.
+ * Project choices from the runs in view, as a tree: each repo group (value `p:<id>`, all its
+ * workspaces) then, when it has more than one, each workspace (value `w:<ws>`). A group with
+ * one workspace shows it inline: `org/repo (/path)`. Same-named groups get a short id. The
+ * selected value stays listed even if no run shows it.
  * @param {any[]} runs @param {string} selected
- * @returns {{id: string, label: string}[]}
+ * @returns {{id: string, label: string, depth: number}[]}
  */
 export function projectOptions(runs, selected) {
+  /** @type {Map<string, {name: string, ws: Map<string, string>}>} */
   const by = new Map();
-  for (const r of runs) if (r.project && typeof r.project.id === "string") by.set(r.project.id, r.project.name);
-  const names = [...by.values()];
-  const out = [...by.entries()].map(([id, name]) => ({ id, label: names.filter((n) => n === name).length > 1 ? `${name} (${id.slice(0, 6)})` : name }));
-  if (runs.some((r) => !r.project)) out.push({ id: "unknown", label: "(unknown)" });
-  if (selected && !out.some((o) => o.id === selected)) out.push({ id: selected, label: selected === "unknown" ? "(unknown)" : selected.slice(0, 12) });
-  return out.sort((a, b) => a.label.localeCompare(b.label));
+  for (const r of runs) {
+    const p = r.project;
+    if (!p || typeof p.id !== "string") continue;
+    const g = by.get(p.id) || { name: String(p.name || p.id), ws: new Map() };
+    by.set(p.id, g);
+    if (typeof p.ws === "string") g.ws.set(p.ws, String(p.root || ""));
+  }
+  const names = [...by.values()].map((g) => g.name);
+  const groups = [...by.entries()].map(([id, g]) => {
+    const name = names.filter((n) => n === g.name).length > 1 ? `${g.name} [${id.slice(0, 6)}]` : g.name;
+    const ws = [...g.ws.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+    const label = ws.length === 1 && ws[0][1] ? `${name} (${ws[0][1]})` : ws.length > 1 ? `${name} (${ws.length} workspaces)` : name;
+    return { name, head: { id: `p:${id}`, label, depth: 0 }, kids: ws.length > 1 ? ws.map(([w, root]) => ({ id: `w:${w}`, label: root || w, depth: 1 })) : [] };
+  }).sort((a, b) => a.name.localeCompare(b.name));
+  const out = groups.flatMap((g) => [g.head, ...g.kids]);
+  if (runs.some((r) => !r.project)) out.push({ id: "p:unknown", label: "(unknown)", depth: 0 });
+  const sel = selectionOf(selected);
+  if (selected && !out.some((o) => o.id === sel)) out.push({ id: sel, label: sel === "p:unknown" ? "(unknown)" : sel.slice(2, 14), depth: 0 });
+  return out;
 }
 
-/** @param {{id: string, label: string}[]} options @param {string} value @param {((e: Event) => void)|null} onchange */
+/** A stored selection in `p:`/`w:` form; a bare id (stored before workspaces) is a project. @param {string} v */
+export function selectionOf(v) {
+  return !v ? "" : /^[pw]:/.test(v) ? v : `p:${v}`;
+}
+
+/** The API filter for a selection: `{project}` or `{ws}`. @param {string} v */
+export function projectFilter(v) {
+  const s = selectionOf(v);
+  return s.startsWith("w:") ? { project: "", ws: s.slice(2) } : { project: s.slice(2), ws: "" };
+}
+
+/** @param {{id: string, label: string, depth: number}[]} options @param {string} value @param {((e: Event) => void)|null} onchange */
 export function projectSelect(options, value, onchange) {
-  return h("select", { name: "project", onchange }, h("option", { value: "" }, "any"), options.map((o) => h("option", { value: o.id, selected: o.id === value }, o.label)));
+  const sel = selectionOf(value);
+  return h("select", { name: "project", onchange }, h("option", { value: "" }, "any"),
+    options.map((o) => h("option", { value: o.id, selected: o.id === sel }, `${o.depth ? "\u00a0\u00a0\u2514 " : ""}${o.label}`)));
 }
 
 function select(name, options, value, onchange) {
@@ -61,7 +90,7 @@ export function create(ctx) {
       return update();
     }
     const since = f.since ? new Date(`${f.since}T00:00:00`).getTime() : "";
-    api.runs({ q: f.q, tool: f.tool, provider: f.provider, status: f.status, project: f.project, since }).then((body) => {
+    api.runs({ q: f.q, tool: f.tool, provider: f.provider, status: f.status, ...projectFilter(f.project), since }).then((body) => {
       if (mine !== seq) return;
       rows = Array.isArray(body && body.runs) ? body.runs : [];
       error = null;
@@ -126,7 +155,8 @@ export function create(ctx) {
         return h("li", {}, h("a", { class: `index-row${s.runId === selected ? " is-selected" : ""}`, href: `#/runs/${encodeURIComponent(s.runId)}` },
           h("span", { class: "c-status" }, statusMark(s.status)),
           h("span", { class: "c-time num" }, fmtTime(s.startedAt)),
-          h("span", { class: "c-proj", title: s.project ? s.project.root : "no project recorded" }, s.project ? s.project.name : "-"),
+          h("span", { class: "c-proj", title: s.project ? `${s.project.name} (${s.project.root})` : "no project recorded" }, s.project ? s.project.name : "-",
+            s.project && s.project.root ? h("span", { class: "c-ws" }, ` (${s.project.root})`) : null),
           h("span", { class: "c-tool" }, s.tool || "-", s.legacy ? h("span", { class: "flag" }, "summary only") : null),
           h("span", { class: "c-wf" }, s.workflow || "-"),
           h("span", { class: "c-id", title: s.runId }, midId(s.runId, 16)),

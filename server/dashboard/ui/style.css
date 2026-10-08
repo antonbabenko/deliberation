@@ -440,6 +440,13 @@ input[type="search"] { width: 230px; }
 .index-row > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .c-prov, .c-id, .c-time { color: var(--fg-2); }
 .c-proj { font-weight: 500; }
+.c-ws { font-weight: 400; color: var(--fg-2); }
+.linkish { padding: 0; border: 0; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.linkish:hover, .linkish:focus-visible { text-decoration: underline; }
+.tree-toggle { min-width: 2.2em; margin-right: 6px; padding: 0 4px; border: 1px solid var(--rule-strong); border-radius: 2px; background: none; font: 500 10.5px/1.4 var(--mono); color: var(--fg-2); cursor: pointer; }
+.tree-toggle::before { content: "\25B8 "; }
+.tree-toggle[aria-expanded="true"]::before { content: "\25BE "; }
+.ws-row .ws-name { padding-left: 28px; color: var(--fg-2); }
 .kind-drop { color: var(--fault-text); border-color: var(--fault-text); }
 .grid-table tr.is-flagged td { background: color-mix(in oklch, var(--fault-text) 6%, transparent); }
 .size-group + .size-group { margin-top: 18px; }

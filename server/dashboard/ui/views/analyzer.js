@@ -4,7 +4,7 @@
 
 import { api, store } from "../api.js";
 import { h, put, fmtMs, fmtInt, num, providerLabel } from "../dom.js";
-import { projectOptions, projectSelect } from "./runs.js";
+import { projectOptions, projectSelect, projectFilter } from "./runs.js";
 
 const pct = (v) => (num(v) === null ? "-" : `${Math.round(v * 100)}%`);
 const DAYS = [[7, "Last 7 days"], [30, "Last 30 days"], [90, "Last 90 days"], [365, "Last year"]];
@@ -43,18 +43,31 @@ function modelsPanel(models, C) {
       : h("p", { class: "empty" }, "No consensus rounds in this window. Run /consensus with dashboard.enabled on."));
 }
 
-function projectsPanel(projects) {
-  const rows = projects.map((p) => h("tr", {},
-    h("td", { class: "strong", title: p.root || "no project recorded" }, p.name),
+function projectsPanel(projects, pick) {
+  const cells = (p) => [
     h("td", { class: "num" }, fmtInt(p.runs)),
     h("td", { class: "num" }, fmtInt(p.calls)),
     h("td", { class: `num${p.timeouts ? " has-errors" : ""}` }, p.timeouts ? `${p.timeouts} (${pct(p.timeoutRate)})` : "0"),
     h("td", { class: `num${num(p.errorRate) ? " has-errors" : ""}` }, pct(p.errorRate)),
     h("td", { class: "num" }, fmtMs(p.p50)),
     h("td", { class: "num" }, fmtMs(p.p95)),
-    h("td", {}, (p.topErrors || []).map((e) => `${e.kind} ${e.n}`).join(", ") || "-")));
+    h("td", {}, (p.topErrors || []).map((e) => `${e.kind} ${e.n}`).join(", ") || "-")];
+  const link = (label, value, title) => h("button", { type: "button", class: "linkish", title, onclick: () => pick(value) }, label);
+  const rows = projects.flatMap((p) => {
+    const ws = Array.isArray(p.workspaces) ? p.workspaces : [];
+    const one = ws.length === 1 ? ws[0].root : "";
+    const kids = ws.length > 1 ? ws.map((w) => h("tr", { class: "ws-row", hidden: true },
+      h("td", { class: "ws-name" }, link(w.root || w.ws, `w:${w.ws}`, `Only runs from ${w.root || w.ws}`)), ...cells(w))) : [];
+    const toggle = kids.length ? h("button", { type: "button", class: "tree-toggle", "aria-expanded": "false", "aria-label": `Show ${kids.length} workspaces of ${p.name}`, onclick: (e) => {
+      const open = e.currentTarget.getAttribute("aria-expanded") !== "true";
+      e.currentTarget.setAttribute("aria-expanded", String(open));
+      for (const k of kids) k.hidden = !open;
+    } }, `${kids.length}`) : null;
+    return [h("tr", {},
+      h("td", { class: "strong" }, toggle, link(one ? `${p.name} (${one})` : p.name, `p:${p.id}`, p.id === "unknown" ? "no project recorded" : `All workspaces of ${p.name}`)), ...cells(p)), ...kids];
+  });
   return h("section", { class: "panel" }, h("h2", {}, "Projects"),
-    h("p", { class: "hint" }, "Where each run was called from: the git repo of the tool's cwd (worktrees count as their main repo). Hover a name for its path. Cached answers are excluded from latency."),
+    h("p", { class: "hint" }, "Where each run was called from, grouped by git remote (org/repo), then by workspace dir: every clone and worktree of a repo lands under one row. Expand a row for its workspaces; click a name to filter to it. Cached answers are excluded from latency."),
     rows.length ? table(["project", "runs", "calls", "timeouts", "errors", "p50", "p95", "top errors"], rows, (i) => i >= 1 && i <= 6) : h("p", { class: "empty" }, "No runs in this window."));
 }
 
@@ -105,13 +118,15 @@ export function create(ctx) {
 
   function load() {
     const n = ++gen;
-    api.analyzer({ project, days }).then((r) => { if (!disposed && n === gen) draw(r); }, (e) => { if (!disposed && n === gen) draw({ error: e.message }); });
+    api.analyzer({ ...projectFilter(project), days }).then((r) => { if (!disposed && n === gen) draw(r); }, (e) => { if (!disposed && n === gen) draw({ error: e.message }); });
   }
 
   function draw(r) {
     last = r;
-    const known = r.projects ? r.projects.map((p) => ({ project: p.id === "unknown" ? null : { id: p.id, name: p.name, root: p.root } })) : [];
-    const sel = projectSelect(projectOptions([...ctx.runList(), ...known], project), project, (e) => { project = e.target.value; store.set("project", project); load(); });
+    const known = (r.projects || []).flatMap((p) => p.id === "unknown" ? [{ project: null }]
+      : (p.workspaces || []).map((w) => ({ project: { id: p.id, name: p.name, root: w.root, ws: w.ws } })));
+    const pick = (v) => { project = v; store.set("project", project); load(); };
+    const sel = projectSelect(projectOptions([...ctx.runList(), ...known], project), project, (e) => pick(e.target.value));
     const win = h("select", { "aria-label": "Time window", onchange: (e) => { days = Number(e.target.value); store.set("analyzerDays", days); load(); } }, DAYS.map(([v, t]) => h("option", { value: v, selected: v === days }, t)));
     const w = r.window || {};
     const controls = h("section", { class: "panel stats-filters" },
@@ -119,7 +134,7 @@ export function create(ctx) {
       r.error ? null : h("span", { class: "muted" }, `${fmtInt(w.analyzed)} runs analyzed${w.truncated ? ` (window capped; ${fmtInt(w.runsInWindow)} in range)` : ""}`));
     if (r.error) return put(el, controls, h("section", { class: "panel" }, h("h2", {}, "Analyzer"), h("p", { class: "error-note" }, `The analyzer is unavailable: ${r.error}`)));
     const C = r.constants || {};
-    put(el, controls, modelsPanel(r.models || [], C), projectsPanel(r.projects || []), sizePanel(r));
+    put(el, controls, modelsPanel(r.models || [], C), projectsPanel(r.projects || [], pick), sizePanel(r));
   }
 
   load();

@@ -505,3 +505,24 @@ test("UI-PRJ: the run_start project survives reduce, applySummary and summaryOf;
   const junk = reduce({}, ev(0, { kind: "run_start", tool: "ask-one", project: "/raw/path" }));
   assert.equal(summaryOf(junk["fan-1"]).project, null);
 });
+
+test("UI-PRJ2: project options are a repo -> workspace tree; a stored bare id still selects its repo", async () => {
+  const { projectOptions, projectFilter, selectionOf } = await load("views/runs.js");
+  const runs = [
+    { project: { id: "aaaaaaaaaaaa", name: "acme/svc", root: "~/svc", ws: "111111111111" } },
+    { project: { id: "aaaaaaaaaaaa", name: "acme/svc", root: "/tmp/rev", ws: "222222222222" } },
+    { project: { id: "bbbbbbbbbbbb", name: "acme/api", root: "~/api", ws: "333333333333" } },
+    { project: null },
+  ];
+  assert.deepEqual(projectOptions(runs, "").map((o) => [o.id, o.label, o.depth]), [
+    ["p:bbbbbbbbbbbb", "acme/api (~/api)", 0],
+    ["p:aaaaaaaaaaaa", "acme/svc (2 workspaces)", 0],
+    ["w:222222222222", "/tmp/rev", 1],
+    ["w:111111111111", "~/svc", 1],
+    ["p:unknown", "(unknown)", 0],
+  ]);
+  assert.equal(selectionOf("aaaaaaaaaaaa"), "p:aaaaaaaaaaaa");
+  assert.deepEqual(projectFilter("aaaaaaaaaaaa"), { project: "aaaaaaaaaaaa", ws: "" });
+  assert.deepEqual(projectFilter("w:222222222222"), { project: "", ws: "222222222222" });
+  assert.ok(projectOptions(runs, "w:999999999999").some((o) => o.id === "w:999999999999"), "the selection stays listed");
+});
