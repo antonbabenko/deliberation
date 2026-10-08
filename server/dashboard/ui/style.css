@@ -426,7 +426,7 @@ input[type="search"] { width: 230px; }
 .index { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--rule); }
 .index-row {
   display: grid;
-  grid-template-columns: 104px 148px minmax(96px, 150px) 112px 124px minmax(100px, 1fr) 34px 68px 50px minmax(150px, 250px);
+  grid-template-columns: 104px 148px minmax(110px, 180px) minmax(96px, 150px) 112px 124px minmax(100px, 1fr) 34px 68px 50px minmax(150px, 250px);
   align-items: center;
   gap: 12px;
   padding: 7px 8px;
@@ -439,6 +439,11 @@ input[type="search"] { width: 230px; }
 .index-row.is-selected { background: color-mix(in oklch, var(--fg) 6%, var(--paper)); }
 .index-row > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .c-prov, .c-id, .c-time { color: var(--fg-2); }
+.c-proj { font-weight: 500; }
+.kind-drop { color: var(--fault-text); border-color: var(--fault-text); }
+.grid-table tr.is-flagged td { background: color-mix(in oklch, var(--fault-text) 6%, transparent); }
+.size-group + .size-group { margin-top: 18px; }
+.size-group h3 { margin: 0 0 4px; font: 500 12px/1.3 var(--mono); }
 .has-errors { color: var(--fault-text); }
 .flag { margin-left: 6px; padding: 0 4px; border: 1px dashed var(--rule-strong); border-radius: 2px; font-size: 9.5px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--fg-2); }
 .c-dur { display: flex; align-items: center; gap: 8px; }
@@ -580,13 +585,14 @@ input[type="search"] { width: 230px; }
   .filters .field:first-child { flex: 1 1 100%; }
   .index-row {
     grid-template-columns: auto minmax(0, 1fr) auto;
-    grid-template-areas: "status tool time" "dur dur dur";
+    grid-template-areas: "status tool time" "proj proj proj" "dur dur dur";
     gap: 6px 10px;
   }
   .c-status { grid-area: status; }
   .c-tool { grid-area: tool; }
   .c-dur { grid-area: dur; }
   .c-time { grid-area: time; font-size: 11px; }
+  .c-proj { grid-area: proj; }
   .c-wf, .c-id, .c-prov, .c-num { display: none; }
   .kv tr { display: grid; padding: 6px 0; border-bottom: 1px solid var(--rule-2); }
   .kv th, .kv td { width: auto; padding: 0; border: 0; }

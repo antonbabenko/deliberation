@@ -1784,6 +1784,9 @@ and the journal is the history.
 | `server/dashboard/tail.js` | Byte-offset tailer for SSE (`fs.watch` plus a 5 s stat sweep) |
 | `server/dashboard/ui/` | Static page: ES modules, CSS, inline SVG. No build step, no dependency, works offline |
 | `server/dashboard/ui/telemetry.js` | Pure debate convergence trajectory and provider latency breakdown analytics |
+| `server/dashboard/analyzer.js` | Pure Analyzer report over journal runs: models that agree more than they add, per-project health, request size vs latency and timeouts (see Analyzer) |
+| `server/dashboard/stop.js` | `dashboard --stop`: signals the pidfile's pid only when it is provably the dashboard |
+| `core/project.js` | `resolveProject(dir)`: the calling project (git repo, worktrees grouped under their main repo) for `run_start` |
 
 ### Configuration
 
@@ -1814,15 +1817,45 @@ debug log, whose `ALLOWED_KEYS` whitelist is unchanged and still excludes all co
 
 | Kind | Metadata fields | Content fields (`capture: "content"` only) |
 |------|-----------------|---------------------------------------------|
-| `run_start` | `tool`, `pid`, `procStartedAt`, `expert`, `workflow` (`single` \| `fanout` \| `consensus-step` \| `consensus`), `providers[]` | `prompt` |
+| `run_start` | `tool`, `pid`, `procStartedAt`, `expert`, `workflow` (`single` \| `fanout` \| `consensus-step` \| `consensus`), `providers[]`, `project` (`{id, name, root}`) | `prompt` |
 | `state` | `state`, `round`, `status`, `verdicts[]` (`{provider, verdict, categories[]}`, on adjudicate) | none |
-| `call_start` | `callId`, `provider`, `model`, `role` (`peer` \| `arbiter` \| `blind` \| `single`), `round`, `timeoutMs`, `reasoningEffort` | `request` |
+| `call_start` | `callId`, `provider`, `model`, `role` (`peer` \| `arbiter` \| `blind` \| `single`), `round`, `timeoutMs`, `reasoningEffort`, `promptChars`, `fileCount`, `orientationFiles`, `fileBytes`, `grantedMs`, `hostCapMs`, `ceilingSource` (`own` \| `shared` \| `outer` \| `host`), `sharedBy[]`, `sharedLimitMs` | `request` |
 | `call_end` | `callId`, `provider`, `model`, `ms`, `usage`, `isError`, `errorKind`, `errorCode`, `verdict`, `criticalIssues[].category` | `response`, `criticalIssues[].description` |
-| `arbiter` | `action` (`record_blind` \| `submit_adjudication` \| `submit_revision`), `round`, `verdict` | `text` |
+| `arbiter` | `action` (`record_blind` \| `submit_adjudication` \| `submit_revision`), `round`, `verdict`, `decisions[]` (`{source, category, action}`, consensus-step adjudication only) | `text`, `decisions[].description`, `decisions[].reason` |
 | `run_end` | `status` (`converged` \| `unresolved` \| `done` \| `error`), `stopReason`, `rounds`, `droppedProviders[]` | `finalReport` |
 
 Keys outside this whitelist are dropped at write. Content fields pass `scrubSecrets` and
-then `capText` (100 KB) before the write, the same privacy contract as `sessions`.
+then `capText` (100 KB) before the write, the same privacy contract as `sessions`. The
+analyzer fields are also shape-checked at write: `project` keeps only its three strings,
+the size and ceiling fields only finite numbers or null, `ceilingSource` only its four
+values.
+
+**`project`** is `core/project.js` `resolveProject` of the tool call's `cwd` argument, or
+the server's own cwd when the call passes none. It walks up to the nearest `.git`: a main
+checkout is itself; a linked worktree (a `.git` file whose gitdir has a `commondir`) is
+grouped under its main repo, so `name` is the main repo's folder and `id` is shared, while
+`root` stays the worktree path; a submodule (a `.git` file with no `commondir`) is its own
+project; no git at all falls back to the directory. `id` is 12 hex chars of a SHA-256 of
+the main git dir's real path, never a path itself. Stat and read only, no `git` spawn,
+never throws. `root` is an absolute path on disk; serving masks the home dir (Redaction)
+unless `showPII` is on, and the URL only ever carries the `id`.
+
+**Request size** (`promptChars`, `fileCount`, `orientationFiles`, `fileBytes`) is measured
+on the request as `callProvider` sends it: after orientation files are attached and after
+consensus builds its peer or arbiter prompt, because that is what the provider has to read.
+Persona text and the grounding note added inside each bridge are not counted (a constant
+per provider). `fileBytes` is the sum of `stat` sizes of `{path}` attachments, and null,
+never a partial sum, when any attachment is a `{dir}`, an upload id, a URL, fails to stat,
+or there are more than 50.
+
+**Effective ceiling** (`grantedMs`, `ceilingSource`) is what one attempt was actually
+given: `min(timeoutMs, deadlineAt - now, host budget left)`. `ceilingSource` names where
+the winning limit came from, by origin rather than by which number happens to be smallest:
+`own` (the provider's configured timeout, including the deadline `callProvider` builds from
+it), `shared` (the fan-out deadline, which follows the slowest SELECTED peer; `sharedBy`
+names that peer, even one that was never dispatched, and `sharedLimitMs` its limit),
+`outer` (a caller budget such as `consensus.maxWallMs`), or `host` (`MCP_TOOL_TIMEOUT`,
+whose value is `hostCapMs`). Ties go to the host, then to the deadline.
 
 Where events come from:
 
@@ -1874,11 +1907,12 @@ GET and HEAD only; any other method gets 405.
 |-------|---------|
 | `/` | The page. |
 | `/assets/*` | Static UI files, resolved inside the UI directory; a path that escapes it is rejected. |
-| `/api/runs` | Run index; filters `?q=`, `?tool=`, `?provider=`, `?status=`, `?since=`. While `showPII` is off, `?q=` matches the redacted prompt, so a search cannot confirm a masked value. |
+| `/api/runs` | Run index; filters `?q=`, `?tool=`, `?provider=`, `?status=`, `?since=`, `?project=<id>` (`unknown` = runs with no project). While `showPII` is off, `?q=` matches the redacted prompt, so a search cannot confirm a masked value. |
 | `/api/runs/:id` | All events of one run (or the legacy record); `id` must match `^[A-Za-z0-9-]+$`. |
 | `/api/config` | Effective config. For every API key env var, only its name and whether it is set; credentials in URLs are stripped. |
 | `/api/health` | Provider health from the checks `panel` uses (`unavailable`, `needsLogin`), models, reasoning effort, `askAll` / `consensus` eligibility. |
-| `/api/stats` | The `analyze` report plus runs, tokens, and errors per day. |
+| `/api/stats` | The `analyze` report plus runs, tokens, and errors per day. Reads the debug log, so it cannot be filtered by project. |
+| `/api/analyzer` | The Analyzer report (see Analyzer). `?days=` 1-365 (default 30), `?project=<id>`; at most 2000 runs per report. |
 | `/api/events` | Server-Sent Events stream of new journal events. |
 
 The tailer keeps a byte offset per run file and reads only appended bytes; a partial last
@@ -1886,6 +1920,61 @@ line waits until it is complete. Each SSE message `id` is `<runId>:<offset>`. On
 the browser sends it back as `Last-Event-ID` and that run resumes from the offset; a
 malformed id is ignored. A comment line every 15 s keeps the connection open, and a client
 more than 1 MB behind is dropped, then reconnects and resumes the same way.
+
+### Analyzer
+
+The Analyzer tab (`server/dashboard/analyzer.js`, `/api/analyzer`) reads journal metadata
+only. Its thresholds are exported as `C` and quoted in the page.
+
+**Models: agreement vs findings.** Consensus rounds only: plain `ask-all` answers are never
+parsed into verdicts, and per-voice verdicts with issue categories exist only on
+`state: "adjudicate"` events. A voice counts in a round when its verdict is non-null; a
+round counts when it has two or more such voices and is not a unanimous APPROVE with no
+issues. Per model:
+
+- `addsNothing` - its issue categories are all among the other voices' categories that round.
+- `loneDissent` - its verdict differs from every other voice.
+- `acceptedRate` - of its rounds that carry arbiter decisions, how many had at least one of
+  its issues accepted (joined on the voice id: `codex`, `gemini`, `grok`, `openrouter:<alias>`;
+  a decision naming no voice is ignored). Only `consensus-step` records decisions; rounds of
+  the server-side `consensus` loop have none and never count as "zero accepted".
+- `slowShare` - rounds where its time was at least 1.2x the median of the other responders.
+- `errorRate` - errored peer calls.
+
+Speed and errors use only calls whose ceiling this config controls (`own`, `shared`) and
+are not cached: a host cap or a run budget makes every voice look slow. A model is a
+**drop candidate** when it has at least 10 rounds, adds nothing in 80% or more, dissents
+alone in 10% or fewer, had an issue accepted in 5% or fewer of at least 10 decision rounds,
+and is slow in 60% of rounds or errors in 20% of 10+ calls. Without enough decision rounds
+it is shown as `unconfirmed`, never as a candidate. The six categories are coarse, so this
+is advice; the page names the config key (`models.<alias>.consensus: false` or
+`providers.<name>.enabled: false`) and never writes it.
+
+**Projects.** Per `project.id`: runs, run statuses, calls, timeouts, errors, p50/p95 of
+successful non-cached calls, top three error kinds. Runs without a project group under
+`(unknown)`.
+
+**Request size vs latency.** Per provider and model, split text-only (size = `promptChars`)
+from file-bearing (size = `promptChars + fileBytes`; null `fileBytes` is skipped and
+counted). Buckets `<8k`, `8-32k`, `>32k` chars, each with calls, timeouts, near-ceiling
+rate (successes above 90% of `grantedMs`), p50/p95, and the median ceiling. A least-squares
+fit of ms on size over successes gives ms per 1k chars and r. Timed-out calls are censored
+(their real latency is unknown), so a fit or a p95 over successes understates large
+requests; the advice accounts for that. Per bucket, using only `own`/`shared` calls:
+
+1. Fewer than 20 calls: no number. If more than 5% timed out, an early warning that the
+   provider's timeout is likely too low.
+2. More than 5% timeouts or more than 10% near the ceiling: `censored`. Suggested ceiling
+   = 1.5 x max(the largest `grantedMs` among those calls, the current configured value), so
+   it always exceeds what they got. It names the provider's timeout key, or for `shared` the
+   key of the peer in `sharedBy`. If the host cap (`hostCapMs - 5000`) leaves no room above
+   that, it says to raise `MCP_TOOL_TIMEOUT` instead.
+3. Otherwise, r >= 0.5: a ceiling of 1.25 x p95, capped by the host cap.
+4. Otherwise: no size effect shown.
+
+`host` timeouts are listed separately ("raise MCP_TOOL_TIMEOUT"), `outer` timeouts are
+reported but never advised on, and calls recorded before these fields existed are skipped
+and counted.
 
 ### Redaction
 
@@ -1962,6 +2051,9 @@ dashboard: `localhost` there is the remote container.
 ```bash
 deliberation-mcp dashboard [--port N] [--no-open]   # npm package
 node server/mcp/index.js dashboard [--port N] [--no-open]   # from a checkout
+deliberation-mcp dashboard --stop                    # stop it
+bash scripts/commands/dashboard-restart.sh [--port N] [--no-open]   # stop, start, print the new URL
+npm run dashboard:restart                            # the same, from a checkout
 ```
 
 It prints exactly one line, `Deliberation dashboard: http://127.0.0.1:<port>/?t=<token>`,
@@ -1969,8 +2061,22 @@ opens the browser unless `--no-open`, and keeps running. It exits 1 with
 `dashboard is disabled: set dashboard.enabled to true in <config path>` when the switch is
 off, and with `port <n> is in use; pass --port` on a port conflict. A second launch while
 one is live reprints the live URL and exits 0. In Claude Code, `/deliberation:dashboard`
-starts it detached and prints the URL. The npm bundle ships the UI as `dist/dashboard-ui/`
-(copied by `prepack`); a checkout serves `server/dashboard/ui/`.
+starts it detached and prints the URL, and `/deliberation:dashboard restart` restarts it.
+The npm bundle ships the UI as `dist/dashboard-ui/` (copied by `prepack`); a checkout
+serves `server/dashboard/ui/`.
+
+`--stop` signals the pid in the pidfile only when that pid is provably this dashboard: it
+is alive, its command line runs a dashboard entrypoint (`server/mcp/index.js`,
+`deliberation-mcp/dist/index.js`, `bin/deliberation-mcp`, or the recorded `argv[1]`) at the
+script position with `dashboard` right after it, and it started within 2 s of the
+`procStartedAt` the dashboard wrote into the pidfile (Linux `/proc/<pid>/stat` with
+`btime`; macOS `ps -o lstart`). The token probe proves a listener, not a pid, so it never
+authorizes a signal. Outcomes: no pidfile or a dead pid, exit 0 (a stale pidfile is
+removed); alive but not provably the dashboard (including a pidfile written before this
+version), exit 2, pidfile kept, nothing signalled; proven, SIGTERM, then after 5 s SIGKILL
+only if the same checks still hold. Windows is not supported (exit 1). The restart script
+exits 3 when `--stop` left a process alone, and starts nothing in that case. `/deliberation:reload-mcp`
+stops the dashboard the same way.
 
 ## Customizing expert prompts
 

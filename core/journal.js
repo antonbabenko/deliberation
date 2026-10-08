@@ -63,7 +63,7 @@ const DEFAULT_MAX_AGE_DAYS = 30;
  */
 const JOURNAL_KEYS = Object.freeze({
   run_start: Object.freeze({
-    meta: Object.freeze(["tool", "pid", "procStartedAt", "expert", "workflow", "providers", "configId", "activationId", "runtimeId", "firstSeenAt", "activatedAt", "snapshot", "configLoadState"]),
+    meta: Object.freeze(["tool", "pid", "procStartedAt", "expert", "workflow", "providers", "configId", "activationId", "runtimeId", "firstSeenAt", "activatedAt", "snapshot", "configLoadState", "project"]),
     content: Object.freeze(["prompt"]),
   }),
   state: Object.freeze({
@@ -71,7 +71,7 @@ const JOURNAL_KEYS = Object.freeze({
     content: Object.freeze([]),
   }),
   call_start: Object.freeze({
-    meta: Object.freeze(["callId", "provider", "model", "role", "round", "timeoutMs", "reasoningEffort", "settings", "configuredTimeoutMs", "deadlineAt", "limitingReason"]),
+    meta: Object.freeze(["callId", "provider", "model", "role", "round", "timeoutMs", "reasoningEffort", "settings", "configuredTimeoutMs", "deadlineAt", "limitingReason", "promptChars", "fileCount", "orientationFiles", "fileBytes", "grantedMs", "hostCapMs", "ceilingSource", "sharedBy", "sharedLimitMs"]),
     content: Object.freeze(["request"]),
   }),
   call_end: Object.freeze({
@@ -79,8 +79,8 @@ const JOURNAL_KEYS = Object.freeze({
     content: Object.freeze(["response", "criticalIssues[].description"]),
   }),
   arbiter: Object.freeze({
-    meta: Object.freeze(["action", "round", "verdict"]),
-    content: Object.freeze(["text"]),
+    meta: Object.freeze(["action", "round", "verdict", "decisions[].source", "decisions[].category", "decisions[].action"]),
+    content: Object.freeze(["text", "decisions[].description", "decisions[].reason"]),
   }),
   run_end: Object.freeze({
     meta: Object.freeze(["status", "stopReason", "rounds", "droppedProviders", "undispatched"]),
@@ -188,6 +188,7 @@ function buildFields(kind, fields, isContent) {
   if(out.snapshot&&!hist.validSnapshot(out.snapshot))delete out.snapshot;
   if(out.provenance)out.provenance=hist.safeCallProvenance(out.provenance);
   if(out.settings)out.settings=hist.safeCallProvenance({settings:out.settings}).settings;
+  sanitizeShapes(out);
   if (isContent) {
     for (const key of spec.content) {
       if (key.indexOf("[]") !== -1) continue; // criticalIssues[].description - handled below
@@ -205,7 +206,44 @@ function buildFields(kind, fields, isContent) {
       return item;
     });
   }
+  if (spec.meta.indexOf("decisions[].source") !== -1 && Array.isArray(src.decisions)) {
+    const str = (/** @type {unknown} */ v) => (v != null ? String(v) : "");
+    out.decisions = src.decisions.map((/** @type {any} */ d) => {
+      /** @type {Record<string, unknown>} */
+      const item = { source: str(d && d.source), category: str(d && d.category), action: str(d && d.action) };
+      if (isContent) {
+        item.description = capText(scrubSecrets(str(d && d.description)));
+        item.reason = capText(scrubSecrets(str(d && d.reason)));
+      }
+      return item;
+    });
+  }
   return out;
+}
+
+const CEILING_SOURCES = new Set(["own", "shared", "outer", "host"]);
+const NUM_OR_NULL_KEYS = ["promptChars", "fileCount", "orientationFiles", "fileBytes", "grantedMs", "hostCapMs", "sharedLimitMs"];
+
+/**
+ * Keep the analyzer fields in the shape it reads, dropping anything else: a
+ * caller bug must not turn a metadata line into a free-form blob.
+ * @param {Record<string, unknown>} out  mutated in place (it is the fresh object buildFields owns)
+ * @returns {void}
+ */
+function sanitizeShapes(out) {
+  if ("project" in out) {
+    const p = /** @type {any} */ (out.project);
+    if (p && typeof p === "object" && typeof p.id === "string" && typeof p.name === "string" && typeof p.root === "string") out.project = { id: p.id, name: p.name, root: p.root };
+    else delete out.project;
+  }
+  for (const k of NUM_OR_NULL_KEYS) {
+    if (k in out && out[k] !== null && !(typeof out[k] === "number" && Number.isFinite(out[k]))) delete out[k];
+  }
+  if ("ceilingSource" in out && !CEILING_SOURCES.has(/** @type {string} */ (out.ceilingSource))) delete out.ceilingSource;
+  if ("sharedBy" in out) {
+    if (Array.isArray(out.sharedBy)) out.sharedBy = out.sharedBy.filter((v) => typeof v === "string");
+    else delete out.sharedBy;
+  }
 }
 
 /**

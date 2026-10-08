@@ -18,6 +18,14 @@ const crypto = require("node:crypto");
 const { redact } = require("../../core/redact.js");
 const { isSafeId, JOURNAL_KEYS } = require("../../core/journal.js");
 const SERVER_VERSION = require("../mcp/package.json").version;
+const { analyze } = require("./analyzer.js");
+
+// Analyzer window: default and maximum days, and how many runs one report reads in full.
+const ANALYZER_DEFAULT_DAYS = 30;
+const ANALYZER_MAX_DAYS = 365;
+const ANALYZER_MAX_RUNS = 2000;
+// core/project.js ids are 12 hex chars; `unknown` selects runs that recorded no project.
+const PROJECT_ID_RE = /^(?:[0-9a-f]{12}|unknown)$/;
 
 const COOKIE = "dlb_dash";
 const KEEPALIVE_MS = 15000;
@@ -144,7 +152,7 @@ function publicConfig(cfg, env) {
 /**
  * @param {{
  *   port: number, token: string, uiDir: string,
- *   index: {list: (f?: any) => any[], get: (id: string) => any},
+ *   index: {list: (f?: any) => any[], get: (id: string) => any, truncated?: () => boolean},
  *   tailer: {subscribe: (fn: (m: {id: string, event: object}) => void, since?: string) => () => void, close?: () => void},
  *   getConfig: () => any,
  *   health: () => (object|Promise<object>),
@@ -328,6 +336,7 @@ function createDashboardServer(opts) {
         tool: q.get("tool") || undefined,
         provider: q.get("provider") || undefined,
         status: q.get("status") || undefined,
+        project: q.get("project") || undefined,
         since: sinceRaw && /^\d+$/.test(sinceRaw) ? Number(sinceRaw) : sinceRaw || undefined,
         redacted: !showPII(),
         metadataOnly: !capturesContent(),
@@ -348,6 +357,17 @@ function createDashboardServer(opts) {
       const valid=require('../../core/config-analysis.js').validateFilters(filter);
       if(valid.error)return sendJson(req,res,400,valid);
       return sendJson(req,res,200,outward(await stats(filter)));
+    }
+    if (p === "/api/analyzer") {
+      const q = url.searchParams;
+      const project = q.get("project") || undefined;
+      const days = q.has("days") ? Number(q.get("days")) : ANALYZER_DEFAULT_DAYS;
+      if (project !== undefined && !PROJECT_ID_RE.test(project)) return sendJson(req, res, 400, { error: "invalid project id" });
+      if (!Number.isInteger(days) || days < 1 || days > ANALYZER_MAX_DAYS) return sendJson(req, res, 400, { error: `days must be an integer from 1 to ${ANALYZER_MAX_DAYS}` });
+      const summaries = index.list({ since: Date.now() - days * 86400000, project }).filter((r) => !r.legacy);
+      const details = summaries.slice(0, ANALYZER_MAX_RUNS).map((r) => index.get(r.runId)).filter(Boolean);
+      const window = { days, project: project || null, runsInWindow: summaries.length, analyzed: details.length, truncated: summaries.length > ANALYZER_MAX_RUNS || !!index.truncated?.() };
+      return sendJson(req, res, 200, outward({ ...analyze(details), window }));
     }
     if (p === "/api/events") return sendEvents(req, res);
     return sendJson(req, res, 404, { error: "not found" });

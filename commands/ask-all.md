@@ -116,7 +116,7 @@ User question or topic: $ARGUMENTS
    message so the host runs them concurrently - parallel wall-time, but each sub-call renders
    independently as it lands, so progress is visible by expanding the collapsed tool header):
    ```
-   Asking [N] providers in parallel (one call each)... ETA ~30-90s (longer if Gemini runs deep).
+   Asking [N] providers in parallel (one call each)...
    ```
    ```
    // one per provider name, ALL in the same message:

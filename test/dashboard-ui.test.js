@@ -494,3 +494,14 @@ test("UI16: deriveProviderLatency handles multi-round calls, in-flight calls (ms
   assert.equal(gemini.totalMs, 500, "only completed calls contribute to durations");
   assert.equal(gemini.errors, 1);
 });
+
+test("UI-PRJ: the run_start project survives reduce, applySummary and summaryOf; junk shapes are dropped", async () => {
+  const { reduce, applySummary, summaryOf } = await load("app.js");
+  const project = { id: "aaaaaaaaaaaa", name: "app", root: "~/app" };
+  let runs = reduce({}, ev(0, { kind: "run_start", tool: "ask-one", workflow: "single", providers: ["grok"], project }));
+  assert.deepEqual(summaryOf(runs["fan-1"]).project, project);
+  const fromSummary = applySummary({}, { runId: "s-1", status: "done", startedAt: 1, providers: [], project });
+  assert.deepEqual(fromSummary["s-1"].project, project);
+  const junk = reduce({}, ev(0, { kind: "run_start", tool: "ask-one", project: "/raw/path" }));
+  assert.equal(summaryOf(junk["fan-1"]).project, null);
+});

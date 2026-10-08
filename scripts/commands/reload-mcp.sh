@@ -289,21 +289,15 @@ if [ -n "$DASH_STATE_PATH" ] && [ -f "$DASH_STATE_PATH" ]; then
       if [ "$DRY_RUN" = true ]; then
         echo "  [DRY-RUN] Would send SIGTERM to dashboard PID $DASH_PID and restart detached on latest code."
       else
-        echo "  Gracefully stopping dashboard PID $DASH_PID..."
-        kill -TERM "$DASH_PID" 2>/dev/null || true
-        
-        # Wait up to 5s for clean exit
-        waited=0
-        while kill -0 "$DASH_PID" 2>/dev/null && [ "$waited" -lt 50 ]; do
-          sleep 0.1
-          waited=$((waited + 1))
-        done
-        
-        if kill -0 "$DASH_PID" 2>/dev/null; then
-          echo "  [WARN] Dashboard PID $DASH_PID did not exit cleanly within 5s; sending SIGKILL."
-          kill -KILL "$DASH_PID" 2>/dev/null || true
-          sleep 0.2
-        fi
+        # `dashboard --stop` signals the pid only when it is provably the dashboard (command line
+        # and start time), so a reused pid is never killed. Anything else leaves it running.
+        echo "  Stopping dashboard PID $DASH_PID..."
+        STOP_OUT=$(node "$ROOT/server/mcp/index.js" dashboard --stop 2>&1)
+        STOP_CODE=$?
+        echo "  $STOP_OUT"
+        if [ "$STOP_CODE" -ne 0 ]; then
+          echo "  [WARN] Dashboard not restarted; end that process yourself, then run /deliberation:dashboard."
+        else
         
         # Relaunch detached using same port if known
         PORT_ARGS=()
@@ -333,6 +327,7 @@ if [ -n "$DASH_STATE_PATH" ] && [ -f "$DASH_STATE_PATH" ]; then
         
         if [ -z "$NEW_PORT" ]; then
           echo "  [WARN] Dashboard restart initiated (PID $NEW_DASH_PID); verify with 'deliberation-mcp dashboard' or /deliberation:dashboard."
+        fi
         fi
       fi
     else

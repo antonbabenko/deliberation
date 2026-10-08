@@ -195,16 +195,16 @@ test("state: verdicts (per-peer, categories only) round-trips under metadata cap
 
 test("JOURNAL_KEYS matches the spec table for all six kinds", () => {
   assert.deepEqual(Object.keys(JOURNAL_KEYS).sort(), ["arbiter", "call_end", "call_start", "run_end", "run_start", "state"].sort());
-  assert.deepEqual(JOURNAL_KEYS.run_start.meta, ["tool", "pid", "procStartedAt", "expert", "workflow", "providers", "configId", "activationId", "runtimeId", "firstSeenAt", "activatedAt", "snapshot", "configLoadState"]);
+  assert.deepEqual(JOURNAL_KEYS.run_start.meta, ["tool", "pid", "procStartedAt", "expert", "workflow", "providers", "configId", "activationId", "runtimeId", "firstSeenAt", "activatedAt", "snapshot", "configLoadState", "project"]);
   assert.deepEqual(JOURNAL_KEYS.run_start.content, ["prompt"]);
   assert.deepEqual(JOURNAL_KEYS.state.meta, ["state", "round", "status", "verdicts"]);
   assert.deepEqual(JOURNAL_KEYS.state.content, []);
-  assert.deepEqual(JOURNAL_KEYS.call_start.meta, ["callId", "provider", "model", "role", "round", "timeoutMs", "reasoningEffort", "settings", "configuredTimeoutMs", "deadlineAt", "limitingReason"]);
+  assert.deepEqual(JOURNAL_KEYS.call_start.meta, ["callId", "provider", "model", "role", "round", "timeoutMs", "reasoningEffort", "settings", "configuredTimeoutMs", "deadlineAt", "limitingReason", "promptChars", "fileCount", "orientationFiles", "fileBytes", "grantedMs", "hostCapMs", "ceilingSource", "sharedBy", "sharedLimitMs"]);
   assert.deepEqual(JOURNAL_KEYS.call_start.content, ["request"]);
   assert.deepEqual(JOURNAL_KEYS.call_end.meta, ["callId", "provider", "model", "ms", "usage", "isError", "errorKind", "errorCode", "verdict", "criticalIssues[].category", "cached", "provenance", "reasoningEffort"]);
   assert.deepEqual(JOURNAL_KEYS.call_end.content, ["response", "criticalIssues[].description"]);
-  assert.deepEqual(JOURNAL_KEYS.arbiter.meta, ["action", "round", "verdict"]);
-  assert.deepEqual(JOURNAL_KEYS.arbiter.content, ["text"]);
+  assert.deepEqual(JOURNAL_KEYS.arbiter.meta, ["action", "round", "verdict", "decisions[].source", "decisions[].category", "decisions[].action"]);
+  assert.deepEqual(JOURNAL_KEYS.arbiter.content, ["text", "decisions[].description", "decisions[].reason"]);
   assert.deepEqual(JOURNAL_KEYS.run_end.meta, ["status", "stopReason", "rounds", "droppedProviders", "undispatched"]);
   assert.deepEqual(JOURNAL_KEYS.run_end.content, ["finalReport"]);
 });
@@ -248,4 +248,38 @@ test("J-seq: run_end releases the run's seq counter (the map cannot grow for the
   // Nothing is written after a run_end in practice; a stray one starts a fresh counter.
   j.emit("run-s", "state", { state: "late" });
   assert.deepEqual(readLines(dir, "run-s").map((e) => e.seq), [0, 1, 0]);
+});
+
+test("arbiter: decisions keep source/category/action as metadata; description/reason only under content", () => {
+  const decisions = [{ source: "codex", category: "correctness", action: "accept", description: "bug SECRET", reason: "real" }, { source: 7, category: null, action: "dismiss" }];
+  const dm = tmpDir();
+  createJournal({ dir: dm, getSettings: () => settings({ capture: "metadata" }) }).emit("r-dec", "arbiter", { action: "submit_adjudication", round: 1, decisions });
+  const [meta] = readLines(dm, "r-dec");
+  assert.deepEqual(meta.decisions, [{ source: "codex", category: "correctness", action: "accept" }, { source: "7", category: "", action: "dismiss" }]);
+  const dc = tmpDir();
+  createJournal({ dir: dc, getSettings: () => settings({ capture: "content" }) }).emit("r-dec", "arbiter", { action: "submit_adjudication", round: 1, decisions });
+  const [content] = readLines(dc, "r-dec");
+  assert.equal(content.decisions[0].description, "bug SECRET");
+  assert.equal(content.decisions[0].reason, "real");
+  assert.equal(content.decisions[1].description, "");
+});
+
+test("run_start project and call_start size/ceiling fields: kept under metadata, wrong shapes dropped", () => {
+  const dir = tmpDir();
+  const j = createJournal({ dir, getSettings: () => settings({ capture: "metadata" }) });
+  j.emit("r-proj", "run_start", { tool: "ask-one", project: { id: "abc123abc123", name: "app", root: "/home/x/app", extra: { big: 1 } } });
+  j.emit("r-proj", "call_start", { callId: "c1", promptChars: 1200, fileCount: 2, orientationFiles: 1, fileBytes: null, grantedMs: 1000, hostCapMs: null, ceilingSource: "own", sharedBy: ["codex"], sharedLimitMs: 600000 });
+  j.emit("r-bad", "run_start", { tool: "ask-one", project: "/raw/path" });
+  j.emit("r-bad", "call_start", { callId: "c2", promptChars: "big", ceilingSource: "weird", sharedBy: [1, "grok"] });
+  const [start, call] = readLines(dir, "r-proj");
+  assert.deepEqual(start.project, { id: "abc123abc123", name: "app", root: "/home/x/app" });
+  assert.equal(call.promptChars, 1200);
+  assert.equal(call.fileBytes, null);
+  assert.equal(call.ceilingSource, "own");
+  assert.deepEqual(call.sharedBy, ["codex"]);
+  const [badStart, badCall] = readLines(dir, "r-bad");
+  assert.ok(!("project" in badStart));
+  assert.ok(!("promptChars" in badCall));
+  assert.ok(!("ceilingSource" in badCall));
+  assert.deepEqual(badCall.sharedBy, ["grok"]);
 });

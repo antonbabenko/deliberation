@@ -8,7 +8,9 @@ const { parseReview } = require("./provider.js");
 const loop = require("./consensus-loop.js");
 const { NULL_LOGGER } = require("./debug-log.js");
 const { safeCallProvenance } = require("./config-history.js");
-const { fitToHostBudget, remainingHostBudgetMs, HOST_BUDGET_MIN_MS } = require("./host-budget.js");
+const { fitToHostBudget, remainingHostBudgetMs, hostBudgetMs, HOST_BUDGET_MIN_MS } = require("./host-budget.js");
+const fs = require("node:fs");
+const path = require("node:path");
 
 /** @typedef {import("./debug-log.js").Logger} Logger */
 
@@ -60,9 +62,10 @@ function nextCallId(providerName) {
  * @param {(Trace|undefined)} trace
  * @param {string} providerName
  * @param {DelegationRequest} req
+ * @param {Record<string, unknown>} [extra]  request size and effective ceiling (requestSize / ceilingOf)
  * @returns {string}
  */
-function traceCallStart(trace, providerName, req) {
+function traceCallStart(trace, providerName, req, extra) {
   const callId = nextCallId(providerName);
   if (!trace || !trace.journal) return callId;
   try {
@@ -77,6 +80,7 @@ function traceCallStart(trace, providerName, req) {
       request: req.prompt,
       settings:req.provenance?.settings, configuredTimeoutMs:req.provenance?.configuredTimeoutMs,
       deadlineAt:req.deadlineAt, limitingReason:req.provenance?.limitingReason,
+      ...extra,
     });
     return callId;
   } catch {
@@ -237,6 +241,51 @@ function withOrientation(provider, req, orientationFiles) {
   return req;
 }
 
+// More attachments than this are not stat'ed one by one: fileBytes is reported unknown.
+const MAX_SIZED_FILES = 50;
+
+/**
+ * Size of the request as sent: prompt chars and attached file bytes, for the dashboard's
+ * size-vs-latency view. A file whose size cannot be known ({dir}, an upload id, a URL, a
+ * failed stat, or past the cap) makes fileBytes null - never a partial sum. Never throws.
+ * @param {DelegationRequest} req
+ * @param {number} oriented  how many of req.files came from orientation auto-attach
+ * @returns {{promptChars:(number|null), fileCount:number, orientationFiles:number, fileBytes:(number|null)}}
+ */
+function requestSize(req, oriented) {
+  const files = Array.isArray(req.files) ? req.files : [];
+  /** @type {(number|null)} */
+  let bytes = files.length > MAX_SIZED_FILES ? null : 0;
+  for (const f of bytes === null ? [] : files) {
+    const p = f && /** @type {any} */ (f).path;
+    if (typeof p !== "string" || /** @type {any} */ (f).dir !== undefined) { bytes = null; break; }
+    try { bytes = /** @type {number} */ (bytes) + fs.statSync(path.resolve(req.cwd || process.cwd(), p)).size; } catch { bytes = null; break; }
+  }
+  return { promptChars: typeof req.prompt === "string" ? req.prompt.length : null, fileCount: files.length, orientationFiles: oriented, fileBytes: bytes };
+}
+
+/**
+ * The ceiling one attempt actually got, and where it came from. Attributed by ORIGIN, not
+ * by which number is smallest: a deadline callProvider built from the provider's own
+ * timeout is `own` even after setup time makes it the smaller term. Ties go to the host
+ * cap, then to the deadline.
+ * @param {{timeoutMs?:number, deadlineAt?:number, hostBudgetRemainingMs?:number}} attemptReq
+ * @param {(string|undefined)} deadlineOrigin
+ * @param {DelegationRequest} req
+ * @returns {Record<string, unknown>}
+ */
+function ceilingOf(attemptReq, deadlineOrigin, req) {
+  const host = attemptReq.hostBudgetRemainingMs ?? Infinity;
+  const deadline = attemptReq.deadlineAt === undefined ? Infinity : attemptReq.deadlineAt - Date.now();
+  const granted = Math.min(attemptReq.timeoutMs ?? Infinity, deadline, host);
+  if (!Number.isFinite(granted)) return { hostCapMs: hostBudgetMs() };
+  const ceilingSource = host <= granted ? "host" : deadline <= granted ? deadlineOrigin || "outer" : "own";
+  return {
+    grantedMs: Math.max(1, Math.round(granted)), hostCapMs: hostBudgetMs(), ceilingSource,
+    ...(ceilingSource === "shared" && Array.isArray(req.sharedBy) ? { sharedBy: req.sharedBy, sharedLimitMs: req.sharedLimitMs } : {}),
+  };
+}
+
 /**
  * One provider call with optional in-session cache + debug logging. On a cache
  * hit, returns the cached SUCCESS instantly (no model call) and still logs the
@@ -256,17 +305,20 @@ async function callProvider(provider, req, logger, tool, cache, orientationFiles
   const resolved=provider.resolveSettings?.({...req,context}) || {};
   req = { ...req, ...Object.fromEntries(Object.entries(resolved).filter(([k,v])=>['model','reasoningEffort','temperature','timeoutMs'].includes(k)&&v!==undefined&&v!=='CLI inherited / unknown')), context,tool,
     provenance:safeCallProvenance({...trace?.provenance,...req.provenance,configuredTimeoutMs:req.provenance?.configuredTimeoutMs??resolved.timeoutMs,settings:resolved,expert:req.expert,context,role:trace?.role,round:trace?.round}) };
-  if(req.deadlineAt===undefined&&typeof req.timeoutMs==='number')req.deadlineAt=Date.now()+req.timeoutMs;
+  // A deadline the caller passed is `outer` unless the fan-out said what set it.
+  let deadlineOrigin = req.deadlineAt === undefined ? undefined : req.deadlineOrigin || "outer";
+  if(req.deadlineAt===undefined&&typeof req.timeoutMs==='number'){req.deadlineAt=Date.now()+req.timeoutMs;deadlineOrigin="own";}
   // Auto-attach orientation to file-blind providers BEFORE the cache key is computed,
   // so the now-file-bearing request bypasses cache reuse of stale grounding bytes.
   req = withOrientation(provider, req, orientationFiles);
+  const size = trace && trace.journal ? requestSize(req, Array.isArray(orientationFiles) && req.files === orientationFiles ? orientationFiles.length : 0) : {};
   // File-bearing requests skip the cache: file CONTENT can change under the same
   // path, and the key only fingerprints the reference, not the bytes.
   const useCache = cache && !req.threadId && !(Array.isArray(req.files) && req.files.length);
   if (useCache) {
     const hit = cache.get(provider.name, req);
     if (hit) {
-      const callId=traceCallStart(trace, provider.name, req);
+      const callId=traceCallStart(trace, provider.name, req, size);
       const reused={...hit,provenance:safeCallProvenance({...req.provenance,original:hit.provenance,callId})};
       logProviderResult(logger, tool, reused);
       traceCallEnd(trace, callId, reused);
@@ -287,9 +339,10 @@ async function callProvider(provider, req, logger, tool, cache, orientationFiles
   // same per-attempt granularity as logProviderResult's own retry logging.
   const attempt = async () => {
     const attemptReq=fitToHostBudget({ ...req, files: req.files ? req.files.map((f) => ({ ...f })) : undefined }, capStartedAt);
+    const ceiling = trace && trace.journal ? ceilingOf(attemptReq, deadlineOrigin, req) : {};
     const granted=Math.min(attemptReq.timeoutMs??Infinity,attemptReq.deadlineAt===undefined?Infinity:attemptReq.deadlineAt-Date.now(),attemptReq.hostBudgetRemainingMs??Infinity);
     if(Number.isFinite(granted))attemptReq.timeoutMs=Math.max(1,granted);
-    const callId = traceCallStart(trace, provider.name, attemptReq);
+    const callId = traceCallStart(trace, provider.name, attemptReq, { ...size, ...ceiling });
     /** @type {DelegationResult} */
     let res;
     try {
@@ -360,12 +413,21 @@ async function boundedAsk(provider,req) {
     return /** @type {DelegationResult} */ (await Promise.race([provider.ask({...req,timeoutMs:req.deadlineAt!==undefined&&Number.isFinite(left)?Math.max(1,left):req.timeoutMs,signal:controller.signal}),stopped]));
   }finally{clearTimeout(timer);req.signal?.removeEventListener('abort',finish);}
 }
-/** @param {Provider[]} providers @param {DelegationRequest} req @param {number} [startedAt] */
+/**
+ * The shared fan-out deadline: the longest selected peer's limit, cut by the caller's
+ * deadline and the host cap. Also says which of the three won (ties: host, then outer)
+ * and which peer(s) set the longest limit, so a timeout can be traced to a config key.
+ * @param {Provider[]} providers @param {DelegationRequest} req @param {number} [startedAt]
+ * @returns {{deadlineAt:number, origin:("shared"|"outer"|"host"), sharedBy:string[], sharedLimitMs:number}}
+ */
 function fanoutDeadline(providers,req,startedAt) {
   const limits=providers.map(p=>p.resolveSettings?.(req)?.timeoutMs??req.timeoutMs??600000);
   const host=remainingHostBudgetMs(startedAt??Date.now());
   const longest=Math.max(1,...limits);
-  return Math.min(Date.now()+longest,req.deadlineAt??Infinity,Date.now()+(host??Infinity));
+  const now=Date.now(), hostAt=now+(host??Infinity), outerAt=req.deadlineAt??Infinity, sharedAt=now+longest;
+  const deadlineAt=Math.min(sharedAt,outerAt,hostAt);
+  const origin=hostAt<=deadlineAt?"host":outerAt<=deadlineAt?"outer":"shared";
+  return { deadlineAt, origin, sharedBy: providers.filter((_,i)=>limits[i]===longest).map(p=>p.name), sharedLimitMs: longest };
 }
 
 /**
@@ -382,10 +444,11 @@ function fanoutDeadline(providers,req,startedAt) {
 async function askAll(providers, req, opts = {}) {
   const logger = opts.logger || NULL_LOGGER;
   const tool = opts.tool || "ask-all";
-  const deadline=fanoutDeadline(providers,req,opts.startedAt);
+  const fan=fanoutDeadline(providers,req,opts.startedAt), deadline=fan.deadlineAt;
   const shared=req.timeoutPolicy!=='per-provider';
+  const origin=shared?{deadlineOrigin:fan.origin,sharedBy:fan.sharedBy,sharedLimitMs:fan.sharedLimitMs}:{};
   const settled = await Promise.allSettled(
-    providers.map((/** @type {Provider} */ p) => callProvider(p, {...req,deadlineAt:shared?deadline:req.deadlineAt,timeoutMs:shared?Math.max(1,deadline-Date.now()):req.timeoutMs,
+    providers.map((/** @type {Provider} */ p) => callProvider(p, {...req,...origin,deadlineAt:shared?deadline:req.deadlineAt,timeoutMs:shared?Math.max(1,deadline-Date.now()):req.timeoutMs,
       provenance:{...req.provenance,configuredTimeoutMs:p.resolveSettings?.(req)?.timeoutMs,limitingReason:shared?'longest-peer / outer budget':'per-provider'}}, logger, tool, opts.cache, opts.orientationFiles, opts.startedAt, opts.trace))
   );
   return settled.map((s, i) =>

@@ -335,3 +335,18 @@ test("RR14: q matches the redacted prompt when asked to", () => {
   assert.equal(index.list({ q: "alice@example", redacted: true }).length, 0, "a search cannot confirm a masked value");
   assert.equal(index.list({ q: "mail [email]", redacted: true }).length, 1);
 });
+
+test("RR15: run summaries carry the run_start project; ?project= filters by id, `unknown` matches runs without one", () => {
+  const dir = tmpDir();
+  const app = { id: "aaaaaaaaaaaa", name: "app", root: "/x/app" };
+  writeRun(dir, "r-app", [runStart({ project: app }), callEnd({}), runEnd({})]);
+  writeRun(dir, "r-none", [runStart({}), callEnd({}), runEnd({})]);
+  writeRun(dir, "r-bad", [runStart({ project: "/raw" }), runEnd({})]);
+  const index = createRunIndex({ runsDir: dir, isAlive: () => false });
+  const all = index.list();
+  assert.deepEqual(all.find((r) => r.runId === "r-app")?.project, app);
+  assert.equal(all.find((r) => r.runId === "r-none")?.project, null);
+  assert.equal(all.find((r) => r.runId === "r-bad")?.project, null);
+  assert.deepEqual(index.list({ project: app.id }).map((r) => r.runId), ["r-app"]);
+  assert.deepEqual(index.list({ project: "unknown" }).map((r) => r.runId).sort(), ["r-bad", "r-none"]);
+});

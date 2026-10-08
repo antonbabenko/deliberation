@@ -34,7 +34,7 @@ When three models argue, the real bug reveals itself. Round 1 = independent top 
 
 ![Dashboard: a converged 3-round /consensus run with the arbiter and six panel voices on one timeline](assets/dashboard.png)
 
-The dashboard (`/deliberation:dashboard`, opt-in with `"dashboard": { "enabled": true }`) is a read-only page on `127.0.0.1`. **Live** follows runs as they happen, **Runs** keeps the history, **Config** shows the effective config, and **Stats** shows usage and provider health. For a run you get:
+The dashboard (`/deliberation:dashboard`, opt-in with `"dashboard": { "enabled": true }`) is a read-only page on `127.0.0.1`. **Live** follows runs as they happen, **Runs** keeps the history (with the project each run came from, and a project filter), **Config** shows the effective config, **Stats** shows usage and provider health, and **Analyzer** shows which models agree more than they add (drop candidates), which projects fail or run slow, and whether request size predicts latency and timeouts, with a suggested timeout. For a run you get:
 
 - the header: tool, elapsed time, status, round, tokens, errors, and expert
 - the phase strip: blind, peers, adjudicate, converged or revise, each with its time offset
@@ -64,7 +64,7 @@ with `DELIBERATION_CONFIG`) and hot-reload without restarting Claude Code.
 | Dual mode | Experts analyze (read-only) or implement (write) |
 | Auto-routing | Claude detects when to delegate from your request |
 | Synthesized responses | Claude interprets expert output, never raw passthrough |
-| Local dashboard (opt-in) | Watch each run as a live state graph in your browser, plus history, health, and usage stats |
+| Local dashboard (opt-in) | Watch each run as a live state graph in your browser, plus history per project, health, usage stats, and an analyzer for drop candidates and timeout tuning |
 
 ## Install
 
@@ -227,7 +227,7 @@ Bundled with the plugin (available once installed):
 | `/deliberation:setup` | Configure Codex/Gemini/Grok/OpenRouter MCP servers + orchestration rules |
 | `/deliberation:help` | How to use deliberation on your host, with paste-ready example prompts |
 | `/deliberation:doctor` | Health check (config, provider CLIs, sessions/debug, path drift) with fixes; read-only |
-| `/deliberation:dashboard` | Start the local read-only dashboard (runs as live state graphs, history, config, health, stats) and print its URL; needs `dashboard.enabled` and a browser on the same machine |
+| `/deliberation:dashboard` | Start the local read-only dashboard (runs as live state graphs, history, config, health, stats, analyzer) and print its URL; `restart` stops it and prints a fresh URL. Needs `dashboard.enabled` and a browser on the same machine |
 | `/deliberation:codex-login` | Log GPT (Codex) in on this machine with a ChatGPT device login - shows a link + code; for web and headless sessions |
 | `/deliberation:consensus` | 🔥🔥🔥 Arbiter-mediated GPT + Gemini + Grok + Claude convergence loop |
 | `/deliberation:ask-all` | 🔥 GPT + Gemini + Grok (+ configured OpenRouter models) in parallel, synthesized |
@@ -335,7 +335,7 @@ Full setup and configuration reference lives in **[SETUP.md](SETUP.md)**. It cov
 - **Timeouts** - `providers.defaults.timeout` raises the per-call ceiling for every provider at once; `providers.<name>.timeout` overrides one, and a pinned model's `models.<id>.timeout` still wins. A host cap (`MCP_TOOL_TIMEOUT`, set by Claude Code on the web) clamps all of them and is named in the timeout message. A rate-limited (HTTP 429) call is retried once, honoring the upstream's `Retry-After`
 - **Debug log** - opt-in latency / token / voting trace
 - **Session persistence** - opt-in on-disk run history (incl. the host-driven `/consensus` loop) and the `session-*` tools; `sessions.captureText` (default off) additionally stores provider response bodies (scrubbed)
-- **Dashboard** - opt-in local, read-only browser view of live and past runs as state graphs, with config, provider health, and usage stats. `dashboard.capture` picks metadata only (default) or full prompts and responses; secrets are scrubbed on write and PII is redacted on serve unless `dashboard.showPII` is on. Loopback only, token-protected. Start it with `/deliberation:dashboard` or `deliberation-mcp dashboard`
+- **Dashboard** - opt-in local, read-only browser view of live and past runs as state graphs, with config, provider health, and usage stats. `dashboard.capture` picks metadata only (default) or full prompts and responses; secrets are scrubbed on write and PII is redacted on serve unless `dashboard.showPII` is on. Loopback only, token-protected. Every run records its project (the git repo it was called from), every provider call its request size and the timeout it actually got, which the Analyzer tab turns into drop candidates and timeout advice. Start it with `/deliberation:dashboard` or `deliberation-mcp dashboard`; restart it with `/deliberation:dashboard restart` or `npm run dashboard:restart`, stop it with `deliberation-mcp dashboard --stop`
 
 Config history records sanitized effective snapshots and run provenance when
 telemetry is enabled. Dashboard Stats shares analyze time/config filters; Config
