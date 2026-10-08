@@ -167,7 +167,8 @@ These apply to every MCP host, not just Claude Code:
   open the printed `http://127.0.0.1:<port>/?t=<token>` URL. It is a read-only browser view
   of live and past runs as state graphs, with config, provider health, stats, and an Analyzer
   (drop candidates, per-project health, request size vs timeouts; every run records its
-  calling project from the tool's `cwd`). `deliberation-mcp dashboard --stop` stops it. Loopback
+  calling project from the tool's `cwd`, grouped by git remote `org/repo` with each checkout
+  as a workspace). `deliberation-mcp dashboard --stop` stops it. Loopback
   only, token-protected; `dashboard.capture` is `metadata` (default) or `content` (prompts
   and responses, secret-scrubbed), and PII is redacted in the browser unless
   `dashboard.showPII`. Needs a browser on the same machine. OFF by default.

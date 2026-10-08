@@ -1830,7 +1830,7 @@ and the journal is the history.
 | `server/dashboard/ui/telemetry.js` | Pure debate convergence trajectory and provider latency breakdown analytics |
 | `server/dashboard/analyzer.js` | Pure Analyzer report over journal runs: models that agree more than they add, per-project health, request size vs latency and timeouts (see Analyzer) |
 | `server/dashboard/stop.js` | `dashboard --stop`: signals the pidfile's pid only when it is provably the dashboard |
-| `core/project.js` | `resolveProject(dir)`: the calling project (git repo, worktrees grouped under their main repo) for `run_start` |
+| `core/project.js` | `resolveProject(dir)`: the calling project (grouped by git remote `org/repo`, then the checkout as a workspace) for `run_start`; `normalizeProject` upgrades runs recorded before workspaces |
 
 ### Configuration
 
@@ -1861,7 +1861,7 @@ debug log, whose `ALLOWED_KEYS` whitelist is unchanged and still excludes all co
 
 | Kind | Metadata fields | Content fields (`capture: "content"` only) |
 |------|-----------------|---------------------------------------------|
-| `run_start` | `tool`, `pid`, `procStartedAt`, `expert`, `workflow` (`single` \| `fanout` \| `consensus-step` \| `consensus`), `providers[]`, `project` (`{id, name, root}`) | `prompt` |
+| `run_start` | `tool`, `pid`, `procStartedAt`, `expert`, `workflow` (`single` \| `fanout` \| `consensus-step` \| `consensus`), `providers[]`, `project` (`{id, name, root, ws}`) | `prompt` |
 | `state` | `state`, `round`, `status`, `verdicts[]` (`{provider, verdict, categories[]}`, on adjudicate) | none |
 | `call_start` | `callId`, `provider`, `model`, `role` (`peer` \| `arbiter` \| `blind` \| `single`), `round`, `timeoutMs`, `reasoningEffort`, `promptChars`, `fileCount`, `orientationFiles`, `fileBytes`, `grantedMs`, `hostCapMs`, `ceilingSource` (`own` \| `shared` \| `outer` \| `host`), `sharedBy[]`, `sharedLimitMs` | `request` |
 | `call_end` | `callId`, `provider`, `model`, `ms`, `usage`, `isError`, `errorKind`, `errorCode`, `verdict`, `criticalIssues[].category` | `response`, `criticalIssues[].description` |
@@ -1870,19 +1870,33 @@ debug log, whose `ALLOWED_KEYS` whitelist is unchanged and still excludes all co
 
 Keys outside this whitelist are dropped at write. Content fields pass `scrubSecrets` and
 then `capText` (100 KB) before the write, the same privacy contract as `sessions`. The
-analyzer fields are also shape-checked at write: `project` keeps only its three strings,
+analyzer fields are also shape-checked at write: `project` keeps only its three strings
+plus `ws` when it is 12 hex chars,
 the size and ceiling fields only finite numbers or null, `ceilingSource` only its four
 values.
 
 **`project`** is `core/project.js` `resolveProject` of the tool call's `cwd` argument, or
-the server's own cwd when the call passes none. It walks up to the nearest `.git`: a main
-checkout is itself; a linked worktree (a `.git` file whose gitdir has a `commondir`) is
-grouped under its main repo, so `name` is the main repo's folder and `id` is shared, while
-`root` stays the worktree path; a submodule (a `.git` file with no `commondir`) is its own
-project; no git at all falls back to the directory. `id` is 12 hex chars of a SHA-256 of
-the main git dir's real path, never a path itself. Stat and read only, no `git` spawn,
-never throws. `root` is an absolute path on disk; serving masks the home dir (Redaction)
-unless `showPII` is on, and the URL only ever carries the `id`.
+the server's own cwd when the call passes none. It walks up to the nearest `.git` (the
+checkout) and groups runs in two levels:
+
+- **Repo group** (`id`, `name`). The main git dir's `config` is read for the `origin`
+  remote, else the first remote. `name` is the remote path (`org/repo`, the full path for
+  nested GitLab groups) and `id` is 12 hex chars of a SHA-256 of `host/path`, so every clone,
+  worktree, or `/tmp` checkout of one remote shares a group. scp (`git@host:org/repo`),
+  `ssh://` and `https://` URLs are parsed; credentials and `.git` are dropped, and the raw URL
+  and host are never stored. Without a usable remote (none, or a local path or `file://`)
+  the group is the main git dir as before: `id` hashes its real path and `name` is the main
+  repo's folder. A linked worktree reads its main repo's config; a submodule is its own
+  repo; no git at all falls back to the directory.
+- **Workspace** (`root`, `ws`). `root` is the checkout path; `ws` is 12 hex chars of a
+  SHA-256 of its real path. A call from a subdir counts as its checkout.
+
+Stat and read only, no `git` spawn, never throws. `root` is an absolute path on disk;
+serving masks the home dir (Redaction) unless `showPII` is on, and the URL only ever carries
+the ids. Runs recorded before `ws` existed are normalized when the dashboard reads them
+(`normalizeProject`): if the recorded `root` still exists it is resolved again and joins
+its remote group; otherwise the run keeps its old group and gets a `ws` from the root path.
+Nothing in the journal is rewritten.
 
 **Request size** (`promptChars`, `fileCount`, `orientationFiles`, `fileBytes`) is measured
 on the request as `callProvider` sends it: after orientation files are attached and after
@@ -1951,12 +1965,12 @@ GET and HEAD only; any other method gets 405.
 |-------|---------|
 | `/` | The page. |
 | `/assets/*` | Static UI files, resolved inside the UI directory; a path that escapes it is rejected. |
-| `/api/runs` | Run index; filters `?q=`, `?tool=`, `?provider=`, `?status=`, `?since=`, `?project=<id>` (`unknown` = runs with no project). While `showPII` is off, `?q=` matches the redacted prompt, so a search cannot confirm a masked value. |
+| `/api/runs` | Run index; filters `?q=`, `?tool=`, `?provider=`, `?status=`, `?since=`, `?project=<id>` (a repo group with all its workspaces; `unknown` = runs with no project), `?ws=<id>` (one workspace; wins over `?project=`). While `showPII` is off, `?q=` matches the redacted prompt, so a search cannot confirm a masked value. |
 | `/api/runs/:id` | All events of one run (or the legacy record); `id` must match `^[A-Za-z0-9-]+$`. |
 | `/api/config` | Effective config. For every API key env var, only its name and whether it is set; credentials in URLs are stripped. |
 | `/api/health` | Provider health from the checks `panel` uses (`unavailable`, `needsLogin`), models, reasoning effort, `askAll` / `consensus` eligibility. |
 | `/api/stats` | The `analyze` report plus runs, tokens, and errors per day. Reads the debug log, so it cannot be filtered by project. |
-| `/api/analyzer` | The Analyzer report (see Analyzer). `?days=` 1-365 (default 30), `?project=<id>`; at most 2000 runs per report. |
+| `/api/analyzer` | The Analyzer report (see Analyzer). `?days=` 1-365 (default 30), `?project=<id>`, `?ws=<id>` (12 hex; 400 otherwise); at most 2000 runs per report. |
 | `/api/events` | Server-Sent Events stream of new journal events. |
 
 The tailer keeps a byte offset per run file and reads only appended bytes; a partial last
@@ -1996,9 +2010,12 @@ it is shown as `unconfirmed`, never as a candidate. The six categories are coars
 is advice; the page names the config key (`models.<alias>.consensus: false` or
 `providers.<name>.enabled: false`) and never writes it.
 
-**Projects.** Per `project.id`: runs, run statuses, calls, timeouts, errors, p50/p95 of
-successful non-cached calls, top three error kinds. Runs without a project group under
-`(unknown)`.
+**Projects.** Per repo group (`project.id`): runs, run statuses, calls, timeouts, errors,
+p50/p95 of successful non-cached calls, top three error kinds, and the same numbers per
+workspace in `workspaces[]` (`ws`, `root`). Runs without a project group under `(unknown)`.
+The page shows a group as `org/repo (path)` when it has one workspace; with more, a toggle
+expands the workspace rows. Clicking a name sets the project filter, which the Runs and
+Analyzer tabs share: a whole group or one workspace.
 
 **Request size vs latency.** Per provider and model, split text-only (size = `promptChars`)
 from file-bearing (size = `promptChars + fileBytes`; null `fileBytes` is skipped and

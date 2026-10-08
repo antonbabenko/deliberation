@@ -233,7 +233,7 @@ const NUM_OR_NULL_KEYS = ["promptChars", "fileCount", "orientationFiles", "fileB
 function sanitizeShapes(out) {
   if ("project" in out) {
     const p = /** @type {any} */ (out.project);
-    if (p && typeof p === "object" && typeof p.id === "string" && typeof p.name === "string" && typeof p.root === "string") out.project = { id: p.id, name: p.name, root: p.root };
+    if (p && typeof p === "object" && typeof p.id === "string" && typeof p.name === "string" && typeof p.root === "string") out.project = { id: p.id, name: p.name, root: p.root, ...(typeof p.ws === "string" && /^[0-9a-f]{12}$/.test(p.ws) ? { ws: p.ws } : {}) };
     else delete out.project;
   }
   for (const k of NUM_OR_NULL_KEYS) {

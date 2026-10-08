@@ -24,7 +24,7 @@ export function emptyRun(runId) {
 }
 
 /** A run_start/summary project, or null when absent or the wrong shape. */
-const projectOf = (p) => (p && typeof p === "object" && typeof p.id === "string" ? { id: p.id, name: String(p.name || p.id), root: String(p.root || "") } : null);
+const projectOf = (p) => (p && typeof p === "object" && typeof p.id === "string" ? { id: p.id, name: String(p.name || p.id), root: String(p.root || ""), ...(typeof p.ws === "string" ? { ws: p.ws } : {}) } : null);
 
 function tokensOf(usage) {
   if (!usage || typeof usage !== "object") return 0;

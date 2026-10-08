@@ -329,8 +329,11 @@ same machine as the MCP server, so it does not work from Claude Code on the web.
 3. Run `/consensus` or `/ask-all` and watch the graph fill in.
 
 Each run records the project it was called from: the git repo of the tool call's `cwd`
-(or the MCP server's directory), with worktrees grouped under their main repo. The Runs
-tab shows it as a column with a project filter; the Analyzer tab uses the same filter.
+(or the MCP server's directory), grouped by its git remote as `org/repo`, so every clone
+and worktree of a repo lands in one group, with the checkout dir as the workspace (shown as
+`acme/app (/tmp/app-review)`). The Runs tab shows it as a column; its project filter is
+a tree where you pick a whole repo or one workspace, and the Analyzer tab uses the same
+filter.
 
 Restart or stop it:
 
