@@ -7,7 +7,7 @@
  * They discover project-level MCP servers from `.agents/mcp.json`.
  *
  * Generated artifacts:
- * - `.agents/skills/deliberation/SKILL.md` (from AGENTS.md)
+ * - `.agents/skills/deliberation/SKILL.md` (from docs/tool-guide.md)
  * - `.agents/skills/<expert>/SKILL.md` (from prompts/<expert>.md)
  * - `.agents/skills/reload-mcp/SKILL.md`
  * - `.gemini/skills/deliberation/SKILL.md`
@@ -31,8 +31,8 @@ function build(ctx) {
     },
   });
 
-  // "When to delegate" meta-skill, generated from the host-neutral AGENTS.md.
-  const agents = S.readText(ctx.repoRoot, "AGENTS.md").replace(/^# AGENTS\.md\n/, "# Deliberation\n");
+  // "When to delegate" meta-skill, generated from the host-neutral docs/tool-guide.md.
+  const agents = S.readText(ctx.repoRoot, "docs/tool-guide.md").replace(/^# Deliberation tool guide\n/, "# Deliberation\n");
   const deliberationSkill = S.frontmatterDoc({
     name: "deliberation",
     description:

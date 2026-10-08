@@ -119,7 +119,7 @@ jobs:
               continue
             }
             if (value !== source) {
-              console.error(`ERROR ${label}=${value} != version.json=${source}. CI owns these; do not hand-edit (see CLAUDE.md).`)
+              console.error(`ERROR ${label}=${value} != version.json=${source}. CI owns these; do not hand-edit (see CONTRIBUTING.md).`)
               bad = true
             } else {
               console.log(`OK ${label} in sync (${value})`)

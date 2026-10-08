@@ -228,7 +228,7 @@ which is what makes a configured timeout above 300s reachable at all - see
 > **Not a shipped surface.** This section documents what `core` is capable of, not what the
 > running server exposes. No call site in the live composition root (`server/mcp/index.js`)
 > passes `allowImplement`, so the shipped MCP server is read-only end to end - see
-> CLAUDE.md Key Design Decision #3. Today the only user-facing write path is the standalone
+> [Key Design Decision #3](docs/dev/design-decisions.md). Today the only user-facing write path is the standalone
 > gemini bridge's `sandbox: "workspace-write"` opt-in.
 
 The `core` codex + gemini providers can run `workspace-write` (edit files) instead
@@ -1576,9 +1576,9 @@ Notes:
 
 - **The date is code, the lookup is the host's.** Grok and OpenRouter run with no tools,
   so a prose rule telling them to run `date -u` or search the web could never be
-  followed. The host (Claude, or any agent reading `AGENTS.md`) is told to verify
+  followed. The host (Claude, or any agent reading the tool guide) is told to verify
   time-sensitive facts with its own retrieval and inline them with an as-of date and
-  source ("Time-sensitive questions" in `AGENTS.md`; every `/ask-*` command and `/consensus`;
+  source ("Time-sensitive questions" in `docs/tool-guide.md`; every `/ask-*` command and `/consensus`;
   the CONTEXT section of `rules/delegation-format.md`).
 - **The rule travels with the date.** A date alone still lets a model reject a name it
   does not know; the no-denial clause is what turns that into `[unverified]`.
