@@ -1,3 +1,10 @@
+## [3.28.0](https://github.com/antonbabenko/deliberation/compare/v3.27.0...v3.28.0) (2026-10-08)
+
+
+### Features
+
+* group dashboard projects by git remote with workspaces under each ([#239](https://github.com/antonbabenko/deliberation/issues/239)) ([f19442d](https://github.com/antonbabenko/deliberation/commit/f19442d9be5b672a807d2108657e195cce52ecba))
+
 ## [3.27.0](https://github.com/antonbabenko/deliberation/compare/v3.26.0...v3.27.0) (2026-10-08)
 
 
@@ -25,11 +32,4 @@
 ### Features
 
 * decouple consensus reasoning effort and add prompt cache and digest optimizations ([#228](https://github.com/antonbabenko/deliberation/issues/228)) ([aafee4e](https://github.com/antonbabenko/deliberation/commit/aafee4ebc88213e6e78af1b6e6b5ec74d1e97437))
-
-## [3.23.0](https://github.com/antonbabenko/deliberation/compare/v3.22.0...v3.23.0) (2026-10-06)
-
-
-### Features
-
-* add /deliberation:reload-mcp command, skill, and script across hosts ([#226](https://github.com/antonbabenko/deliberation/issues/226)) ([9138f41](https://github.com/antonbabenko/deliberation/commit/9138f41156cec7671495de94f538a12d77814546))
 
