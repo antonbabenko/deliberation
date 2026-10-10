@@ -63,6 +63,21 @@ function sanitizeAlias(raw) {
 // camelCase config keys map to wire fields HERE in the resolved layer: a model
 // entry's `reasoningEffort` becomes resolved `.reasoning_effort` (the wire field the
 // bridge call site reads). One place to map, documented at the assignment below.
+/**
+ * Resolve the orientation block. Default ON (schema and config.default.json agree): only an
+ * explicit `enabled: false` turns the auto-attached repo bundle off.
+ * @param {unknown} block
+ * @returns {{enabled:boolean, maxFiles:number, maxBytes:number}}
+ */
+function resolveOrientation(block) {
+  const o = isObject(block) ? block : {};
+  return {
+    enabled: o.enabled !== false,
+    maxFiles: Number.isInteger(o.maxFiles) && o.maxFiles > 0 ? o.maxFiles : 6,
+    maxBytes: Number.isInteger(o.maxBytes) && o.maxBytes >= 0 ? o.maxBytes : 16000,
+  };
+}
+
 function validateConfig(raw) {
   if (!isObject(raw)) return fail("config root must be a JSON object");
 
@@ -131,7 +146,7 @@ function validateConfig(raw) {
     resolved: {
       version,
       timeoutPolicy,
-      orientation:isObject(raw.orientation)?{enabled:raw.orientation.enabled===true,maxFiles:Number.isInteger(raw.orientation.maxFiles)&&raw.orientation.maxFiles>0?raw.orientation.maxFiles:6,maxBytes:Number.isInteger(raw.orientation.maxBytes)&&raw.orientation.maxBytes>=0?raw.orientation.maxBytes:16000}:{enabled:false,maxFiles:6,maxBytes:16000},
+      orientation: resolveOrientation(raw.orientation),
       providers: resolveProviders(providersRaw),
       openrouter: { enabled, apiKeyEnv, apiBase, allowRawModel, maxFanout, defaultModel, defaults, models, invalidModels },
       consensus,
@@ -642,6 +657,7 @@ function makeConfigReader(filePath) {
             providers: {},
             openrouter: disabledOpenRouter(),
             consensus: { arbiter: DEFAULT_ARBITER, arbiterDefaulted: true, blindVote: false, maxWallMs: DEFAULT_CONSENSUS_MAX_WALL_MS, quorumFloor: DEFAULT_CONSENSUS_QUORUM_FLOOR },
+            orientation: resolveOrientation(undefined),
             sessions: { persist: false, maxRecords: DEFAULT_SESSIONS_MAX_RECORDS, maxAgeDays: DEFAULT_SESSIONS_MAX_AGE_DAYS, captureText: false },
             dashboard: { enabled: false, capture: DEFAULT_DASHBOARD_CAPTURE, showPII: false, port: DEFAULT_DASHBOARD_PORT, maxRuns: DEFAULT_DASHBOARD_MAX_RUNS, maxAgeDays: DEFAULT_DASHBOARD_MAX_AGE_DAYS },
           },

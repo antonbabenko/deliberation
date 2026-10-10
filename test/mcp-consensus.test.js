@@ -203,13 +203,24 @@ function timeoutVoter(name) {
 }
 
 test("CA16: stopReason is surfaced in the tool payload when the loop circuit-breaks", async () => {
-  // Both peers/arbiter always timeout → after CIRCUIT_BREAK_AFTER=2 rounds the peer
-  // panel is empty → loop breaks with stopReason:"all-providers-circuit-broken".
+  // The arbiter works but the peer always times out -> after CIRCUIT_BREAK_AFTER=2 rounds
+  // the peer panel is empty -> loop breaks with stopReason:"all-providers-circuit-broken".
   // Before the I1 fix, stopReason was absent from the payload entirely.
+  const srv = buildServer({
+    providers: [approve("codex"), timeoutVoter("grok")],
+    getConfig: () => cfg({ maxRounds: 10, arbiter: "codex" }),
+  });
+  const payload = await callTool(srv, "consensus", { prompt: "q" }, 21);
+  assert.equal(payload.stopReason, "all-providers-circuit-broken");
+});
+
+test("CA16b: a dead arbiter stops the loop after its first failed revision, not after the breaker", async () => {
+  // Advancing with the unchanged plan would only re-run the same round.
   const srv = buildServer({
     providers: [timeoutVoter("codex"), timeoutVoter("grok")],
     getConfig: () => cfg({ maxRounds: 10 }),
   });
-  const payload = await callTool(srv, "consensus", { prompt: "q" }, 21);
-  assert.equal(payload.stopReason, "all-providers-circuit-broken");
+  const payload = await callTool(srv, "consensus", { prompt: "q" }, 22);
+  assert.equal(payload.stopReason, "arbiter-revision-failed");
+  assert.equal(payload.rounds, 0);
 });

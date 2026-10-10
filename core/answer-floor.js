@@ -22,8 +22,8 @@
 // "I will.", "I'll go with option B because..." and "Let me be clear: no." are complete
 // short answers, and with a floor of 1 they would otherwise be the new false positives.
 //
-// ponytail: an opening-phrase regex is a proxy for "announced intent instead of answering";
-// upgrade to a structured-output check once parseOpinion is wired into the pipeline.
+// shortcut: an opening-phrase regex is a proxy for "announced intent instead of answering";
+// upgrade to a structured-output check if providers ever return a parsed envelope.
 
 const DEFAULT_MIN_ANSWER_CHARS = 1;
 const INTENT_STUB_MAX_CHARS = 400;

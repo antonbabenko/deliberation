@@ -68,7 +68,7 @@ User question or topic: $ARGUMENTS
    **Server auto-attach (if configured):** when `orientation.enabled` is `true` in
    `config.json`, the server automatically attaches the orientation bundle to file-blind
    delegates that carry no files of their own - so the manual embedding above becomes
-   optional for those providers. When `orientation.enabled` is `false` (the default),
+   optional for those providers. When `orientation.enabled` is `false`,
    the manual approach above is the only way to give file-blind delegates repo context.
 
 4. **Set cwd** - use `process.cwd()` as the MCP `cwd`; the server resolves each provider's working directory from it.

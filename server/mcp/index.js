@@ -1026,7 +1026,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         ? maxRoundsOverride
         : (Number.isInteger(cc.maxRounds) && cc.maxRounds > 0 ? cc.maxRounds : undefined);
       const maxWallMs = Number.isInteger(cc.maxWallMs) && cc.maxWallMs > 0 ? cc.maxWallMs : undefined;
-      const out = await runToConvergence(peers, withPersona(req, expert), { arbiter: arbiterP, maxRounds, maxWallMs, quorumFloor, logger: currentLogger(), orientationFiles: orient(req), startedAt, trace });
+      const out = await runToConvergence(peers, withPersona(req, expert), { arbiter: arbiterP, maxRounds, maxWallMs, quorumFloor, blindVote: !!cc.blindVote, logger: currentLogger(), orientationFiles: orient(req), startedAt, trace });
       const allWarnings = out.error ? warnings.concat([`loop: ${out.error}`]) : warnings;
       const rounds = Array.isArray(out.rounds) ? out.rounds.length : 0;
       const arbiter = { mode: "server", provider: arbiterP.name };
@@ -1148,6 +1148,21 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         parts: null,
       };
     }
+  }
+
+  const EXCERPT_EDGE_CHARS = 600;
+  /**
+   * The text a non-APPROVE voice with no parsed issues sent, bounded to its first and last
+   * 600 characters (the verdict and bottom line sit at the end). Undefined otherwise.
+   * @param {any} r  a parsed peer result
+   * @returns {(string|undefined)}
+   */
+  function dissentExcerpt(r) {
+    if (!r || r.isError || r.verdict === "APPROVE" || (Array.isArray(r.criticalIssues) && r.criticalIssues.length)) return undefined;
+    const text = typeof r.text === "string" ? r.text.trim() : "";
+    if (!text) return undefined;
+    if (text.length <= 2 * EXCERPT_EDGE_CHARS) return text;
+    return `${text.slice(0, EXCERPT_EDGE_CHARS)}\n...[cut]...\n${text.slice(-EXCERPT_EDGE_CHARS)}`;
   }
 
   /**
@@ -1374,7 +1389,10 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
           // reasoning effort per voice (no more hardcoded "n/a") and a time footer.
           // An errored voice keeps its bounded message: that is where a codex login link and
           // code reach the host.
-          opinions: results.map((r) => ({ source: r.source, isError: r.isError, errorKind: r.errorKind, ...(r.isError && r.message ? { message: r.message } : {}), verdict: r.verdict, criticalIssues: r.criticalIssues, model: r.model, reasoningEffort: r.reasoningEffort, ms: r.ms })),
+          // A dissent with no `[category]` bullets would otherwise reach the adjudicator as
+          // "REQUEST_CHANGES (0 critical)" - nothing to accept or dismiss, so the same dissent
+          // returns every round. Such a voice carries a bounded excerpt of its text instead.
+          opinions: results.map((r) => ({ source: r.source, isError: r.isError, errorKind: r.errorKind, ...(r.isError && r.message ? { message: r.message } : {}), verdict: r.verdict, criticalIssues: r.criticalIssues, ...(dissentExcerpt(r) ? { excerpt: dissentExcerpt(r) } : {}), model: r.model, reasoningEffort: r.reasoningEffort, ms: r.ms })),
           // Peers the breaker has removed. Reported so the panel can say so ONCE
           // instead of relisting them as ERRORED every round.
           ...(newlyDropped.length ? { droppedProviders: newlyDropped } : {}),

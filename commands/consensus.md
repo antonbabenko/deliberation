@@ -172,8 +172,10 @@ in-memory `LoopState` for that `sessionId` may be gone, so recover by re-running
    The server selects the voting panel (enabled built-ins + eligible OpenRouter delegates,
    from the live hot-reloaded config) and fans out in parallel, then parses each reply.
    It returns `opinions[]`: one
-   `{ source, isError, errorKind?, message?, verdict, criticalIssues, model, reasoningEffort, ms }`
-   per voice (`message` only on an errored voice, bounded plain text). `source` is `codex`, `gemini`, `grok`, or `openrouter:<alias>`.
+   `{ source, isError, errorKind?, message?, verdict, criticalIssues, excerpt?, model, reasoningEffort, ms }`
+   per voice (`message` only on an errored voice, bounded plain text; `excerpt` only on a
+   non-APPROVE voice whose reply had no `[category]` bullets: the first and last 600
+   characters of its text, so you can still turn its objection into a decision). `source` is `codex`, `gemini`, `grok`, or `openrouter:<alias>`.
    - On **round 1 only**, print the panel block (one line per voice from `opinions[]`),
      showing the real reasoning effort - `reasoningEffort` for the HTTP voices (Grok,
      OpenRouter), or `n/a (CLI)` when it is `null` (Codex, Gemini have no such knob):
@@ -236,7 +238,7 @@ in-memory `LoopState` for that `sessionId` may be gone, so recover by re-running
    `config.json`, the server auto-attaches the orientation bundle to file-blind voices
    that carry no files of their own on `dispatch_peers` AND on the arbiter blind pass.
    Adjudication and revision passes are NOT oriented (they reason over opinion text).
-   When `orientation.enabled` is `false` (the default), the manual embedding above is
+   When `orientation.enabled` is `false`, the manual embedding above is
    the only way to give file-blind voices repo context.
 
 5. **Adjudicate (the arbiter role).** Build the issue pool from every RESPONDING voice's
