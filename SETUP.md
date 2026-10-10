@@ -27,7 +27,7 @@ The config sections: `providers` (transport / connection per provider),
 `consensus` (`arbiter` = who synthesizes the verdict; optional `blindVote` for a blind
 arbiter pre-vote), `sessions` (opt-in run persistence; default off - see
 [Session persistence](#session-persistence)), `debug` (opt-in debug log; default off),
-`orientation` (opt-in repo bundle for file-blind providers; default off), and `dashboard`
+`orientation` (repo bundle for file-blind providers; default on), and `dashboard`
 (opt-in run journal and local browser view; default off - see [Dashboard](#dashboard)).
 The `$schema` key gives editors validation and autocomplete - VS Code needs no extension.
 

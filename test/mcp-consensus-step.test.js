@@ -67,6 +67,23 @@ test("CS2: full happy path converges in round 1", async () => {
   assert.ok(typeof adj.finalReport === "string" && adj.finalReport.length > 0);
 });
 
+test("CS2b: a dissent with no [category] bullets carries a bounded excerpt; tagged or approving voices do not", async () => {
+  const prose = "The plan skips the rollback step entirely. " + "z".repeat(2000) + "\nVERDICT: REQUEST_CHANGES";
+  const srv = buildServer({ providers: [peer("codex", () => prose), revSensitive("grok"), approve("gemini")], getConfig: () => config });
+  const init = await step(srv, { action: "init", prompt: "ship it" }, 2);
+  const sid = init.sessionId;
+  await step(srv, { action: "record_blind", sessionId: sid, blindVerdict: "APPROVE" }, 3);
+  const dp = await step(srv, { action: "dispatch_peers", sessionId: sid }, 4);
+  const by = Object.fromEntries(dp.opinions.map((/** @type {any} */ o) => [o.source, o]));
+  assert.equal(by.codex.verdict, "REQUEST_CHANGES");
+  assert.deepEqual(by.codex.criticalIssues, []);
+  assert.match(by.codex.excerpt, /^The plan skips the rollback step/);
+  assert.match(by.codex.excerpt, /\.\.\.\[cut\]\.\.\.\n[\s\S]*VERDICT: REQUEST_CHANGES$/);
+  assert.ok(by.codex.excerpt.length <= 1200 + "\n...[cut]...\n".length);
+  assert.equal("excerpt" in by.grok, false, "a voice with parsed issues needs no excerpt");
+  assert.equal("excerpt" in by.gemini, false, "an approving voice needs no excerpt");
+});
+
 test("CS3: out-of-order action -> structured error (no throw)", async () => {
   const srv = buildServer({ providers: [approve("codex")], getConfig: () => config });
   const init = await step(srv, { action: "init", prompt: "x" }, 6);

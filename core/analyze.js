@@ -28,6 +28,16 @@ const MIN_BASELINE_MS = 200;
 const MIN_CALLS = 2;
 /** Absolute slow gate (ms): a p95 at/above this is flagged regardless of the panel median. */
 const ABS_SLOW_MS = 120000;
+/** The absolute gate for a model seen under a consensus tool: a deep review of a long plan
+ * routinely takes 2-5 minutes on every model, and flagging the whole panel at 120 s only
+ * recommended cutting reasoning everywhere. */
+const CONSENSUS_ABS_SLOW_MS = 360000;
+const CONSENSUS_TOOLS = new Set(["consensus", "consensus-step"]);
+
+/** The absolute gate that applies to a row: the consensus gate when any of its calls ran under a consensus tool. */
+function absSlowMsFor(/** @type {ModelStat} */ s) {
+  return (s.tools || []).some((t) => CONSENSUS_TOOLS.has(t)) ? CONSENSUS_ABS_SLOW_MS : ABS_SLOW_MS;
+}
 /** Error rate at/above this flags a model as unreliable. */
 const HIGH_ERROR_RATE = 0.5;
 /** Agreement rate at/above this (with enough votes) marks a model as rarely-dissenting. */
@@ -373,7 +383,8 @@ function aggregateAgreement(records) {
  * eligible model's p95 (floored at MIN_BASELINE_MS), so a panel with several slow
  * models still flags them all against the fast ones - and a uniformly-slow panel
  * flags none. A model is "slow-relative" when its p95 >= SLOW_FACTOR x that
- * baseline, "slow-absolute" when its p95 >= ABS_SLOW_MS, "high-error" when
+ * baseline, "slow-absolute" when its p95 >= ABS_SLOW_MS (CONSENSUS_ABS_SLOW_MS for a model
+ * seen under a consensus tool), "high-error" when
  * errorRate >= HIGH_ERROR_RATE. Models below MIN_CALLS are never flagged.
  * @param {ModelStat[]} stats
  * @returns {Outlier[]}
@@ -395,8 +406,9 @@ function detectOutliers(stats) {
     }
     const p95 = s.ms.p95;
     if (p95 == null || s.okCalls < MIN_CALLS || baseline == null) continue;
-    if (p95 >= ABS_SLOW_MS) {
-      out.push({ provider: s.provider, model: s.model, kind: "slow-absolute", detail: `p95 ${p95}ms (>= ${ABS_SLOW_MS}ms)` });
+    const absGate = absSlowMsFor(s);
+    if (p95 >= absGate) {
+      out.push({ provider: s.provider, model: s.model, kind: "slow-absolute", detail: `p95 ${p95}ms (>= ${absGate}ms)` });
     } else if (p95 >= SLOW_FACTOR * baseline) {
       out.push({ provider: s.provider, model: s.model, kind: "slow-relative", detail: `p95 ${p95}ms vs fastest-peer baseline ${Math.round(baseline)}ms` });
     }
@@ -931,6 +943,7 @@ module.exports = {
   SLOW_FACTOR,
   MIN_CALLS,
   ABS_SLOW_MS,
+  CONSENSUS_ABS_SLOW_MS,
   HIGH_ERROR_RATE,
   HIGH_AGREEMENT,
   MIN_VOTES,

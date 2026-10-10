@@ -803,3 +803,19 @@ test("DM5: non-boolean default in model record lands in invalidModels", () => {
   assert.equal(resolved.openrouter.invalidModels.length, 1);
   assert.match(resolved.openrouter.invalidModels[0].reason, /default must be a boolean/);
 });
+
+test("ORC1: an omitted orientation block resolves to enabled:true (default ON, matching the schema)", () => {
+  const { resolved } = validateConfig(base());
+  assert.deepEqual(resolved.orientation, { enabled: true, maxFiles: 6, maxBytes: 16000 });
+});
+
+test("ORC2: orientation.enabled:false is honored; a block without `enabled` stays ON", () => {
+  assert.equal(validateConfig({ ...base(), orientation: { enabled: false } }).resolved.orientation.enabled, false);
+  assert.deepEqual(validateConfig({ ...base(), orientation: { maxFiles: 2 } }).resolved.orientation, { enabled: true, maxFiles: 2, maxBytes: 16000 });
+});
+
+test("ORC3: a missing config file resolves orientation ON too", () => {
+  const r = makeConfigReader(path.join(os.tmpdir(), "definitely-absent-orc.json")).get();
+  assert.equal(r.ok, true);
+  assert.equal(r.resolved.orientation.enabled, true);
+});

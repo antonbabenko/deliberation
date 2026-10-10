@@ -61,7 +61,7 @@
     "captureText": false
   },
   "orientation": {
-    "enabled": false,
+    "enabled": true,
     "maxFiles": 6,
     "maxBytes": 16000
   },

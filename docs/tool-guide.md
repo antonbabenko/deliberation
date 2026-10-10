@@ -22,7 +22,8 @@ Fan-out and single-provider:
 - `ask-all` - send one question to GPT, Gemini, Grok, and configured OpenRouter
   models in parallel, get every answer back independently (no cross-talk).
 - `consensus` - run the FULL multi-round convergence loop server-side with a provider
-  arbiter (blind pass + peer fan-out -> adjudicate -> revise) and get the converged
+  arbiter (peer fan-out -> adjudicate -> revise, plus a blind pass per round when
+  `consensus.blindVote` is on) and get the converged
   verdict in one call. Depth is `consensus.maxRounds` (config, default 5); pass
   `maxRounds` to override. Pass `synthesizeAlways:true` for a SINGLE arbiter synthesis
   pass instead of the loop (best for open questions): it returns a free-text `synthesis`
@@ -124,14 +125,14 @@ These apply to every MCP host, not just Claude Code:
 
 - **Per-provider progress** - prefer `panel` + parallel `ask-one` (above) when you want
   to watch each model finish instead of waiting on one opaque `ask-all` call.
-- **Orientation auto-attach** - set `"orientation": { "enabled": true }` in `config.json`
-  to have the server automatically attach a small repo bundle (AGENTS.md or CLAUDE.md,
+- **Orientation auto-attach** - on by default (`"orientation": { "enabled": true }` in
+  `config.json`): the server automatically attaches a small repo bundle (AGENTS.md or CLAUDE.md,
   manifests, and README.md, up to `maxFiles` files, default 6, within a `maxBytes`
   content budget, default 16000 bytes, about 4K tokens; a file that does not fit is
   cut and marked as truncated) to file-blind
   providers (Grok, OpenRouter) when they carry no files of their own. This gives them the
-  same repo grounding that Codex and Gemini get by walking the filesystem. OFF by default;
-  enable when file-blind providers underperform on repo-wide questions.
+  same repo grounding that Codex and Gemini get by walking the filesystem. Set `enabled` to
+  `false` to opt out when the repo root holds files you do not want sent to those providers.
 - **Timeouts** - each provider ships its own ceiling (codex 600s, gemini 300s, grok 180s,
   OpenRouter 180s). Raise them all with `"providers": { "defaults": { "timeout": 600000 } }`;
   override one with `providers.<name>.timeout` (`providers.openrouter.defaults.timeout` for

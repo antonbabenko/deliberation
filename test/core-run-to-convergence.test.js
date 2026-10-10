@@ -109,9 +109,45 @@ test("RC5: a failing blind arbiter pass is isolated (run still completes)", asyn
   const peers = [stub("gpt", () => "**Verdict**: APPROVE")];
   /** @type {any} */
   let out;
-  await assert.doesNotReject(async () => { out = await runToConvergence(peers, REQ, { arbiter: arb }); });
+  await assert.doesNotReject(async () => { out = await runToConvergence(peers, REQ, { arbiter: arb, blindVote: true }); });
   assert.equal(out.converged, true);
   assert.ok(calls > 0);
+});
+
+test("RC5b: the blind pass is off by default - one arbiter call per all-approve round, two with blindVote", async () => {
+  // The blind text is never read by the convergence rule or the arbiter prompts, so it
+  // was one arbiter call per round bought for nothing.
+  const count = async (/** @type {boolean|undefined} */ blindVote) => {
+    let calls = 0;
+    const arb = stub("arb", (p) => { calls++; return p.includes("ADJUDICATE") ? "**Verdict**: APPROVE" : "**Verdict**: APPROVE"; });
+    const out = await runToConvergence([stub("gpt", () => "**Verdict**: APPROVE")], REQ, { arbiter: arb, blindVote });
+    assert.equal(out.converged, true);
+    return calls;
+  };
+  assert.equal(await count(undefined), 1);
+  assert.equal(await count(true), 2);
+});
+
+test("RC-revision-failed: a failed revision leg stops the loop instead of re-running the same plan", async () => {
+  const peers = [stub("gpt", () => "**Verdict**: REQUEST_CHANGES\n- [ops] no rollback")];
+  let peerRounds = 0;
+  peers[0].ask = /** @type {any} */ (async () => { peerRounds++; return { provider: "gpt", model: "s", isError: false, text: "**Verdict**: REQUEST_CHANGES\n- [ops] no rollback", ms: 1 }; });
+  const arb = stub("arb", (p) => (p.includes("ADJUDICATE") ? "**Verdict**: REQUEST_CHANGES" : p.includes("REVISE") ? "" : "**Verdict**: APPROVE"));
+  const out = await runToConvergence(peers, REQ, { arbiter: arb, maxRounds: 5 });
+  assert.equal(out.converged, false);
+  assert.equal(out.stopReason, "arbiter-revision-failed");
+  assert.equal(peerRounds, 1, "the unchanged plan is not sent to the peers again");
+});
+
+test("RC-digest: round 2's prompt lists the issues addressed and the diff, not a fixed label", async () => {
+  /** @type {string[]} */ const peerPrompts = [];
+  const peer = stub("gpt", (p) => { peerPrompts.push(p); return p.includes("REVISED") ? "**Verdict**: APPROVE" : "**Verdict**: REQUEST_CHANGES\n- [ops] no rollback step"; });
+  const out = await runToConvergence([peer], REQ, { arbiter: smartArbiter(), maxRounds: 3 });
+  assert.equal(out.converged, true);
+  assert.equal(peerPrompts.length, 2);
+  assert.match(peerPrompts[1], /Round 1 \(REQUEST_CHANGES\): \+\d+ lines/);
+  assert.match(peerPrompts[1], /Addressed \(1\): \[ops\] no rollback step/);
+  assert.doesNotMatch(peerPrompts[1], /arbiter revision/);
 });
 
 test("RC6: no arbiter -> graceful error, no throw", async () => {
@@ -181,8 +217,10 @@ test("RC11: a revision leg that throws SYNCHRONOUSLY on a dissent round is isola
   /** @type {any} */
   let out;
   await assert.doesNotReject(async () => { out = await runToConvergence(peers, REQ, { arbiter, maxRounds: 2 }); });
-  assert.equal(out.converged, false); // revision threw -> plan never changes -> peer keeps dissenting
-  assert.equal(out.rounds.length, 2); // both rounds still ran despite the throwing revision leg
+  assert.equal(out.converged, false);
+  // revision threw -> no revised plan -> the loop stops rather than re-sending the same plan
+  assert.equal(out.stopReason, "arbiter-revision-failed");
+  assert.equal(out.rounds.length, 0);
 });
 
 test("RC12: all peers APPROVE but arbiter blocks -> serial revision runs (the !peerDissent post-break path)", async () => {
@@ -280,7 +318,7 @@ test("OT4b: a dissent-then-converge run emits state sequence per round, ending u
   const trace = { journal, runId: "run-1" };
   const peers = [stub("gpt", () => "**Verdict**: REQUEST_CHANGES\n- [ops] x")];
   const arb = stub("arb", (p) => (p.includes("ADJUDICATE") ? "**Verdict**: REQUEST_CHANGES" : p.includes("REVISE") ? "still not enough" : "**Verdict**: REQUEST_CHANGES"));
-  await runToConvergence(peers, REQ, { arbiter: arb, maxRounds: 2, trace });
+  await runToConvergence(peers, REQ, { arbiter: arb, maxRounds: 2, trace, blindVote: true });
   const stateEvents = events.filter((e) => e.k === "state");
   assert.deepEqual(stateEvents.map((e) => e.f.state), ["blind", "peers", "adjudicate", "revise", "blind", "peers", "adjudicate", "revise", "unresolved"]);
   assert.deepEqual(stateEvents.map((e) => e.f.round), [1, 1, 1, 1, 2, 2, 2, 2, 2]);
@@ -298,7 +336,7 @@ test("OT4c: peer and arbiter calls carry role and round in call_start", async ()
   const { journal, events } = recordingJournal();
   const trace = { journal, runId: "run-1" };
   const peers = [stub("gpt", () => "**Verdict**: APPROVE")];
-  await runToConvergence(peers, REQ, { arbiter: smartArbiter(), trace });
+  await runToConvergence(peers, REQ, { arbiter: smartArbiter(), trace, blindVote: true });
   const starts = events.filter((e) => e.k === "call_start");
   const peerStart = starts.find((e) => e.f.provider === "gpt");
   const blindStart = starts.find((e) => e.f.role === "blind");

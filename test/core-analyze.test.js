@@ -148,6 +148,20 @@ test("A6: detectOutliers flags slow-relative, slow-absolute, high-error; gates o
   assert.ok(!kinds.has("once"), "single-call models are not flagged");
 });
 
+test("A6b: the absolute slow gate is higher for a model seen under a consensus tool", () => {
+  // A deep review of a long plan takes minutes on every model; 120 s flagged the whole
+  // consensus panel and recommended cutting reasoning everywhere.
+  const stats = aggregateByModel([
+    ev("ask", "m", 200000), ev("ask", "m", 200000),
+    ev("review", "m", 200000, { tool: "consensus" }), ev("review", "m", 200000, { tool: "consensus-step" }),
+    ev("deep", "m", 400000, { tool: "consensus" }), ev("deep", "m", 400000, { tool: "consensus" }),
+  ]);
+  const kinds = new Map(detectOutliers(stats).map((o) => [o.provider, o.kind]));
+  assert.equal(kinds.get("ask"), "slow-absolute");
+  assert.equal(kinds.has("review"), false, "200 s under consensus is not an absolute outlier");
+  assert.equal(kinds.get("deep"), "slow-absolute");
+});
+
 test("A7: recommend suggests askAll=false + reasoning for a slow OpenRouter model, advisory only", () => {
   const stats = aggregateByModel([
     ev("grok", "grok-m", 100), ev("grok", "grok-m", 100),

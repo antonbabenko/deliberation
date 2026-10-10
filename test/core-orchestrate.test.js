@@ -149,19 +149,21 @@ test("C6: buildArbiterPrompt anonymizes opinion labels (no provider names leak)"
   assert.match(prompt, /the question/);
 });
 
-test("C6b: buildArbiterPrompt caps an over-long opinion and marks it; short ones untouched", () => {
-  const long = "x".repeat(5000);
+test("C6b: buildArbiterPrompt caps an over-long opinion keeping head AND tail; short ones untouched", () => {
+  // The verdict sits at the END of a review: a head-only cut dropped it.
+  const long = "x".repeat(5000) + "\nVERDICT: REJECT";
   const opinions = /** @type {any} */ ([
     { provider: "codex", text: long },
     { provider: "gemini", text: "short body" },
   ]);
   const prompt = buildArbiterPrompt("q", opinions);
-  // long opinion is truncated to the cap + marker, not inlined whole
   assert.equal(prompt.includes("x".repeat(5000)), false, "uncapped long opinion leaked into prompt");
-  assert.match(prompt, /x{2000}\n\.\.\.\[truncated\]/);
+  assert.match(prompt, /x{1800}\n\.\.\.\[cut\]\.\.\.\nx+\nVERDICT: REJECT/);
+  const block = prompt.slice(prompt.indexOf("### Opinion 1"), prompt.indexOf("### Opinion 2"));
+  assert.ok(block.length <= 3000 + "### Opinion 1\n".length + "\n...[cut]...\n".length + 2, "block stays within the cap");
   // short opinion is left exactly as-is (no marker)
   assert.match(prompt, /### Opinion 2\nshort body/);
-  assert.equal((prompt.match(/\[truncated\]/g) || []).length, 1);
+  assert.equal((prompt.match(/\[cut\]/g) || []).length, 1);
 });
 
 test("C6c: buildAdjudicationPrompt caps a peer block with many long issues", () => {
@@ -171,7 +173,7 @@ test("C6c: buildAdjudicationPrompt caps a peer block with many long issues", () 
     { source: "gemini", isError: false, verdict: "APPROVE", criticalIssues: [] },
   ]);
   const prompt = buildAdjudicationPrompt({ currentPlan: "the plan" }, results);
-  assert.match(prompt, /\.\.\.\[truncated\]/); // the verbose peer was capped
+  assert.match(prompt, /\.\.\.\[cut\]\.\.\./); // the verbose peer was capped
   assert.match(prompt, /Peer gemini: APPROVE/); // the short peer is intact
   assert.match(prompt, /the plan/);
 });
@@ -275,7 +277,7 @@ test("ORX9: runToConvergence adjudication/revision passes are NOT oriented (only
   const peer = /** @type {any} */ ({ name: "p", capabilities: { walksFilesystem: false },
     async health() { return { ok: true }; },
     async ask() { return { provider: "p", model: "m", text: "**Verdict**: APPROVE", isError: false, ms: 0 }; } });
-  await runToConvergence([peer], { prompt: "the plan" }, { arbiter, orientationFiles: BUNDLE });
+  await runToConvergence([peer], { prompt: "the plan" }, { arbiter, orientationFiles: BUNDLE, blindVote: true });
   const blind = calls.find((c) => c.kind === "blind");
   const adjudication = calls.find((c) => c.kind === "adjudication");
   assert.deepEqual(blind.files, BUNDLE, "blind pass (cold question) is oriented");
@@ -610,7 +612,7 @@ test("OT4: runToConvergence converging in round 1 emits state sequence [blind, p
     async ask() { return { provider: "p", model: "m", text: "**Verdict**: APPROVE", isError: false, ms: 1 }; } });
   const arbiter = /** @type {any} */ ({ name: "arb", capabilities: {}, async health() { return { ok: true }; },
     async ask() { return { provider: "arb", model: "m", text: "**Verdict**: APPROVE", isError: false, ms: 1 }; } });
-  await runToConvergence([peer], { prompt: "plan" }, { arbiter, trace });
+  await runToConvergence([peer], { prompt: "plan" }, { arbiter, trace, blindVote: true });
   const stateEvents = events.filter((e) => e.k === "state");
   assert.deepEqual(stateEvents.map((e) => e.f.state), ["blind", "peers", "adjudicate", "converged"]);
   assert.ok(stateEvents.every((e) => e.f.round === 1));

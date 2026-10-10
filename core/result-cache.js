@@ -39,8 +39,9 @@ const DEFAULT_TTL_MS = 600000; // 10 minutes
 
 /**
  * Stable cache key for a (provider, request) pair. Only the fields that change
- * the model's answer participate; everything else (threadId, cwd, timeout) is
- * deliberately excluded so retries/timeouts do not fragment the key.
+ * the model's answer participate - `cwd` included, since Codex and Gemini read the
+ * working directory; everything else (threadId, timeout) is deliberately excluded
+ * so retries/timeouts do not fragment the key.
  * @param {string} providerName
  * @param {DelegationRequest} req
  * @returns {string}

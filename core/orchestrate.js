@@ -480,17 +480,21 @@ async function askOne(provider, req, opts = {}) {
 // Per-opinion cap for the arbiter prompt. The arbiter inlines every peer opinion
 // into ONE prompt, so worst-case size is (peers x opinion length). Cap each block
 // so one rambly model can't blow the arbiter's context or crowd out the others.
-// ~2k chars keeps a full verdict + rationale while bounding the total.
-const MAX_PEER_OPINION_CHARS = 2000;
+// Head AND tail are kept: the review format puts the verdict and bottom line LAST, so a
+// head-only cut handed the arbiter a long review's preamble and dropped its conclusion.
+const MAX_PEER_OPINION_CHARS = 3000;
+const PEER_OPINION_HEAD_CHARS = 1800;
+const PEER_OPINION_CUT_MARKER = "\n...[cut]...\n";
 
 /**
- * Cap a peer opinion's text for inlining, appending a marker when truncated.
+ * Cap a peer opinion's text for inlining: first 1800 chars, a marker, the last 1200.
  * @param {string} text
  * @returns {string}
  */
 function capPeerOpinion(text) {
   if (typeof text !== "string" || text.length <= MAX_PEER_OPINION_CHARS) return text;
-  return text.slice(0, MAX_PEER_OPINION_CHARS) + "\n...[truncated]";
+  const tail = MAX_PEER_OPINION_CHARS - PEER_OPINION_HEAD_CHARS;
+  return text.slice(0, PEER_OPINION_HEAD_CHARS) + PEER_OPINION_CUT_MARKER + text.slice(-tail);
 }
 
 /**
@@ -641,12 +645,16 @@ function okText(/** @type {any} */ res) {
  * revision keeps the current plan.
  * @param {Provider[]} providers  peer panel
  * @param {DelegationRequest} req  `prompt` is the initial plan
- * @param {{arbiter?:Provider, maxRounds?:number, maxWallMs?:number, quorumFloor?:number, now?:()=>number, logger?:Logger, orientationFiles?:import("./types.js").FileRef[], startedAt?:number, trace?:Trace}} [opts]
+ * @param {{arbiter?:Provider, maxRounds?:number, maxWallMs?:number, quorumFloor?:number, blindVote?:boolean, now?:()=>number, logger?:Logger, orientationFiles?:import("./types.js").FileRef[], startedAt?:number, trace?:Trace}} [opts]
  * @returns {Promise<{converged:boolean, verdict:(string|null), confidence:string, finalReport?:string, rounds:any[], opinions:any[], error?:string, stopReason?:string}>}
  */
 async function runToConvergence(providers, req, opts = {}) {
   const arbiter = opts.arbiter;
   const trace = opts.trace;
+  // The blind pass is recorded on the round, never read by the convergence rule or the
+  // arbiter prompts, so it is one arbiter call per round bought for the record alone.
+  // Off unless consensus.blindVote asks for it (same key the single-shot path honors).
+  const blindVote = opts.blindVote === true;
   const logger = opts.logger || NULL_LOGGER;
   const now = typeof opts.now === "function" ? opts.now : Date.now;
   const maxWallMs = typeof opts.maxWallMs === "number" && opts.maxWallMs > 0 ? opts.maxWallMs : null;
@@ -698,15 +706,17 @@ async function runToConvergence(providers, req, opts = {}) {
       // Phase states fire on ENTRY (before the legs they describe run), matching
       // consensus()'s style, so a live UI shows the running phase during a
       // multi-minute fan-out rather than only after it settles.
-      traceState(trace, { state: "blind", round: roundNo, status: state.status });
+      if (blindVote) traceState(trace, { state: "blind", round: roundNo, status: state.status });
       traceState(trace, { state: "peers", round: roundNo, status: state.status });
       const [blindRes, peerResults] = await Promise.all([
-        tracedAsk(blindTrace, arbiter, fitToHostBudget(withOrientation(arbiter, { ...req, context: "consensus", prompt: blindPrompt }, opts.orientationFiles), capStartedAt), "null"),
+        blindVote
+          ? tracedAsk(blindTrace, arbiter, fitToHostBudget(withOrientation(arbiter, { ...req, context: "consensus", prompt: blindPrompt }, opts.orientationFiles), capStartedAt), "null")
+          : Promise.resolve(/** @type {DelegationResult|null} */ (null)),
         // Later rounds run on the SAME cap clock as round one - a fresh clock per fan-out
         // would hand round two the whole cap again.
         askAll(activeProviders, { ...req, context: "consensus", prompt: peerPrompt,deadlineAt:maxWallMs===null?req.deadlineAt:Math.min(req.deadlineAt??Infinity,Date.now()+maxWallMs-(now()-startedAt)) }, { logger, tool: "consensus", orientationFiles: opts.orientationFiles, startedAt: capStartedAt, trace: peerTrace }),
       ]);
-      state = loop.recordBlindVerdict(state, okText(blindRes) || "(blind pass unavailable)");
+      state = loop.recordBlindVerdict(state, okText(blindRes) || (blindVote ? "(blind pass unavailable)" : "(blind pass disabled)"));
 
       lastResults = peerResults.map((r) =>
         r.isError
@@ -759,8 +769,8 @@ async function runToConvergence(providers, req, opts = {}) {
 
       /** @type {"APPROVE"|"REQUEST_CHANGES"|"REJECT"} */
       let hostVerdict;
-      /** @type {string} */
-      let revised = state.currentPlan;
+      /** @type {(string|null)} */
+      let revised = null;
 
       if (peerDissent) {
         traceState(trace, { state: "adjudicate", round: roundNo, status: state.status, verdicts });
@@ -770,14 +780,20 @@ async function runToConvergence(providers, req, opts = {}) {
           askIsolated(buildRevisionPrompt(state, lastResults)),
         ]);
         hostVerdict = verdictFrom(adjudicateRes);
-        revised = okText(reviseRes) || state.currentPlan;
+        revised = okText(reviseRes);
       } else {
         traceState(trace, { state: "adjudicate", round: roundNo, status: state.status, verdicts });
         const adjudicateRes = await askIsolated(buildAdjudicationPrompt(state, lastResults));
         hostVerdict = verdictFrom(adjudicateRes);
       }
 
-      state = loop.submitAdjudication(state, { verdict: hostVerdict, decisions: [] });
+      // Every issue a dissenting peer raised is handed to the revision prompt, so record
+      // each as accepted: the next round's digest then lists them as addressed instead of
+      // showing an empty round, which made peers repeat the same issue.
+      const decisions = lastResults
+        .filter((r) => !r.isError && r.verdict !== "APPROVE")
+        .flatMap((r) => (r.criticalIssues || []).map((/** @type {any} */ i) => ({ source: r.source, category: i.category, description: i.description, action: /** @type {const} */ ("accept") })));
+      state = loop.submitAdjudication(state, { verdict: hostVerdict, decisions });
       if (state.status === "converged") traceState(trace, { state: "converged", round: roundNo, status: state.status });
       try {
         logger.logEvent({
@@ -795,9 +811,14 @@ async function runToConvergence(providers, req, opts = {}) {
         // The peerDissent branch above already emitted "revise" on entry; this is the
         // other path into a revision leg, so it gets its own entry here.
         traceState(trace, { state: "revise", round: roundNo, status: state.status });
-        revised = okText(await askIsolated(buildRevisionPrompt(state, lastResults))) || state.currentPlan;
+        revised = okText(await askIsolated(buildRevisionPrompt(state, lastResults)));
       }
-      state = loop.submitRevision(state, revised, "arbiter revision");
+      // A failed revision leg must not advance: the next round would send the SAME plan to
+      // every peer and buy the same dissent again. Stop with a named reason instead.
+      if (revised === null) { stopReason = "arbiter-revision-failed"; break; }
+      // No diffSummary: summarizePlanDiff then reports the line counts, so later rounds'
+      // digests say what changed rather than a fixed label.
+      state = loop.submitRevision(state, revised);
       if (state.status === "unresolved") traceState(trace, { state: "unresolved", round: roundNo, status: state.status });
     }
   } catch (e) {

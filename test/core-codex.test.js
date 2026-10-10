@@ -375,6 +375,18 @@ test("CX-refresh-2: codex's line and the fix lead the message, ahead of the bann
   assert.match(r.message, /banner line/, "the full output follows");
 });
 
+test("CX-echo-classify: 'auth'/'login'/'rate' inside the ECHOED prompt never decide the errorKind", () => {
+  // A security review prompt says "auth" on every line; a usage-limit 429 behind that echo
+  // read as `auth` (not retryable, "run codex login").
+  const prompt = "Review the authentication flow.\nDoes the login handler rate-limit retries?";
+  const stderr = `user\n${prompt}\nERROR: stream error: 429 Too Many Requests, rate limited`;
+  assert.deepEqual(classifyCodex(stderr, prompt), { errorKind: "rate-limit", retryable: true });
+  const unknown = `user\n${prompt}\nERROR: something else broke`;
+  assert.equal(classifyCodex(unknown, prompt).errorKind, "unknown");
+  // codex's OWN auth line still wins.
+  assert.equal(classifyCodex(`user\n${prompt}\nNot logged in. Run codex login.`, prompt).errorKind, "auth");
+});
+
 test("CX-refresh-4: codex echoes the prompt on stderr - a prompt ABOUT refresh tokens is not an auth failure", async () => {
   const stderr = "user\nreview the refresh token rotation in session.ts: why could the refresh token not be refreshed?\nERROR: stream error: 429 Too Many Requests, rate limited";
   assert.equal(classifyCodex(stderr).errorKind, "rate-limit");

@@ -43,19 +43,33 @@ const CODEX_REFRESH_HINT =
  * @returns {string|undefined}
  */
 function refreshFailureLine(stderr, prompt = "") {
-  // codex echoes the prompt on stderr, and a prompt may quote this very phrase. Each line of
-  // the prompt is consumed ONCE as echo, so the same line printed again by codex still counts.
+  const own = ownStderrLines(stderr, prompt);
   // Last one wins - errors follow the echo.
+  /** @type {string|undefined} */ let found;
+  for (const l of own) if (l.toLowerCase().includes(REFRESH_FAILURE)) found = l;
+  return found;
+}
+
+/**
+ * codex's OWN stderr lines: ANSI stripped, the echoed prompt removed. codex echoes the
+ * prompt on stderr, and a prompt may quote any error phrase ("auth", "rate", a refresh
+ * failure). Each line of the prompt is consumed ONCE as echo, so the same line printed
+ * again by codex still counts.
+ * @param {string} [stderr]
+ * @param {string} [prompt]
+ * @returns {string[]}
+ */
+function ownStderrLines(stderr, prompt = "") {
   /** @type {Map<string, number>} */ const echo = new Map();
   for (const l of String(prompt).split(/\r?\n/)) { const k = l.trim(); if (k) echo.set(k, (echo.get(k) || 0) + 1); }
-  /** @type {string|undefined} */ let found;
+  /** @type {string[]} */ const own = [];
   for (const raw of String(stderr || "").replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "").split(/\r?\n/)) {
     const l = raw.trim();
     const n = echo.get(l);
     if (n) { echo.set(l, n - 1); continue; }
-    if (l.toLowerCase().includes(REFRESH_FAILURE)) found = l;
+    own.push(l);
   }
-  return found;
+  return own;
 }
 
 /**
@@ -65,12 +79,15 @@ function refreshFailureLine(stderr, prompt = "") {
  * @returns {{errorKind:string, retryable:boolean}}
  */
 function classifyCodex(stderr, prompt) {
-  const s = (stderr || "").toLowerCase();
+  // Classify codex's own lines only: a security-review prompt says "auth" and "login" on
+  // every line, and a usage-limit 429 behind such an echo used to read as `auth` (not
+  // retryable, "run codex login").
+  const s = ownStderrLines(stderr, prompt).join("\n").toLowerCase();
   // A failed SPAWN is deliberately not classified here - see the `spawnFailed` flag in `ask`.
   // Matching "enoent"/"einval" as substrings would also fire on a codex run that legitimately
   // printed ENOENT about a file in the user's own repo, which is a normal thing for a coding
   // agent to say, and would then tell that user to go fix their CODEX_BIN.
-  if (s.includes("auth") || s.includes("login") || refreshFailureLine(stderr, prompt)) return { errorKind: "auth", retryable: false };
+  if (s.includes("auth") || s.includes("login") || s.includes(REFRESH_FAILURE)) return { errorKind: "auth", retryable: false };
   if (s.includes("timeout")) return { errorKind: "timeout", retryable: true };
   if (s.includes("rate")) return { errorKind: "rate-limit", retryable: true };
   return { errorKind: "unknown", retryable: false };

@@ -1027,7 +1027,10 @@ Constraints and behavior:
   (`"auto"`, a built-in, or a `{ model }` record). In `"host"` mode the server runs no
   arbiter pass, so there is no blind pass either - `blindVerdict` is `null`.
 - **Cost.** It adds one extra arbiter call (parallel, no extra round), which is why it is
-  off by default.
+  off by default. The same key gates the per-round blind pass of the multi-round loop
+  (`runToConvergence`): the loop records the blind text on the round but never reads it
+  for convergence or in the arbiter prompts, so with `blindVote` off the round records
+  `(blind pass disabled)` and skips the call.
 - **Failure-isolated.** A thrown blind pass yields `blindVerdict: null` and never fails the
   run. `blindVerdict` is also `null` when `blindVote` is off or no arbiter exists.
 - **Validation.** A non-boolean value soft-degrades to `false` with a warning - it never
@@ -1288,6 +1291,10 @@ slow answer is always collected in full. On exhaustion the loop stops with
 the start time on its stored state, since it is a series of stateless calls with no
 enclosing scope to hold it.
 
+The provider-arbiter loop also stops with `stopReason: "arbiter-revision-failed"` when the
+arbiter's revision leg returns no text (an error, a stub, a timeout): advancing with the
+unchanged plan would only send the same plan to every peer and buy the same dissent again.
+
 ### Timeouts
 
 Every provider call is bounded. The ceiling resolves highest-first:
@@ -1475,7 +1482,7 @@ pass when it is slow. A stub recovered after a soft timeout is not an answer eit
 falls through to the hard timeout.
 
 An opening-phrase check is still a proxy for "announced intent instead of answering" - the
-upgrade path is a structured-output check once `parseOpinion` is wired into the pipeline.
+upgrade path is a structured-output check if providers ever return a parsed envelope.
 
 **Grok.** `grok-4.6` is agentic-trained and is reached through ONE `/v1/responses` call with
 no tools declared. A prompt that mentions repositories or asks it to "verify the cited files"
@@ -1495,21 +1502,21 @@ standalone `grok` tool and the unified server share them:
 
 ## Orientation auto-attach
 
-An opt-in mechanism that automatically attaches a small repo orientation bundle to
+A mechanism, on by default, that automatically attaches a small repo orientation bundle to
 advisory calls targeting **file-blind providers** (Grok and OpenRouter), so they
 reach context parity with Codex and Gemini, which already walk `cwd` under their
-read-only sandboxes. Default OFF - nothing is attached unless `orientation.enabled`
-is `true`.
+read-only sandboxes. Default ON - set `orientation.enabled` to `false` when the repo
+root holds files you do not want sent to those providers.
 
 ### Configuration
 
 ```json
-"orientation": { "enabled": false, "maxFiles": 6, "maxBytes": 16000 }
+"orientation": { "enabled": true, "maxFiles": 6, "maxBytes": 16000 }
 ```
 
 | Key | Type | Default | Meaning |
 |-----|------|---------|---------|
-| `enabled` | boolean | `false` | Attach the bundle to file-blind providers when they carry no files. |
+| `enabled` | boolean | `true` | Attach the bundle to file-blind providers when they carry no files. |
 | `maxFiles` | integer | `6` | Cap on the number of files in the bundle. |
 | `maxBytes` | integer | `16000` | Content-byte budget for the whole bundle (about 4K tokens). `0` = no budget. |
 
@@ -1589,7 +1596,7 @@ attachments per the usual `mode` rules. Bundle entries carry `headBytes` and
 
 ### Manual override
 
-When `orientation.enabled` is `false` (the default), or when you need more than
+When `orientation.enabled` is `false`, or when you need more than
 `maxFiles` files for a particular query, embed the context manually in the `prompt`
 as described in the `ask-all` and `consensus` command files. The per-command
 guidance still applies and takes precedence over the auto-attach when you pass your
