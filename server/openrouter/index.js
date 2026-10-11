@@ -65,12 +65,15 @@ function parseCompletion(data) {
 }
 
 // One chat/completions call. Returns { text }. Errors carry .status and/or .code.
-async function callOpenRouter({ apiBase, apiKey, model, messages, reasoningEffort, temperature, timeoutMs, fetchImpl, hostBudgetRemainingMs, signal }) {
+async function callOpenRouter({ apiBase, apiKey, model, preset, messages, reasoningEffort, temperature, timeoutMs, fetchImpl, hostBudgetRemainingMs, signal }) {
   const f = fetchImpl || globalThis.fetch;
   if (typeof f !== "function") { const e = new Error("global fetch unavailable; Node 18+ required"); e.code = "network"; throw e; }
   const base = (apiBase || "https://openrouter.ai/api/v1").replace(/\/+$/, "");
   const url = `${base}/chat/completions`;
-  const payload = { model, messages, stream: false };
+  const payload = { messages, stream: false };
+  if (isNonEmptyString(model)) payload.model = model;
+  const p = isNonEmptyString(preset) ? preset.trim().replace(/^@preset\//, "") : undefined;
+  if (p) payload.preset = p;
   if (isNonEmptyString(reasoningEffort)) payload.reasoning = { effort: reasoningEffort };
   if (typeof temperature === "number") payload.temperature = temperature;
 
@@ -141,7 +144,7 @@ const { inlineFiles } = require("./files.js");
 const CONFIG_PATH = require("../../core/paths.js").resolveConfigPath();
 const configReader = makeConfigReader(CONFIG_PATH);
 
-// threadId -> { turns, model, apiBase, reasoningEffort, temperature }. In-memory,
+// threadId -> { turns, model, preset, apiBase, reasoningEffort, temperature }. In-memory,
 // process-lifetime only (lost on restart; openrouter-reply then returns unknown-thread).
 // Grows unbounded across distinct threads - acceptable: advisory sessions are short-lived
 // and the bridge is restarted on plugin upgrade. Mirrors server/grok/index.js sessions.
@@ -177,16 +180,38 @@ function buildInitialTurns(developerInstructions, prompt, blocks) {
   ];
 }
 
-// Resolve args -> delegate {model, ...overrides} or { _error: 'model-not-allowed' }.
+// Resolve args -> delegate {model, preset, ...overrides} or { _error: 'model-not-allowed' }.
 function resolveDelegate(or, args) {
   if (isNonEmptyString(args.alias)) {
-    return resolveAlias(or, args.alias) || { _error: "model-not-allowed" };
+    const d = resolveAlias(or, args.alias);
+    if (!d) return { _error: "model-not-allowed" };
+    return isNonEmptyString(args.preset) ? { ...d, preset: args.preset.trim() } : d;
   }
   if (isNonEmptyString(args.model)) {
     if (!or.allowRawModel) return { _error: "model-not-allowed" };
-    return { model: args.model.trim() };
+    return {
+      model: args.model.trim(),
+      preset: isNonEmptyString(args.preset) ? args.preset.trim() : (or.preset || (or.defaults && or.defaults.preset)),
+    };
   }
-  return resolveAlias(or, RESERVED_ALIAS) || { _error: "model-not-allowed" };
+  if (isNonEmptyString(args.preset)) {
+    const p = args.preset.trim().replace(/^@preset\//, "");
+    if (!or.allowRawModel) {
+      const allowedPresets = new Set(
+        [or.preset, or.defaults?.preset, ...(or.models || []).map((m) => m.preset)]
+          .filter(Boolean)
+          .map((s) => s.replace(/^@preset\//, ""))
+      );
+      if (!allowedPresets.has(p)) return { _error: "model-not-allowed" };
+    }
+    return { preset: p };
+  }
+  const def = resolveAlias(or, RESERVED_ALIAS);
+  if (def) return def;
+  if (or.preset || (or.defaults && or.defaults.preset)) {
+    return { preset: or.preset || (or.defaults && or.defaults.preset) };
+  }
+  return { _error: "model-not-allowed" };
 }
 
 const TOOL_PROPS = {
@@ -194,6 +219,7 @@ const TOOL_PROPS = {
   "developer-instructions": { type: "string", description: "Expert system instructions" },
   alias: { type: "string", description: "Configured delegate alias (preferred)" },
   model: { type: "string", description: "Raw OpenRouter model slug; honored only when allowRawModel:true" },
+  preset: { type: "string", description: "OpenRouter preset id or slug (e.g. 'cheapest-first')" },
   reasoning_effort: { type: "string", description: "low|medium|high (provider-dependent)" },
   temperature: { type: "number" },
   timeout: { type: "number", description: "Soft timeout ms, 1..600000" },
@@ -213,7 +239,7 @@ const handlers = {
     if (!respond) return;
     sendResponse(id, { tools: [
       { name: "openrouter", description: "Start an OpenRouter expert session (advisory only). Pick a configured `alias`.", inputSchema: { type: "object", properties: TOOL_PROPS, required: ["prompt"] } },
-      { name: "openrouter-reply", description: "Continue an OpenRouter session by threadId (in-memory; lost on restart).", inputSchema: { type: "object", properties: { threadId: { type: "string" }, prompt: { type: "string" }, files: TOOL_PROPS.files, roots: TOOL_PROPS.roots, alias: TOOL_PROPS.alias, model: TOOL_PROPS.model, reasoning_effort: TOOL_PROPS.reasoning_effort, temperature: TOOL_PROPS.temperature, timeout: TOOL_PROPS.timeout, cwd: TOOL_PROPS.cwd }, required: ["threadId", "prompt"] } },
+      { name: "openrouter-reply", description: "Continue an OpenRouter session by threadId (in-memory; lost on restart).", inputSchema: { type: "object", properties: { threadId: { type: "string" }, prompt: { type: "string" }, files: TOOL_PROPS.files, roots: TOOL_PROPS.roots, alias: TOOL_PROPS.alias, model: TOOL_PROPS.model, preset: TOOL_PROPS.preset, reasoning_effort: TOOL_PROPS.reasoning_effort, temperature: TOOL_PROPS.temperature, timeout: TOOL_PROPS.timeout, cwd: TOOL_PROPS.cwd }, required: ["threadId", "prompt"] } },
       { name: "openrouter-list", description: "List configured OpenRouter delegates and settings. Pass mode ('ask-all'|'consensus') + optional expert to also get the resolved `selected` delegate set (selection applied server-side from the live config).", inputSchema: { type: "object", properties: { mode: { type: "string", enum: ["ask-all", "consensus"] }, expert: { type: "string" } } } },
     ] });
   },
@@ -249,12 +275,14 @@ const handlers = {
       // Shape a resolved model into the wire form (matches `delegates` entries below).
       const shape = (m) => ({
         alias: m.alias, model: m.model, experts: m.experts, askAll: m.askAll, consensus: m.consensus, default: m.default === true,
+        preset: pick(undefined, m.preset, (or.defaults && or.defaults.preset) || or.preset) ?? null,
         // Resolved effort the bridge would use absent a per-call override: per-model > defaults > null.
         reasoning_effort: pick(undefined, m.reasoning_effort, or.defaults.reasoning_effort) ?? null,
       });
       const payload = {
         delegates: or.models.map(shape),
         defaultModel: or.defaultModel || null,
+        defaultPreset: or.preset || (or.defaults && or.defaults.preset) || null,
         defaultModelSet: !!or.defaultModel, maxFanout: or.maxFanout, maxFanoutHigh: or.maxFanout > 10,
         // Per-entry validation failures (kept-valid delegates above; these were skipped).
         // Each: { index, alias, reason, suggestedAlias? }. Empty when the config is clean.
@@ -297,13 +325,14 @@ const handlers = {
       threadId = args.threadId.trim();
       priorSession = sessions.get(threadId);
       if (!priorSession) { if (respond) sendResponse(id, errorResult(id, { code: "unknown-thread", message: `unknown threadId "${threadId}"` }, name, startedAt)); return; }
-      delegate = (args.alias || args.model) ? resolveDelegate(or, args) : { model: priorSession.model };
+      delegate = (args.alias || args.model || args.preset) ? resolveDelegate(or, args) : { model: priorSession.model, preset: priorSession.preset };
     } else {
       threadId = crypto.randomUUID();
       delegate = resolveDelegate(or, args);
     }
     if (delegate && delegate._error) { if (respond) sendResponse(id, errorResult(id, { code: delegate._error, message: "alias/model not in allowlist" }, name, startedAt)); return; }
-    if (!delegate || !delegate.model) { if (respond) sendResponse(id, errorResult(id, { code: "model-not-allowed", message: "no alias/model resolved and no defaultModel set" }, name, startedAt)); return; }
+    const effectivePreset = pick(args.preset, delegate && delegate.preset, (or.defaults && or.defaults.preset) || or.preset);
+    if (!delegate || (!delegate.model && !effectivePreset)) { if (respond) sendResponse(id, errorResult(id, { code: "model-not-allowed", message: "no alias/model resolved and no defaultModel set" }, name, startedAt)); return; }
 
     let blocks = [], notes = [];
     if (args.files) {
@@ -329,8 +358,8 @@ const handlers = {
       : buildInitialTurns(args["developer-instructions"], args.prompt, blocks);
 
     try {
-      const out = await callOpenRouter({ apiBase, apiKey, model: delegate.model, messages: buildMessages(turns), reasoningEffort, temperature, timeoutMs });
-      sessions.set(threadId, { turns: [...turns, { role: "assistant", text: out.text }], model: delegate.model, apiBase, reasoningEffort, temperature });
+      const out = await callOpenRouter({ apiBase, apiKey, model: delegate.model, preset: effectivePreset, messages: buildMessages(turns), reasoningEffort, temperature, timeoutMs });
+      sessions.set(threadId, { turns: [...turns, { role: "assistant", text: out.text }], model: delegate.model, preset: effectivePreset, apiBase, reasoningEffort, temperature });
       if (respond) {
         const text = notes.length ? `${out.text}\n\n[files] ${notes.join("; ")}` : out.text;
         sendResponse(id, { content: [{ type: "text", text }], threadId });

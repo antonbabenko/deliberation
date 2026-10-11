@@ -10,10 +10,12 @@ const MAX_SESSIONS = 100;
 
 /**
  * @param {Object} opts
- * @param {string} opts.name
+ * @param {string} [opts.name]
  * @param {string} opts.apiBase
  * @param {string} opts.apiKeyEnv
  * @param {(req:DelegationRequest)=>string} opts.resolveModel
+ * @param {(req:DelegationRequest)=>(string|undefined)} [opts.resolvePreset]
+ * @param {string} [opts.preset]
  * @param {Object} [opts.bridge]  // injectable for tests; defaults to the real bridge
  * @param {number} [opts.timeoutMs]  construction-time default per-call ceiling (ms), from
  *   providers.openrouter.timeout / providers.defaults.timeout. A pinned alias's
@@ -21,7 +23,7 @@ const MAX_SESSIONS = 100;
  * @returns {Provider}
  */
 function makeOpenAICompatibleProvider(opts) {
-  const { name = "openrouter", apiBase, apiKeyEnv, resolveModel } = opts;
+  const { name = "openrouter", apiBase, apiKeyEnv, resolveModel, resolvePreset, preset: defaultPreset } = opts;
   // Undefined (not 0) when unset, so the bridge applies its own default.
   const defaultTimeoutMs = typeof opts.timeoutMs === "number" && opts.timeoutMs > 0 ? opts.timeoutMs : undefined;
   // Core is transport-agnostic: the caller injects the bridge. Cast to any - the
@@ -41,7 +43,9 @@ function makeOpenAICompatibleProvider(opts) {
     },
     async ask(/** @type {import("../types.js").DelegationRequest} */ req) {
       const started = Date.now();
-      const model = resolveModel(req);
+      const model = req.model !== undefined ? req.model : resolveModel(req);
+      const preset = req.preset ?? (resolvePreset ? resolvePreset(req) : defaultPreset);
+      const effectiveModel = model || (preset ? (preset.startsWith("@preset/") ? preset : `@preset/${preset}`) : "");
       const prior = req.threadId && sessions.get(req.threadId);
       // Inline attached files into TEXT blocks before building turns. buildInitialTurns
       // (and the prior-session user turn) expect already-inlined strings; passing the raw
@@ -52,7 +56,7 @@ function makeOpenAICompatibleProvider(opts) {
           // Defaults guard a bridge that returns only { blocks }.
           ({ blocks = [], notes = [] } = bridge.inlineFiles(req.files, { roots: [req.cwd || process.cwd()] }));
         } catch (e) {
-          return toErrorResult(name, model, started, /** @type {any} */ (e), () => ({ errorKind: "config", retryable: false }), { reasoningEffort: req.reasoningEffort ?? null });
+          return toErrorResult(name, effectiveModel, started, /** @type {any} */ (e), () => ({ errorKind: "config", retryable: false }), { reasoningEffort: req.reasoningEffort ?? null });
         }
       }
       const turns = prior
@@ -60,7 +64,7 @@ function makeOpenAICompatibleProvider(opts) {
         : bridge.buildInitialTurns(req.developerInstructions, req.prompt, blocks);
       try {
         const { text, usage } = await bridge.callOpenRouter({
-          apiBase, apiKey: (req && req.apiKey) || process.env[apiKeyEnv], model,
+          apiBase, apiKey: (req && req.apiKey) || process.env[apiKeyEnv], model, preset,
           messages: bridge.buildMessages(turns),
           reasoningEffort: req.reasoningEffort, temperature: req.temperature,
           timeoutMs: typeof req.timeoutMs === "number" && req.timeoutMs > 0 ? req.timeoutMs : defaultTimeoutMs,
@@ -76,9 +80,9 @@ function makeOpenAICompatibleProvider(opts) {
         // path: registry.js `pinAlias` merges the per-alias `reasoning_effort` into the
         // request before this runs. (The global `openrouter.defaults` block applies only
         // on the standalone /ask-openrouter bridge, not here.) So echoing it is correct.
-        return { provider: name, model, text: outText, threadId, isError: false, ms: Date.now() - started, reasoningEffort: req.reasoningEffort ?? null, usage };
+        return { provider: name, model: effectiveModel, text: outText, threadId, isError: false, ms: Date.now() - started, reasoningEffort: req.reasoningEffort ?? null, usage };
       } catch (e) {
-        return toErrorResult(name, model, started, /** @type {any} */ (e), bridge.classifyError, { reasoningEffort: req.reasoningEffort ?? null });
+        return toErrorResult(name, effectiveModel, started, /** @type {any} */ (e), bridge.classifyError, { reasoningEffort: req.reasoningEffort ?? null });
       }
     },
   });

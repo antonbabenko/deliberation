@@ -38,14 +38,21 @@ function consensusDelegates(or, expert) {
 // and never participates in /ask-all or /consensus fan-out.
 function resolveAlias(or, alias) {
   if (alias === RESERVED_ALIAS) {
-    if (!or.defaultModel) return null;
-    const matched = (or.models || []).find((m) => m.alias === or.defaultModel);
-    if (matched) {
-      return { ...matched, alias: RESERVED_ALIAS };
+    if (!or.defaultModel && !or.preset) return null;
+    if (or.defaultModel) {
+      const matched = (or.models || []).find((m) => m.alias === or.defaultModel);
+      if (matched) {
+        return { ...matched, alias: RESERVED_ALIAS, preset: matched.preset || or.preset || (or.defaults && or.defaults.preset) };
+      }
+      return { alias: RESERVED_ALIAS, model: or.defaultModel, preset: or.preset || (or.defaults && or.defaults.preset), experts: null };
     }
-    return { alias: RESERVED_ALIAS, model: or.defaultModel, experts: null };
+    return { alias: RESERVED_ALIAS, preset: or.preset || (or.defaults && or.defaults.preset), experts: null };
   }
-  return (or.models || []).find((m) => m.alias === alias) || null;
+  const found = (or.models || []).find((m) => m.alias === alias);
+  if (found) {
+    return { ...found, preset: found.preset || or.preset || (or.defaults && or.defaults.preset) };
+  }
+  return null;
 }
 
 module.exports = { eligibleForExpert, askAllDelegates, consensusDelegates, resolveAlias, RESERVED_ALIAS };

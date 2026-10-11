@@ -78,6 +78,42 @@ round to `<XDG cache>/deliberation/debug.jsonl` (override with `debug.path` or
 `DELIBERATION_DEBUG_LOG`): latency, reasoning effort, HTTP token usage, and voting/approval
 outcomes - never prompts, responses, or issue text. Useful for debugging slow runs.
 
+
+### OpenRouter Presets
+
+You can specify OpenRouter presets by ID (e.g. `cheapest-first` or `@preset/cheapest-first`). OpenRouter presets bundle provider routing preferences (such as sorting available provider endpoints by price, allowing fallbacks, and denying data collection), system prompts, or sampling parameters.
+
+Specify presets in `config.json` at provider or model level:
+- **Global provider default**: `providers.openrouter.preset` or `providers.openrouter.defaults.preset`:
+  ```json
+  "providers": {
+    "openrouter": {
+      "preset": "cheapest-first"
+    }
+  }
+  ```
+- **Per-model alias**: `models.<id>.preset`:
+  ```json
+  "models": {
+    "cheapest": {
+      "provider": "openrouter",
+      "preset": "cheapest-first"
+    },
+    "fast-gpt": {
+      "provider": "openrouter",
+      "model": "openai/gpt-4o",
+      "preset": "cheapest-first"
+    }
+  }
+  ```
+  A model record can specify `preset` alone (the preset determines or routes the model), or pair `preset` with an explicit `model` (OpenRouter applies the preset's provider routing and parameter preferences to that specific model).
+- **Per-call override**: Pass `preset: "preset-id"` to `ask-openrouter`, `ask-one`, or `consensus`.
+
+**Why use presets?**
+- **Save cost**: Enforce provider routing preferences like `"sort": { "by": "price" }` to dynamically route requests to the lowest-priced provider host for a model, reducing inference spend while maintaining reliability with automated fallbacks (`"allow_fallbacks": true`).
+- **Privacy & Compliance**: Enforce policies like `"data_collection": "deny"` across all queries upstream.
+- **Provider failover**: Preconfigure fallback cascades in OpenRouter without modifying local client configs.
+
 Browse model slugs at [openrouter.ai/models](https://openrouter.ai/models?input_modalities=text);
 the `model` field takes any slug listed there. Each record's `provider` must be
 `"openrouter"` in v1 (codex / gemini / grok are managed by their own CLI / API).

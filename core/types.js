@@ -32,6 +32,7 @@
  * @property {string}  [threadId]
  * @property {string}  [expert]
  * @property {string}  [model]
+ * @property {string}  [preset]
  * @property {string}  [apiKey]  per-request provider key override; when set, a provider
  *   prefers it over its `process.env` key. The seam a remote/multi-tenant adapter injects
  *   per request (Phase 3). Unset in the stdio path - providers fall back to `process.env`.

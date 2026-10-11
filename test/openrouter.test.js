@@ -57,6 +57,30 @@ test("O2b: callOpenRouter sets redirect:error so the bearer token cannot follow 
   assert.equal(opts.redirect, "error");
 });
 
+test("O2c: callOpenRouter sends preset parameter and normalizes @preset/ prefix", async () => {
+  let received = null;
+  const { server, base } = await startMock((req, res, body) => {
+    received = JSON.parse(body);
+    return reply(res, 200, { choices: [{ message: { role: "assistant", content: "ok" } }] });
+  });
+  try {
+    await callOpenRouter({
+      apiBase: base, apiKey: "sk-test", model: "openai/gpt-4o", preset: "@preset/cheapest-first",
+      messages: buildMessages([{ role: "user", text: "q" }]),
+    });
+    assert.equal(received.preset, "cheapest-first");
+    assert.equal(received.model, "openai/gpt-4o");
+
+    await callOpenRouter({
+      apiBase: base, apiKey: "sk-test", preset: "cheapest-first",
+      messages: buildMessages([{ role: "user", text: "q" }]),
+    });
+    assert.equal(received.preset, "cheapest-first");
+    assert.equal(received.model, undefined);
+  } finally { server.close(); }
+});
+
+
 test("O3: empty key sends NO Authorization header (keyless local endpoints)", async () => {
   let auth = "unset";
   const { server, base } = await startMock((req, res) => {

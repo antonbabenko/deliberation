@@ -154,6 +154,7 @@ These apply to every MCP host, not just Claude Code:
   server config - the Claude Code plugin manifest declares 1800000 and mirrors it into the
   server env so the clamp follows the real cap; on other hosts raise the cap where the host
   is launched, not in `config.json`.
+- **OpenRouter presets** - set presets by ID via `providers.openrouter.preset`, `providers.openrouter.defaults.preset`, or `models.<id>.preset` (or pass `preset` directly) to apply upstream provider routing rules (such as price-based sorting to save cost, or automatic fallback routing) and parameter defaults.
 - **Retries** - a failed call is retried once, and only for `network`, `rate-limit` (waiting
   for the upstream's `Retry-After`), and `empty` (a provider that exited clean but returned a
   stub instead of an answer). `timeout` and auth/config errors are not retried.

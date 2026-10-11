@@ -476,6 +476,14 @@
             "openai/gpt-4.1-mini"
           ]
         },
+        "preset": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Default OpenRouter preset id or slug (e.g. \"cheapest-first\" or \"@preset/cheapest-first\") applied to OpenRouter requests.",
+          "examples": [
+            "cheapest-first"
+          ]
+        },
         "defaults": {
           "type": "object",
           "description": "Per-call defaults applied to OpenRouter requests unless a record or call overrides them.",
@@ -493,6 +501,14 @@
                 "low"
               ],
               "description": "Default reasoning effort for OpenRouter models in consensus loops. Falls back to reasoningEffort when unset."
+            },
+            "preset": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Default OpenRouter preset id or slug (e.g. \"cheapest-first\").",
+              "examples": [
+                "cheapest-first"
+              ]
             },
             "temperature": {
               "type": "number",
@@ -521,11 +537,22 @@
     },
     "modelRecord": {
       "type": "object",
-      "description": "A named model record. provider + model are required.",
+      "description": "A named model record. provider is required, and at least one of model or preset must be specified.",
       "additionalProperties": false,
       "required": [
-        "provider",
-        "model"
+        "provider"
+      ],
+      "anyOf": [
+        {
+          "required": [
+            "model"
+          ]
+        },
+        {
+          "required": [
+            "preset"
+          ]
+        }
       ],
       "properties": {
         "provider": {
@@ -541,6 +568,14 @@
           "description": "Model slug.",
           "examples": [
             "anthropic/claude-3.7-sonnet"
+          ]
+        },
+        "preset": {
+          "type": "string",
+          "minLength": 1,
+          "description": "OpenRouter preset id or slug (e.g. \"cheapest-first\" or \"@preset/cheapest-first\").",
+          "examples": [
+            "cheapest-first"
           ]
         },
         "askAll": {
