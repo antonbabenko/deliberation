@@ -6,7 +6,8 @@
  * (~/.config/deliberation/config.json; override with DELIBERATION_CONFIG).
  * @typedef {Object} OrModel
  * @property {string}  alias
- * @property {string}  model
+ * @property {string}  [model]
+ * @property {string}  [preset]
  * @property {boolean} [askAll]
  * @property {boolean} [consensus]
  * @property {(string[]|null)} [experts]
@@ -14,6 +15,7 @@
  * @property {string}  [consensus_reasoning_effort]
  * @property {number}  [temperature]
  * @property {number}  [timeout]
+ * @property {string}  [apiBase]
  */
 
 /**
@@ -21,6 +23,7 @@
  * @typedef {Object} OrConfig
  * @property {OrModel[]} [models]
  * @property {number}    [maxFanout]
+ * @property {string}    [preset]
  * @property {Record<string, any>} [defaults]
  */
 
@@ -90,7 +93,7 @@ function pinAlias(orProvider, delegate, defaults) {
     health: orProvider.health.bind(orProvider),
     resolveSettings(req) {
       const base=orProvider.resolveSettings?.(req);
-      const config={openrouter:{models:[delegate],defaults},providers:{openrouter:{timeout:base?.timeoutMs}}};
+      const config={openrouter:{models:[delegate],defaults,preset:defaults?.preset},providers:{openrouter:{timeout:base?.timeoutMs,preset:delegate.preset||defaults?.preset}}};
       return require("./settings.js").resolveSettings(`openrouter:${delegate.alias}`,config,req);
     },
     async ask(req) {
@@ -101,9 +104,11 @@ function pinAlias(orProvider, delegate, defaults) {
       const defaultEffort = isConsensus
         ? (delegate.consensus_reasoning_effort ?? (defaults && defaults.consensus_reasoning_effort) ?? delegate.reasoning_effort ?? (defaults && defaults.reasoning_effort))
         : (delegate.reasoning_effort ?? (defaults && defaults.reasoning_effort));
+      const defaultPreset = delegate.preset ?? (defaults && defaults.preset);
       const r = await orProvider.ask({
         ...req,
-        model: delegate.model,
+        model: delegate.model !== undefined ? delegate.model : (delegate.preset ? "" : req.model),
+        preset: req.preset ?? defaultPreset,
         // delegate.reasoning_effort / consensus_reasoning_effort is validated as a string upstream;
         // cast to the DelegationRequest union (the bridge tolerates any effort string).
         reasoningEffort: req.reasoningEffort ?? /** @type {("low"|"medium"|"high"|"none"|undefined)} */ (defaultEffort),

@@ -819,3 +819,54 @@ test("ORC3: a missing config file resolves orientation ON too", () => {
   assert.equal(r.ok, true);
   assert.equal(r.resolved.orientation.enabled, true);
 });
+
+test("PR1: providers.openrouter.preset resolves on openrouter and providers.openrouter", () => {
+  const { resolved } = validateConfig({
+    version: 1,
+    providers: { openrouter: { enabled: true, preset: "cheapest-first" } },
+  });
+  assert.equal(resolved.openrouter.preset, "cheapest-first");
+  assert.equal(resolved.providers.openrouter.preset, "cheapest-first");
+});
+
+test("PR2: providers.openrouter.defaults.preset resolves on defaults and provider defaults", () => {
+  const { resolved } = validateConfig({
+    version: 1,
+    providers: { openrouter: { enabled: true, defaults: { preset: "cheapest-first" } } },
+  });
+  assert.equal(resolved.openrouter.defaults.preset, "cheapest-first");
+  assert.equal(resolved.providers.openrouter.preset, "cheapest-first");
+});
+
+test("PR3: models.<id>.preset is accepted with or without model", () => {
+  const { ok, resolved, error } = validateConfig({
+    version: 1,
+    providers: { openrouter: { enabled: true } },
+    models: {
+      "preset-only": { provider: "openrouter", preset: "cheapest-first" },
+      "model-and-preset": { provider: "openrouter", model: "openai/gpt-4o", preset: "@preset/fast" },
+    },
+  });
+  assert.equal(ok, true, error);
+  assert.equal(resolved.openrouter.models[0].alias, "preset-only");
+  assert.equal(resolved.openrouter.models[0].preset, "cheapest-first");
+  assert.equal(resolved.openrouter.models[0].model, undefined);
+  assert.equal(resolved.openrouter.models[1].alias, "model-and-preset");
+  assert.equal(resolved.openrouter.models[1].preset, "@preset/fast");
+  assert.equal(resolved.openrouter.models[1].model, "openai/gpt-4o");
+});
+
+test("PR4: invalid model record missing both model and preset lands in invalidModels", () => {
+  const { resolved } = validateConfig({
+    version: 1,
+    providers: { openrouter: { enabled: true } },
+    models: {
+      neither: { provider: "openrouter" },
+      "bad-preset": { provider: "openrouter", preset: 123 },
+    },
+  });
+  assert.equal(resolved.openrouter.models.length, 0);
+  assert.equal(resolved.openrouter.invalidModels.length, 2);
+  assert.match(resolved.openrouter.invalidModels[0].reason, /needs a non-empty model slug or preset/);
+  assert.match(resolved.openrouter.invalidModels[1].reason, /preset must be a non-empty string/);
+});

@@ -68,6 +68,7 @@ const PROP_DESC = {
   developerInstructions: "Optional system/developer instructions injected verbatim; overrides the built-in persona for `expert`.",
   cwd: "Working directory the provider runs in (used to resolve relative file refs). Defaults to the server process directory.",
   reasoningEffort: "Reasoning depth where the provider supports it (Grok, OpenRouter): low, medium, high, or none. CLI providers (Codex, Gemini) ignore it.",
+  preset: "OpenRouter preset id or slug (e.g. 'cheapest-first') to route request or override parameters.",
   runId: "Optional run id from `panel`; groups parallel calls into one dashboard run. An id this server's `panel` did not open is ignored.",
 };
 
@@ -132,6 +133,7 @@ function askOneInputSchema() {
       developerInstructions: { type: "string", description: PROP_DESC.developerInstructions },
       cwd: { type: "string", description: PROP_DESC.cwd },
       reasoningEffort: { type: "string", enum: ["low", "medium", "high", "none"], description: PROP_DESC.reasoningEffort },
+      preset: { type: "string", description: PROP_DESC.preset },
       files: fileItems(),
       runId: { type: "string", description: PROP_DESC.runId },
     },
@@ -154,6 +156,7 @@ function inputSchema() {
       developerInstructions: { type: "string", description: PROP_DESC.developerInstructions },
       cwd: { type: "string", description: PROP_DESC.cwd },
       reasoningEffort: { type: "string", enum: ["low", "medium", "high", "none"], description: PROP_DESC.reasoningEffort },
+      preset: { type: "string", description: PROP_DESC.preset },
       files: fileItems(),
     },
   };
@@ -170,6 +173,7 @@ function consensusInputSchema() {
       expert: { type: "string", description: PROP_DESC.expert },
       developerInstructions: { type: "string", description: PROP_DESC.developerInstructions },
       reasoningEffort: { type: "string", enum: ["low", "medium", "high", "none"], description: PROP_DESC.reasoningEffort },
+      preset: { type: "string", description: PROP_DESC.preset },
       maxRounds: { type: "integer", minimum: 1, maximum: 50, description: "Override consensus.maxRounds for this call (loop mode only; ignored when synthesizeAlways is true). Clamped to 50." },
       synthesizeAlways: { type: "boolean", description: "Run ONE arbiter synthesis pass instead of the convergence loop. Returns a free-text `synthesis` (verdict/converged/confidence are null, rounds is 1). Best for open questions." },
       cwd: { type: "string", description: PROP_DESC.cwd },
@@ -1597,6 +1601,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       developerInstructions: args.developerInstructions,
       cwd: args.cwd,
       reasoningEffort: args.reasoningEffort,
+      preset: typeof args.preset === "string" ? args.preset : undefined,
       files: args.files,
     };
     if (name === "codex-login") {
@@ -1624,6 +1629,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         const base=p.resolveSettings?.({prompt:''})||{},fixedModelEffort=p.capabilities?.fixedModelEffort===true;
         return {...p,resolveSettings:(/** @type {any} */ req)=>({...base,
           model:fixedModelEffort?base.model:req.model??base.model,
+          preset:req.preset??base.preset,
           reasoningEffort:fixedModelEffort?base.reasoningEffort:req.reasoningEffort??((req.context==='consensus'?base.consensusEffort:base.askEffort)==='inherited / unknown'?undefined:(req.context==='consensus'?base.consensusEffort:base.askEffort)),
           temperature:req.temperature??base.temperature,timeoutMs:req.timeoutMs??base.timeoutMs})};
       });
@@ -1780,7 +1786,11 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
         const matched = (or.models || []).find((/** @type {any} */ m) => m.alias === dm);
         if (matched) {
           if (!req.model) req.model = matched.model;
+          if (!req.preset && matched.preset) req.preset = matched.preset;
           if (!req.reasoningEffort && matched.reasoning_effort) req.reasoningEffort = matched.reasoning_effort;
+        }
+        if (!req.preset) {
+          req.preset = or.preset || (or.defaults && or.defaults.preset);
         }
       }
       const { trace, own } = singleTrace(name, args, expert, p.name);
@@ -1963,13 +1973,21 @@ function makeRuntime({ getServer = () => null } = {}) {
       apiBase: initialOr.apiBase || DEFAULT_API_BASE,
       apiKeyEnv: DEFAULT_API_KEY_ENV,
       resolveModel: (req) => {
-        if (req.model) return req.model;
+        if (req.model !== undefined) return req.model;
         const or = getConfig().openrouter;
         if (!or) return "";
         const dm = or.defaultModel;
         if (!dm) return "";
         const matched = (or.models || []).find((/** @type {any} */ m) => m.alias === dm);
-        return matched ? matched.model : dm;
+        return matched ? (matched.model || "") : dm;
+      },
+      resolvePreset: (req) => {
+        if (req.preset) return req.preset;
+        const or = getConfig().openrouter;
+        if (!or) return undefined;
+        const dm = or.defaultModel;
+        const matched = (or.models || []).find((/** @type {any} */ m) => m.alias === dm);
+        return (matched && matched.preset) || or.preset || (or.defaults && or.defaults.preset);
       },
       bridge: require("../openrouter/index.js"),
       timeoutMs: providerTimeout("openrouter"),

@@ -41,6 +41,12 @@
       "model": "qwen/qwen3.7-max",
       "askAll": false,
       "consensus": false
+    },
+    "cheapest-preset": {
+      "provider": "openrouter",
+      "preset": "cheapest-first",
+      "askAll": false,
+      "consensus": false
     }
   },
   "routing": {

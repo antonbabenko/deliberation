@@ -123,3 +123,43 @@ test("OC-timeout-2: no configured timeout injects undefined so the bridge defaul
     resolveModel: () => "m", bridge: capturing }).ask({ prompt: "hi" });
   assert.equal(seen, undefined, "undefined, not 0 - a falsy value would read as no timeout");
 });
+
+test("OC-preset-1: makeOpenAICompatibleProvider passes preset and defaults effective model", async () => {
+  process.env.FAKE_KEY = "k";
+  let captured = /** @type {any} */ (null);
+  const recording = {
+    ...fakeBridge,
+    callOpenRouter: async (/** @type {any} */ args) => { captured = args; return { text: "preset reply" }; },
+  };
+  const p = makeOpenAICompatibleProvider({
+    name: "openrouter", apiBase: "http://x", apiKeyEnv: "FAKE_KEY",
+    resolveModel: () => "",
+    resolvePreset: () => "cheapest-first",
+    bridge: recording,
+  });
+  const r = await p.ask({ prompt: "hi" });
+  assert.equal(r.isError, false);
+  assert.equal(r.model, "@preset/cheapest-first");
+  assert.equal(captured.preset, "cheapest-first");
+  assert.equal(captured.model, "");
+});
+
+test("OC-preset-2: request-level preset overrides resolved preset and pairs with explicit model", async () => {
+  process.env.FAKE_KEY = "k";
+  let captured = /** @type {any} */ (null);
+  const recording = {
+    ...fakeBridge,
+    callOpenRouter: async (/** @type {any} */ args) => { captured = args; return { text: "preset reply" }; },
+  };
+  const p = makeOpenAICompatibleProvider({
+    name: "openrouter", apiBase: "http://x", apiKeyEnv: "FAKE_KEY",
+    resolveModel: () => "openai/gpt-4o",
+    resolvePreset: () => "default-preset",
+    bridge: recording,
+  });
+  const r = await p.ask({ prompt: "hi", preset: "override-preset" });
+  assert.equal(r.isError, false);
+  assert.equal(r.model, "openai/gpt-4o");
+  assert.equal(captured.preset, "override-preset");
+  assert.equal(captured.model, "openai/gpt-4o");
+});

@@ -1157,6 +1157,23 @@ requests.
 | LM Studio | `http://localhost:1234/v1` |
 | vLLM | `http://localhost:8000/v1` |
 
+
+### OpenRouter Presets (Routing & Cost Optimization)
+
+OpenRouter allows defining presets that encapsulate model selection, provider routing preferences (e.g. sorting by price, filtering providers by data collection policy, enabling fallbacks), system prompt, and sampling parameters.
+
+Deliberation supports specifying presets by ID or slug (e.g. `cheapest-first`, `@preset/cheapest-first`):
+- `providers.openrouter.preset` or `providers.openrouter.defaults.preset`: Default preset applied to OpenRouter calls.
+- `models.<id>.preset`: Per-model preset. A model record can specify `preset` alone (delegating model selection to the preset) or alongside an explicit `model` (applying the preset's routing and parameter configuration to that specific model).
+- Request parameter `preset`: Overrides presets per tool call (`ask-openrouter`, `ask-one`, `consensus`).
+
+On the wire, `callOpenRouter` transmits `"preset": "<slug>"` (with any leading `@preset/` stripped) in the chat completion request payload.
+
+**Cost & Routing Advantages**:
+- **Price Sorting**: Directs requests to the lowest-cost host for a model while retaining high availability.
+- **Data Privacy**: Enforces policies like `data_collection: "deny"` upstream without manual client-side proxying.
+- **Resilience**: Automatically falls back to secondary provider endpoints when a primary provider is down or throttling.
+
 ### File attachment (text-inline only)
 
 OpenRouter accepts `{path}` and `{dir}` entries only. `file_id` and `file_url`
@@ -1192,6 +1209,7 @@ To reduce token consumption and improve convergence efficiency:
    - Only the latest plan under review is displayed in full, bounding token growth to $O(1)$ across rounds.
 2. **Canonical Prefix Ordering (`server/openrouter/index.js`)**: Static file context blocks (`inlineBlocks`) precede dynamic user prompt text in user messages. Sequential turns or calls sharing file attachments hit upstream KV prompt caches (e.g. Anthropic, DeepSeek, OpenAI), dramatically reducing input token costs.
 3. **Decoupled Reasoning Effort (`consensusReasoningEffort`)**: Multi-round debates can use lighter reasoning tiers than single-shot questions, cutting reasoning token generation by setting `consensusReasoningEffort` lower than `reasoningEffort` in provider defaults or model definitions.
+4. **OpenRouter Presets (`preset`)**: Routing rules configured in OpenRouter presets (e.g. `cheapest-first`) can sort upstream providers by price (`sort: { by: "price" }`) and enable fallback routing (`allow_fallbacks: true`), significantly lowering inference costs across debate rounds and advisory queries.
 
 When more than 3 models participate, the bridge emits a warning with an estimated
 token count. There is no hard spend cap - the warning is informational only.

@@ -88,7 +88,7 @@ function validateConfig(raw) {
 
   // providers = connection config only, uniform per provider. resolved.providers
   // keeps the same { name: { enabled } } shape today's readers consume; the
-  // openrouter-specific keys (apiKeyEnv/apiBase/allowRawModel/defaultModel/defaults)
+  // openrouter-specific keys (apiKeyEnv/apiBase/allowRawModel/defaultModel/preset/defaults)
   // are hoisted into resolved.openrouter below.
   const providersRaw = isObject(raw.providers) ? raw.providers : {};
   const orProviderRaw = isObject(providersRaw.openrouter) ? providersRaw.openrouter : null;
@@ -110,6 +110,19 @@ function validateConfig(raw) {
   const apiBase = (orProviderRaw && orProviderRaw.apiBase) || DEFAULT_API_BASE;
   const allowRawModel = !!orProviderRaw && orProviderRaw.allowRawModel === true;
   const { defaults, warnings: defaultsWarnings } = resolveDefaults(orProviderRaw && orProviderRaw.defaults, sharedDefaultsRaw);
+
+  const providerPresetWarnings = [];
+  let providerPreset = null;
+  if (orProviderRaw && orProviderRaw.preset !== undefined) {
+    if (typeof orProviderRaw.preset === "string" && orProviderRaw.preset.trim()) {
+      providerPreset = orProviderRaw.preset.trim();
+    } else {
+      providerPresetWarnings.push(
+        `providers.openrouter.preset must be a non-empty string (got ${JSON.stringify(orProviderRaw.preset)}); dropped`
+      );
+    }
+  }
+  const preset = providerPreset || defaults.preset || null;
 
   // models = a MAP keyed by id. Resolve each entry into the legacy array shape with
   // alias === id. Per-entry soft-fail: a bad entry lands in invalidModels and does
@@ -148,7 +161,7 @@ function validateConfig(raw) {
       timeoutPolicy,
       orientation: resolveOrientation(raw.orientation),
       providers: resolveProviders(providersRaw),
-      openrouter: { enabled, apiKeyEnv, apiBase, allowRawModel, maxFanout, defaultModel, defaults, models, invalidModels },
+      openrouter: { enabled, apiKeyEnv, apiBase, allowRawModel, maxFanout, defaultModel, preset, defaults, models, invalidModels },
       consensus,
       sessions,
       debug,
@@ -156,7 +169,7 @@ function validateConfig(raw) {
       // Defaults-, sessions-, debug-, and dashboard-validation warnings ride the same
       // consensusWarnings channel the bridge already surfaces, so a dropped/degraded
       // value is visible, not silent.
-      consensusWarnings: [...defaultsWarnings, ...warnings, ...sessionsWarnings, ...debugWarnings, ...dashboardWarnings, ...defaultWarnings],
+      consensusWarnings: [...defaultsWarnings, ...providerPresetWarnings, ...warnings, ...sessionsWarnings, ...debugWarnings, ...dashboardWarnings, ...defaultWarnings],
     },
   };
 }
@@ -322,6 +335,17 @@ function resolveDefaults(raw, shared) {
     }
   }
 
+  const ownPreset = own.preset;
+  const shPreset = sh.preset;
+  const targetPreset = ownPreset !== undefined ? ownPreset : shPreset;
+  if (targetPreset !== undefined) {
+    if (typeof targetPreset === "string" && targetPreset.trim()) {
+      out.preset = targetPreset.trim();
+    } else {
+      warnings.push(`providers.openrouter.defaults.preset must be a non-empty string (got ${JSON.stringify(targetPreset)}); dropped`);
+    }
+  }
+
   if (own.temperature !== undefined) {
     if (typeof own.temperature === "number" && Number.isFinite(own.temperature)) out.temperature = own.temperature;
     else warnings.push(`providers.openrouter.defaults.temperature must be a finite number (got ${JSON.stringify(own.temperature)}); dropped`);
@@ -336,7 +360,7 @@ function resolveDefaults(raw, shared) {
   return { defaults: out, warnings };
 }
 
-// Build resolved.providers as { name: { enabled, model?, reasoningEffort?, consensusReasoningEffort?, timeout? } }. The
+// Build resolved.providers as { name: { enabled, model?, reasoningEffort?, consensusReasoningEffort?, timeout?, preset? } }. The
 // enable flag is the registry/arbiter contract; `model`, `reasoningEffort`, and `consensusReasoningEffort` are
 // carried through for the providers that accept a pin so the composition root (and
 // the standalone Grok bridge) can hand them to the adapter. openrouter-specific
@@ -350,7 +374,7 @@ function resolveDefaults(raw, shared) {
 // ladder lives in the config SSOT: providers.<name>.timeout (providers.openrouter
 // .defaults.timeout for OpenRouter, which already owns a defaults block) beats
 // providers.defaults.timeout, which beats the adapter's built-in. A pinned alias's
-// models.<id>.timeout still wins over all of it - registry.js merges that into the
+// models.<id>.timeout still wins - registry.js merges that into the
 // request itself. `defaults` is a shared block, NOT a provider: it never becomes an
 // entry in the resolved map.
 const PINNABLE_KEYS = ["model", "reasoningEffort", "consensusReasoningEffort"];
@@ -372,7 +396,7 @@ function resolveProviders(providersRaw) {
   for (const name of names) {
     if (name === "defaults") continue;
     const block = providersRaw[name];
-    /** @type {{enabled:boolean, model?:string, reasoningEffort?:string, consensusReasoningEffort?:string, timeout?:number}} */
+    /** @type {{enabled:boolean, model?:string, reasoningEffort?:string, consensusReasoningEffort?:string, timeout?:number, preset?:string}} */
     const resolved = { enabled: !(isObject(block) && block.enabled === false) };
     if (isObject(block)) {
       if (name !== "openrouter") {
@@ -382,6 +406,12 @@ function resolveProviders(providersRaw) {
         }
         if (!resolved.reasoningEffort && sharedEffort) resolved.reasoningEffort = sharedEffort;
         if (!resolved.consensusReasoningEffort && sharedConsensusEffort) resolved.consensusReasoningEffort = sharedConsensusEffort;
+      }
+      if (name === "openrouter") {
+        const p = typeof block.preset === "string" && block.preset.trim()
+          ? block.preset.trim()
+          : (isObject(block.defaults) && typeof block.defaults.preset === "string" && block.defaults.preset.trim() ? block.defaults.preset.trim() : undefined);
+        if (p) resolved.preset = p;
       }
       const own = name === "openrouter"
         ? positiveInt(isObject(block.defaults) ? block.defaults.timeout : undefined)
@@ -460,8 +490,13 @@ function resolveModels(modelsRaw) {
       addInvalid(i, id, `models["${id}"] provider "${m.provider}" is not supported; only "${MODEL_PROVIDER}" model entries are allowed (codex/gemini/grok are CLI-managed / singleton built-ins, out of scope)`);
       continue;
     }
-    if (typeof m.model !== "string" || !m.model.trim()) {
-      addInvalid(i, id, `models["${id}"] needs a non-empty model slug`); continue;
+    if (m.preset !== undefined && !(typeof m.preset === "string" && m.preset.trim())) {
+      addInvalid(i, id, `models["${id}"] preset must be a non-empty string`); continue;
+    }
+    const hasModel = typeof m.model === "string" && m.model.trim().length > 0;
+    const hasPreset = typeof m.preset === "string" && m.preset.trim().length > 0;
+    if (!hasModel && !hasPreset) {
+      addInvalid(i, id, `models["${id}"] needs a non-empty model slug or preset`); continue;
     }
     let experts = null;
     if (m.experts !== undefined) {
@@ -499,7 +534,8 @@ function resolveModels(modelsRaw) {
     }
     models.push({
       alias: id,
-      model: m.model.trim(),
+      model: hasModel ? m.model.trim() : undefined,
+      preset: hasPreset ? m.preset.trim() : undefined,
       experts,
       askAll: m.askAll !== false,
       consensus: m.consensus === true,
@@ -629,7 +665,7 @@ function resolveConsensus(rawConsensus, models) {
 function disabledOpenRouter() {
   return {
     enabled: false, apiKeyEnv: DEFAULT_API_KEY_ENV, apiBase: DEFAULT_API_BASE,
-    allowRawModel: false, maxFanout: DEFAULT_MAX_FANOUT, defaultModel: null, defaults: {}, models: [], invalidModels: [],
+    allowRawModel: false, maxFanout: DEFAULT_MAX_FANOUT, defaultModel: null, preset: null, defaults: {}, models: [], invalidModels: [],
   };
 }
 

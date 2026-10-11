@@ -35,6 +35,7 @@ whole string is the question and the default OpenRouter model configured in `con
        prompt: "[7-section prompt]",
        developerInstructions: "[expert prompt]",
        cwd: "[repo root]",
+       preset: "[optional preset id, e.g. cheapest-first]",
        files: [ /* optional text-inline files */ ]
      })
      ```
