@@ -1,3 +1,10 @@
+## [3.30.0](https://github.com/antonbabenko/deliberation/compare/v3.29.0...v3.30.0) (2026-10-11)
+
+
+### Features
+
+* allow specifying presets for openrouter provider by id ([#243](https://github.com/antonbabenko/deliberation/issues/243)) ([e776868](https://github.com/antonbabenko/deliberation/commit/e7768686a931ef5fb5895b5195dc6a57ba8a7a4b))
+
 ## [3.29.0](https://github.com/antonbabenko/deliberation/compare/v3.28.0...v3.29.0) (2026-10-10)
 
 
@@ -25,11 +32,4 @@
 ### Features
 
 * dashboard analyzer, run project, request size, and dashboard restart ([#233](https://github.com/antonbabenko/deliberation/issues/233)) ([b0644d6](https://github.com/antonbabenko/deliberation/commit/b0644d6e0c03da5c3fcb430f58eb40c502217f27))
-
-## [3.25.0](https://github.com/antonbabenko/deliberation/compare/v3.24.0...v3.25.0) (2026-10-07)
-
-
-### Features
-
-* record config provenance and improve dashboard analytics and live interaction ([#231](https://github.com/antonbabenko/deliberation/issues/231)) ([a3163f2](https://github.com/antonbabenko/deliberation/commit/a3163f2ce1afd89e363e4b2274f4602612ed82b0))
 
