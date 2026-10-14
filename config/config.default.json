@@ -26,6 +26,14 @@
       "defaults": {
         "reasoningEffort": "medium"
       }
+    },
+    "ollama": {
+      "enabled": true,
+      "apiBase": "http://localhost:11434/v1"
+    },
+    "lmstudio": {
+      "enabled": true,
+      "apiBase": "http://localhost:1234/v1"
     }
   },
   "models": {

@@ -292,12 +292,12 @@ async function resolveArbiter(spec, selected, registry, getConfig) {
   // Object form { model: "<id>" }: pin that models entry as the arbiter.
   if (spec && typeof spec === "object") {
     const id = spec.model;
-    const orProvider = registry.get("openrouter");
     const models = (cfg.openrouter && cfg.openrouter.models) || [];
     const model = models.find((/** @type {any} */ m) => m && m.alias === id);
-    // OpenRouter must be enabled both as a provider and as the openrouter block.
-    const orEnabled = providerEnabled(cfg, "openrouter") && !(cfg.openrouter && cfg.openrouter.enabled === false);
-    if (orProvider && model && orEnabled) return { mode: "server", provider: pinAlias(orProvider, model) };
+    const prov = (model && model.provider) || "openrouter";
+    const targetProvider = registry.get(prov);
+    const isProvEnabled = providerEnabled(cfg, prov) && !(prov === "openrouter" && cfg.openrouter && cfg.openrouter.enabled === false);
+    if (targetProvider && model && isProvEnabled) return { mode: "server", provider: pinAlias(targetProvider, model, cfg.openrouter && cfg.openrouter.defaults, cfg) };
     return auto(`configured arbiter model '${id}' is not available`);
   }
 
@@ -941,6 +941,13 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
     const cfgErr = typeof getConfigError === "function" ? getConfigError() : null;
     if (cfgErr) warnings.push(`config not loaded: ${cfgErr}`);
     for (const u of unavailable) warnings.push(`provider ${u.name} unavailable: ${u.reason}`);
+    const models = (cfg.openrouter && cfg.openrouter.models) || [];
+    for (const m of models) {
+      if (m && (m.apiBase || m.apiKeyEnv)) {
+        const warn = `models["${m.alias}"] sets ${[m.apiBase ? "apiBase" : null, m.apiKeyEnv ? "apiKeyEnv" : null].filter(Boolean).join("/")}; ignored by unified server (standalone bridge only)`;
+        if (!warnings.includes(warn)) warnings.push(warn);
+      }
+    }
 
     const resolved = await resolveArbiter(arbiterSpec, selected, registry, dispatchConfig);
     if (resolved.warning) warnings.push(resolved.warning);
@@ -1000,6 +1007,13 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       const cfgErr = typeof getConfigError === "function" ? getConfigError() : null;
       if (cfgErr) warnings.push(`config not loaded: ${cfgErr}`);
       for (const u of unavailable) warnings.push(`provider ${u.name} unavailable: ${u.reason}`);
+      const models = (cfg.openrouter && cfg.openrouter.models) || [];
+      for (const m of models) {
+        if (m && (m.apiBase || m.apiKeyEnv)) {
+          const warn = `models["${m.alias}"] sets ${[m.apiBase ? "apiBase" : null, m.apiKeyEnv ? "apiKeyEnv" : null].filter(Boolean).join("/")}; ignored by unified server (standalone bridge only)`;
+          if (!warnings.includes(warn)) warnings.push(warn);
+        }
+      }
       const resolved = await resolveArbiter(arbiterSpec, selected, registry, dispatchConfig);
       if (resolved.warning) warnings.push(resolved.warning);
 
@@ -1991,6 +2005,22 @@ function makeRuntime({ getServer = () => null } = {}) {
       },
       bridge: require("../openrouter/index.js"),
       timeoutMs: providerTimeout("openrouter"),
+    }),
+    makeOpenAICompatibleProvider({
+      name: "ollama",
+      apiBase: (initialProviders.ollama && initialProviders.ollama.apiBase) || "http://localhost:11434/v1",
+      apiKeyEnv: (initialProviders.ollama && initialProviders.ollama.apiKeyEnv) || "",
+      resolveModel: (req) => req.model || "",
+      bridge: require("../openrouter/index.js"),
+      timeoutMs: providerTimeout("ollama"),
+    }),
+    makeOpenAICompatibleProvider({
+      name: "lmstudio",
+      apiBase: (initialProviders.lmstudio && initialProviders.lmstudio.apiBase) || "http://localhost:1234/v1",
+      apiKeyEnv: (initialProviders.lmstudio && initialProviders.lmstudio.apiKeyEnv) || "",
+      resolveModel: (req) => req.model || "",
+      bridge: require("../openrouter/index.js"),
+      timeoutMs: providerTimeout("lmstudio"),
     }),
   ];
   const frozen=structuredClone(getConfig());

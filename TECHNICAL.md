@@ -966,26 +966,78 @@ are not globalized):
 |-------|------|---------|-------|
 | `enabled` | boolean | `true` | Whether OpenRouter participates |
 | `apiKeyEnv` | string | `OPENROUTER_API_KEY` | Env var holding the API key |
-| `apiBase` | string | `https://openrouter.ai/api/v1` | OpenAI-compatible base URL |
+| `apiBase` | string | `https://openrouter.ai/api/v1` | OpenAI-compatible base URL. Read once at startup |
 | `allowRawModel` | boolean | `false` | Allow raw slugs (not just configured records) |
 | `defaultModel` | string | absent | Slug for the bare `/ask-openrouter` call |
 | `defaults` | object | `{}` | Per-call defaults: `reasoningEffort`, `consensusReasoningEffort`, `temperature`, `timeout` |
+
+**`providers.ollama` fields** (connection only; OpenAI-compatible local or remote endpoint):
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| `enabled` | boolean | `true` | Whether Ollama participates |
+| `apiBase` | string | `http://localhost:11434/v1` | Ollama OpenAI-compatible base URL. Read once at startup |
+| `apiKeyEnv` | string | absent (keyless) | Env var holding the API key if required |
+| `timeout` | number (ms) | from `providers.defaults.timeout` | Per-call wall-time ceiling in ms |
+
+**`providers.lmstudio` fields** (connection only; OpenAI-compatible local endpoint):
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| `enabled` | boolean | `true` | Whether LM Studio participates |
+| `apiBase` | string | `http://localhost:1234/v1` | LM Studio OpenAI-compatible base URL. Read once at startup |
+| `apiKeyEnv` | string | absent (keyless) | Env var holding the API key if required |
+| `timeout` | number (ms) | from `providers.defaults.timeout` | Per-call wall-time ceiling in ms |
 
 **`models` record fields** (the map key is the record id, matching `^[a-z0-9-]+$` and not
 the reserved `openrouter-default`):
 
 | Field | Type | Default | Notes |
 |-------|------|---------|-------|
-| `provider` | string | required | Must be `"openrouter"` in v1 (codex/gemini/grok are CLI-managed / singleton built-ins, out of scope) |
-| `model` | string | required | Provider model slug (e.g. `openai/gpt-4.1`) |
+| `provider` | string | required | Supported: `"openrouter"`, `"ollama"`, `"lmstudio"` |
+| `model` | string | required | Provider model slug (e.g. `openai/gpt-4.1`, `llama3.3:70b`) |
 | `experts` | array or absent | absent = all 7 | `[]` = none / explicit-only; array = subset of the 7 expert keys |
 | `askAll` | boolean | `true` | Include this record in `/ask-all` fan-out when eligible |
 | `consensus` | boolean | `false` | Include this record in `/consensus` voting |
 | `reasoningEffort` | string | from `defaults` | Per-record override for ask calls (maps to wire `reasoning_effort`) |
-| `consensusReasoningEffort` | string | from `defaults` | Per-record override for consensus calls (maps to wire `reasoning_effort` when context is consensus) |
+| `consensusReasoningEffort` | string | from `defaults` | Per-record override for consensus calls |
 | `timeout` | number (ms) | from `defaults` | Per-record override |
 | `temperature` | number | from `defaults` | Per-record override |
-| `apiBase` | string | from `providers.openrouter.apiBase` | Per-record override (use for mixing endpoints) |
+| `apiBase` | string | from `provider` | Standalone bridge only; ignored by unified server |
+| `apiKeyEnv` | string | from `provider` | Standalone bridge only; ignored by unified server |
+
+### Standalone bridge auth rules & migration note
+
+The standalone OpenRouter bridge (`server/openrouter/index.js`) serves
+`provider: "openrouter"` model records only (rejecting non-OpenRouter models
+with `model-not-allowed`). The bridge evaluates auth in this order:
+
+1. **`apiKeyEnv` is set on the model record:** The bridge reads the environment
+   variable named by `apiKeyEnv`. If unset or empty, no `Authorization` header
+   is sent. It **never** falls through to the provider key
+   (`OPENROUTER_API_KEY`).
+2. **The record has no `apiBase`, or its `apiBase` equals `or.apiBase` (after
+   stripping trailing slashes):**
+   The bridge uses the provider key (`process.env[or.apiKeyEnv]`, defaulting to
+   `OPENROUTER_API_KEY`).
+3. **Otherwise (custom `apiBase` without `apiKeyEnv`):** The bridge sends no key
+   (keyless proxy endpoint).
+
+> [!IMPORTANT]
+> **Migration note (v3.31.0+):** Previously, any model record with a custom
+> `apiBase` received `OPENROUTER_API_KEY`. Starting with v3.31.0, records with a
+> custom `apiBase` default to keyless (Rule 3). Authenticated proxies must set
+> `models.<id>.apiKeyEnv` to the name of the environment variable containing
+> their key. Keyless proxies leave it unset.
+
+**Reply path session isolation:**
+When a session starts, the standalone bridge stores the session's alias,
+effective `apiBase`, and the NAME of the environment variable chosen by Rule 1-3
+(secrets are never stored in memory). Replies (`openrouter-reply`) reuse the
+stored endpoint and re-read the environment variable at call time, so editing
+the config file mid-session does not redirect existing reply threads. A reply
+that explicitly specifies a different alias (compared by alias) or a raw model
+is re-resolved from the live configuration.
 
 **On `temperature`:** most deliberation work is analytical - code review, debugging,
 security audits, architecture and plan verdicts - where you want focused, repeatable

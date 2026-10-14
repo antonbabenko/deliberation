@@ -48,7 +48,9 @@ Minimal example:
       "apiBase": "https://openrouter.ai/api/v1",
       "defaultModel": "openai/gpt-4.1-mini",
       "defaults": { "reasoningEffort": "medium" }
-    }
+    },
+    "ollama": { "enabled": true, "apiBase": "http://localhost:11434/v1" },
+    "lmstudio": { "enabled": true, "apiBase": "http://localhost:1234/v1" }
   },
   "models": {
     "gpt-4-or": {
@@ -63,6 +65,12 @@ Minimal example:
       "askAll": true,
       "consensus": true,
       "reasoningEffort": "high"
+    },
+    "local-llama": {
+      "provider": "ollama",
+      "model": "llama3.3:70b",
+      "askAll": true,
+      "consensus": false
     }
   },
   "routing": { "maxFanout": 3 },
@@ -77,6 +85,49 @@ Minimal example:
 round to `<XDG cache>/deliberation/debug.jsonl` (override with `debug.path` or
 `DELIBERATION_DEBUG_LOG`): latency, reasoning effort, HTTP token usage, and voting/approval
 outcomes - never prompts, responses, or issue text. Useful for debugging slow runs.
+
+### Local providers (Ollama & LM Studio)
+
+Deliberation supports local model inference through Ollama and LM Studio
+via their OpenAI-compatible HTTP APIs:
+
+- **Ollama**: Configured via `providers.ollama`
+  (default endpoint `http://localhost:11434/v1`).
+- **LM Studio**: Configured via `providers.lmstudio`
+  (default endpoint `http://localhost:1234/v1`).
+
+Both local providers default to keyless (no `Authorization` header). If
+your local or remote instance requires authentication, set `apiKeyEnv` on
+the provider block. Note that `apiBase` for both providers is read once
+at server startup; changing it requires restarting deliberation.
+
+Declare models in `models` targeting `provider: "ollama"` or
+`provider: "lmstudio"`:
+
+```json
+"models": {
+  "my-ollama": {
+    "provider": "ollama",
+    "model": "llama3.3:70b",
+    "askAll": true,
+    "consensus": true
+  }
+}
+```
+
+### Custom proxies & migration note
+
+> [!IMPORTANT]
+> **Migration note (v3.31.0+):** Previously, any model record with a custom
+> `apiBase` received `OPENROUTER_API_KEY`. Starting with v3.31.0, records
+> with a custom `apiBase` default to keyless. Authenticated proxies must set
+> `models.<id>.apiKeyEnv` to the name of the environment variable containing
+> their key. Keyless proxies leave it unset.
+>
+> Note: Per-record `apiBase` and `apiKeyEnv` are honored ONLY by the standalone
+> OpenRouter bridge (e.g. `/ask-openrouter`); the unified deliberation server
+> ignores them.
+
 
 
 ### OpenRouter Presets
