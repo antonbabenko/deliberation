@@ -1158,7 +1158,8 @@ validate even without the `$schema` line.
 ### Config validation (partial) and the `openrouter-list` contract
 
 Validation is **per-entry**, not all-or-nothing. A single malformed `models` record
-(bad id characters, reserved id, non-`openrouter` provider, missing `model`, unknown
+(bad id characters, reserved id, a provider other than `openrouter`/`ollama`/`lmstudio`,
+missing `model`, unknown
 expert, or a bad per-record override) no longer rejects the whole config - the bridge keeps
 every valid record and collects the bad ones into `invalidModels`. Only **top-level/schema**
 problems hard-fail the whole config: malformed JSON, a non-object root, an unsupported
@@ -1179,6 +1180,10 @@ to the record id, so selection and the wire stay stable):
 }
 ```
 
+- `delegates` (and `selected`/`omitted`) list only `provider: "openrouter"` records; the
+  standalone bridge cannot call `ollama`/`lmstudio` records, so they appear only in the
+  unified server's panel. `invalidModels` is reported even when a provider is disabled, so a
+  broken record is visible before you re-enable it.
 - On a hard config failure the object instead carries `error: "<message>"` with
   `delegates: []` (and `invalidModels` absent/empty). `/ask-all` and `/consensus` treat
   the `error` form as "OpenRouter set EMPTY".

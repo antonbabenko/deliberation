@@ -941,13 +941,6 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
     const cfgErr = typeof getConfigError === "function" ? getConfigError() : null;
     if (cfgErr) warnings.push(`config not loaded: ${cfgErr}`);
     for (const u of unavailable) warnings.push(`provider ${u.name} unavailable: ${u.reason}`);
-    const models = (cfg.openrouter && cfg.openrouter.models) || [];
-    for (const m of models) {
-      if (m && (m.apiBase || m.apiKeyEnv)) {
-        const warn = `models["${m.alias}"] sets ${[m.apiBase ? "apiBase" : null, m.apiKeyEnv ? "apiKeyEnv" : null].filter(Boolean).join("/")}; ignored by unified server (standalone bridge only)`;
-        if (!warnings.includes(warn)) warnings.push(warn);
-      }
-    }
 
     const resolved = await resolveArbiter(arbiterSpec, selected, registry, dispatchConfig);
     if (resolved.warning) warnings.push(resolved.warning);
@@ -1007,13 +1000,6 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
       const cfgErr = typeof getConfigError === "function" ? getConfigError() : null;
       if (cfgErr) warnings.push(`config not loaded: ${cfgErr}`);
       for (const u of unavailable) warnings.push(`provider ${u.name} unavailable: ${u.reason}`);
-      const models = (cfg.openrouter && cfg.openrouter.models) || [];
-      for (const m of models) {
-        if (m && (m.apiBase || m.apiKeyEnv)) {
-          const warn = `models["${m.alias}"] sets ${[m.apiBase ? "apiBase" : null, m.apiKeyEnv ? "apiKeyEnv" : null].filter(Boolean).join("/")}; ignored by unified server (standalone bridge only)`;
-          if (!warnings.includes(warn)) warnings.push(warn);
-        }
-      }
       const resolved = await resolveArbiter(arbiterSpec, selected, registry, dispatchConfig);
       if (resolved.warning) warnings.push(resolved.warning);
 

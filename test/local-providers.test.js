@@ -580,3 +580,60 @@ test("LP-R5-R8: standalone bridge replies reuse stored session values, handle co
     await new Promise((r) => serverProxy.close(r));
   }
 });
+
+test("LP-R9: local delegate timeout survives the resolveSettings overlay used at dispatch", async () => {
+  let asked = null;
+  const base = { name: "ollama", capabilities: {}, async health() { return { ok: true }; }, async ask(req) { asked = req; return { provider: "ollama", model: req.model, text: "ok", isError: false, ms: 1 }; } };
+  const cfg = { providers: { ollama: { enabled: true, timeout: 1200000 } } };
+  const perModel = pinAlias(base, { alias: "slow", provider: "ollama", model: "llama3", timeout: 900000 }, undefined, cfg);
+  const fromProvider = pinAlias(base, { alias: "slow2", provider: "lmstudio", model: "qwen" }, undefined, { providers: { lmstudio: { timeout: 700000 } } });
+  for (const [p, want, model] of [[perModel, 900000, "llama3"], [fromProvider, 700000, "qwen"]]) {
+    // Same overlay callProvider/tracedAsk apply before ask().
+    const s = p.resolveSettings({ prompt: "hi", context: "ask" });
+    assert.equal(s.timeoutMs, want);
+    assert.equal(s.model, model);
+    await p.ask({ prompt: "hi", timeoutMs: s.timeoutMs, model: s.model });
+    assert.equal(asked.timeoutMs, want);
+    assert.equal(asked.model, model);
+  }
+});
+
+test("LP-R10: standalone openrouter-list lists only openrouter records", async () => {
+  const { spawn } = require("node:child_process");
+  const fs = require("node:fs");
+  const os = require("node:os");
+  const path = require("node:path");
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "delib-lp-list-"));
+  const cfgFile = path.join(tmpDir, "config.json");
+  fs.writeFileSync(cfgFile, JSON.stringify({
+    version: 1,
+    providers: { openrouter: { enabled: true } },
+    models: {
+      "or-a": { provider: "openrouter", model: "a/b", askAll: true, consensus: true },
+      "loc-a": { provider: "ollama", model: "llama3", askAll: true, consensus: true },
+    },
+  }));
+  const child = spawn(process.execPath, [path.resolve(__dirname, "../server/openrouter/index.js")], { env: { ...process.env, DELIBERATION_CONFIG: cfgFile }, stdio: ["pipe", "pipe", "pipe"] });
+  try {
+    const call = (id, args) => new Promise((resolve) => {
+      let buf = "";
+      const onData = (d) => {
+        buf += d;
+        for (const line of buf.split("\n")) {
+          let msg; try { msg = JSON.parse(line); } catch { continue; }
+          if (msg.id === id) { child.stdout.off("data", onData); resolve(JSON.parse(msg.result.content[0].text)); }
+        }
+      };
+      child.stdout.on("data", onData);
+      child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method: "tools/call", params: { name: "openrouter-list", arguments: args } }) + "\n");
+    });
+    const askAll = await call(1, { mode: "ask-all" });
+    assert.deepEqual(askAll.delegates.map((d) => d.alias), ["or-a"]);
+    assert.deepEqual(askAll.selected.map((d) => d.alias), ["or-a"]);
+    const cons = await call(2, { mode: "consensus" });
+    assert.deepEqual(cons.selected.map((d) => d.alias), ["or-a"]);
+  } finally {
+    child.kill();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});

@@ -555,7 +555,7 @@ function recommend(stats, agreement, config) {
       out.push({
         target: isConfigModel ? "deliberation" : "external",
         subject: o.provider,
-        configKey: isConfigModel ? `models.${lever.alias}.askAll` : (lever.kind === "codex" ? "providers.codex.reasoningEffort" : null),
+        configKey: isConfigModel ? `models.${lever.alias}.askAll` : null,
         action: isConfigModel ? `set models.${lever.alias}.askAll=false until it stabilizes` : `check the ${o.provider} credentials/CLI session`,
         rationale: o.detail,
       });

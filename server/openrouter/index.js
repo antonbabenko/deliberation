@@ -318,6 +318,8 @@ const handlers = {
 
     if (name === "openrouter-list") {
       if (!respond) return;
+      // Only openrouter records: the `openrouter` tool rejects ollama/lmstudio aliases.
+      const listOr = { ...or, models: or.models.filter((m) => (m.provider || "openrouter") === "openrouter") };
       // Shape a resolved model into the wire form (matches `delegates` entries below).
       const shape = (m) => ({
         alias: m.alias, model: m.model, experts: m.experts, askAll: m.askAll, consensus: m.consensus, default: m.default === true,
@@ -326,7 +328,7 @@ const handlers = {
         reasoning_effort: pick(undefined, m.reasoning_effort, or.defaults.reasoning_effort) ?? null,
       });
       const payload = {
-        delegates: or.models.map(shape),
+        delegates: listOr.models.map(shape),
         defaultModel: or.defaultModel || null,
         defaultPreset: or.preset || (or.defaults && or.defaults.preset) || null,
         defaultModelSet: !!or.defaultModel, maxFanout: or.maxFanout, maxFanoutHigh: or.maxFanout > 10,
@@ -344,11 +346,11 @@ const handlers = {
         payload.mode = mode;
         if (expert !== undefined) payload.expert = expert;
         if (mode === "ask-all") {
-          const out = askAllDelegates(or, expert);
+          const out = askAllDelegates(listOr, expert);
           payload.selected = out.selected.map(shape);
           payload.omitted = out.omitted.map(shape);
         } else {
-          payload.selected = consensusDelegates(or, expert).map(shape);
+          payload.selected = consensusDelegates(listOr, expert).map(shape);
         }
       }
       sendResponse(id, { content: [{ type: "text", text: JSON.stringify(payload) }] });
