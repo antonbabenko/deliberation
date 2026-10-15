@@ -180,11 +180,54 @@ function buildInitialTurns(developerInstructions, prompt, blocks) {
   ];
 }
 
+function stripTrailingSlashes(s) {
+  return typeof s === "string" ? s.replace(/\/+$/, "") : "";
+}
+
+/**
+ * Resolve effective apiBase, apiKeyEnv name, and apiKey value for a delegate in the standalone bridge.
+ * Rules (spec 3):
+ * 1. apiKeyEnv is set on the record: use that env var. If unset or empty, send no key. Never fall through.
+ * 2. The record has no apiBase, or its apiBase equals or.apiBase after stripping trailing slashes: use provider key.
+ * 3. Otherwise, send no key.
+ */
+function resolveEffectiveAuth(delegate, or) {
+  const providerApiBase = or.apiBase || "https://openrouter.ai/api/v1";
+  const providerKeyEnv = or.apiKeyEnv || "OPENROUTER_API_KEY";
+
+  if (isNonEmptyString(delegate && delegate.apiKeyEnv)) {
+    const envName = delegate.apiKeyEnv.trim();
+    const key = process.env[envName] || "";
+    return {
+      apiBase: delegate.apiBase || providerApiBase,
+      apiKeyEnv: envName,
+      apiKey: key,
+    };
+  }
+
+  const recBase = delegate && delegate.apiBase;
+  if (!recBase || stripTrailingSlashes(recBase) === stripTrailingSlashes(providerApiBase)) {
+    const envName = providerKeyEnv;
+    const key = process.env[envName] || "";
+    return {
+      apiBase: recBase || providerApiBase,
+      apiKeyEnv: envName,
+      apiKey: key,
+    };
+  }
+
+  return {
+    apiBase: recBase,
+    apiKeyEnv: null,
+    apiKey: "",
+  };
+}
+
 // Resolve args -> delegate {model, preset, ...overrides} or { _error: 'model-not-allowed' }.
 function resolveDelegate(or, args) {
   if (isNonEmptyString(args.alias)) {
     const d = resolveAlias(or, args.alias);
-    if (!d) return { _error: "model-not-allowed" };
+    if (!d || (d.provider && d.provider !== "openrouter")) return { _error: "model-not-allowed" };
     return isNonEmptyString(args.preset) ? { ...d, preset: args.preset.trim() } : d;
   }
   if (isNonEmptyString(args.model)) {
@@ -207,7 +250,10 @@ function resolveDelegate(or, args) {
     return { preset: p };
   }
   const def = resolveAlias(or, RESERVED_ALIAS);
-  if (def) return def;
+  if (def) {
+    if (def.provider && def.provider !== "openrouter") return { _error: "model-not-allowed" };
+    return def;
+  }
   if (or.preset || (or.defaults && or.defaults.preset)) {
     return { preset: or.preset || (or.defaults && or.defaults.preset) };
   }
@@ -272,6 +318,8 @@ const handlers = {
 
     if (name === "openrouter-list") {
       if (!respond) return;
+      // Only openrouter records: the `openrouter` tool rejects ollama/lmstudio aliases.
+      const listOr = { ...or, models: or.models.filter((m) => (m.provider || "openrouter") === "openrouter") };
       // Shape a resolved model into the wire form (matches `delegates` entries below).
       const shape = (m) => ({
         alias: m.alias, model: m.model, experts: m.experts, askAll: m.askAll, consensus: m.consensus, default: m.default === true,
@@ -280,7 +328,7 @@ const handlers = {
         reasoning_effort: pick(undefined, m.reasoning_effort, or.defaults.reasoning_effort) ?? null,
       });
       const payload = {
-        delegates: or.models.map(shape),
+        delegates: listOr.models.map(shape),
         defaultModel: or.defaultModel || null,
         defaultPreset: or.preset || (or.defaults && or.defaults.preset) || null,
         defaultModelSet: !!or.defaultModel, maxFanout: or.maxFanout, maxFanoutHigh: or.maxFanout > 10,
@@ -298,11 +346,11 @@ const handlers = {
         payload.mode = mode;
         if (expert !== undefined) payload.expert = expert;
         if (mode === "ask-all") {
-          const out = askAllDelegates(or, expert);
+          const out = askAllDelegates(listOr, expert);
           payload.selected = out.selected.map(shape);
           payload.omitted = out.omitted.map(shape);
         } else {
-          payload.selected = consensusDelegates(or, expert).map(shape);
+          payload.selected = consensusDelegates(listOr, expert).map(shape);
         }
       }
       sendResponse(id, { content: [{ type: "text", text: JSON.stringify(payload) }] });
@@ -320,16 +368,53 @@ const handlers = {
     }
 
     let delegate = null, priorSession = null, threadId;
+    let effectiveApiBase, effectiveApiKeyEnv, effectiveApiKey;
+
     if (name === "openrouter-reply") {
       if (!isNonEmptyString(args.threadId)) { if (respond) sendError(id, -32602, "Invalid params: 'threadId' required"); return; }
       threadId = args.threadId.trim();
       priorSession = sessions.get(threadId);
       if (!priorSession) { if (respond) sendResponse(id, errorResult(id, { code: "unknown-thread", message: `unknown threadId "${threadId}"` }, name, startedAt)); return; }
-      delegate = (args.alias || args.model || args.preset) ? resolveDelegate(or, args) : { model: priorSession.model, preset: priorSession.preset };
+
+      // Keep session if no alias/model passed, or if the passed alias/model matches priorSession:
+      // - If alias passed: compare by alias (priorSession.alias).
+      // - If model passed: raw model; matches only if priorSession had no alias and matching model.
+      const hasAlias = isNonEmptyString(args.alias);
+      const hasModel = isNonEmptyString(args.model);
+      const keepSession = (!hasAlias && !hasModel) ||
+        (hasAlias && priorSession.alias !== null && args.alias.trim() === priorSession.alias) ||
+        (!hasAlias && hasModel && priorSession.alias === null && args.model.trim() === priorSession.model);
+
+      if (keepSession) {
+        delegate = {
+          alias: priorSession.alias,
+          model: priorSession.model,
+          preset: isNonEmptyString(args.preset) ? args.preset.trim() : priorSession.preset,
+          reasoning_effort: priorSession.reasoningEffort,
+          temperature: priorSession.temperature,
+          timeout: priorSession.timeout,
+        };
+        effectiveApiBase = priorSession.apiBase;
+        effectiveApiKeyEnv = priorSession.apiKeyEnv;
+        effectiveApiKey = (effectiveApiKeyEnv ? process.env[effectiveApiKeyEnv] : undefined) || "";
+      } else {
+        delegate = resolveDelegate(or, args);
+        if (delegate && delegate._error) { if (respond) sendResponse(id, errorResult(id, { code: delegate._error, message: "alias/model not in allowlist" }, name, startedAt)); return; }
+        const auth = resolveEffectiveAuth(delegate, or);
+        effectiveApiBase = auth.apiBase;
+        effectiveApiKeyEnv = auth.apiKeyEnv;
+        effectiveApiKey = auth.apiKey;
+      }
     } else {
       threadId = crypto.randomUUID();
       delegate = resolveDelegate(or, args);
+      if (delegate && delegate._error) { if (respond) sendResponse(id, errorResult(id, { code: delegate._error, message: "alias/model not in allowlist" }, name, startedAt)); return; }
+      const auth = resolveEffectiveAuth(delegate, or);
+      effectiveApiBase = auth.apiBase;
+      effectiveApiKeyEnv = auth.apiKeyEnv;
+      effectiveApiKey = auth.apiKey;
     }
+
     if (delegate && delegate._error) { if (respond) sendResponse(id, errorResult(id, { code: delegate._error, message: "alias/model not in allowlist" }, name, startedAt)); return; }
     const effectivePreset = pick(args.preset, delegate && delegate.preset, (or.defaults && or.defaults.preset) || or.preset);
     if (!delegate || (!delegate.model && !effectivePreset)) { if (respond) sendResponse(id, errorResult(id, { code: "model-not-allowed", message: "no alias/model resolved and no defaultModel set" }, name, startedAt)); return; }
@@ -350,8 +435,8 @@ const handlers = {
     const resolvedProviders = (cfg.resolved && cfg.resolved.providers) || {};
     const cfgProviderTimeout = (resolvedProviders.openrouter && resolvedProviders.openrouter.timeout) || undefined;
     const timeoutMs = pick(args.timeout, delegate.timeout, or.defaults.timeout !== undefined ? or.defaults.timeout : cfgProviderTimeout);
-    const apiBase = delegate.apiBase || or.apiBase;
-    const apiKey = process.env[or.apiKeyEnv] || "";
+    const apiBase = effectiveApiBase;
+    const apiKey = effectiveApiKey;
 
     const turns = priorSession
       ? [...priorSession.turns, { role: "user", text: args.prompt, inlineBlocks: blocks }]
@@ -359,7 +444,17 @@ const handlers = {
 
     try {
       const out = await callOpenRouter({ apiBase, apiKey, model: delegate.model, preset: effectivePreset, messages: buildMessages(turns), reasoningEffort, temperature, timeoutMs });
-      sessions.set(threadId, { turns: [...turns, { role: "assistant", text: out.text }], model: delegate.model, preset: effectivePreset, apiBase, reasoningEffort, temperature });
+      sessions.set(threadId, {
+        turns: [...turns, { role: "assistant", text: out.text }],
+        alias: delegate.alias || null,
+        model: delegate.model,
+        preset: effectivePreset,
+        apiBase,
+        apiKeyEnv: effectiveApiKeyEnv,
+        reasoningEffort,
+        temperature,
+        timeout: delegate.timeout,
+      });
       if (respond) {
         const text = notes.length ? `${out.text}\n\n[files] ${notes.join("; ")}` : out.text;
         sendResponse(id, { content: [{ type: "text", text }], threadId });
@@ -393,4 +488,4 @@ if (require.main === module) {
   if (typeof globalThis.fetch !== "function") { console.error("OpenRouter bridge requires Node 18+ (global fetch unavailable)."); process.exit(1); }
 }
 
-module.exports = { buildMessages, classifyError, parseCompletion, callOpenRouter, buildInitialTurns, inlineFiles, resolveDelegate, DEFAULT_TIMEOUT_MS, MAX_MS, isNonEmptyString, truncate };
+module.exports = { buildMessages, classifyError, parseCompletion, callOpenRouter, buildInitialTurns, inlineFiles, resolveDelegate, resolveEffectiveAuth, DEFAULT_TIMEOUT_MS, MAX_MS, isNonEmptyString, truncate };

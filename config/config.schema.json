@@ -62,12 +62,18 @@
         },
         "openrouter": {
           "$ref": "#/$defs/openrouterProvider"
+        },
+        "ollama": {
+          "$ref": "#/$defs/ollamaProvider"
+        },
+        "lmstudio": {
+          "$ref": "#/$defs/lmstudioProvider"
         }
       }
     },
     "models": {
       "type": "object",
-      "description": "Named model records, keyed by id (^[a-z0-9-]+$, excluding the reserved \"openrouter-default\"). Each record names its provider and model slug. In v1 every record must target provider \"openrouter\".",
+      "description": "Named model records, keyed by id (^[a-z0-9-]+$, excluding the reserved \"openrouter-default\"). Each record names its provider and model slug. Supported providers: openrouter, ollama, lmstudio.",
       "additionalProperties": false,
       "propertyNames": {
         "pattern": "^(?!openrouter-default$)[a-z0-9-]+$",
@@ -535,6 +541,58 @@
         }
       }
     },
+    "ollamaProvider": {
+      "type": "object",
+      "description": "Ollama connection config (local or cloud).",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether this provider participates."
+        },
+        "apiKeyEnv": {
+          "type": "string",
+          "description": "Env var holding the Ollama API key if required (default keyless)."
+        },
+        "apiBase": {
+          "type": "string",
+          "default": "http://localhost:11434/v1",
+          "description": "Ollama OpenAI-compatible base URL. Read once at server start, so a change needs a restart."
+        },
+        "timeout": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Per-call wall-time ceiling in ms. Falls back to providers.defaults.timeout."
+        }
+      }
+    },
+    "lmstudioProvider": {
+      "type": "object",
+      "description": "LM Studio connection config.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether this provider participates."
+        },
+        "apiKeyEnv": {
+          "type": "string",
+          "description": "Env var holding the LM Studio API key if required (default keyless)."
+        },
+        "apiBase": {
+          "type": "string",
+          "default": "http://localhost:1234/v1",
+          "description": "LM Studio OpenAI-compatible base URL. Read once at server start, so a change needs a restart."
+        },
+        "timeout": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Per-call wall-time ceiling in ms. Falls back to providers.defaults.timeout."
+        }
+      }
+    },
     "modelRecord": {
       "type": "object",
       "description": "A named model record. provider is required, and at least one of model or preset must be specified.",
@@ -558,9 +616,11 @@
         "provider": {
           "type": "string",
           "enum": [
-            "openrouter"
+            "openrouter",
+            "ollama",
+            "lmstudio"
           ],
-          "description": "Transport for this record. Only \"openrouter\" is supported in v1 (codex/gemini/grok are CLI-managed / singleton built-ins)."
+          "description": "Transport for this record (supported: openrouter, ollama, lmstudio)."
         },
         "model": {
           "type": "string",
@@ -632,7 +692,11 @@
         },
         "apiBase": {
           "type": "string",
-          "description": "Override the provider apiBase for this record only."
+          "description": "Override the provider apiBase for this record only. Honored ONLY by the standalone openrouter bridge (e.g. /ask-openrouter); ignored by the unified deliberation server. Threat model: prompts and files go to this host, so point it only at endpoints you trust. The provider key is sent only when this value equals the provider apiBase after trailing slashes are stripped (exact string match); any other base gets no key unless the record sets apiKeyEnv."
+        },
+        "apiKeyEnv": {
+          "type": "string",
+          "description": "Override the provider apiKeyEnv for this record only. Honored ONLY by the standalone openrouter bridge; ignored by the unified deliberation server. Threat model: the named env var is sent as a bearer token to this record's apiBase; if the var is unset or empty the request is keyless, never the provider key."
         },
         "default": {
           "type": "boolean",

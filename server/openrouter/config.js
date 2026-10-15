@@ -128,13 +128,21 @@ function validateConfig(raw) {
   // alias === id. Per-entry soft-fail: a bad entry lands in invalidModels and does
   // NOT reject the whole config. Order follows Object.keys insertion order.
   const parsed = resolveModels(raw.models);
-  // Disabled-openrouter gating: when the provider is disabled, force the EFFECTIVE
-  // models to [] (and invalidModels to []) so the registry never fans out / votes a
-  // disabled provider's models, matching the old disabledOpenRouter() shape. This
-  // runs BEFORE resolveConsensus, so a {model:id} arbiter pointing at a now-absent
-  // model degrades to "auto" + warning instead of pinning a disabled delegate.
-  const models = enabled ? parsed.models : [];
-  const invalidModels = enabled ? parsed.invalidModels : [];
+  const isModelEnabled = (m) => {
+    const prov = m.provider || "openrouter";
+    if (prov === "openrouter") return enabled;
+    const pBlock = providersRaw[prov];
+    return !pBlock || pBlock.enabled !== false;
+  };
+  const models = parsed.models.filter(isModelEnabled);
+  const invalidModels = parsed.invalidModels;
+
+  const modelsWarnings = [];
+  for (const m of parsed.models) {
+    if (m.apiBase || m.apiKeyEnv) {
+      modelsWarnings.push(`models["${m.alias}"] sets ${[m.apiBase ? "apiBase" : null, m.apiKeyEnv ? "apiKeyEnv" : null].filter(Boolean).join("/")}; ignored by unified server (standalone bridge only)`);
+    }
+  }
 
   const defaultEntries = models.filter((m) => m.default);
   const defaultWarnings = [];
@@ -166,10 +174,10 @@ function validateConfig(raw) {
       sessions,
       debug,
       dashboard,
-      // Defaults-, sessions-, debug-, and dashboard-validation warnings ride the same
+      // Defaults-, sessions-, debug-, dashboard-, and models-validation warnings ride the same
       // consensusWarnings channel the bridge already surfaces, so a dropped/degraded
       // value is visible, not silent.
-      consensusWarnings: [...defaultsWarnings, ...providerPresetWarnings, ...warnings, ...sessionsWarnings, ...debugWarnings, ...dashboardWarnings, ...defaultWarnings],
+      consensusWarnings: [...defaultsWarnings, ...providerPresetWarnings, ...warnings, ...sessionsWarnings, ...debugWarnings, ...dashboardWarnings, ...defaultWarnings, ...modelsWarnings],
     },
   };
 }
@@ -377,8 +385,8 @@ function resolveDefaults(raw, shared) {
 // models.<id>.timeout still wins - registry.js merges that into the
 // request itself. `defaults` is a shared block, NOT a provider: it never becomes an
 // entry in the resolved map.
-const PINNABLE_KEYS = ["model", "reasoningEffort", "consensusReasoningEffort"];
-const KNOWN_PROVIDERS = ["codex", "gemini", "grok", "openrouter"];
+const PINNABLE_KEYS = ["model", "reasoningEffort", "consensusReasoningEffort", "apiBase", "apiKeyEnv"];
+const KNOWN_PROVIDERS = ["codex", "gemini", "grok", "openrouter", "ollama", "lmstudio"];
 const positiveInt = (/** @type {any} */ v) => (Number.isInteger(v) && v > 0 ? v : undefined);
 function resolveProviders(providersRaw) {
   const out = {};
@@ -479,15 +487,16 @@ function resolveModels(modelsRaw) {
       continue;
     }
     if (id === RESERVED_ALIAS) { addInvalid(i, id, `id "${RESERVED_ALIAS}" is reserved`); continue; }
-    if (!isObject(m)) { addInvalid(i, id, `models["${id}"] must be an object`); continue; }
-    // provider is required and MUST be "openrouter" in v1. codex/gemini/grok model
-    // entries are rejected with a clear reason - they are CLI-managed / singleton
-    // built-ins and out of scope. The field stays required so the shape is explicit.
-    if (typeof m.provider !== "string" || !m.provider.trim()) {
-      addInvalid(i, id, `models["${id}"] needs a provider (must be "${MODEL_PROVIDER}")`); continue;
+    if (!isObject(m)) {
+      addInvalid(i, id, `models["${id}"] must be an object (got ${JSON.stringify(m)})`);
+      continue;
     }
-    if (m.provider !== MODEL_PROVIDER) {
-      addInvalid(i, id, `models["${id}"] provider "${m.provider}" is not supported; only "${MODEL_PROVIDER}" model entries are allowed (codex/gemini/grok are CLI-managed / singleton built-ins, out of scope)`);
+    const ALLOWED_MODEL_PROVIDERS = new Set(["openrouter", "ollama", "lmstudio"]);
+    if (typeof m.provider !== "string" || !m.provider.trim()) {
+      addInvalid(i, id, `models["${id}"] needs a provider (must be one of: ${[...ALLOWED_MODEL_PROVIDERS].join(", ")})`); continue;
+    }
+    if (!ALLOWED_MODEL_PROVIDERS.has(m.provider)) {
+      addInvalid(i, id, `models["${id}"] provider "${m.provider}" is not supported; codex/gemini/grok are CLI-managed / singleton built-ins, out of scope (supported: ${[...ALLOWED_MODEL_PROVIDERS].join(", ")})`);
       continue;
     }
     if (m.preset !== undefined && !(typeof m.preset === "string" && m.preset.trim())) {
@@ -532,8 +541,12 @@ function resolveModels(modelsRaw) {
     if (m.apiBase !== undefined && !(typeof m.apiBase === "string" && m.apiBase.trim())) {
       addInvalid(i, id, `models["${id}"] apiBase must be a non-empty string`); continue;
     }
+    if (m.apiKeyEnv !== undefined && !(typeof m.apiKeyEnv === "string" && m.apiKeyEnv.trim())) {
+      addInvalid(i, id, `models["${id}"] apiKeyEnv must be a non-empty string`); continue;
+    }
     models.push({
       alias: id,
+      provider: m.provider,
       model: hasModel ? m.model.trim() : undefined,
       preset: hasPreset ? m.preset.trim() : undefined,
       experts,
@@ -548,6 +561,7 @@ function resolveModels(modelsRaw) {
       timeout: m.timeout,
       temperature: m.temperature,
       apiBase: m.apiBase,
+      apiKeyEnv: m.apiKeyEnv,
     });
   }
   return { models, invalidModels };

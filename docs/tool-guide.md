@@ -8,19 +8,21 @@ are generated from this file by `scripts/sync-hosts.js`.
 ## What deliberation is
 
 A single MCP server that exposes GPT (via the Codex CLI), Gemini 3 (via the
-Antigravity CLI), Grok (via the xAI API), and OpenRouter models (400+, advisory)
-as expert subagents. You stay the primary agent. When a task benefits from a
-second opinion or cross-model review, call one of the tools below, read the
-result, and apply your own judgment. Every tool here is ADVISORY: this server
-reads and reasons, it never edits your files. (Implementation exists only in the
-Claude Code plugin's standalone Gemini bridge, which this server does not expose.)
+Antigravity CLI), Grok (via the xAI API), local models (Ollama, LM Studio), and
+OpenRouter models (400+, advisory) as expert subagents. You stay the primary
+agent. When a task benefits from a second opinion or cross-model review, call
+one of the tools below, read the result, and apply your own judgment. Every tool
+here is ADVISORY: this server reads and reasons, it never edits your files.
+(Implementation exists only in the Claude Code plugin's standalone Gemini
+bridge, which this server does not expose.)
 
 ## Tools
 
 Fan-out and single-provider:
 
-- `ask-all` - send one question to GPT, Gemini, Grok, and configured OpenRouter
-  models in parallel, get every answer back independently (no cross-talk).
+- `ask-all` - send one question to GPT, Gemini, Grok, local models, and
+  configured OpenRouter models in parallel, get every answer back independently
+  (no cross-talk).
 - `consensus` - run the FULL multi-round convergence loop server-side with a provider
   arbiter (peer fan-out -> adjudicate -> revise, plus a blind pass per round when
   `consensus.blindVote` is on) and get the converged

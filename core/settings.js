@@ -3,8 +3,10 @@
  * @param {string} name @param {any} cfg @param {any} [req] @param {any} [env] */
 function resolveSettings(name,cfg={},req={},env=process.env) {
   const c=cfg.providers?.[name]||{},d=cfg.openrouter?.defaults||{};
-  const alias=name.startsWith('openrouter:')?cfg.openrouter?.models?.find((/** @type {any} */ m)=>m.alias===name.slice(11)):null;
-  const base=name.startsWith('openrouter:')?'openrouter':name;
+  // Pinned delegates are named `<provider>:<alias>` (openrouter, ollama, lmstudio).
+  const sep=name.indexOf(':');
+  const alias=sep>0?cfg.openrouter?.models?.find((/** @type {any} */ m)=>m.alias===name.slice(sep+1)):null;
+  const base=sep>0?name.slice(0,sep):name;
   const provider=cfg.providers?.[base]||{};
   const preset=base==='openrouter'?(req.preset??alias?.preset??provider.preset??cfg.openrouter?.preset??d.preset):undefined;
   const ask=alias?.reasoning_effort??(base==='openrouter'?d.reasoning_effort:c.reasoningEffort)??(base==='grok'?env.GROK_REASONING_EFFORT||'high':null);

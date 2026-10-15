@@ -7,6 +7,7 @@
  * @typedef {Object} OrModel
  * @property {string}  alias
  * @property {string}  [model]
+ * @property {string}  [provider]
  * @property {string}  [preset]
  * @property {boolean} [askAll]
  * @property {boolean} [consensus]
@@ -16,6 +17,7 @@
  * @property {number}  [temperature]
  * @property {number}  [timeout]
  * @property {string}  [apiBase]
+ * @property {string}  [apiKeyEnv]
  */
 
 /**
@@ -31,6 +33,10 @@
  * Per-provider enable flags from the loaded config.
  * @typedef {Object} ProviderFlag
  * @property {boolean} [enabled]
+ * @property {number}  [timeout]
+ * @property {string}  [apiBase]
+ * @property {string}  [apiKeyEnv]
+ * @property {string}  [model]
  */
 
 /**
@@ -76,36 +82,64 @@ function consensusDelegates(or, expert) {
 
 const BUILTINS = ["codex", "gemini", "grok"];
 
-// Wrap the single openrouter Provider as a per-alias Provider that pins the
+// Wrap the single openrouter/local Provider as a per-alias Provider that pins the
 // alias model and re-labels the result. This is the issue-001 fix: selection
 // AND dispatch happen inside one server call, so the orchestrator never names
 // an alias and a disabled one cannot leak from a stale cache.
+/** @param {OrModel|any} m */
+function formatDelegateName(m) {
+  const prov = m.provider || "openrouter";
+  return `${prov}:${m.alias}`;
+}
+
 /**
- * @param {Provider} orProvider
+ * @param {Provider} baseProvider
  * @param {OrModel} delegate
  * @param {Record<string, any>} [defaults]
+ * @param {RegistryConfig} [config]
  * @returns {Provider}
  */
-function pinAlias(orProvider, delegate, defaults) {
+function pinAlias(baseProvider, delegate, defaults, config) {
+  const prov = delegate.provider || "openrouter";
+  const name = formatDelegateName(delegate);
+
+  const provTimeout = config && config.providers && config.providers[prov] && config.providers[prov].timeout;
+  const configuredTimeout = delegate.timeout !== undefined ? delegate.timeout : provTimeout;
+
   return {
-    name: `openrouter:${delegate.alias}`,
-    capabilities: orProvider.capabilities,
-    health: orProvider.health.bind(orProvider),
+    name,
+    alias: delegate.alias,
+    provider: prov,
+    model: delegate.model,
+    capabilities: baseProvider.capabilities,
+    health: baseProvider.health.bind(baseProvider),
     resolveSettings(req) {
-      const base=orProvider.resolveSettings?.(req);
-      const config={openrouter:{models:[delegate],defaults,preset:defaults?.preset},providers:{openrouter:{timeout:base?.timeoutMs,preset:delegate.preset||defaults?.preset}}};
-      return require("./settings.js").resolveSettings(`openrouter:${delegate.alias}`,config,req);
-    },
-    async ask(req) {
-      // Forward the delegate's configured params with ARG-WINS precedence (an
-      // explicit caller value beats the model default), mapping config/wire field
-      // names to the DelegationRequest fields openai-compatible.js reads.
+      const base = baseProvider.resolveSettings?.(req);
       const isConsensus = req.context === "consensus";
       const defaultEffort = isConsensus
         ? (delegate.consensus_reasoning_effort ?? (defaults && defaults.consensus_reasoning_effort) ?? delegate.reasoning_effort ?? (defaults && defaults.reasoning_effort))
         : (delegate.reasoning_effort ?? (defaults && defaults.reasoning_effort));
       const defaultPreset = delegate.preset ?? (defaults && defaults.preset);
-      const r = await orProvider.ask({
+      const cfg = {
+        openrouter: { models: [delegate], defaults, preset: defaults?.preset },
+        providers: {
+          [prov]: { timeout: base?.timeoutMs ?? configuredTimeout, preset: delegate.preset || defaults?.preset },
+        },
+      };
+      return require("./settings.js").resolveSettings(name, cfg, req);
+    },
+    async ask(req) {
+      // Forward the delegate's configured params with ARG-WINS precedence (an
+      // explicit caller value beats the model default), mapping config/wire field
+      // names to the DelegationRequest fields openai-compatible.js reads. NOTE: only
+      // reasoningEffort/temperature/timeout flow here; per-model apiBase and apiKeyEnv
+      // apply on the standalone /ask-openrouter bridge path.
+      const isConsensus = req.context === "consensus";
+      const defaultEffort = isConsensus
+        ? (delegate.consensus_reasoning_effort ?? (defaults && defaults.consensus_reasoning_effort) ?? delegate.reasoning_effort ?? (defaults && defaults.reasoning_effort))
+        : (delegate.reasoning_effort ?? (defaults && defaults.reasoning_effort));
+      const defaultPreset = delegate.preset ?? (defaults && defaults.preset);
+      const r = await baseProvider.ask({
         ...req,
         model: delegate.model !== undefined ? delegate.model : (delegate.preset ? "" : req.model),
         preset: req.preset ?? defaultPreset,
@@ -113,16 +147,20 @@ function pinAlias(orProvider, delegate, defaults) {
         // cast to the DelegationRequest union (the bridge tolerates any effort string).
         reasoningEffort: req.reasoningEffort ?? /** @type {("low"|"medium"|"high"|"none"|undefined)} */ (defaultEffort),
         temperature: req.temperature ?? delegate.temperature ?? (defaults && defaults.temperature),
-        timeoutMs: req.timeoutMs ?? delegate.timeout,
+        timeoutMs: req.timeoutMs ?? configuredTimeout,
       });
-      return { ...r, provider: `openrouter:${delegate.alias}` };
+      return { ...r, provider: name };
     },
   };
 }
 
 /** @param {Provider[]} providers */
 function makeRegistry(providers) {
-  const byName = new Map(providers.map((/** @type {Provider} */ p) => [p.name, p]));
+  const byName = new Map();
+  for (const p of providers) {
+    byName.set(p.name, p);
+  }
+
   /**
    * @param {RegistryConfig} config
    * @param {string} name
@@ -145,16 +183,29 @@ function makeRegistry(providers) {
     /** @type {{name:string, reason:string}[]} */ const unavailable = [];
     for (const n of BUILTINS) {
       if (!byName.has(n) || !enabled(config, n)) continue;
-      const reason = unhealthy && unhealthy.get(n);
-      if (reason) unavailable.push({ name: n, reason });
-      else providers.push(/** @type {Provider} */ (byName.get(n)));
+      const p = /** @type {Provider} */ (byName.get(n));
+      const reason = unhealthy && (unhealthy.get(n) || unhealthy.get(p.name));
+      if (reason) unavailable.push({ name: p.name, reason });
+      else providers.push(p);
     }
     return { providers, unavailable };
   };
-  /** @param {OrModel[]} delegates @param {Record<string, any>} [defaults] @returns {Provider[]} */
-  const pinDelegates = (delegates, defaults) => {
-    const orProvider = byName.get("openrouter");
-    return orProvider ? delegates.map((/** @type {OrModel} */ d) => pinAlias(orProvider, d, defaults)) : [];
+  /** @param {OrModel[]} delegates @param {Record<string, any>} [defaults] @param {RegistryConfig} [config] @returns {{providers: Provider[], unavailable: {name:string, reason:string}[]}} */
+  const pinDelegates = (delegates, defaults, config) => {
+    /** @type {Provider[]} */
+    const res = [];
+    /** @type {{name:string, reason:string}[]} */
+    const unavailable = [];
+    for (const d of delegates) {
+      const prov = d.provider || "openrouter";
+      const targetProvider = byName.get(prov);
+      if (targetProvider) {
+        res.push(pinAlias(targetProvider, d, defaults, config));
+      } else {
+        unavailable.push({ name: formatDelegateName(d), reason: `provider "${prov}" is not registered` });
+      }
+    }
+    return { providers: res, unavailable };
   };
 
   return {
@@ -168,7 +219,8 @@ function makeRegistry(providers) {
       const or = (config && config.openrouter) || {};
       const { selected, omitted } = askAllDelegates(or, expert);
       const b = builtinsFor(config, unhealthy);
-      return { providers: [...b.providers, ...pinDelegates(selected, or.defaults)], omitted, unavailable: b.unavailable };
+      const pinned = pinDelegates(selected, or.defaults, config);
+      return { providers: [...b.providers, ...pinned.providers], omitted, unavailable: [...b.unavailable, ...pinned.unavailable] };
     },
 
     // Uncapped: healthy built-ins + per-alias OR consensus delegates.
@@ -176,9 +228,10 @@ function makeRegistry(providers) {
     selectForConsensus({ config, expert, unhealthy }) {
       const or = (config && config.openrouter) || {};
       const b = builtinsFor(config, unhealthy);
-      return { providers: [...b.providers, ...pinDelegates(consensusDelegates(or, expert), or.defaults)], unavailable: b.unavailable };
+      const pinned = pinDelegates(consensusDelegates(or, expert), or.defaults, config);
+      return { providers: [...b.providers, ...pinned.providers], unavailable: [...b.unavailable, ...pinned.unavailable] };
     },
   };
 }
 
-module.exports = { makeRegistry, eligibleForExpert, askAllDelegates, consensusDelegates, pinAlias };
+module.exports = { makeRegistry, eligibleForExpert, askAllDelegates, consensusDelegates, pinAlias, formatDelegateName };

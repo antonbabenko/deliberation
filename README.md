@@ -1,6 +1,6 @@
 # Deliberation
 
-Get a second opinion from GPT, Gemini, and Grok in Claude Code, Codex, Cursor, Kiro, Antigravity, OpenCode, or any other MCP host - plus 400+ more models through OpenRouter, including Qwen, Kimi, and DeepSeek. Seven domain experts (Architect, Code Reviewer, Security Analyst, and four more) review your plans, find bugs, and debate edge cases until they agree.
+Get a second opinion from GPT, Gemini, and Grok in Claude Code, Codex, Cursor, Kiro, Antigravity, OpenCode, or any other MCP host - plus local models (Ollama, LM Studio) and 400+ more models through OpenRouter, including Qwen, Kimi, and DeepSeek. Seven domain experts (Architect, Code Reviewer, Security Analyst, and four more) review your plans, find bugs, and debate edge cases until they agree.
 
 ![Four chairs at the table: Claude, GPT, Gemini, Grok - one verdict you can ship](assets/agents.png)<br>Recent blog post: [Meet Deliberation: 400+ models is easy, knowing which ones earn a place is hard.](https://builder.aws.com/content/3Eaq94hQW8HywInrVaQm9qNih1P/meet-deliberation-400-models-is-easy-knowing-which-ones-earn-a-place-is-hard)
 
@@ -48,9 +48,10 @@ The `CAPTURE` and `PII` badges show what was recorded. The default capture is me
 
 ## What is Deliberation?
 
-Your coding agent can ask GPT, Gemini, Grok, or any OpenAI-compatible model (via OpenRouter)
-for help through MCP. Deliberation handles the wiring for each provider so you just write the
-prompt. Each expert has a distinct specialty and can advise or implement.
+Your coding agent can ask GPT, Gemini, Grok, local models (Ollama, LM Studio), or any
+OpenAI-compatible model (via OpenRouter) for help through MCP. Deliberation handles the wiring
+for each provider so you just write the prompt. Each expert has a distinct specialty and can
+advise or implement.
 
 It is not tied to Claude Code. The same MCP server runs on any MCP host, and Codex, Cursor,
 Kiro, Antigravity, and OpenCode also get native plugins with the experts and delegation
@@ -65,7 +66,7 @@ with `DELIBERATION_CONFIG`) and hot-reload without restarting your host.
 | What you get | Why it matters |
 |--------------|----------------|
 | 7 domain experts | The right specialist for each problem type |
-| GPT, Gemini, Grok, or OpenRouter models | Use your preferred provider(s) |
+| GPT, Gemini, Grok, local, or OpenRouter models | Use your preferred provider(s) |
 | Dual mode | Experts analyze (read-only) or implement (write) |
 | Auto-routing | Your agent detects when to delegate from your request |
 | Synthesized responses | Your agent interprets expert output, never raw passthrough |
@@ -96,7 +97,7 @@ Pick the path for your host:
 /deliberation:setup
 ```
 
-Claude now routes complex tasks to your GPT, Gemini, Grok, and OpenRouter experts (GPT, Grok, and OpenRouter advise; only Gemini can also implement).
+Claude now routes complex tasks to your GPT, Gemini, Grok, local (Ollama, LM Studio), and OpenRouter experts (every provider advises; only Gemini can also implement).
 
 > **Setup is a one-time step.** The MCP servers are registered by the plugin manifest, so they load
 > automatically and stay current across updates.
