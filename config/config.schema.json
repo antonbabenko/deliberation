@@ -692,11 +692,11 @@
         },
         "apiBase": {
           "type": "string",
-          "description": "Override the provider apiBase for this record only. Honored ONLY by the standalone openrouter bridge (e.g. /ask-openrouter); ignored by the unified deliberation server."
+          "description": "Override the provider apiBase for this record only. Honored ONLY by the standalone openrouter bridge (e.g. /ask-openrouter); ignored by the unified deliberation server. Threat model: prompts and files go to this host, so point it only at endpoints you trust. The provider key is sent only when this value equals the provider apiBase after trailing slashes are stripped (exact string match); any other base gets no key unless the record sets apiKeyEnv."
         },
         "apiKeyEnv": {
           "type": "string",
-          "description": "Override the provider apiKeyEnv for this record only. Honored ONLY by the standalone openrouter bridge; ignored by the unified deliberation server."
+          "description": "Override the provider apiKeyEnv for this record only. Honored ONLY by the standalone openrouter bridge; ignored by the unified deliberation server. Threat model: the named env var is sent as a bearer token to this record's apiBase; if the var is unset or empty the request is keyless, never the provider key."
         },
         "default": {
           "type": "boolean",
