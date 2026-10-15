@@ -1,3 +1,10 @@
+## [3.31.0](https://github.com/antonbabenko/deliberation/compare/v3.30.0...v3.31.0) (2026-10-15)
+
+
+### Features
+
+* **providers:** add Ollama & LM Studio local providers and explicit model attribution ([#204](https://github.com/antonbabenko/deliberation/issues/204)) ([e8f55c9](https://github.com/antonbabenko/deliberation/commit/e8f55c92dacfcc9672bbca0ae24b29761c8698e3))
+
 ## [3.30.0](https://github.com/antonbabenko/deliberation/compare/v3.29.0...v3.30.0) (2026-10-11)
 
 
@@ -25,11 +32,4 @@
 ### Features
 
 * cap orientation bundle size with a byte budget ([#236](https://github.com/antonbabenko/deliberation/issues/236)) ([29a0443](https://github.com/antonbabenko/deliberation/commit/29a044396fda1a61a834a5868c14757691c11ec8))
-
-## [3.26.0](https://github.com/antonbabenko/deliberation/compare/v3.25.0...v3.26.0) (2026-10-08)
-
-
-### Features
-
-* dashboard analyzer, run project, request size, and dashboard restart ([#233](https://github.com/antonbabenko/deliberation/issues/233)) ([b0644d6](https://github.com/antonbabenko/deliberation/commit/b0644d6e0c03da5c3fcb430f58eb40c502217f27))
 
