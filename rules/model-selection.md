@@ -293,6 +293,6 @@ Returns configured model aliases with their `askAll`, `consensus`, and `experts`
 - Simple questions you can answer
 - First attempt at any fix
 - Trivial decisions
-- Research tasks (use other tools)
+- Research tasks (use other tools). Writing, reviewing, or updating prose published under a person's name still goes to the Writing Editor
 - When user just wants quick info
 - Implementation or file-editing tasks (route to Gemini - GPT, Grok, and OpenRouter are advisory-only)

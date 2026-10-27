@@ -38,6 +38,8 @@ const KEYWORDS = [
   "debug",
   "writing editor",
   "edit this post",
+  "in my voice",
+  "sound like me",
   "grok",
   "openrouter",
   "gpt",

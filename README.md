@@ -283,6 +283,73 @@ Bundled with the Claude Code plugin (available once installed; OpenCode gets the
 - First attempt at any fix (try yourself first)
 - Trivial questions (no need to delegate)
 
+### Writing in your own voice
+
+The Writing Editor runs whenever your agent writes, reviews, or updates text you publish under your name: posts, articles, newsletters, release notes, README intros, PR descriptions, bios, talk abstracts. Your agent drafts first, then the editor checks the draft before you see it. It returns line edits, questions about anything the text needs that only you know, and a rewrite that keeps every fact. For a piece that matters, run `/consensus` on the draft and the panel reviews it with the `writing-editor` persona.
+
+The editor needs evidence of how you write. Without it, it can only cut filler. A short voice file helps most. Keep it in your repo and point to it ("use my voice file at docs/voice.md"):
+
+```markdown
+# <Your name> - voice
+
+## How to use this file
+- These rules beat any default style rule.
+- Samples show rhythm only. Do not copy their phrases.
+- Never invent a fact, number, person, customer, or quote.
+
+## What I argue from
+- 3-7 beliefs you keep coming back to, in your words.
+
+## Mechanics
+- "I" or "we", contractions or full forms, sentence length mix.
+- Name the specific thing. A number beats an adjective, and every number needs a source.
+- Typography you use (dashes, quotes, heading case).
+
+## Moves
+| Move | Use only when | My own example |
+|------|---------------|----------------|
+| <a habit of yours> | <the condition> | "<a real line you wrote>" |
+
+At most one move per short post.
+
+## Would sound wrong
+| Wrong | Why |
+|-------|-----|
+| "Thrilled to share" | Launch voice. Say what shipped. |
+| "Here's the thing", "Sound familiar?" | Run-up. Start with the thing itself. |
+| A one-line quotable closer | End on the last concrete fact. |
+
+## Channels
+- LinkedIn: the hook fits before the "see more" cut, 1-3 sentence paragraphs, no closing question.
+- Blog: ...
+
+## Samples (rhythm only)
+- 5-10 short lines you wrote yourself: posts, replies, talk transcripts.
+```
+
+Two parts of the file do most of the work. Each move has a condition, so the editor does not paste your signature line into every post (overused habits read as machine-made too). The "would sound wrong" table lists phrases you would never write. When you edit a draft by hand, add the voice change you made to the file as a rule.
+
+Picking models:
+
+- Review with several model families. `/consensus` with the `writing-editor` persona sends the draft to every voice in your consensus panel. Reviewers from different families tend to flag different tells (one catches the arc of the piece, another a claim you never made).
+- Give rewrites their own model record. A record restricted to `writing-editor` joins only prose reviews, so its settings do not touch your code reviews. Use a higher temperature for writing than the 0.2 typical for review. Pick the model by reading what it writes on your own samples, not by its benchmark scores:
+
+  ```json
+  "models": {
+    "prose": {
+      "provider": "openrouter",
+      "model": "<provider/model whose prose you like>",
+      "experts": ["writing-editor"],
+      "consensus": true,
+      "temperature": 0.7
+    }
+  }
+  ```
+
+- Gemini is the only provider that can write the rewrite back to the file (implementation mode). The others return it as text.
+
+The editor does not score text for "AI likelihood" and does not promise any detector result. It also never adds typos or broken grammar to make text look human.
+
 ## How to Use
 
 Describe your task. Your agent detects when an expert helps and delegates automatically (the examples show Claude Code):
