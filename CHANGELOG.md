@@ -1,3 +1,10 @@
+## [3.32.1](https://github.com/antonbabenko/deliberation/compare/v3.32.0...v3.32.1) (2026-10-27)
+
+
+### Bug Fixes
+
+* **deps:** require node >=18.20.8 ([67216d7](https://github.com/antonbabenko/deliberation/commit/67216d70b4d62eef3eb0b2ffb8236e62ab3617f2))
+
 ## [3.32.0](https://github.com/antonbabenko/deliberation/compare/v3.31.0...v3.32.0) (2026-10-27)
 
 
@@ -25,11 +32,4 @@
 ### Features
 
 * harden consensus loop, codex error classification and orientation default ([#241](https://github.com/antonbabenko/deliberation/issues/241)) ([050a6a7](https://github.com/antonbabenko/deliberation/commit/050a6a76563c1db1b9a4e7b89a6956999db38a2b))
-
-## [3.28.0](https://github.com/antonbabenko/deliberation/compare/v3.27.0...v3.28.0) (2026-10-08)
-
-
-### Features
-
-* group dashboard projects by git remote with workspaces under each ([#239](https://github.com/antonbabenko/deliberation/issues/239)) ([f19442d](https://github.com/antonbabenko/deliberation/commit/f19442d9be5b672a807d2108657e195cce52ecba))
 
