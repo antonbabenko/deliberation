@@ -1,3 +1,10 @@
+## [3.32.0](https://github.com/antonbabenko/deliberation/compare/v3.31.0...v3.32.0) (2026-10-27)
+
+
+### Features
+
+* add Writing Editor expert for prose review and rewrites ([#246](https://github.com/antonbabenko/deliberation/issues/246)) ([bb6611e](https://github.com/antonbabenko/deliberation/commit/bb6611ed301e5658dc2f828820109658376a2482))
+
 ## [3.31.0](https://github.com/antonbabenko/deliberation/compare/v3.30.0...v3.31.0) (2026-10-15)
 
 
@@ -25,11 +32,4 @@
 ### Features
 
 * group dashboard projects by git remote with workspaces under each ([#239](https://github.com/antonbabenko/deliberation/issues/239)) ([f19442d](https://github.com/antonbabenko/deliberation/commit/f19442d9be5b672a807d2108657e195cce52ecba))
-
-## [3.27.0](https://github.com/antonbabenko/deliberation/compare/v3.26.0...v3.27.0) (2026-10-08)
-
-
-### Features
-
-* cap orientation bundle size with a byte budget ([#236](https://github.com/antonbabenko/deliberation/issues/236)) ([29a0443](https://github.com/antonbabenko/deliberation/commit/29a044396fda1a61a834a5868c14757691c11ec8))
 
