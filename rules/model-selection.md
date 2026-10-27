@@ -27,6 +27,7 @@ Before delegating, check which MCP tools are available in the current environmen
 | **Security Analyst** | Security | Vulnerabilities, threat modeling, hardening |
 | **Researcher** | External libraries and docs | Library usage, best practices, third-party source |
 | **Debugger** | Root-cause debugging | Ranked hypotheses, minimal fixes |
+| **Writing Editor** | Prose editing | Line edits and rewrites that keep facts and voice |
 
 ## Operating Modes
 
@@ -152,6 +153,21 @@ Every expert can operate in two modes:
 - Advisory: ranked hypotheses with minimal fix + regression note, or a no-bug-found result with questions
 - Implementation: the minimal fix applied + verification
 
+### Writing Editor
+
+**Specialty**: Editing prose (posts, articles, promo copy, READMEs) so it reads like its author wrote it
+
+**When to use**:
+- A draft that reads generic or machine-written
+- The author has the material, but the text is flat
+- A README or announcement before publishing
+
+**Philosophy**: Editor, not detector - keep every fact and the author's voice, ask for missing specifics instead of inventing them, never target a detection score.
+
+**Output format**:
+- Advisory: read, line edits, questions for the author, rewritten text
+- Implementation: rewrite applied to the file (Gemini only) + open questions; original wording stays until answered
+
 ## GPT Parameters Reference
 
 GPT has no dedicated MCP server: codex-cli ships none, so the unified `deliberation`
@@ -172,7 +188,7 @@ server spawns `codex exec` itself. One tool, one shot, advisory only.
 and the model comes from `providers.codex.model` in config.json, else the `model` key in `~/.codex/config.toml`. There is no `-reply`
 tool: a follow-up is a new call that carries the earlier turns in its prompt.
 
-The seven expert tools (`mcp__deliberation__architect`, `...__code-reviewer`, ...) take the
+The eight expert tools (`mcp__deliberation__architect`, `...__code-reviewer`, ...) take the
 same shape but FAN OUT to every provider eligible for that expert, not just GPT. When the
 answer must come from GPT alone, call `ask-gpt` and pass `expert:`.
 
@@ -277,6 +293,6 @@ Returns configured model aliases with their `askAll`, `consensus`, and `experts`
 - Simple questions you can answer
 - First attempt at any fix
 - Trivial decisions
-- Research tasks (use other tools)
+- Research tasks (use other tools). Writing, reviewing, or updating prose published under a person's name still goes to the Writing Editor
 - When user just wants quick info
 - Implementation or file-editing tasks (route to Gemini - GPT, Grok, and OpenRouter are advisory-only)

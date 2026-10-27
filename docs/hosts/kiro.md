@@ -41,13 +41,14 @@ The Power loads when your task mentions any of its `keywords`:
 
 ```
 architecture review, security review, second opinion, consensus,
-code review, plan review, debug, grok, openrouter, gpt, gemini, deliberation
+code review, plan review, debug, writing editor, edit this post, grok,
+openrouter, gpt, gemini, deliberation
 ```
 
 Once loaded, the steering files tell Kiro when to call each tool (`ask-all`,
 `consensus`, `ask-gpt` / `ask-gemini` / `ask-grok` / `ask-openrouter`) and each
 expert persona (`architect`, `plan-reviewer`, `scope-analyst`, `code-reviewer`,
-`security-analyst`, `researcher`, `debugger`).
+`security-analyst`, `researcher`, `debugger`, `writing-editor`).
 
 ## Submitting to the Kiro Powers registry
 

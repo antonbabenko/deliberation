@@ -221,6 +221,39 @@ OUTPUT FORMAT:
 Bottom line -> ranked hypotheses (or no-bug-found + questions) -> SUMMARY
 ```
 
+### Writing Editor
+
+```markdown
+TASK: Edit [post/article/copy/README section] so it reads like its author wrote it.
+
+EXPECTED OUTCOME: Line edits plus the rewritten text, with every fact, claim, and the author's voice intact.
+
+MODE: [Advisory / Implementation]
+
+CONTEXT:
+- Draft: [pasted text or file path]
+- Audience and purpose: [who reads it, what it must do]
+- Voice: [samples of the author's earlier writing, or a one-line description]
+
+CONSTRAINTS:
+- Language and register: [keep as written / target]
+- Fixed text: [claims, names, links, or phrases that must not change]
+
+MUST DO:
+- Flag machine-sounding patterns with the exact line they occur in
+- Keep every fact, number, name, link, and the author's language and person
+- Turn missing specifics into questions for the author; keep the original wording until answered
+
+MUST NOT DO:
+- Invent experience, numbers, anecdotes, quotes, or outcomes
+- Flatten the author's voice into generic "clean" prose
+- Frame edits around any AI-detection score or tool
+
+OUTPUT FORMAT:
+[Advisory: Read -> Line edits -> Questions for the author -> Rewritten text -> SUMMARY]
+[Implementation: Summary -> Files modified -> Questions for the author -> Verification]
+```
+
 ## Quick Reference
 
 | Expert | Advisory Output | Implementation Output |
@@ -232,3 +265,4 @@ Bottom line -> ranked hypotheses (or no-bug-found + questions) -> SUMMARY
 | Security Analyst | Vulnerabilities + risk rating | Hardening + verification |
 | Researcher | Findings + sources (cited or [unverified]) | Written findings doc |
 | Debugger | Ranked hypotheses + minimal fix | Minimal fix + verification |
+| Writing Editor | Line edits + rewritten text + questions for the author | Rewrite applied to the file |

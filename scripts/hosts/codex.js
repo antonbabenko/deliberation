@@ -45,8 +45,8 @@ function build(ctx) {
       capabilities: ["Interactive", "Write"],
       shortDescription: S.SHORT_DESCRIPTION,
       longDescription:
-        "Seven expert subagents (Architect, Plan Reviewer, Scope Analyst, Code Reviewer, " +
-        "Security Analyst, Researcher, Debugger) backed by GPT, Gemini, Grok, and OpenRouter, " +
+        "Eight expert subagents (Architect, Plan Reviewer, Scope Analyst, Code Reviewer, " +
+        "Security Analyst, Researcher, Debugger, Writing Editor) backed by GPT, Gemini, Grok, and OpenRouter, " +
         "plus ask-all fan-out and arbiter-mediated consensus. Advisory or implementation.",
       websiteURL: S.REPO_URL,
     },

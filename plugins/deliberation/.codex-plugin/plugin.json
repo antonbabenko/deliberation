@@ -17,7 +17,7 @@
       "Write"
     ],
     "shortDescription": "GPT, Gemini, Grok, and OpenRouter as expert subagents - second opinions, cross-model consensus, and review.",
-    "longDescription": "Seven expert subagents (Architect, Plan Reviewer, Scope Analyst, Code Reviewer, Security Analyst, Researcher, Debugger) backed by GPT, Gemini, Grok, and OpenRouter, plus ask-all fan-out and arbiter-mediated consensus. Advisory or implementation.",
+    "longDescription": "Eight expert subagents (Architect, Plan Reviewer, Scope Analyst, Code Reviewer, Security Analyst, Researcher, Debugger, Writing Editor) backed by GPT, Gemini, Grok, and OpenRouter, plus ask-all fan-out and arbiter-mediated consensus. Advisory or implementation.",
     "websiteURL": "https://github.com/antonbabenko/deliberation"
   }
 }

@@ -11,4 +11,4 @@ matching block into your host's rule file.
 The tools referenced in every block: `ask-all`, `consensus`,
 `ask-gpt` / `ask-gemini` / `ask-grok` / `ask-openrouter`, and the experts
 `architect`, `plan-reviewer`, `scope-analyst`, `code-reviewer`,
-`security-analyst`, `researcher`, `debugger`.
+`security-analyst`, `researcher`, `debugger`, `writing-editor`.

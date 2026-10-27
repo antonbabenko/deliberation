@@ -9,7 +9,7 @@ working on this repository. For how to USE deliberation as an MCP server, read
 deliberation gives a host agent GPT (Codex CLI), Gemini 3 (Antigravity CLI `agy`), Grok
 (xAI API) and OpenRouter models as expert reviewers over MCP. It ships as a Claude Code
 plugin, as native plugins/skills for other hosts, and as one standalone MCP server
-(`@antonbabenko/deliberation-mcp`). Seven expert personas live in `prompts/`. Every provider
+(`@antonbabenko/deliberation-mcp`). Eight expert personas live in `prompts/`. Every provider
 is advisory except Gemini, which can also implement (`workspace-write`).
 
 Plain Node (18+; CI runs 20), no runtime dependencies, no build step for development. `core/` is

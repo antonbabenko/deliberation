@@ -5,7 +5,7 @@ const fs = require("node:fs");
 
 const EXPERT_KEYS = new Set([
   "architect", "plan-reviewer", "scope-analyst", "code-reviewer",
-  "security-analyst", "researcher", "debugger",
+  "security-analyst", "researcher", "debugger", "writing-editor",
 ]);
 const RESERVED_ALIAS = "openrouter-default";
 const ALIAS_RE = /^[a-z0-9-]+$/;

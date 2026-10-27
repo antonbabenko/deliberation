@@ -39,7 +39,7 @@ test("Antigravity & Agent host artifacts are present and well-formed", () => {
   const mcp = JSON.parse(artifacts[AGENTS_MCP]);
   assert.ok(mcp.mcpServers?.deliberation, "missing deliberation server in .agents/mcp.json");
 
-  // Check that .agents/skills/ and .gemini/skills/ carry deliberation, all 7 experts, and reload-mcp
+  // Check that .agents/skills/ and .gemini/skills/ carry deliberation, all 8 experts, and reload-mcp
   const skills = [
     "deliberation",
     "architect",
@@ -49,6 +49,7 @@ test("Antigravity & Agent host artifacts are present and well-formed", () => {
     "security-analyst",
     "researcher",
     "debugger",
+    "writing-editor",
     "reload-mcp",
   ];
   for (const exp of skills) {

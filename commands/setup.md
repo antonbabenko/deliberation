@@ -104,10 +104,10 @@ Print only the reminders relevant to what the Step-1 status showed as missing:
 - Grok: `export XAI_API_KEY=xai-...` (https://console.x.ai) in your shell profile, then restart
 - OpenRouter: export the key named by `apiKeyEnv` (default `OPENROUTER_API_KEY`)
 
-Seven experts are available, auto-detected from the request (or explicit: "Ask GPT to...", "Ask
+Eight experts are available, auto-detected from the request (or explicit: "Ask GPT to...", "Ask
 Gemini to...", "Ask Grok to..."), each able to advise (read-only) or implement (write; Grok and
 OpenRouter advisory-only): Architect, Plan Reviewer, Scope Analyst, Code Reviewer, Security
-Analyst, Researcher, Debugger.
+Analyst, Researcher, Debugger, Writing Editor.
 
 ## Step 4: Ask about starring
 

@@ -8,7 +8,7 @@
       "auth": "codex login (codex login --device-auth on a remote machine), or CODEX_ACCESS_TOKEN",
       "mcp": null,
       "note": "No dedicated MCP server - codex-cli ships no MCP server mode. GPT is served by the unified `deliberation` server, which spawns `codex exec` (core/providers/codex.js).",
-      "experts": ["architect", "plan-reviewer", "scope-analyst", "code-reviewer", "security-analyst", "researcher", "debugger"],
+      "experts": ["architect", "plan-reviewer", "scope-analyst", "code-reviewer", "security-analyst", "researcher", "debugger", "writing-editor"],
       "strengths": ["architecture", "code-review", "security", "requirements-analysis", "plan-validation"],
       "avoid": ["simple-operations", "trivial-decisions", "research", "first-attempt-fixes"]
     },
@@ -23,7 +23,7 @@
         "command": "node",
         "args": ["${CLAUDE_PLUGIN_ROOT}/server/gemini/index.js"]
       },
-      "experts": ["architect", "plan-reviewer", "scope-analyst", "code-reviewer", "security-analyst", "researcher", "debugger"],
+      "experts": ["architect", "plan-reviewer", "scope-analyst", "code-reviewer", "security-analyst", "researcher", "debugger", "writing-editor"],
       "strengths": ["reasoning", "large context", "code generation", "multimodal analysis"],
       "avoid": ["simple-operations", "trivial-decisions", "research", "first-attempt-fixes"]
     },
@@ -38,7 +38,7 @@
         "command": "node",
         "args": ["${CLAUDE_PLUGIN_ROOT}/server/grok/index.js"]
       },
-      "experts": ["architect", "plan-reviewer", "scope-analyst", "code-reviewer", "security-analyst", "researcher", "debugger"],
+      "experts": ["architect", "plan-reviewer", "scope-analyst", "code-reviewer", "security-analyst", "researcher", "debugger", "writing-editor"],
       "strengths": ["reasoning", "architecture", "code-review", "security", "large context"],
       "avoid": ["simple-operations", "trivial-decisions", "research", "first-attempt-fixes", "file-editing"]
     },
@@ -49,7 +49,7 @@
       "api": "https://openrouter.ai/api/v1/chat/completions",
       "auth": "export OPENROUTER_API_KEY=sk-or-... (or the env var named by apiKeyEnv)",
       "mcp": { "type": "stdio", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/server/openrouter/index.js"] },
-      "experts": ["architect", "plan-reviewer", "scope-analyst", "code-reviewer", "security-analyst", "researcher", "debugger"],
+      "experts": ["architect", "plan-reviewer", "scope-analyst", "code-reviewer", "security-analyst", "researcher", "debugger", "writing-editor"],
       "strengths": ["model breadth", "consensus diversity", "advisory second opinions"],
       "avoid": ["file-editing", "implementation tasks", "sandboxed work"]
     }

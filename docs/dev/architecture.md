@@ -120,7 +120,7 @@ Retries use multi-turn (`*-reply` with `threadId`) so the expert remembers previ
 
 > Expert prompts adapted from [oh-my-opencode](https://github.com/code-yeongyu/oh-my-opencode)
 
-## Seven experts
+## Eight experts
 
 | Expert | Prompt | Specialty | Triggers |
 |--------|--------|-----------|----------|
@@ -131,6 +131,7 @@ Retries use multi-turn (`*-reply` with `threadId`) so the expert remembers previ
 | **Security Analyst** | `prompts/security-analyst.md` | Vulnerabilities | "is this secure", "harden this" |
 | **Researcher** | `prompts/researcher.md` | External libraries, docs, best practices | "how do I use X", "find examples of Y" |
 | **Debugger** | `prompts/debugger.md` | Root-cause analysis, minimal fixes | "why does this crash", "debug this failing test" |
+| **Writing Editor** | `prompts/writing-editor.md` | Prose editing, voice-preserving rewrites | "edit this post", "this reads machine-written" |
 
 Every expert can operate in **advisory** (`sandbox: read-only`) or **implementation** (`sandbox: workspace-write`) mode based on the task, but only Gemini still has a write surface: GPT, Grok, and OpenRouter are advisory-only. Per-model expert eligibility for OpenRouter is controlled by the `experts` field in `~/.config/deliberation/config.json` (Windows: `%APPDATA%\deliberation\config.json`; override with `DELIBERATION_CONFIG`).
 

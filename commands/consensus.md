@@ -66,6 +66,7 @@ label. Do NOT re-implement any of that here.
    - Architecture / design tradeoffs -> `architect`
    - Security / threat modeling -> `security-analyst`
    - Code review of a concrete diff -> `code-reviewer`
+   - A post, article, README, or other prose meant to read like its author -> `writing-editor`
 
    Pass this key verbatim as `expert`; the server injects the matching persona for the
    PEER dispatch. There is no prompt-file Glob and no inlined fallback - the running MCP

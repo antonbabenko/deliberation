@@ -28,12 +28,12 @@ Plugin root: `plugins/deliberation/`
   stdio).
 - `skills/deliberation/SKILL.md` - "when to delegate" (from `docs/tool-guide.md`).
 - `skills/<expert>/SKILL.md` - one skill per expert (`architect`, `plan-reviewer`,
-  `scope-analyst`, `code-reviewer`, `security-analyst`, `researcher`, `debugger`),
+  `scope-analyst`, `code-reviewer`, `security-analyst`, `researcher`, `debugger`, `writing-editor`),
   each carrying that expert's persona so Codex gets the same guidance natively.
 - `skills/reload-mcp/SKILL.md` - process audit and graceful dashboard recycling after deliberation updates.
 
 Once installed you get the deliberation MCP tools (`ask-all`, `consensus`,
-`ask-gpt` / `ask-gemini` / `ask-grok` / `ask-openrouter`, and the seven experts).
+`ask-gpt` / `ask-gemini` / `ask-grok` / `ask-openrouter`, and the eight experts).
 
 ## Provider credentials
 

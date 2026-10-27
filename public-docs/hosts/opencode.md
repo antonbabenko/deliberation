@@ -11,7 +11,7 @@ ship as:
   `/ask-openrouter`). Each just calls the matching deliberation MCP tool.
 - `.opencode/agents/*.md` - one subagent per expert persona (`architect`,
   `plan-reviewer`, `scope-analyst`, `code-reviewer`, `security-analyst`,
-  `researcher`, `debugger`), each with `mode: subagent`.
+  `researcher`, `debugger`, `writing-editor`), each with `mode: subagent`.
 
 The MCP server itself is registered in your `opencode.json` (see below).
 

@@ -34,8 +34,8 @@ frontmatter (`description`, `alwaysApply`) controls when Cursor loads it; the bo
 routes plan/architecture/security reviews and second opinions to the right tool.
 The full surface (same as every host) is the fan-out / single-provider tools
 (`ask-all`, `consensus`, `ask-gpt` / `ask-gemini` / `ask-grok` / `ask-openrouter`)
-and the seven experts (`architect`, `plan-reviewer`, `scope-analyst`,
-`code-reviewer`, `security-analyst`, `researcher`, `debugger`).
+and the eight experts (`architect`, `plan-reviewer`, `scope-analyst`,
+`code-reviewer`, `security-analyst`, `researcher`, `debugger`, `writing-editor`).
 
 ## Provider credentials
 
