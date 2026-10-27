@@ -38,7 +38,7 @@ const EXT_RW = { readOnlyHint: false, destructiveHint: false, openWorldHint: tru
 const ASK_PROVIDER = { "ask-gpt": "codex", "ask-gemini": "gemini", "ask-grok": "grok", "ask-openrouter": "openrouter" };
 /** Per-provider auth note for the ask-* tool descriptions. @type {Record<string, string>} */
 const ASK_AUTH = { codex: "via the Codex CLI", gemini: "via the Gemini CLI", grok: "needs XAI_API_KEY", openrouter: "needs the OpenRouter API key env" };
-const EXPERTS = ["architect", "plan-reviewer", "scope-analyst", "code-reviewer", "security-analyst", "researcher", "debugger"];
+const EXPERTS = ["architect", "plan-reviewer", "scope-analyst", "code-reviewer", "security-analyst", "researcher", "debugger", "writing-editor"];
 /** Appended to every expert tool description: external dispatch + return shape (keeps EXPERT_DESCRIPTIONS focused on purpose/usage). */
 const EXPERT_SUFFIX = " Fans out to the configured provider panel with this persona (advisory; each provider needs its key/CLI, rate limits apply) and returns a text-wrapped JSON envelope { results[] }.";
 
@@ -55,6 +55,7 @@ const EXPERT_DESCRIPTIONS = {
   "security-analyst": "Security engineer for threat modeling and vulnerability assessment. Use for auth/authorization changes, untrusted input handling, new endpoints, or a focused security audit.",
   "researcher": "Research specialist for external libraries, frameworks, APIs, and open-source code. Use for 'how do I use X', best-practice, or 'why does this dependency behave this way' questions, with evidence and honest unverified flags.",
   "debugger": "Debugging specialist that produces ranked root-cause hypotheses and the smallest safe fix from a bug report, logs, and code - or says honestly that the evidence shows no bug. Use for crashes, failing tests, or wrong output.",
+  "writing-editor": "Line editor for prose - posts, articles, promo copy, READMEs. Flags machine-sounding patterns and returns line edits plus a rewritten text that keeps every fact, claim, and the author's voice; asks for missing specifics instead of inventing them. Use for any draft that reads generic or machine-written.",
 };
 
 /**
@@ -64,7 +65,7 @@ const EXPERT_DESCRIPTIONS = {
  */
 const PROP_DESC = {
   prompt: "The question or task for the provider(s)/expert.",
-  expert: "Optional persona: architect, plan-reviewer, scope-analyst, code-reviewer, security-analyst, researcher, or debugger. On a named expert tool the tool's own persona wins and this is ignored.",
+  expert: "Optional persona: architect, plan-reviewer, scope-analyst, code-reviewer, security-analyst, researcher, debugger, or writing-editor. On a named expert tool the tool's own persona wins and this is ignored.",
   developerInstructions: "Optional system/developer instructions injected verbatim; overrides the built-in persona for `expert`.",
   cwd: "Working directory the provider runs in (used to resolve relative file refs). Defaults to the server process directory.",
   reasoningEffort: "Reasoning depth where the provider supports it (Grok, OpenRouter): low, medium, high, or none. CLI providers (Codex, Gemini) ignore it.",

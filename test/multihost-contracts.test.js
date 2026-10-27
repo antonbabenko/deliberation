@@ -30,6 +30,7 @@ const CANONICAL_SKILLS = [
   "researcher",
   "scope-analyst",
   "security-analyst",
+  "writing-editor",
 ];
 
 const SKILL_HOST_TREES = [
@@ -46,6 +47,7 @@ const CANONICAL_PERSONAS = [
   "researcher",
   "scope-analyst",
   "security-analyst",
+  "writing-editor",
 ];
 
 /**

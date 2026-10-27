@@ -42,6 +42,7 @@ const FALLBACK_ORDER = [
   "scope-analyst",
   "researcher",
   "debugger",
+  "writing-editor",
 ];
 
 /** Personas adapted from oh-my-opencode carry an attribution blockquote. */

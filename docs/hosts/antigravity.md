@@ -10,8 +10,8 @@ canonical sources (`docs/tool-guide.md`, `prompts/*.md`).
 - `.agents/mcp.json` - MCP configuration registering `@antonbabenko/deliberation-mcp`.
 - `.agents/skills/` - Cross-agent standard skills:
   - `deliberation/SKILL.md`: "When and how to delegate" (from `docs/tool-guide.md`).
-  - `<expert>/SKILL.md`: The 7 expert subagents (`architect`, `plan-reviewer`,
-    `scope-analyst`, `code-reviewer`, `security-analyst`, `researcher`, `debugger`).
+  - `<expert>/SKILL.md`: The 8 expert subagents (`architect`, `plan-reviewer`,
+    `scope-analyst`, `code-reviewer`, `security-analyst`, `researcher`, `debugger`, `writing-editor`).
   - `reload-mcp/SKILL.md`: Gracefully cycle the dashboard daemon and audit MCP processes after an update.
 - `.gemini/skills/` - Workspace-level skill mirror for native Gemini Code Assist discovery.
 
@@ -19,7 +19,7 @@ canonical sources (`docs/tool-guide.md`, `prompts/*.md`).
 
 Once installed or placed in the project root, Antigravity and Gemini Code Assist automatically
 discover the workspace skills and project-level MCP tools:
-- **Workspace Skills**: Specialized expert personas (`@architect`, `@code-reviewer`, `@debugger`, `@plan-reviewer`, `@security-analyst`, `@scope-analyst`, `@researcher`) and delegation guidance (`@deliberation`).
+- **Workspace Skills**: Specialized expert personas (`@architect`, `@code-reviewer`, `@debugger`, `@plan-reviewer`, `@security-analyst`, `@scope-analyst`, `@researcher`, `@writing-editor`) and delegation guidance (`@deliberation`).
 - **MCP Tools**: Multi-model consensus and peer-review tools (`consensus`, `consensus-step`, `ask-all`, `ask-gpt`, `ask-gemini`, `ask-grok`, `ask-openrouter`) called directly by the agent or host.
 
 ## Provider credentials

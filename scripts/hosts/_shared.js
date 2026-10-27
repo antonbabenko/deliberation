@@ -21,7 +21,7 @@ const MCP_PACKAGE = "@antonbabenko/deliberation-mcp";
 const SHORT_DESCRIPTION =
   "GPT, Gemini, Grok, and OpenRouter as expert subagents - second opinions, cross-model consensus, and review.";
 
-/** The 7 expert personas + a one-line description for host skill/agent frontmatter. */
+/** The 8 expert personas + a one-line description for host skill/agent frontmatter. */
 const EXPERTS = {
   architect: "System design, tradeoffs, and complex technical decisions.",
   "plan-reviewer": "Validate that a work plan is executable before work starts.",
@@ -30,6 +30,7 @@ const EXPERTS = {
   "security-analyst": "Threat-model and find vulnerabilities, with practical remediation.",
   researcher: "Research external libraries, APIs, and best practices, with evidence.",
   debugger: "Rank root-cause hypotheses and propose the smallest safe fix.",
+  "writing-editor": "Edit prose so it reads like its author wrote it, keeping every fact and the author's voice.",
 };
 
 /**

@@ -12,8 +12,8 @@ and full docs, see the repo: **https://github.com/antonbabenko/deliberation**
 ## What it does
 
 You stay the primary agent. When a task needs a second opinion or cross-model review, call
-one of the tools below, read the result, and apply your own judgment. Seven expert personas
-(architect, code reviewer, security analyst, and four more) shape the review. GPT and Gemini
+one of the tools below, read the result, and apply your own judgment. Eight expert personas
+(architect, code reviewer, security analyst, and five more) shape the review. GPT and Gemini
 can also implement changes; Grok and OpenRouter only advise.
 
 ## Install
@@ -78,7 +78,7 @@ It writes a starter `config.json` (never overwrites an existing one).
   (`init` -> `record_blind` -> `dispatch_peers` -> `submit_adjudication` -> `submit_revision`).
 - `ask-gpt` / `ask-gemini` / `ask-grok` / `ask-openrouter` - one question to one provider.
 - Experts: `architect`, `plan-reviewer`, `scope-analyst`, `code-reviewer`,
-  `security-analyst`, `researcher`, `debugger` - call directly, or pass `expert` on the
+  `security-analyst`, `researcher`, `debugger`, `writing-editor` - call directly, or pass `expert` on the
   fan-out tools to apply one persona to every delegate.
 - Session tools (opt-in `sessions.persist`): `session-get`, `session-revisit`,
   `session-annotate`.

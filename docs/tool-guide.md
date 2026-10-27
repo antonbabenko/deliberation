@@ -100,6 +100,7 @@ tools to apply one persona to every delegate):
 - `security-analyst` - threat modeling and vulnerability assessment.
 - `researcher` - external libraries, APIs, and best practices, with evidence.
 - `debugger` - ranked root-cause hypotheses and the smallest safe fix.
+- `writing-editor` - line edits and a rewrite of prose that keep every fact and the author's voice.
 
 Session tools (only useful when `sessions.persist` is enabled in config; they report
 "persistence disabled" otherwise). When on, `consensus`, the host-driven `consensus-step`

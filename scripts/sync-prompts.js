@@ -16,7 +16,7 @@
 const fs = require("fs");
 const path = require("path");
 
-/** The 8 personas: 7 expert tools plus the arbiter (data-only for now). */
+/** The 9 personas: 8 expert tools plus the arbiter (data-only for now). */
 const PERSONA_KEYS = [
   "architect",
   "plan-reviewer",
@@ -25,6 +25,7 @@ const PERSONA_KEYS = [
   "security-analyst",
   "researcher",
   "debugger",
+  "writing-editor",
   "arbiter",
 ];
 

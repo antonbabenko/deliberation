@@ -13,9 +13,10 @@ const EXPERT_KEYS = [
   "security-analyst",
   "researcher",
   "debugger",
+  "writing-editor",
 ];
 
-test("P1: PROMPTS map exports all 7 experts plus arbiter as non-empty strings", () => {
+test("P1: PROMPTS map exports all 8 experts plus arbiter as non-empty strings", () => {
   for (const key of [...EXPERT_KEYS, "arbiter"]) {
     assert.equal(typeof PROMPTS[key], "string", `${key} should be a string`);
     assert.ok(PROMPTS[key].length > 50, `${key} persona should be substantial`);

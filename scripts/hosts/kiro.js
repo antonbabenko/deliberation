@@ -36,6 +36,8 @@ const KEYWORDS = [
   "code review",
   "plan review",
   "debug",
+  "writing editor",
+  "edit this post",
   "grok",
   "openrouter",
   "gpt",

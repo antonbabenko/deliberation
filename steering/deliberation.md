@@ -31,6 +31,7 @@ one persona to every delegate:
 - `security-analyst` - Threat-model and find vulnerabilities, with practical remediation.
 - `researcher` - Research external libraries, APIs, and best practices, with evidence.
 - `debugger` - Rank root-cause hypotheses and propose the smallest safe fix.
+- `writing-editor` - Edit prose so it reads like its author wrote it, keeping every fact and the author's voice.
 
 ## Routing
 

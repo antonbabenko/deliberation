@@ -65,8 +65,8 @@ Render the sections below. Keep it tight - this is a cheat sheet, not a manual.
 ### Tips
 
 - Add an expert by name to sharpen the answer: "as the security-analyst, ..." or
-  "have the code-reviewer ...". The seven experts: architect, plan-reviewer,
-  scope-analyst, code-reviewer, security-analyst, researcher, debugger.
+  "have the code-reviewer ...". The eight experts: architect, plan-reviewer,
+  scope-analyst, code-reviewer, security-analyst, researcher, debugger, writing-editor.
 - Point at files in your prompt - the local experts (GPT, Gemini) can read them.
 - Stuck? Run `/deliberation:doctor`. Curious which models earn their slot? `/deliberation:analyze`.
 

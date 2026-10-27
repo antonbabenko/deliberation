@@ -666,7 +666,7 @@ DELIB_ROOT="${DELIB_ROOT%/server/mcp/index.js}"
 ```
 
 ```bash
-# The unified `deliberation` server - serves ask-all / consensus / the seven experts AND
+# The unified `deliberation` server - serves ask-all / consensus / the eight experts AND
 # GPT (`ask-gpt`). Register this one first: without it there is no GPT at all, because
 # codex-cli ships no MCP server of its own and this server spawns `codex exec` itself.
 # GPT's model + reasoning effort: providers.codex.{model,reasoningEffort} in config.json,
@@ -996,7 +996,7 @@ the reserved `openrouter-default`):
 |-------|------|---------|-------|
 | `provider` | string | required | Supported: `"openrouter"`, `"ollama"`, `"lmstudio"` |
 | `model` | string | required | Provider model slug (e.g. `openai/gpt-4.1`, `llama3.3:70b`) |
-| `experts` | array or absent | absent = all 7 | `[]` = none / explicit-only; array = subset of the 7 expert keys |
+| `experts` | array or absent | absent = all 8 | `[]` = none / explicit-only; array = subset of the 8 expert keys |
 | `askAll` | boolean | `true` | Include this record in `/ask-all` fan-out when eligible |
 | `consensus` | boolean | `false` | Include this record in `/consensus` voting |
 | `reasoningEffort` | string | from `defaults` | Per-record override for ask calls (maps to wire `reasoning_effort`) |
@@ -2002,7 +2002,7 @@ Where events come from:
 - `core/orchestrate.js` `callProvider`, which every provider call passes through, emits
   `call_start` and `call_end` (errors included; a retry is a new `callId`).
 - `server/mcp/index.js` emits `run_start` / `run_end` for `ask-all`, `ask-one`, the
-  `ask-*` tools, the seven expert tools, and `consensus`; the server-side loop also emits
+  `ask-*` tools, the eight expert tools, and `consensus`; the server-side loop also emits
   `state` per transition.
 - `consensus-step`: `init` opens the run with the loop `sessionId` as its `runId`; each
   action emits `state`, the three host actions also emit `arbiter`, and a terminal

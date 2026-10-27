@@ -133,6 +133,21 @@ test("C4: unknown expert key is reported as invalid, valid entries kept", () => 
   assert.match(resolved.openrouter.invalidModels[0].reason, /unknown expert/i);
 });
 
+test("C4a: every persona is a valid expert key in both the validator and the schema", () => {
+  const { EXPERT_KEYS } = require("../server/openrouter/config.js");
+  const { PROMPTS } = require("../core/prompts/index.js");
+  const schema = require("../config/config.schema.json");
+  const personas = Object.keys(PROMPTS).filter((k) => k !== "arbiter").sort();
+  assert.deepEqual([...EXPERT_KEYS].sort(), personas);
+  assert.deepEqual([...schema.$defs.modelRecord.properties.experts.items.enum].sort(), personas);
+
+  const c = base();
+  c.models.gpt55.experts = ["writing-editor"];
+  const { ok, resolved } = validateConfig(c);
+  assert.equal(ok, true);
+  assert.deepEqual(resolved.openrouter.invalidModels, []);
+});
+
 test("C4b: non-openrouter provider model entry is rejected with a clear reason, valid kept", () => {
   for (const bad of ["codex", "gemini", "grok"]) {
     const c = base();

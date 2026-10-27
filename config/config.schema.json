@@ -660,7 +660,8 @@
               "code-reviewer",
               "security-analyst",
               "researcher",
-              "debugger"
+              "debugger",
+              "writing-editor"
             ]
           }
         },

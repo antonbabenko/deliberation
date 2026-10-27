@@ -28,6 +28,7 @@ You MUST scan incoming messages for delegation triggers. This is NOT optional.
 | **Security Analyst** | Vulnerabilities, threats | Security audits, hardening |
 | **Researcher** | External libraries, docs | Library usage, best practices, third-party source |
 | **Debugger** | Root-cause analysis | Runtime errors, crashes, failing tests |
+| **Writing Editor** | Prose editing | Posts, articles, promo copy, READMEs that read machine-written |
 
 ## Explicit Triggers (Highest Priority)
 
@@ -46,6 +47,7 @@ User explicitly requests delegation:
 | "security review", "is this secure" | Security Analyst |
 | "research [library]", "how do I use [X]" | Researcher |
 | "debug this", "why does this crash/fail", "find the bug" | Debugger |
+| "edit this post", "make this sound like me", "this reads machine-written" | Writing Editor |
 
 ## Semantic Triggers (Intent Matching)
 
@@ -115,6 +117,15 @@ User explicitly requests delegation:
 | "debug this" / "find the bug" | "Debug this auth handler" |
 | Stack trace or error output pasted | When the user supplies a failing log |
 | After 2+ failed fix attempts | Fresh ranked hypotheses |
+
+### Prose Editing (-> Writing Editor)
+
+| Intent Pattern | Example |
+|----------------|---------|
+| "edit this post/article/copy" | "Edit this launch post so it sounds like me" |
+| "this reads generic / machine-written" | "The README intro reads like a template - fix it" |
+| "tighten this" | "Tighten the promo copy, keep every claim" |
+| Draft pasted with a request about voice or style | "Make this newsletter read like my earlier ones" |
 
 ## Trigger Priority
 
