@@ -1,3 +1,10 @@
+## [4.1.1](https://github.com/antonbabenko/deliberation/compare/v4.1.0...v4.1.1) (2026-11-04)
+
+
+### Bug Fixes
+
+* **writing-editor:** locked-text precedence and step reference after review of [#257](https://github.com/antonbabenko/deliberation/issues/257) ([#259](https://github.com/antonbabenko/deliberation/issues/259)) ([7e83a6b](https://github.com/antonbabenko/deliberation/commit/7e83a6bc147a222296275f892702d9fdd1ea59dc))
+
 ## [4.1.0](https://github.com/antonbabenko/deliberation/compare/v4.0.0...v4.1.0) (2026-11-04)
 
 
@@ -34,11 +41,4 @@
 ### Features
 
 * **providers:** add Ollama & LM Studio local providers and explicit model attribution ([#204](https://github.com/antonbabenko/deliberation/issues/204)) ([e8f55c9](https://github.com/antonbabenko/deliberation/commit/e8f55c92dacfcc9672bbca0ae24b29761c8698e3))
-
-## [3.30.0](https://github.com/antonbabenko/deliberation/compare/v3.29.0...v3.30.0) (2026-10-11)
-
-
-### Features
-
-* allow specifying presets for openrouter provider by id ([#243](https://github.com/antonbabenko/deliberation/issues/243)) ([e776868](https://github.com/antonbabenko/deliberation/commit/e7768686a931ef5fb5895b5195dc6a57ba8a7a4b))
 
