@@ -167,7 +167,7 @@ Every expert can operate in two modes:
 
 **Output format**:
 - Advisory: read, reader test, author decisions, line edits, questions for the author, rewritten text
-- Implementation: rewrite applied to the file (Gemini only) + reader test + author decisions + open questions; original wording and locked strings stay until answered
+- Implementation: rewrite applied to the file (Gemini only) + reader test + author decisions + open questions; original wording stays until answered, locked strings stay unedited
 
 ## GPT Parameters Reference
 
