@@ -1,3 +1,10 @@
+## [4.1.0](https://github.com/antonbabenko/deliberation/compare/v4.0.0...v4.1.0) (2026-11-04)
+
+
+### Features
+
+* **writing-editor:** reader test, locked-text author decisions, landing-copy routing ([#257](https://github.com/antonbabenko/deliberation/issues/257)) ([185b8be](https://github.com/antonbabenko/deliberation/commit/185b8be6b7d6d950e0ad5aaa02e6906c91b740fb))
+
 ## [4.0.0](https://github.com/antonbabenko/deliberation/compare/v3.32.0...v4.0.0) (2026-10-27)
 
 
@@ -34,11 +41,4 @@
 ### Features
 
 * allow specifying presets for openrouter provider by id ([#243](https://github.com/antonbabenko/deliberation/issues/243)) ([e776868](https://github.com/antonbabenko/deliberation/commit/e7768686a931ef5fb5895b5195dc6a57ba8a7a4b))
-
-## [3.29.0](https://github.com/antonbabenko/deliberation/compare/v3.28.0...v3.29.0) (2026-10-10)
-
-
-### Features
-
-* harden consensus loop, codex error classification and orientation default ([#241](https://github.com/antonbabenko/deliberation/issues/241)) ([050a6a7](https://github.com/antonbabenko/deliberation/commit/050a6a76563c1db1b9a4e7b89a6956999db38a2b))
 
