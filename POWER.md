@@ -109,7 +109,7 @@ tools to apply one persona to every delegate):
 - `security-analyst` - threat modeling and vulnerability assessment.
 - `researcher` - external libraries, APIs, and best practices, with evidence.
 - `debugger` - ranked root-cause hypotheses and the smallest safe fix.
-- `writing-editor` - line edits and a rewrite of prose that keep every fact and the author's voice. Use it when writing, reviewing, or updating text someone publishes under their name, including a draft you just wrote for them; pass a voice file or writing samples as evidence.
+- `writing-editor` - line edits and a rewrite of prose that keep every fact and the author's voice. Use it when writing, reviewing, or updating text someone publishes under their name, including a draft you just wrote for them; pass a voice file or writing samples as evidence. Also use it for landing page, product website, or launch copy, including the headline and lede, even when some strings are pinned: it keeps locked strings verbatim and reports any that fail its reader test under Author decisions instead of skipping them. Pass the audience (who reads it, what they already know) and a source of truth (README, spec) when you have them.
 
 Session tools (only useful when `sessions.persist` is enabled in config; they report
 "persistence disabled" otherwise). When on, `consensus`, the host-driven `consensus-step`

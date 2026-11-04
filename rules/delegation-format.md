@@ -232,14 +232,16 @@ MODE: [Advisory / Implementation]
 
 CONTEXT:
 - Draft: [pasted text or file path]
-- Audience and purpose: [who reads it, what it must do]
+- Audience and purpose: [who reads it, what they already know, what it must do]
+- Source of truth: [README, spec, or other source that backs the claims, if any]
 - Voice: [samples of the author's earlier writing, or a one-line description]
 
 CONSTRAINTS:
 - Language and register: [keep as written / target]
-- Fixed text: [claims, names, links, or phrases that must not change]
+- Fixed text: [claims, names, links, or phrases that must not change; the editor keeps them verbatim but still reports any that fail its reader test under Author decisions]
 
 MUST DO:
+- Run the reader test on the opening (what it is, who it is for; for product copy also what changes and what to do next)
 - Flag machine-sounding patterns with the exact line they occur in
 - Keep every fact, number, name, link, and the author's language and person
 - Turn missing specifics into questions for the author; keep the original wording until answered
@@ -250,8 +252,8 @@ MUST NOT DO:
 - Frame edits around any AI-detection score or tool
 
 OUTPUT FORMAT:
-[Advisory: Read -> Line edits -> Questions for the author -> Rewritten text -> SUMMARY]
-[Implementation: Summary -> Files modified -> Questions for the author -> Verification]
+[Advisory: Read -> Reader test -> Author decisions -> Line edits -> Questions for the author -> Rewritten text -> SUMMARY]
+[Implementation: Summary -> Files modified -> Reader test -> Author decisions -> Questions for the author -> Verification]
 ```
 
 ## Quick Reference
@@ -265,4 +267,4 @@ OUTPUT FORMAT:
 | Security Analyst | Vulnerabilities + risk rating | Hardening + verification |
 | Researcher | Findings + sources (cited or [unverified]) | Written findings doc |
 | Debugger | Ranked hypotheses + minimal fix | Minimal fix + verification |
-| Writing Editor | Line edits + rewritten text + questions for the author | Rewrite applied to the file |
+| Writing Editor | Reader test + author decisions + line edits + rewritten text + questions for the author | Rewrite applied to the file |

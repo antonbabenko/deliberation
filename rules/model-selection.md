@@ -161,12 +161,13 @@ Every expert can operate in two modes:
 - A draft that reads generic or machine-written
 - The author has the material, but the text is flat
 - A README or announcement before publishing
+- Landing page or launch copy, including a pinned headline and lede
 
 **Philosophy**: Editor, not detector - keep every fact and the author's voice, ask for missing specifics instead of inventing them, never target a detection score.
 
 **Output format**:
-- Advisory: read, line edits, questions for the author, rewritten text
-- Implementation: rewrite applied to the file (Gemini only) + open questions; original wording stays until answered
+- Advisory: read, reader test, author decisions, line edits, questions for the author, rewritten text
+- Implementation: rewrite applied to the file (Gemini only) + reader test + author decisions + open questions; original wording and locked strings stay until answered
 
 ## GPT Parameters Reference
 

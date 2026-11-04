@@ -39,3 +39,9 @@ test("P3: personas carry no runtime fs/.md reads (data only)", () => {
   const committed = fs.readFileSync(OUT_FILE, "utf8");
   assert.equal(/readFileSync|require\(.*\.md/.test(committed), false);
 });
+
+test("P4: writing-editor persona carries the reader test and author decisions", () => {
+  for (const marker of ["Reader test", "Author decisions"]) {
+    assert.ok(PROMPTS["writing-editor"].includes(marker), `writing-editor prompt should mention "${marker}"`);
+  }
+});
