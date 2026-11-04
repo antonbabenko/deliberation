@@ -267,7 +267,7 @@ Bundled with the Claude Code plugin (available once installed; OpenCode gets the
 | **Security Analyst** | Vulnerabilities, threat modeling | "Is this secure?" / "Harden this endpoint" |
 | **Researcher** | External libraries, docs, best practices | "How do I use X?" / "Find examples of Y" |
 | **Debugger** | Root-cause analysis, minimal fixes | "Why does this crash?" / "Debug this failing test" |
-| **Writing Editor** | Prose that reads like you wrote it | "Edit this launch post" / "This README intro reads generic" |
+| **Writing Editor** | Prose that reads like you wrote it and tells its reader what it is | "Edit this launch post" / "Review the landing page headline and lede" |
 
 ### When experts help most
 
@@ -285,7 +285,7 @@ Bundled with the Claude Code plugin (available once installed; OpenCode gets the
 
 ### Writing in your own voice
 
-The Writing Editor runs whenever your agent writes, reviews, or updates text you publish under your name: posts, articles, newsletters, release notes, README intros, PR descriptions, bios, talk abstracts. Your agent drafts first, then the editor checks the draft before you see it. It returns line edits, questions about anything the text needs that only you know, and a rewrite that keeps every fact. For a piece that matters, run `/consensus` on the draft and the panel reviews it with the `writing-editor` persona.
+The Writing Editor runs whenever your agent writes, reviews, or updates text you publish under your name: posts, articles, newsletters, release notes, README intros, landing pages and launch copy, PR descriptions, bios, talk abstracts. Your agent drafts first, then the editor checks the draft before you see it. It returns line edits, questions about anything the text needs that only you know, and a rewrite that keeps every fact. On product, landing, launch, and README-intro copy it also runs a reader test: the headline and the line under it must say what the thing is and who it is for, and the first ~50 words what changes for the reader and what to do next. Strings you pinned stay verbatim in the rewrite; when one fails the test, the editor still reports it under "Author decisions" with a proposed replacement. Name the audience when you ask; without one, the editor states the reader it assumed. For a piece that matters, run `/consensus` on the draft and the panel reviews it with the `writing-editor` persona.
 
 The editor needs evidence of how you write. Without it, it can only cut filler. A short voice file helps most. Keep it in your repo and point to it ("use my voice file at docs/voice.md"):
 

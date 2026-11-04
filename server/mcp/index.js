@@ -55,7 +55,7 @@ const EXPERT_DESCRIPTIONS = {
   "security-analyst": "Security engineer for threat modeling and vulnerability assessment. Use for auth/authorization changes, untrusted input handling, new endpoints, or a focused security audit.",
   "researcher": "Research specialist for external libraries, frameworks, APIs, and open-source code. Use for 'how do I use X', best-practice, or 'why does this dependency behave this way' questions, with evidence and honest unverified flags.",
   "debugger": "Debugging specialist that produces ranked root-cause hypotheses and the smallest safe fix from a bug report, logs, and code - or says honestly that the evidence shows no bug. Use for crashes, failing tests, or wrong output.",
-  "writing-editor": "Line editor for prose - posts, articles, promo copy, READMEs. Flags machine-sounding patterns and returns line edits plus a rewritten text that keeps every fact, claim, and the author's voice; asks for missing specifics instead of inventing them. Use for any draft that reads generic or machine-written.",
+  "writing-editor": "Line editor for prose - posts, articles, promo copy, landing pages, READMEs. Checks that the opening tells its reader what it is and who it is for, flags machine-sounding patterns and returns line edits plus a rewritten text that keeps every fact, claim, and the author's voice; asks for missing specifics instead of inventing them. Use for any draft that reads generic or machine-written, and for landing or launch copy even when strings are pinned.",
 };
 
 /**
