@@ -84,10 +84,14 @@ description. Skip only for `chore(release):` commits and doc-only typo fixes.
 ## What stays out of this repo
 
 Everything committed here is public, and that includes commit messages, branch names and pull
-request text. Task tracking, plans, research notes and drafts live in a private companion
-repository of the maintainer. If it is attached to your session, follow its `AGENTS.md` and take
-your next task from there. Never copy its content, names or issue-tracker ids into this
-repository, and keep no task list or issue-tracker state here.
+request text. The maintainer keeps task tracking, plans, research notes and drafts in a private
+companion repository. If it is attached to your session, its `AGENTS.md` says where tasks come
+from; this file still decides what may land in this repository. If it is not attached, work from
+the request you were given or from the public GitHub issue.
+
+Never copy content, names or tracker ids from the private repository into files, commit messages
+or pull request text here, and do not commit task lists or tracker exports to this tree. Public
+GitHub issues and links to them are fine.
 
 ## Where to read next
 
