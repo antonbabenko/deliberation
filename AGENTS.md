@@ -81,6 +81,20 @@ Run `npm run check` first so the panel reviews green code. Fix every accepted CR
 issue and rerun until it converges; put the reason for each dismissed issue in the PR
 description. Skip only for `chore(release):` commits and doc-only typo fixes.
 
+## What stays out of this repo
+
+Everything committed here is public, and that includes commit messages, branch names, pull
+request text and issue text. The maintainer keeps task tracking, plans, research notes and drafts
+in a private companion repository. If it is attached to your session, its `AGENTS.md` says where
+tasks are tracked. The request you were given still comes first, and this file still decides what
+may land in this repository. If it is not attached, work from the request you were given or from
+the public GitHub issue.
+
+Never copy or restate content, names or tracker ids from the private repository in files, commit
+messages, branch names, pull request text or issue text here, and do not commit task lists or
+tracker exports to this tree. Public GitHub issues and links to them are fine as long as they
+carry nothing from the private repository.
+
 ## Where to read next
 
 | Working on | Read |
