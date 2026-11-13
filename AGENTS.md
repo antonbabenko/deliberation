@@ -81,6 +81,14 @@ Run `npm run check` first so the panel reviews green code. Fix every accepted CR
 issue and rerun until it converges; put the reason for each dismissed issue in the PR
 description. Skip only for `chore(release):` commits and doc-only typo fixes.
 
+## What stays out of this repo
+
+Everything committed here is public, and that includes commit messages, branch names and pull
+request text. Task tracking, plans, research notes and drafts live in a private companion
+repository of the maintainer. If it is attached to your session, follow its `AGENTS.md` and take
+your next task from there. Never copy its content, names or issue-tracker ids into this
+repository, and keep no task list or issue-tracker state here.
+
 ## Where to read next
 
 | Working on | Read |
