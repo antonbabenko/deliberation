@@ -12,7 +12,10 @@ plugin, as native plugins/skills for other hosts, and as one standalone MCP serv
 (`@antonbabenko/deliberation-mcp`). Eight expert personas live in `prompts/`. Every provider
 is advisory except Gemini, which can also implement (`workspace-write`).
 
-Plain Node (18+; CI runs 20), no runtime dependencies, no build step for development. `core/` is
+Plain Node, no runtime dependencies, no build step for development. Runtime code must run on
+Node 18: `engines` in `server/mcp/package.json` is `>=18`, Renovate never changes it, and CI
+starts the bundle on Node 18 after testing on a current Node. Do not use an API newer than
+Node 18 in `core/` or `server/` (see design decision 19). `core/` is
 host-neutral and strict-typed (`checkJs`); `server/mcp/` is the MCP server over it;
 `server/{gemini,grok,openrouter}/` are the provider bridges; `server/dashboard/` is the
 local read-only dashboard.

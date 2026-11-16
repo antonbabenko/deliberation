@@ -18,6 +18,18 @@
   },
   "packageRules": [
     {
+      "description": "Never change engines. engines.node is the oldest Node the code runs on, and raising it drops users. Change it by hand only.",
+      "matchDepTypes": ["engines"],
+      "enabled": false
+    },
+    {
+      "description": "Keep the engines-floor Node pin in validate.yml. It must equal engines.node in server/mcp/package.json. The other node-version pins stay current.",
+      "matchManagers": ["github-actions"],
+      "matchDepNames": ["node"],
+      "matchCurrentValue": "18",
+      "enabled": false
+    },
+    {
       "description": "Group non-major npm devDependency updates into one PR",
       "matchManagers": ["npm"],
       "matchDepTypes": ["devDependencies"],
