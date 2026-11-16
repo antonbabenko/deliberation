@@ -4,7 +4,7 @@
 
 deliberation is an MCP server and Claude Code plugin. It gets your coding agent a second opinion from other models before you ship: any host, any vendor, one verdict, and the disagreement stays visible.
 
-In `/consensus`, your agent records its own verdict before it sees the panel. GPT, Gemini, Grok, local, and OpenRouter models then review the same plan independently. The agent cannot approve a round on its own vote, and every issue it dismisses keeps a written reason in the report. You need at least one provider: a logged-in `codex` or `agy` CLI, or an xAI or OpenRouter key.
+In `/consensus`, your agent records its own verdict before it sees the panel. GPT, Gemini, Grok, local, and OpenRouter models then review the same plan independently. The agent cannot approve a round on its own vote, and every issue it dismisses keeps a written reason in the report. You need at least one provider: a logged-in `codex` or `agy` CLI, an xAI or OpenRouter key, or a local Ollama or LM Studio model.
 
 Quickstart in Claude Code:
 
