@@ -47,10 +47,11 @@ find ~/.npm/_npx -type d -path '*/@antonbabenko/deliberation-mcp' -prune -exec r
 
 On Windows, `dashboard --stop` is not supported: close the dashboard process first, then
 delete the `@antonbabenko\deliberation-mcp` folders under `%LocalAppData%\npm-cache\_npx`.
-If you use the dashboard, start it again on the new version with
-`npx -y @antonbabenko/deliberation-mcp dashboard`.
 
 Then restart the deliberation MCP server in Antigravity, or restart Antigravity. The
 `reload-mcp` skill gives the same steps. In a clone of this repository,
 `bash scripts/commands/reload-mcp.sh` clears the cached package, restarts the dashboard
 and audits the running deliberation processes.
+
+If you use the dashboard, start it again on the new version with
+`npx -y @antonbabenko/deliberation-mcp dashboard`.
