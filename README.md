@@ -112,11 +112,13 @@ Claude now routes complex tasks to your GPT, Gemini, Grok, local (Ollama, LM Stu
 
 **Updating on non-Claude hosts:** hosts that run the standalone server via `npx -y
 @antonbabenko/deliberation-mcp` get the latest published version on each fresh resolve. `npx`
-caches resolved packages, so if a host serves an old build, remove the cached copy
+caches resolved packages, so if a host serves an old build, first stop the dashboard with
+`npx -y @antonbabenko/deliberation-mcp dashboard --stop` (on Windows, close the dashboard process
+instead), then remove the cached copy
 (`find ~/.npm/_npx -type d -path '*/@antonbabenko/deliberation-mcp' -prune -exec rm -rf {} +`;
-on Windows the cache is `%LocalAppData%\npm-cache\_npx`) or pin/refresh the version. Stop the
-dashboard with `npx -y @antonbabenko/deliberation-mcp dashboard --stop` (not on Windows: close
-the dashboard process there). Then restart the MCP server in your host, or restart the host. The `reload-mcp` skill / command on Codex, Antigravity and OpenCode
+on Windows the cache is `%LocalAppData%\npm-cache\_npx`) or pin/refresh the version. Then
+restart the MCP server in your host, or restart the host, and start the dashboard again with
+`npx -y @antonbabenko/deliberation-mcp dashboard` if you use it. The `reload-mcp` skill / command on Codex, Antigravity and OpenCode
 gives the same steps. `bash scripts/commands/reload-mcp.sh` works only in a clone of this
 repository; the npm package does not ship it.
 
