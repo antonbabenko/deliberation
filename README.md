@@ -77,7 +77,7 @@ with `DELIBERATION_CONFIG`) and hot-reload without restarting your host.
 Pick the path for your host:
 
 - **Claude Code** - the plugin below (recommended there).
-- **Codex, Cursor, Kiro, Antigravity, Gemini CLI, OpenCode** - the [native plugins per host](#native-plugins-per-host-antigravity--cursor--codex--kiro--opencode).
+- **Codex, Cursor, Kiro, Antigravity, Gemini CLI, OpenCode** - the [native plugins per host](#native-plugins-per-host-antigravity--gemini-cli--cursor--codex--kiro--opencode).
 - **Any other MCP host** (Claude Desktop, Windsurf, Zed, VS Code, ...) - the [standalone MCP server](#alternative-use-deliberation-mcp-server-standalone-works-with-any-agents).
 
 ### Claude Code plugin (recommended):
@@ -183,7 +183,7 @@ docker run -i --rm \
 
 Grok and OpenRouter work from the keys alone. GPT and Gemini do not - they shell out to the `codex` and `agy` CLIs, which are not in the image, so those two providers report `not-found` / `missing-cli` inside the container.
 
-### Native plugins per host (Antigravity / Cursor / Codex / Kiro / OpenCode)
+### Native plugins per host (Antigravity / Gemini CLI / Cursor / Codex / Kiro / OpenCode)
 
 Beyond the raw MCP config above, deliberation ships **native plugin artifacts** for six hosts so the experience matches the Claude Code plugin (persona-bearing experts + when-to-delegate guidance, not just bare tools). All of these are **generated from the canonical sources** by `node scripts/sync-hosts.js` and committed, so they never drift (a CI drift test enforces it). Each host scans the repo for its own files:
 

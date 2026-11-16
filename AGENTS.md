@@ -102,5 +102,5 @@ carry nothing from the private repository.
 | `core/`, `server/`, the consensus loop, providers, repo layout | [docs/dev/architecture.md](docs/dev/architecture.md) |
 | Behavior with a history: timeouts, retries, circuit breaker, Codex login, Windows CLI resolution, stub answers, date grounding, dashboard | [docs/dev/design-decisions.md](docs/dev/design-decisions.md) |
 | Config keys, record shapes, threat model, any subsystem in depth | [TECHNICAL.md](TECHNICAL.md) |
-| Per-host packaging (Codex, Cursor, Kiro, Antigravity, OpenCode) | [docs/hosts/](docs/hosts/) |
+| Per-host packaging (Codex, Cursor, Kiro, Antigravity, Gemini CLI, OpenCode) | [docs/hosts/](docs/hosts/) |
 | Releases, PR process, adding a provider | [CONTRIBUTING.md](CONTRIBUTING.md) |
