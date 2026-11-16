@@ -141,14 +141,15 @@ jobs:
 
       - name: Start the bundled server on the engines floor
         run: |
-          node --version
+          node -e 'const v = process.versions.node; console.log(v); if (v.split(".")[0] !== "18") process.exit(1)'
           out=$(printf '%s\n' \
             '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}' \
             '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
             | timeout 30 node server/mcp/dist/index.js)
-          echo "$out" | cut -c1-200
-          echo "$out" | grep -q '"id":1,"result":{.*"serverInfo":{"name":"deliberation-mcp"'
-          echo "$out" | grep -q '"id":2,"result":{"tools":\[{'
+          cut -c1-200 <<<"$out"
+          # Here-strings, not pipes: grep -q exits early and could SIGPIPE a large tools/list.
+          grep -q '"id":1,"result":{.*"serverInfo":{"name":"deliberation-mcp"' <<<"$out"
+          grep -q '"id":2,"result":{"tools":\[{' <<<"$out"
 
       - name: Summary
         if: success()
