@@ -54,7 +54,7 @@ for each provider so you just write the prompt. Each expert has a distinct speci
 advise or implement.
 
 It is not tied to Claude Code. The same MCP server runs on any MCP host, and Codex, Cursor,
-Kiro, Antigravity, and OpenCode also get native plugins with the experts and delegation
+Kiro, Antigravity, Gemini CLI, and OpenCode also get native plugins with the experts and delegation
 guidance built in (see [Install](#install)). Claude Code gets the most complete version: slash
 commands and auto-routing rules on top of the same server.
 
@@ -77,7 +77,7 @@ with `DELIBERATION_CONFIG`) and hot-reload without restarting your host.
 Pick the path for your host:
 
 - **Claude Code** - the plugin below (recommended there).
-- **Codex, Cursor, Kiro, Antigravity, OpenCode** - the [native plugins per host](#native-plugins-per-host-antigravity--cursor--codex--kiro--opencode).
+- **Codex, Cursor, Kiro, Antigravity, Gemini CLI, OpenCode** - the [native plugins per host](#native-plugins-per-host-antigravity--cursor--codex--kiro--opencode).
 - **Any other MCP host** (Claude Desktop, Windsurf, Zed, VS Code, ...) - the [standalone MCP server](#alternative-use-deliberation-mcp-server-standalone-works-with-any-agents).
 
 ### Claude Code plugin (recommended):
@@ -185,11 +185,12 @@ Grok and OpenRouter work from the keys alone. GPT and Gemini do not - they shell
 
 ### Native plugins per host (Antigravity / Cursor / Codex / Kiro / OpenCode)
 
-Beyond the raw MCP config above, deliberation ships **native plugin artifacts** for five hosts so the experience matches the Claude Code plugin (persona-bearing experts + when-to-delegate guidance, not just bare tools). All of these are **generated from the canonical sources** by `node scripts/sync-hosts.js` and committed, so they never drift (a CI drift test enforces it). Each host scans the repo for its own files:
+Beyond the raw MCP config above, deliberation ships **native plugin artifacts** for six hosts so the experience matches the Claude Code plugin (persona-bearing experts + when-to-delegate guidance, not just bare tools). All of these are **generated from the canonical sources** by `node scripts/sync-hosts.js` and committed, so they never drift (a CI drift test enforces it). Each host scans the repo for its own files:
 
 | Host | Native artifacts (in this repo) | Install |
 |------|----------------------------------|---------|
 | **Antigravity & Gemini** | `.agents/skills/`, `.gemini/skills/`, and `.agents/mcp.json` | Automatically discovered in project root, or copy `.agents/skills/` and `.gemini/skills/` into your workspace. |
+| **Gemini CLI** | `gemini-extension.json` (a Gemini CLI extension) | `gemini extensions install https://github.com/antonbabenko/deliberation` |
 | **Cursor** | `.cursor/rules/deliberation.mdc` | Use the one-click MCP button above, then copy the `.mdc` into your project's `.cursor/rules/`. |
 | **Codex CLI** | `plugins/deliberation/` (`.codex-plugin/plugin.json` + `.mcp.json` + `skills/`) and a repo-scoped `.agents/plugins/marketplace.json` | `codex plugin marketplace add antonbabenko/deliberation`, then install **deliberation** from `/plugins`. |
 | **Kiro** | `POWER.md` + `mcp.json` + `steering/` (a "Kiro Power") | In Kiro, "Add power from GitHub" -> this repo URL. Submit to the registry at [kiro.dev/powers/submit](https://kiro.dev/powers/submit/). |
@@ -197,7 +198,7 @@ Beyond the raw MCP config above, deliberation ships **native plugin artifacts** 
 
 Provider credentials work the same as the standalone server (GPT via the Codex CLI, Gemini via `agy`, `XAI_API_KEY` for Grok, `OPENROUTER_API_KEY` for OpenRouter) - set only the providers you use. The MCP server already injects each expert persona server-side, so these native files add the host's command/steering surface, not duplicated logic.
 
-**Full per-host install guides:** [`docs/hosts/`](docs/hosts/) - [Antigravity & Gemini](docs/hosts/antigravity.md), [Cursor](docs/hosts/cursor.md), [Codex CLI](docs/hosts/codex.md), [Kiro](docs/hosts/kiro.md), [OpenCode](docs/hosts/opencode.md).
+**Full per-host install guides:** [`docs/hosts/`](docs/hosts/) - [Antigravity & Gemini](docs/hosts/antigravity.md), [Gemini CLI](docs/hosts/gemini-cli.md), [Cursor](docs/hosts/cursor.md), [Codex CLI](docs/hosts/codex.md), [Kiro](docs/hosts/kiro.md), [OpenCode](docs/hosts/opencode.md).
 
 ## Requirements
 

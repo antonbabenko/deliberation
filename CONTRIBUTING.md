@@ -117,7 +117,7 @@ You never bump versions by hand.
 
 `version.json` is the single source of truth. `.claude-plugin/plugin.json`,
 `.claude-plugin/marketplace.json`, `package.json`, `server.json` (both version lines),
-`server/mcp/package.json`, `plugins/deliberation/.codex-plugin/plugin.json`, and the
+`server/mcp/package.json`, `plugins/deliberation/.codex-plugin/plugin.json`, `gemini-extension.json`, and the
 `serverInfo.version` literal in `server/mcp/index.js` are kept in sync by CI
 (`.github/release/pre-commit.js`). Do not edit those version fields by hand - the `validate`
 check fails if they drift.

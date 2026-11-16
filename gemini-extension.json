@@ -1,0 +1,28 @@
+{
+  "name": "deliberation",
+  "version": "4.1.1",
+  "description": "GPT, Gemini, Grok, and OpenRouter as expert subagents - second opinions, cross-model consensus, and review.",
+  "mcpServers": {
+    "deliberation": {
+      "command": "node",
+      "args": [
+        "${extensionPath}/server/mcp/index.js"
+      ]
+    }
+  },
+  "contextFileName": "docs/tool-guide.md",
+  "settings": [
+    {
+      "name": "xAI API key",
+      "description": "Enables Grok. Leave blank to skip.",
+      "envVar": "XAI_API_KEY",
+      "sensitive": true
+    },
+    {
+      "name": "OpenRouter API key",
+      "description": "Enables OpenRouter models. Leave blank to skip.",
+      "envVar": "OPENROUTER_API_KEY",
+      "sensitive": true
+    }
+  ]
+}
