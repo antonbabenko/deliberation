@@ -8,8 +8,8 @@ Use this after deliberation is updated. The host keeps running the old server un
 
 The host starts the server with `npx -y @antonbabenko/deliberation-mcp`. The npm package does not include the repository's `scripts/` folder, so follow these steps:
 
-1. Remove the cached copy so `npx` fetches the new version: `rm -rf ~/.npm/_npx`.
-2. If the dashboard runs, stop it with `npx -y @antonbabenko/deliberation-mcp dashboard --stop`. Start it again later with `npx -y @antonbabenko/deliberation-mcp dashboard`.
+1. Remove the cached copy so `npx` fetches the new version: `find ~/.npm/_npx -type d -path '*/@antonbabenko/deliberation-mcp' -prune -exec rm -rf {} +` (macOS, Linux). On Windows, delete the `@antonbabenko\deliberation-mcp` folders under `%LocalAppData%\npm-cache\_npx`.
+2. Stop the dashboard with `npx -y @antonbabenko/deliberation-mcp dashboard --stop` (it prints "no running dashboard" if none runs). On Windows `--stop` is not supported: close the dashboard process instead. Start it again later with `npx -y @antonbabenko/deliberation-mcp dashboard`.
 3. Tell the user to restart the deliberation MCP server in the host, or to restart the host.
 
-In a clone of the deliberation repository, `bash scripts/commands/reload-mcp.sh` does steps 1 and 2 and also audits the running deliberation processes.
+In a clone of the deliberation repository, `bash scripts/commands/reload-mcp.sh` clears the cached package, restarts the dashboard and audits the running deliberation processes.

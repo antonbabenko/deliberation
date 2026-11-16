@@ -39,11 +39,17 @@ Antigravity starts the server with `npx -y @antonbabenko/deliberation-mcp`. The 
 does not include this repository's `scripts/` folder. After an update:
 
 ```bash
-rm -rf ~/.npm/_npx                                       # drop the cached old build
-npx -y @antonbabenko/deliberation-mcp dashboard --stop   # only if the dashboard runs
+# drop the cached old build of this package (macOS, Linux)
+find ~/.npm/_npx -type d -path '*/@antonbabenko/deliberation-mcp' -prune -exec rm -rf {} +
+# stop the dashboard; prints "no running dashboard" if none runs
+npx -y @antonbabenko/deliberation-mcp dashboard --stop
 ```
+
+On Windows, delete the `@antonbabenko\deliberation-mcp` folders under
+`%LocalAppData%\npm-cache\_npx` instead, and close the dashboard process yourself:
+`dashboard --stop` is not supported there.
 
 Then restart the deliberation MCP server in Antigravity, or restart Antigravity. The
 `reload-mcp` skill gives the same steps. In a clone of this repository,
-`bash scripts/commands/reload-mcp.sh` does the first two steps and also audits the running
-deliberation processes.
+`bash scripts/commands/reload-mcp.sh` clears the cached package, restarts the dashboard
+and audits the running deliberation processes.

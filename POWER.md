@@ -229,8 +229,8 @@ arbiter phases retain their own limits.
 
 If you run the standalone server via `npx -y @antonbabenko/deliberation-mcp`,
 each fresh resolve picks up the latest published version. `npx` caches resolved
-packages, so if you keep getting an old build, clear the cache
-(`rm -rf ~/.npm/_npx`) or pin/refresh the version in your host's MCP config.
+packages, so if you keep getting an old build, clear the cached copy (steps below)
+or pin/refresh the version in your host's MCP config.
 (The Claude Code plugin manifest is a separate mechanism and does not affect
 non-Claude hosts.)
 
@@ -238,14 +238,20 @@ The npm package ships the server only, not the repository's `scripts/` folder.
 After an update:
 
 ```bash
-rm -rf ~/.npm/_npx                                       # drop the cached old build
-npx -y @antonbabenko/deliberation-mcp dashboard --stop   # only if the dashboard runs
+# drop the cached old build of this package (macOS, Linux)
+find ~/.npm/_npx -type d -path '*/@antonbabenko/deliberation-mcp' -prune -exec rm -rf {} +
+# stop the dashboard; prints "no running dashboard" if none runs
+npx -y @antonbabenko/deliberation-mcp dashboard --stop
 ```
+
+On Windows, delete the `@antonbabenko\deliberation-mcp` folders under
+`%LocalAppData%\npm-cache\_npx` instead, and close the dashboard process yourself:
+`dashboard --stop` is not supported there.
 
 Then restart the deliberation MCP server in your host, or restart the host. The
 `reload-mcp` skill or command (Codex, Antigravity, OpenCode) gives the same steps.
-In a clone of the deliberation repository, `bash scripts/commands/reload-mcp.sh` does the
-first two steps and also audits the running deliberation processes.
+In a clone of the deliberation repository, `bash scripts/commands/reload-mcp.sh` clears the cached package, restarts the dashboard
+and audits the running deliberation processes.
 
 ## License and support
 
