@@ -68,16 +68,8 @@ function build(ctx) {
   // Reload MCP helper command
   out[".opencode/commands/reload-mcp.md"] = S.frontmatterDoc({
     name: "reload-mcp",
-    description: "Gracefully cycle dashboard and audit MCP processes after deliberation is updated.",
-    body: [
-      "Run the deliberation reload script to audit processes and recycle the dashboard daemon:",
-      "",
-      "```bash",
-      "bash scripts/commands/reload-mcp.sh",
-      "```",
-      "",
-      "Review the output and restart the MCP server in your host if required.",
-    ].join("\n"),
+    description: "After a deliberation update: clear the npx cache, stop the dashboard, and restart the MCP server.",
+    body: S.RELOAD_BODY,
   });
 
   // One subagent per expert. Body = the canonical persona; the deliberation MCP

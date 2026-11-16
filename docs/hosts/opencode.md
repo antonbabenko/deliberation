@@ -8,7 +8,8 @@ ship as:
 
 - `.opencode/commands/*.md` - one thin slash-command per fan-out / single-provider
   tool (`/ask-all`, `/consensus`, `/ask-gpt`, `/ask-gemini`, `/ask-grok`,
-  `/ask-openrouter`, `/reload-mcp`). Each calls the matching deliberation tool or command script.
+  `/ask-openrouter`, `/reload-mcp`). Each calls the matching deliberation MCP tool; `/reload-mcp` lists
+  the update steps.
 - `.opencode/agents/*.md` - one subagent per expert persona (`architect`,
   `plan-reviewer`, `scope-analyst`, `code-reviewer`, `security-analyst`,
   `researcher`, `debugger`, `writing-editor`), each with `mode: subagent`.
@@ -129,10 +130,14 @@ Unverified (confirm at the linked doc before relying on it):
 
 ## Updating
 
-When deliberation is updated, invoke `/reload-mcp` in OpenCode or run:
+OpenCode starts the server with `npx -y @antonbabenko/deliberation-mcp`. The npm package does
+not include this repository's `scripts/` folder. After an update:
 
 ```bash
-bash scripts/commands/reload-mcp.sh
+rm -rf ~/.npm/_npx                                       # drop the cached old build
+npx -y @antonbabenko/deliberation-mcp dashboard --stop   # only if the dashboard runs
 ```
 
-This audits active deliberation processes, protects running workloads, cleans up orphaned processes, and safely cycles the background dashboard daemon if running.
+Then restart OpenCode so it starts the new server. The `/reload-mcp` command gives the same
+steps. In a clone of this repository, `bash scripts/commands/reload-mcp.sh` does the first
+two steps and also audits the running deliberation processes.

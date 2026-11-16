@@ -30,7 +30,7 @@ Plugin root: `plugins/deliberation/`
 - `skills/<expert>/SKILL.md` - one skill per expert (`architect`, `plan-reviewer`,
   `scope-analyst`, `code-reviewer`, `security-analyst`, `researcher`, `debugger`, `writing-editor`),
   each carrying that expert's persona so Codex gets the same guidance natively.
-- `skills/reload-mcp/SKILL.md` - process audit and graceful dashboard recycling after deliberation updates.
+- `skills/reload-mcp/SKILL.md` - steps to pick up a new version (clear the npx cache, stop the dashboard, restart the MCP server).
 
 Once installed you get the deliberation MCP tools (`ask-all`, `consensus`,
 `ask-gpt` / `ask-gemini` / `ask-grok` / `ask-openrouter`, and the eight experts).
@@ -66,10 +66,14 @@ curated-directory listing.
 
 ## Updating
 
-When deliberation is updated, invoke the `reload-mcp` skill or run:
+The plugin starts the server with `npx -y @antonbabenko/deliberation-mcp`. The npm package
+does not include this repository's `scripts/` folder. After an update:
 
 ```bash
-bash scripts/commands/reload-mcp.sh
+rm -rf ~/.npm/_npx                                       # drop the cached old build
+npx -y @antonbabenko/deliberation-mcp dashboard --stop   # only if the dashboard runs
 ```
 
-This audits active deliberation processes, protects running workloads, cleans up orphaned processes, and safely cycles the background dashboard daemon if running. Next tool calls and new sessions will automatically resolve the updated server code.
+Then start a new Codex session so it starts the new server. The `reload-mcp` skill gives the
+same steps. In a clone of this repository, `bash scripts/commands/reload-mcp.sh` does the
+first two steps and also audits the running deliberation processes.

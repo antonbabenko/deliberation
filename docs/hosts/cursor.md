@@ -61,13 +61,17 @@ Missing keys just disable that one provider.
 
 ## Updating
 
-When deliberation is updated, run the reload script to audit running processes, refresh cached standalone packages, and safely cycle the background dashboard daemon:
+Cursor starts the server with `npx -y @antonbabenko/deliberation-mcp`. The npm package does
+not include this repository's `scripts/` folder. After an update:
 
 ```bash
-bash scripts/commands/reload-mcp.sh
+rm -rf ~/.npm/_npx                                       # drop the cached old build
+npx -y @antonbabenko/deliberation-mcp dashboard --stop   # only if the dashboard runs
 ```
 
-This clears the stale `@antonbabenko/deliberation-mcp` package from the npx cache (`~/.npm/_npx`), cycles the dashboard, and preserves connected Cursor stdio pipes (`CursorHelper`) so active editor windows and in-flight workloads are not disconnected.
+Then restart the deliberation server in Cursor's MCP settings, or reload the window. In a
+clone of this repository, `bash scripts/commands/reload-mcp.sh` does the first two steps and
+also audits the running deliberation processes.
 
 ## Notes / verified vs unverified
 

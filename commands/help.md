@@ -20,7 +20,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/commands/help.sh"
 
 If the host is not Claude Code, tell the user the commands work the same way but
 the exact syntax can differ on their host, and point them at the per-host guides
-in the project's `public-docs/hosts/`. Then show the rest of this guide.
+in the project's `docs/hosts/`. Then show the rest of this guide.
 
 ## Step 2: Show the guide
 

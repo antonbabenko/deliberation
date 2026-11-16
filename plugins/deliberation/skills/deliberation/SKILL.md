@@ -231,12 +231,15 @@ packages, so if you keep getting an old build, clear the cache
 (The Claude Code plugin manifest is a separate mechanism and does not affect
 non-Claude hosts.)
 
-To cycle the background dashboard daemon and audit MCP processes after an update
-without dropping active host connections, run:
+The npm package ships the server only, not the repository's `scripts/` folder.
+After an update:
 
 ```bash
-bash scripts/commands/reload-mcp.sh
+rm -rf ~/.npm/_npx                                       # drop the cached old build
+npx -y @antonbabenko/deliberation-mcp dashboard --stop   # only if the dashboard runs
 ```
 
-or invoke the `reload-mcp` skill/command supported on your host (Claude Code,
-Codex, Antigravity, OpenCode).
+Then restart the deliberation MCP server in your host, or restart the host. The
+`reload-mcp` skill or command (Codex, Antigravity, OpenCode) gives the same steps.
+In a clone of the deliberation repository, `bash scripts/commands/reload-mcp.sh` does the
+first two steps and also audits the running deliberation processes.
