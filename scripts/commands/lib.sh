@@ -23,7 +23,7 @@ resolve_plugin_root() {
   return 1
 }
 
-# The doctor report's three line prefixes, also used by setup and uninstall.
+# The report's three line prefixes, used by setup and uninstall (same tags as the doctor report).
 ok() { printf '[OK]   %s\n' "$1"; }
 warn() { printf '[WARN] %s\n' "$1"; }
 fail() { printf '[FAIL] %s\n' "$1"; }

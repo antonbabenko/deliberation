@@ -594,6 +594,30 @@ refs) returns the prior SUCCESS instantly with a `cached:true` marker. LRU-bound
 10-minute TTL; errors are never cached; file-bearing requests skip it (file content can
 change under a path); `session-revisit` bypasses it (a revisit is a deliberate re-run).
 
+### `doctor` (health check)
+
+`server/mcp/doctor.js` runs every check behind `/deliberation:doctor`; the read-only `doctor`
+MCP tool returns its findings, so a host with only the npx server gets the same report. The
+command adds one shell step: it prints the session dir the shell resolves and passes it as
+`shellSessionsDir`, the one value the server cannot see.
+
+| `check` | Source | Status |
+|---|---|---|
+| `server` | this server's location and `server/mcp/package.json` version | `ok` (plugin root or standalone) |
+| `config` | reads the config path, `JSON.parse`, then `validateConfig` (the runtime validator `config.schema.json` is tested against); unknown top-level keys are compared with the schema's `properties`; `consensusWarnings` and `invalidModels` | `warn` missing file, `fail` unreadable / bad JSON / rejected, `warn` per unknown key or warning |
+| `sessions.persist`, `debug.enabled` | resolved config | `warn` when off (Lens B / Lens A of `analyze`) |
+| `host-cap` | `MCP_TOOL_TIMEOUT` in the server env | `warn` below 600000 or not a number |
+| `provider:codex` / `gemini` / `grok` / `openrouter` | the same stat-only `health()` probes `panel` uses; codex adds `codex --version` and its credential source (`CODEX_ACCESS_TOKEN`, `auth.json`, `CODEX_API_KEY`) | `warn` unavailable or no codex login, `info` disabled in config |
+| `gemini-agy-terms` | Gemini enabled, its provider is the Antigravity CLI (`transport: "agy"`) and agy is on PATH | `warn` with the section 6 terms quote; prefer a Gemini API key |
+| `provider:ollama` / `lmstudio` | model records with that provider | `info`; endpoints are not probed |
+| `sessions-dir` | the session store dir this server resolved | `warn` when missing |
+| `sessions-path` | `shellSessionsDir` argument, only when passed | `fail` on drift |
+| `sessions-verdicts` | `analyze` meta, only with `sessions.persist` on | `info` when records carry no per-opinion verdicts |
+| `registrations` | plugin installs only: `~/.claude.json` user-scope `deliberation*` entries | `warn` when they shadow the plugin manifest |
+
+The tool never starts a login, never writes and makes no network call; key values are never
+returned, only set/unset. A bad config is a finding, not an error.
+
 ### `analyze` (run analytics + tuning advice)
 
 `core/analyze.js` is pure (zero-dep, unit-tested); the read-only `analyze` MCP tool does the

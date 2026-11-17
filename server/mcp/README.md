@@ -86,8 +86,11 @@ It writes a starter `config.json` (never overwrites an existing one).
   fan-out tools to apply one persona to every delegate.
 - Session tools (opt-in `sessions.persist`): `session-get`, `session-revisit`,
   `session-annotate`.
+- `doctor` - read-only health check: config validity, provider CLIs and keys,
+  sessions/debug flags, the host tool-call cap and session store path drift, each finding
+  with a fix. No provider calls, writes nothing.
 
-Every tool takes a `prompt` - give it full context (the goal, relevant code/paths, prior
+Every ask, expert and consensus tool takes a `prompt` - give it full context (the goal, relevant code/paths, prior
 attempts), since the experts do not share your session.
 
 ## How consensus stays honest
