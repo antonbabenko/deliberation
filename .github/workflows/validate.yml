@@ -129,6 +129,28 @@ jobs:
           console.log(`OK all version files in sync (${source})`)
           EOF
 
+      # The published package declares engines.node >=18 (server/mcp/package.json).
+      # Start the bundle on that floor so an API newer than Node 18 fails here, not
+      # on a user's machine. renovate.json keeps this pin and the engines field fixed.
+      # Keep this pin equal to the engines floor. These steps run last because they
+      # switch the job to the floor Node.
+      - name: Set up Node (engines floor)
+        uses: actions/setup-node@v7
+        with:
+          node-version: '18'
+
+      - name: Start the bundled server on the engines floor
+        run: |
+          node -e 'const v = process.versions.node; console.log(v); if (v.split(".")[0] !== "18") process.exit(1)'
+          out=$(printf '%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+            | timeout 30 node server/mcp/dist/index.js)
+          cut -c1-200 <<<"$out"
+          # Here-strings, not pipes: grep -q exits early and could SIGPIPE a large tools/list.
+          grep -q '"id":1,"result":{.*"serverInfo":{"name":"deliberation-mcp"' <<<"$out"
+          grep -q '"id":2,"result":{"tools":\[{' <<<"$out"
+
       - name: Summary
         if: success()
         run: |

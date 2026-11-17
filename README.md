@@ -201,6 +201,8 @@ Provider credentials work the same as the standalone server (GPT via the Codex C
 
 ## Requirements
 
+Node.js 18 or newer runs the plugin, the bridges and the npm server.
+
 You need at least one provider:
 
 - **Codex CLI** (GPT): `npm install -g @openai/codex`, then `codex login` (ChatGPT subscription; `codex login --device-auth` on a remote machine, one login per machine). A ChatGPT Business/Enterprise workspace can set `CODEX_ACCESS_TOKEN` instead. With neither, codex uses `CODEX_API_KEY`; `OPENAI_API_KEY` is never used.
