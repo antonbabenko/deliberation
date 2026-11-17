@@ -2056,5 +2056,10 @@ if (require.main && require.main.filename === __filename) {
       (/** @type {number} */ code) => { if (code !== 0) process.exit(code); },
       (/** @type {any} */ e) => { console.error(String((e && e.stack) || e)); process.exit(1); },
     );
+  } else if (process.argv[2] === "init") {
+    require("./init.js").runInit(process.argv.slice(3), { makeRuntime, buildServer, probeHealth }).then(
+      (/** @type {number} */ code) => process.exit(code),
+      (/** @type {any} */ e) => { console.error(String((e && e.stack) || e)); process.exit(1); },
+    );
   } else startStdio();
 }

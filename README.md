@@ -16,7 +16,7 @@ Quickstart in Claude Code:
 
 Then ask: `/deliberation:ask-all Review the current diff for real bugs, security issues, and missing tests.`
 
-On any other MCP host, register `npx -y @antonbabenko/deliberation-mcp` as a server. Full setup: [Install](#install), [Requirements](#requirements), [SETUP.md](SETUP.md).
+On any other MCP host, run `npx -y @antonbabenko/deliberation-mcp init` (finds your keys and CLI logins, writes the config, runs a demo consensus, prints the install line for your host), then register `npx -y @antonbabenko/deliberation-mcp` as a server. Full setup: [Install](#install), [Requirements](#requirements), [SETUP.md](SETUP.md).
 
 ![Four chairs at the table: Claude, GPT, Gemini, Grok - one verdict you can ship](assets/agents.png)<br>Recent blog post: [Meet Deliberation: 400+ models is easy, knowing which ones earn a place is hard.](https://builder.aws.com/content/3Eaq94hQW8HywInrVaQm9qNih1P/meet-deliberation-400-models-is-easy-knowing-which-ones-earn-a-place-is-hard)
 
