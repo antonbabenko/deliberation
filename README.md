@@ -4,7 +4,7 @@
 
 A second opinion from other models before you ship. Any host, any vendor, one verdict, and the disagreement stays visible.
 
-deliberation is an MCP server and Claude Code plugin. In `/consensus`, your agent records its own verdict before it sees the panel. GPT, Gemini, Grok, local, and OpenRouter models then review the same plan independently. The agent cannot approve a round on its own vote, and every issue it dismisses keeps a written reason in the report. Consensus can be wrong, so the dissent stays in the report and a human signs off. You need at least one provider: a logged-in `codex` or `agy` CLI, an xAI or OpenRouter key, or a local Ollama or LM Studio model.
+deliberation is an MCP server and Claude Code plugin. In `/consensus`, your agent records its own verdict before it sees the panel. GPT, Gemini, Grok, local, and OpenRouter models then review the same plan independently. The agent cannot approve a round on its own vote, and every issue it dismisses keeps a written reason in the report. Consensus can be wrong, so the dissent stays in the report and the final call stays with a human. You need at least one provider: a logged-in `codex` or `agy` CLI, an xAI or OpenRouter key, or a local Ollama or LM Studio model.
 
 Quickstart in Claude Code:
 
@@ -81,8 +81,8 @@ on their own:
   It reports per-model latency, tokens, and verdict agreement, and flags the models that agree
   more than they add as drop candidates.
 
-Consensus can be wrong: several models can share one blind spot. That is why a human signs off
-on the result.
+Consensus can be wrong: several models can share one blind spot. deliberation advises and shows
+the dissent; a human signs off on the result.
 
 deliberation handles the wiring for each provider, so you write only the prompt. Eight domain
 experts (Architect, Code Reviewer, Security Analyst, and five more) review your plans, find bugs,
@@ -115,7 +115,7 @@ One install string per host. Where a host has more than one way, its guide lists
 | Host | Install |
 |------|---------|
 | Claude Code | `/plugin marketplace add antonbabenko/agent-plugins`, then `/plugin install deliberation@antonbabenko` ([details](#claude-code-plugin-recommended)) |
-| Codex CLI | `codex plugin marketplace add antonbabenko/deliberation` ([guide](docs/hosts/codex.md)) |
+| Codex CLI | `codex plugin marketplace add antonbabenko/deliberation`, then install **deliberation** from `/plugins` ([guide](docs/hosts/codex.md)) |
 | Gemini CLI | `gemini extensions install https://github.com/antonbabenko/deliberation` ([guide](docs/hosts/gemini-cli.md)) |
 | Kiro | "Add power from GitHub" with `https://github.com/antonbabenko/deliberation` ([guide](docs/hosts/kiro.md)) |
 | Cursor | the "Install in Cursor" button below, then copy `.cursor/rules/deliberation.mdc` ([guide](docs/hosts/cursor.md)) |
