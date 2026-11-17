@@ -45,9 +45,11 @@ function build(ctx) {
       capabilities: ["Interactive", "Write"],
       shortDescription: S.SHORT_DESCRIPTION,
       longDescription:
-        "Eight expert subagents (Architect, Plan Reviewer, Scope Analyst, Code Reviewer, " +
-        "Security Analyst, Researcher, Debugger, Writing Editor) backed by GPT, Gemini, Grok, and OpenRouter, " +
-        "plus ask-all fan-out and arbiter-mediated consensus. Advisory or implementation.",
+        "GPT, Gemini, Grok, local, and OpenRouter models review the same plan or diff. The arbiter commits a blind " +
+        "verdict before it sees the panel, every dismissed issue keeps a written reason, and the built-in analyzer " +
+        "measures what each model adds. Eight expert skills (Architect, Plan Reviewer, Scope Analyst, Code Reviewer, " +
+        "Security Analyst, Researcher, Debugger, Writing Editor) plus ask-all fan-out and arbiter-mediated consensus. " +
+        "Consensus can be wrong, so dissent stays visible and a human signs off.",
       websiteURL: S.REPO_URL,
     },
   });

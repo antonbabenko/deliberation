@@ -40,9 +40,9 @@ intend to call - missing keys just disable that one provider.
 The Power loads when your task mentions any of its `keywords`:
 
 ```
-architecture review, security review, second opinion, consensus,
-code review, plan review, debug, writing editor, edit this post, grok,
-openrouter, gpt, gemini, deliberation
+architecture review, security review, second opinion, consensus, council,
+code review, plan review, debug, writing editor, edit this post, in my voice,
+sound like me, grok, openrouter, gpt, gemini, deliberation
 ```
 
 Once loaded, the steering files tell Kiro when to call each tool (`ask-all`,

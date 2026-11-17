@@ -6,7 +6,14 @@ project **rule** that tells the agent when to delegate. Both pieces are below.
 ## 1. Add the MCP server
 
 Use the one-click button from the [README](../../README.md#install) ("Install in
-Cursor"), or add the server to `~/.cursor/mcp.json` (global) or `.cursor/mcp.json`
+Cursor").
+
+The one-click deeplink (`cursor://anysphere.cursor-deeplink/mcp/install?...`)
+cannot carry secrets - set provider keys in your environment (see below).
+
+### Other ways to install
+
+Add the server by hand to `~/.cursor/mcp.json` (global) or `.cursor/mcp.json`
 (project):
 
 ```json
@@ -16,9 +23,6 @@ Cursor"), or add the server to `~/.cursor/mcp.json` (global) or `.cursor/mcp.jso
   }
 }
 ```
-
-The one-click deeplink (`cursor://anysphere.cursor-deeplink/mcp/install?...`)
-cannot carry secrets - set provider keys in your environment (see below).
 
 ## 2. Add the rule
 

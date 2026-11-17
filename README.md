@@ -1,10 +1,10 @@
-# deliberation
+# deliberation - second opinion for coding agents
 
 [![npm](https://img.shields.io/npm/v/@antonbabenko/deliberation-mcp)](https://www.npmjs.com/package/@antonbabenko/deliberation-mcp) [![Validate](https://github.com/antonbabenko/deliberation/actions/workflows/validate.yml/badge.svg?branch=master)](https://github.com/antonbabenko/deliberation/actions/workflows/validate.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-deliberation is an MCP server and Claude Code plugin. It gets your coding agent a second opinion from other models before you ship: any host, any vendor, one verdict, and the disagreement stays visible.
+A second opinion from other models before you ship. Any host, any vendor, one verdict, and the disagreement stays visible.
 
-In `/consensus`, your agent records its own verdict before it sees the panel. GPT, Gemini, Grok, local, and OpenRouter models then review the same plan independently. The agent cannot approve a round on its own vote, and every issue it dismisses keeps a written reason in the report. You need at least one provider: a logged-in `codex` or `agy` CLI, an xAI or OpenRouter key, or a local Ollama or LM Studio model.
+deliberation is an MCP server and Claude Code plugin. In `/consensus`, your agent records its own verdict before it sees the panel. GPT, Gemini, Grok, local, and OpenRouter models then review the same plan independently. The agent cannot approve a round on its own vote, and every issue it dismisses keeps a written reason in the report. Consensus can be wrong, so the dissent stays in the report and a human signs off. You need at least one provider: a logged-in `codex` or `agy` CLI, an xAI or OpenRouter key, or a local Ollama or LM Studio model.
 
 Quickstart in Claude Code:
 
@@ -64,12 +64,30 @@ The `CAPTURE` and `PII` badges show what was recorded. The default capture is me
 
 ## What is deliberation?
 
-Your coding agent can ask GPT, Gemini, Grok, local models (Ollama, LM Studio), or any
-OpenAI-compatible model (via OpenRouter) for help through MCP. Deliberation handles the wiring
-for each provider so you just write the prompt. OpenRouter adds 400+ more models, including
-Qwen, Kimi, and DeepSeek. Eight domain experts (Architect, Code Reviewer, Security Analyst, and
-five more) review your plans, find bugs, and debate edge cases until they agree. Each expert has
-a distinct specialty and can advise or implement.
+Before you ship a plan, a diff, or a design, deliberation sends the same work to models from
+other vendors and returns one verdict. It adds four things that one vendor's models cannot offer
+on their own:
+
+- Cross-vendor arbitration. GPT, Gemini, Grok, local models (Ollama, LM Studio), and any
+  OpenAI-compatible model through OpenRouter (400+ more, including Qwen, Kimi, and DeepSeek)
+  review the same input. The arbiter is your host agent or any configured provider. For either
+  arbiter, a round converges only when at least one external reviewer answered and every
+  external reviewer that answered approves.
+- A blind first verdict. In `/consensus` your agent records its own verdict before it sees the
+  panel, so it cannot reshape its opinion to match the others.
+- Disagreement that stays visible. Every dismissed issue keeps a written reason in the report,
+  and `/ask-all` compares the answers side by side.
+- Measured value per model. The built-in analyzer reads the opt-in debug log and your sessions.
+  It reports per-model latency, tokens, and verdict agreement, and flags the models that agree
+  more than they add as drop candidates.
+
+Consensus can be wrong: several models can share one blind spot. That is why a human signs off
+on the result.
+
+deliberation handles the wiring for each provider, so you write only the prompt. Eight domain
+experts (Architect, Code Reviewer, Security Analyst, and five more) review your plans, find bugs,
+and debate edge cases. Each expert has a distinct specialty. Every provider advises; only Gemini
+can also implement.
 
 It is not tied to Claude Code. The same MCP server runs on any MCP host, and Codex, Cursor,
 Kiro, Antigravity, Gemini CLI, and OpenCode also get native plugins with the experts and delegation
@@ -92,11 +110,18 @@ with `DELIBERATION_CONFIG`) and hot-reload without restarting your host.
 
 ## Install
 
-Pick the path for your host:
+One install string per host. Where a host has more than one way, its guide lists the rest under "Other ways to install".
 
-- **Claude Code** - the plugin below (recommended there).
-- **Codex, Cursor, Kiro, Antigravity, Gemini CLI, OpenCode** - the [native plugins per host](#native-plugins-per-host-antigravity--gemini-cli--cursor--codex--kiro--opencode).
-- **Any other MCP host** (Claude Desktop, Windsurf, Zed, VS Code, ...) - the [standalone MCP server](#alternative-use-deliberation-mcp-server-standalone-works-with-any-agents).
+| Host | Install |
+|------|---------|
+| Claude Code | `/plugin marketplace add antonbabenko/agent-plugins`, then `/plugin install deliberation@antonbabenko` ([details](#claude-code-plugin-recommended)) |
+| Codex CLI | `codex plugin marketplace add antonbabenko/deliberation` ([guide](docs/hosts/codex.md)) |
+| Gemini CLI | `gemini extensions install https://github.com/antonbabenko/deliberation` ([guide](docs/hosts/gemini-cli.md)) |
+| Kiro | "Add power from GitHub" with `https://github.com/antonbabenko/deliberation` ([guide](docs/hosts/kiro.md)) |
+| Cursor | the "Install in Cursor" button below, then copy `.cursor/rules/deliberation.mdc` ([guide](docs/hosts/cursor.md)) |
+| Antigravity | copy `.agents/skills/` and `.agents/mcp.json` into your project's `.agents/` ([guide](docs/hosts/antigravity.md)) |
+| OpenCode | add the server to `opencode.json`, then copy `.opencode/commands/` and `.opencode/agents/` ([guide](docs/hosts/opencode.md)) |
+| Any other MCP host (Claude Desktop, Windsurf, Zed, VS Code, ...) | `npx -y @antonbabenko/deliberation-mcp` as a stdio server ([standalone server](#alternative-use-deliberation-mcp-server-standalone-works-with-any-agents)) |
 
 ### Claude Code plugin (recommended):
 
@@ -212,11 +237,11 @@ Beyond the raw MCP config above, deliberation ships **native plugin artifacts** 
 
 | Host | Native artifacts (in this repo) | Install |
 |------|----------------------------------|---------|
-| **Antigravity & Gemini** | `.agents/skills/`, `.gemini/skills/`, and `.agents/mcp.json` | Automatically discovered in project root, or copy `.agents/skills/` and `.gemini/skills/` into your workspace. |
+| **Antigravity & Gemini** | `.agents/skills/`, `.gemini/skills/`, and `.agents/mcp.json` | Copy `.agents/skills/` and `.agents/mcp.json` into your project's `.agents/`. Other ways (Gemini Code Assist, working in this repo): [guide](docs/hosts/antigravity.md#other-ways-to-install). |
 | **Gemini CLI** | `gemini-extension.json` (a Gemini CLI extension) | `gemini extensions install https://github.com/antonbabenko/deliberation` |
-| **Cursor** | `.cursor/rules/deliberation.mdc` | Use the one-click MCP button above, then copy the `.mdc` into your project's `.cursor/rules/`. |
+| **Cursor** | `.cursor/rules/deliberation.mdc` | The "Install in Cursor" button above, then copy the `.mdc` into your project's `.cursor/rules/`. |
 | **Codex CLI** | `plugins/deliberation/` (`.codex-plugin/plugin.json` + `.mcp.json` + `skills/`) and a repo-scoped `.agents/plugins/marketplace.json` | `codex plugin marketplace add antonbabenko/deliberation`, then install **deliberation** from `/plugins`. |
-| **Kiro** | `POWER.md` + `mcp.json` + `steering/` (a "Kiro Power") | In Kiro, "Add power from GitHub" -> this repo URL. Submit to the registry at [kiro.dev/powers/submit](https://kiro.dev/powers/submit/). |
+| **Kiro** | `POWER.md` + `mcp.json` + `steering/` (a "Kiro Power") | In Kiro, "Add power from GitHub" -> this repo URL. |
 | **OpenCode** | `.opencode/commands/*.md` + `.opencode/agents/*.md` | Add the MCP server to `opencode.json` (`mcp` key, `type: "local"`, `command: ["npx","-y","@antonbabenko/deliberation-mcp"]`), then copy `.opencode/commands/` and `.opencode/agents/` into your project. |
 
 Provider credentials work the same as the standalone server (GPT via the Codex CLI, Gemini via `agy`, `XAI_API_KEY` for Grok, `OPENROUTER_API_KEY` for OpenRouter) - set only the providers you use. The MCP server already injects each expert persona server-side, so these native files add the host's command/steering surface, not duplicated logic.

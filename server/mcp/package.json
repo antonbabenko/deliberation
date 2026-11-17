@@ -1,7 +1,8 @@
 {
   "name": "@antonbabenko/deliberation-mcp",
   "version": "4.2.0",
-  "description": "Deliberation for Claude Code and any MCP host - GPT, Gemini, Grok, and OpenRouter expert subagents.",
+  "description": "A second opinion from other models before you ship. Any host, any vendor, one verdict, and the disagreement stays visible.",
+  "keywords": ["mcp", "mcp-server", "second-opinion", "council", "consensus", "code-review", "multi-model", "claude-code", "codex", "gpt", "gemini", "grok", "openrouter"],
   "mcpName": "io.github.antonbabenko/deliberation",
   "repository": { "type": "git", "url": "git+https://github.com/antonbabenko/deliberation.git", "directory": "server/mcp" },
   "homepage": "https://github.com/antonbabenko/deliberation#readme",

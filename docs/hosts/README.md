@@ -1,10 +1,15 @@
 # Per-host install guides
 
+A second opinion from other models before you ship. Any host, any vendor, one verdict, and the disagreement stays visible.
+
+Each guide gives one install string for its host. Where a host has more than one way, the guide
+lists the rest under "Other ways to install".
+
 deliberation ships native plugin artifacts for non-Claude hosts, generated from
 the canonical sources by `scripts/sync-hosts.js` (drift-guarded in CI). Full
 install instructions per host:
 
-- [Antigravity & Gemini Code Assist](antigravity.md) - native `.agents/skills/`, `.gemini/skills/`, and `.agents/mcp.json`.
+- [Antigravity & Gemini Code Assist](antigravity.md) - native `.agents/skills/`, `.gemini/skills/`, and `.agents/mcp.json`, installed by copying `.agents/skills/` and `.agents/mcp.json` into your project.
 - [Gemini CLI](gemini-cli.md) - `gemini-extension.json` at the repo root, installed via `gemini extensions install https://github.com/antonbabenko/deliberation`.
 - [Cursor](cursor.md) - `.cursor/rules/deliberation.mdc` + the one-click MCP deeplink.
 - [OpenAI Codex CLI](codex.md) - native plugin at `plugins/deliberation/`, installed via `codex plugin marketplace add antonbabenko/deliberation`.

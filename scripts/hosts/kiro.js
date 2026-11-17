@@ -33,6 +33,7 @@ const KEYWORDS = [
   "security review",
   "second opinion",
   "consensus",
+  "council",
   "code review",
   "plan review",
   "debug",
