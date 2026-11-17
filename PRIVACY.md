@@ -21,13 +21,15 @@ config:
 - **OpenRouter**, through the OpenRouter API. OpenRouter passes each request on to the
   vendor that serves the model you picked.
 - **Ollama or LM Studio**, through their local API (`http://localhost:11434/v1` and
-  `http://localhost:1234/v1` by default). With the default address, the request does not
-  leave your machine. If you point `apiBase` at another host, it goes there.
+  `http://localhost:1234/v1` by default). With the default address, deliberation sends
+  the request to a service on your machine; that service's own settings decide whether
+  anything leaves it. If you point `apiBase` at another host, the request goes there.
 
 Orientation bundle: by default, deliberation adds repo files from the current directory to
-requests for Grok and OpenRouter: one of `AGENTS.md` or `CLAUDE.md`, manifest files such as
-`package.json`, and `README.md`. The default limits are 6 files and 16000 bytes. Set
-`orientation.enabled` to `false` to stop this.
+requests for Grok and OpenRouter: one of `AGENTS.md` or `CLAUDE.md`, any of `package.json`,
+`pyproject.toml`, `Cargo.toml`, `go.mod`, `tsconfig.json` and `main.tf`, and `README.md`.
+The default limits are 6 files and 16000 bytes. Set `orientation.enabled` to `false` to
+stop this.
 
 Each vendor's own terms and privacy policy apply to what it receives:
 
@@ -61,16 +63,18 @@ when `XDG_CONFIG_HOME` is set (Windows: `%APPDATA%\deliberation\config.json`).
 | Session store | Off | `<cache>/sessions/<id>.json`, or `DELIBERATION_SESSIONS` | `sessions.persist: true` |
 | Debug log | Off | `<cache>/debug.jsonl`, `debug.path`, or `DELIBERATION_DEBUG_LOG` | `debug.enabled: true` |
 | Run journal (dashboard) | Off | `<cache>/runs/<runId>.jsonl`, or `DELIBERATION_RUNS` | `dashboard.enabled: true` |
-| Config history | Off | `<cache>/history/` | `sessions.persist`, `debug.enabled` or `dashboard.enabled` |
+| Config history | Off | `history/` next to the runs directory (`<cache>/history/` by default) | `sessions.persist`, `debug.enabled` or `dashboard.enabled` |
 | Dashboard state | Off | `<cache>/dashboard.json` and `<cache>/dashboard-open.html` | starting the dashboard |
 | Grok upload cache | On when files are uploaded to Grok | `<cache>/grok-files.json`, or `DELIBERATION_CACHE` | uploading a file to Grok; `XAI_DISABLE_FILE_CACHE` turns it off |
 
 What each one holds:
 
 - **Session store**: the question, the paths of attached files, each provider's verdict,
-  the synthesis and the critical issues of a consensus or ask-all run. With `sessions.captureText: true` it
-  also keeps each provider's full response. Before writing, deliberation removes text that looks like a secret (common API key
-  formats, private keys, JWTs, `key=value` secrets). This is best effort.
+  the synthesis and the critical issues of a consensus or ask-all run. With
+  `sessions.captureText: true` it also keeps each provider's response text. Before
+  writing, deliberation removes text that looks like a secret (common API key formats,
+  private keys, JWTs, `key=value` secrets), and from response text also likely personal
+  data. Both are best effort.
   Records are kept for 30 days and at most 200 records by default (`sessions.maxAgeDays`,
   `sessions.maxRecords`).
 - **Debug log**: latency, token counts, reasoning effort and verdict outcomes. It never
@@ -81,10 +85,13 @@ What each one holds:
   are kept for 30 days and at most 200 runs by default (`dashboard.maxAgeDays`,
   `dashboard.maxRuns`).
 - **Config history**: the provider and model settings in effect, never prompts or keys.
+  With the dashboard on, it also keeps one record per running server process (process id,
+  start time and those settings) under `history/runtimes/`.
 - **Dashboard state**: the dashboard's process id, port and access token, removed when
   the dashboard stops.
-- **Grok upload cache**: for each uploaded file, a content hash, a short hash of your
-  API key, the API address, the file name and the xAI file id. It holds no file content.
+- **Grok upload cache**: one row per uploaded file, keyed by a hash of the file content,
+  holding a short hash of your API key, the API address, the file name, its size, the
+  xAI file id, and the upload and expiry times. It holds no file content.
 
 deliberation creates the session store, run journal, config history, dashboard state and
 Grok cache files with mode `0600`.
@@ -119,9 +126,14 @@ rm -rf ~/.cache/deliberation            # or $XDG_CACHE_HOME/deliberation
 ```
 
 On Windows, delete `%LOCALAPPDATA%\deliberation`. To remove your settings as well,
-delete `~/.config/deliberation` (Windows: `%APPDATA%\deliberation`). If you set
-`DELIBERATION_SESSIONS`, `DELIBERATION_RUNS`, `DELIBERATION_DEBUG_LOG`, `debug.path` or
-`DELIBERATION_CACHE`, delete those paths too.
+delete `~/.config/deliberation` (or `$XDG_CONFIG_HOME/deliberation`; Windows:
+`%APPDATA%\deliberation`).
+
+If you set any of these, delete the files or directories they point to as well:
+`DELIBERATION_CONFIG`, `DELIBERATION_SESSIONS`, `DELIBERATION_DEBUG_LOG`, `debug.path` and
+`DELIBERATION_CACHE`. If you set `DELIBERATION_RUNS`, delete that directory and the
+`history` directory next to it. If one of them points into a directory you share with
+other tools, delete only the deliberation files there.
 
 ## Contact
 
