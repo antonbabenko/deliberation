@@ -928,11 +928,6 @@ const handlers = {
         if (shouldRespond) sendError(id, -32602, "Invalid params: this thread ran on the Gemini API key path, which is advisory only; start a new 'gemini' call with sandbox 'workspace-write' to use agy");
         return;
       }
-      // transport "api" is the operator saying agy must never run, so there is no write path.
-      if (writeMode && geminiConfig().transport === "api") {
-        if (shouldRespond) sendError(id, -32602, "Invalid params: providers.gemini.transport is \"api\", which never runs agy; workspace-write needs agy (set transport to \"auto\" or \"agy\" to allow it)");
-        return;
-      }
       if (replyToApi || (name === "gemini" && !writeMode && apiSelected())) {
         if (!isNonEmptyString(args.prompt)) {
           if (shouldRespond) sendError(id, -32602, "Invalid params: 'prompt' is required");
@@ -946,6 +941,12 @@ const handlers = {
           cwd: args.cwd,
         });
         if (shouldRespond) sendResponse(id, { content: [{ type: "text", text: out.response }], threadId: out.threadId, transport: "api" });
+        return;
+      }
+      // The one gate before agy: transport "api" is the operator saying agy must never run, so a
+      // workspace-write call or a reply to a thread the API path does not know is refused here.
+      if (geminiConfig().transport === "api") {
+        if (shouldRespond) sendError(id, -32602, "Invalid params: providers.gemini.transport is \"api\", which never runs agy; workspace-write and replies to agy threads need agy (set transport to \"auto\" or \"agy\" to allow it)");
         return;
       }
 

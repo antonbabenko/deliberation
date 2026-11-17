@@ -125,8 +125,9 @@ Gemini has two paths. Which one an advisory call takes is set by
 `auto` (it is often a key for another Google API). The key is never passed to `agy`: the API path
 does not spawn it, and the agy child env scrubs every `*_KEY` variable anyway. In the
 standalone bridge, a `gemini-reply` to a thread that started on the API path continues on
-the API path; asking for `workspace-write` on such a thread, or under `transport: "api"`, is an
-invalid-params error.
+the API path; asking for `workspace-write` on such a thread is an invalid-params error. Under
+`transport: "api"` one gate in front of `agy` refuses everything that would run it
+(`workspace-write`, or a reply to a thread the API path does not know) with invalid params.
 With the API path selected, the standalone bridge starts even when `agy` is missing (a
 stderr warning; `workspace-write` calls then fail). The per-call `model` argument of the
 standalone `gemini` tool is an agy id, so the API path ignores it and uses

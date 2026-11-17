@@ -100,9 +100,11 @@ test("B2: bridge with a key runs agy for workspace-write and transport 'agy', ne
     const apiP = collectResponses(apiOnly);
     send(apiOnly, { jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
     send(apiOnly, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "gemini", arguments: { prompt: "hi", sandbox: "workspace-write" } } });
+    send(apiOnly, { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "gemini-reply", arguments: { threadId: "agy-thread-1", prompt: "more" } } });
     setTimeout(() => apiOnly.stdin.end(), 1500);
     const apiResponses = await apiP;
     assert.match(apiResponses.find((m) => m.id === 2).error.message, /never runs agy/);
+    assert.match(apiResponses.find((m) => m.id === 3).error.message, /never runs agy/, "a reply to a non-API thread is refused, not sent to agy");
     assert.equal(readArgv(apiOnly.argvLog).length, 0, "transport api never runs agy, even for workspace-write");
   } finally { await mock.close(); }
 });
