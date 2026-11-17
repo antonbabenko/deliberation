@@ -1,6 +1,6 @@
 {
   "name": "deliberation",
-  "version": "4.1.1",
+  "version": "4.2.0",
   "description": "GPT, Gemini, Grok, and OpenRouter as expert subagents - second opinions, cross-model consensus, and review.",
   "mcpServers": {
     "deliberation": {
