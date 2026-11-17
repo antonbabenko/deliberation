@@ -4,7 +4,8 @@
 structured debate among analytical personas for hard decisions. It installs into Claude Code,
 Codex, Gemini CLI and OpenCode, and can spread the personas across several model providers.
 deliberation asks several model families to review a plan, a diff or a piece of writing, and
-runs a review loop until every responding model approves or a round cap is reached. Both get
+runs a review loop until the panel and the orchestrating agent all approve or a round cap is
+reached. Both get
 more than one perspective before you decide. They differ in what they are built to judge.
 
 Facts about the council come from its README and the GitHub API as of 2026-11-17: 4,861 GitHub
@@ -44,14 +45,15 @@ stars, MIT, latest release v1.2.0 (published 2026-07-04), last push 2026-11-16.
   Security Analyst, Debugger, Plan Reviewer, Scope Analyst, Architect, Researcher and Writing
   Editor.
 - **A loop that ends in a verdict on the artifact.** `/consensus` repeats review, adjudication
-  and revision until every responding model approves, with a round cap. The orchestrating agent
+  and revision until every responding model approves (at least two by default), no accepted
+  critical issue is left and the orchestrating agent approves, with a round cap. The orchestrating agent
   records its verdict before it sees the panel and cannot pass a round on its own vote; every
   dismissed issue has a written reason.
 - **Any MCP host.** deliberation is an MCP server (`npx -y @antonbabenko/deliberation-mcp`), so it
   also runs in hosts the council does not install into, such as Claude Desktop, Cursor, Kiro,
   Windsurf, Zed and VS Code.
-- **More providers through one config.** Grok (with an xAI key), plus OpenRouter and LM
-  Studio models declared as records in `~/.config/deliberation/config.json`. Changes to the
+- **More providers through one config.** Grok (with an xAI key), plus OpenRouter, Ollama
+  and LM Studio models declared as records in `~/.config/deliberation/config.json`. Changes to the
   records reload without a restart.
 - **Measurement.** An opt-in debug log, saved runs, the `analyze` tool and a local dashboard show
   latency, tokens and how often each model agrees with the rest.

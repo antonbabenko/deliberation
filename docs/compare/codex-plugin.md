@@ -37,8 +37,9 @@ Apache-2.0, latest release v1.0.6 (published 2026-07-08).
 - Reviewers from other model families: Gemini, Grok, and any OpenRouter or local model. Different
   families tend to flag different problems.
 - A review loop with rules against self-approval. In `/deliberation:consensus`, Claude records its
-  verdict before it sees the panel. A round converges only when every responding model approves,
-  and every dismissed issue has a written reason.
+  verdict before it sees the panel. A round converges only when every responding model approves
+  (at least two by default), no accepted critical issue is left, and Claude approves too. Claude
+  must give a written reason for every issue it dismisses.
 - Expert personas (Security Analyst, Plan Reviewer, Writing Editor and five more) that apply to
   any provider.
 - Hosts other than Claude Code.

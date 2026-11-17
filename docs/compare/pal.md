@@ -26,7 +26,8 @@ As of 2026-11-17, from the GitHub API and PAL's README:
 - **Provider breadth.** Azure OpenAI and DIAL have no deliberation equivalent. PAL calls the
   OpenAI and Gemini APIs with keys; deliberation needs the `codex` and `agy` CLIs for those two.
 - **Code from capable models.** PAL's `chat` can return complete code from capable models.
-  deliberation's providers advise; only Gemini, through the Claude Code plugin, can edit files.
+  deliberation's experts are prompted to advise; only Gemini, through the Claude Code plugin, can
+  edit files itself.
 - **Tool range.** `clink` starts other AI CLIs (Gemini CLI, Codex CLI, Claude Code) as subagents
   with their own context. `precommit`, `refactor`, `testgen`, `docgen`, `tracer`, `apilookup` and
   `challenge` have no dedicated deliberation tool.
@@ -46,8 +47,8 @@ As of 2026-11-17, from the GitHub API and PAL's README:
   stop that:
   - The agent records its verdict before the panel answers, and the engine holds the panel back
     until it does.
-  - A round converges only when every responding model approves and at least one model has
-    answered.
+  - A round converges only when at least `consensus.quorumFloor` models answer (default 2), every
+    one of them approves, no accepted critical issue is left, and the agent approves too.
   - Every dismissed issue needs a written reason, and the engine rejects a dismissal without one.
 
   The loop stops at `consensus.maxRounds` (default 5). PAL's `consensus` assigns stances (for,
@@ -80,7 +81,7 @@ As of 2026-11-17, from the GitHub API and PAL's README:
 | Local models | Custom endpoint (Ollama, vLLM, LM Studio) | Ollama and LM Studio providers; other endpoints through `providers.openrouter.apiBase` |
 | Azure OpenAI, DIAL | Yes | No |
 | Vision | Yes | No |
-| Writes code | Any capable model | Gemini only (Claude Code plugin) |
+| Code | Any capable model returns code for your agent to apply | Any provider can return code as text; only Gemini (Claude Code plugin) edits files itself |
 | Consensus | Stances per model, agent combines | Blind verdict first, no self-approval, reasons for every dismissal, round cap |
 | Parallel answers | Through `consensus` | `ask-all` |
 | Personas | One system prompt per tool | Eight experts usable with any provider |

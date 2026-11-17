@@ -49,7 +49,7 @@ Code command, where one exists.
 
 | PAL | deliberation | Notes |
 |-----|--------------|-------|
-| `chat` | `ask-gpt`, `ask-gemini`, `ask-grok`, `ask-openrouter`, `ask-one`; `/deliberation:ask-gpt` and the other `ask-*` commands | One question to one provider. Name an OpenRouter or local record with `ask-one { provider: "openrouter:<id>" }`. |
+| `chat` | `ask-gpt`, `ask-gemini`, `ask-grok`, `ask-openrouter`, `ask-one`; `/deliberation:ask-gpt` and the other `ask-*` commands | One question to one provider. To call one model record, pass its panel name to `ask-one` as `provider`, for example `openrouter:<id>` or `ollama:<id>`; `panel` lists the names. |
 | `consensus` | `ask-all` or `consensus` / `consensus-step`; `/deliberation:ask-all`, `/deliberation:consensus` | `ask-all` sends one prompt to the panel in parallel and keeps the answers separate. `/consensus` runs a multi-round review loop until the panel agrees or a round cap is hit. There is no per-model stance (for, against, neutral): every model gets the same prompt. |
 | `thinkdeep` | `architect` expert, or any `ask-*` with a higher reasoning effort | Set effort per provider (`providers.codex.reasoningEffort`, `providers.grok.reasoningEffort`) or per model record (`reasoningEffort`). |
 | `planner` | `plan-reviewer` and `scope-analyst` experts | deliberation does not write plans. Your agent writes the plan; these experts check it. |
@@ -97,7 +97,7 @@ It never overwrites an existing file. In Claude Code, run `/deliberation:setup` 
 | Other OpenAI-compatible endpoints (vLLM, Hugging Face Inference) | `providers.openrouter.apiBase`. |
 | `AZURE_OPENAI_*`, `DIAL_*` | No equivalent provider. |
 | `DEFAULT_MODEL=auto` | No automatic model choice. Your agent picks the expert and the providers; each built-in provider uses the model you pin: `providers.codex.model`, `providers.gemini.model` (default `auto-gemini-3`), `providers.grok.model` (default `grok-4.6`). If `providers.codex.model` is unset, Codex uses its own `~/.codex/config.toml`. |
-| `OPENAI_ALLOWED_MODELS`, `GOOGLE_ALLOWED_MODELS`, `XAI_ALLOWED_MODELS` | No allow list. Only the model records you declare in `models` join a fan-out, and each record says where it may join (`askAll`, `consensus`, `experts`). `routing.maxFanout` (default 3) caps how many records join `ask-all`. |
+| `OPENAI_ALLOWED_MODELS`, `GOOGLE_ALLOWED_MODELS`, `XAI_ALLOWED_MODELS` | No allow list. The built-in providers (Codex, Gemini, Grok) join when they are enabled and ready. OpenRouter and local models join only as records you declare in `models`, and each record says where it may join (`askAll`, `consensus`, `experts`). `routing.maxFanout` (default 3) caps how many records join `ask-all`. |
 | `DEFAULT_THINKING_MODE_THINKDEEP` | `reasoningEffort` per provider or per model record. |
 | `DISABLED_TOOLS` | No equivalent. The tool set is fixed. |
 | `CONVERSATION_TIMEOUT_HOURS`, `MAX_CONVERSATION_TURNS` | No equivalent for threads. For a record of past runs, turn on `sessions.persist` (with `maxRecords` and `maxAgeDays`). |
@@ -107,8 +107,9 @@ It never overwrites an existing file. In Claude Code, run `/deliberation:setup` 
 
 PAL lists models and their aliases in `conf/openrouter_models.json` and `conf/custom_models.json`.
 In deliberation, each model is a named record in the `models` map. The record id is the name you
-use: `openrouter:<id>` in `ask-one`, or the alias argument of `/deliberation:ask-openrouter`.
-Record ids use lowercase letters, digits and hyphens.
+use: `<provider>:<id>` in `ask-one` (for example `openrouter:deepseek`), or, for an OpenRouter
+record, the alias argument of `/deliberation:ask-openrouter`. Record ids use lowercase letters,
+digits and hyphens.
 
 A PAL `.env` like this:
 
@@ -172,8 +173,9 @@ Claude Code goes through `/deliberation:setup`.
   Gemini APIs with keys.
 - **Consensus.** PAL's `consensus` gives each model a stance and your agent combines the
   answers. deliberation's `/consensus` has your agent record its own verdict before it sees the
-  panel. A round converges only when every responding model approves and at least one answered,
-  so the agent cannot approve a plan on its own vote. For every issue the agent dismisses, the
+  panel. A round converges only when at least `consensus.quorumFloor` models answer (default 2),
+  every one of them approves, no accepted critical issue is left, and the agent approves too. The
+  agent cannot approve a plan on its own vote. For every issue the agent dismisses, the
   final report includes a written reason. The loop stops at `consensus.maxRounds` (default 5).
 - **Disagreement stays visible.** `ask-all` returns each model's answer separately, and the
   synthesis names where they agree and where they split.
