@@ -33,6 +33,17 @@ test("Codex plugin manifest version matches version.json", () => {
   assert.strictEqual(manifest.version, version);
 });
 
+test("Gemini CLI extension manifest tracks version.json and points at real files", () => {
+  const manifest = JSON.parse(buildArtifacts()["gemini-extension.json"]);
+  assert.strictEqual(manifest.version, readVersion());
+  const server = manifest.mcpServers.deliberation;
+  assert.strictEqual(server.command, "node");
+  assert.deepStrictEqual(server.args, ["${extensionPath}/server/mcp/index.js"]);
+  const fs = require("fs");
+  assert.ok(fs.existsSync(path.join(REPO_ROOT, server.args[0].replace("${extensionPath}/", ""))));
+  assert.ok(fs.existsSync(path.join(REPO_ROOT, manifest.contextFileName)));
+});
+
 test("Antigravity & Agent host artifacts are present and well-formed", () => {
   const artifacts = buildArtifacts();
   assert.ok(artifacts[AGENTS_MCP], "missing .agents/mcp.json");

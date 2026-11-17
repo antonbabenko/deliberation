@@ -30,6 +30,7 @@ const HOSTS = [
   require("./hosts/kiro"),
   require("./hosts/opencode"),
   require("./hosts/antigravity"),
+  require("./hosts/gemini-cli"),
 ];
 
 /** @returns {string} the semver string from version.json (the single SSOT). */
