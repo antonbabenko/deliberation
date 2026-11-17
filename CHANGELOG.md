@@ -1,3 +1,10 @@
+## [4.1.2](https://github.com/antonbabenko/deliberation/compare/v4.1.1...v4.1.2) (2026-11-17)
+
+
+### Bug Fixes
+
+* **mcp:** restore the Node 18 engines floor and stop Renovate raising it ([#266](https://github.com/antonbabenko/deliberation/issues/266)) ([6bc17a7](https://github.com/antonbabenko/deliberation/commit/6bc17a7bab26bd1291451e17eeb8a2e43b2bb778))
+
 ## [4.1.1](https://github.com/antonbabenko/deliberation/compare/v4.1.0...v4.1.1) (2026-11-04)
 
 
@@ -34,11 +41,4 @@
 ### Features
 
 * add Writing Editor expert for prose review and rewrites ([#246](https://github.com/antonbabenko/deliberation/issues/246)) ([bb6611e](https://github.com/antonbabenko/deliberation/commit/bb6611ed301e5658dc2f828820109658376a2482))
-
-## [3.31.0](https://github.com/antonbabenko/deliberation/compare/v3.30.0...v3.31.0) (2026-10-15)
-
-
-### Features
-
-* **providers:** add Ollama & LM Studio local providers and explicit model attribution ([#204](https://github.com/antonbabenko/deliberation/issues/204)) ([e8f55c9](https://github.com/antonbabenko/deliberation/commit/e8f55c92dacfcc9672bbca0ae24b29761c8698e3))
 
