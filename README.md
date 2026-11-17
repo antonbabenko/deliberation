@@ -1,6 +1,22 @@
-# Deliberation
+# deliberation
 
-Get a second opinion from GPT, Gemini, and Grok in Claude Code, Codex, Cursor, Kiro, Antigravity, OpenCode, or any other MCP host - plus local models (Ollama, LM Studio) and 400+ more models through OpenRouter, including Qwen, Kimi, and DeepSeek. Eight domain experts (Architect, Code Reviewer, Security Analyst, and five more) review your plans, find bugs, and debate edge cases until they agree.
+[![npm](https://img.shields.io/npm/v/@antonbabenko/deliberation-mcp)](https://www.npmjs.com/package/@antonbabenko/deliberation-mcp) [![Validate](https://github.com/antonbabenko/deliberation/actions/workflows/validate.yml/badge.svg?branch=master)](https://github.com/antonbabenko/deliberation/actions/workflows/validate.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+deliberation is an MCP server and Claude Code plugin. It gets your coding agent a second opinion from other models before you ship: any host, any vendor, one verdict, and the disagreement stays visible.
+
+In `/consensus`, your agent records its own verdict before it sees the panel. GPT, Gemini, Grok, local, and OpenRouter models then review the same plan independently. The agent cannot approve a round on its own vote, and every issue it dismisses keeps a written reason in the report. You need at least one provider: a logged-in `codex` or `agy` CLI, an xAI or OpenRouter key, or a local Ollama or LM Studio model.
+
+Quickstart in Claude Code:
+
+```
+/plugin marketplace add antonbabenko/agent-plugins
+/plugin install deliberation@antonbabenko
+/deliberation:setup
+```
+
+Then ask: `/deliberation:ask-all Review the current diff for real bugs, security issues, and missing tests.`
+
+On any other MCP host, register `npx -y @antonbabenko/deliberation-mcp` as a server. Full setup: [Install](#install), [Requirements](#requirements), [SETUP.md](SETUP.md).
 
 ![Four chairs at the table: Claude, GPT, Gemini, Grok - one verdict you can ship](assets/agents.png)<br>Recent blog post: [Meet Deliberation: 400+ models is easy, knowing which ones earn a place is hard.](https://builder.aws.com/content/3Eaq94hQW8HywInrVaQm9qNih1P/meet-deliberation-400-models-is-easy-knowing-which-ones-earn-a-place-is-hard)
 
@@ -46,12 +62,14 @@ The `CAPTURE` and `PII` badges show what was recorded. The default capture is me
 
 </details>
 
-## What is Deliberation?
+## What is deliberation?
 
 Your coding agent can ask GPT, Gemini, Grok, local models (Ollama, LM Studio), or any
 OpenAI-compatible model (via OpenRouter) for help through MCP. Deliberation handles the wiring
-for each provider so you just write the prompt. Each expert has a distinct specialty and can
-advise or implement.
+for each provider so you just write the prompt. OpenRouter adds 400+ more models, including
+Qwen, Kimi, and DeepSeek. Eight domain experts (Architect, Code Reviewer, Security Analyst, and
+five more) review your plans, find bugs, and debate edge cases until they agree. Each expert has
+a distinct specialty and can advise or implement.
 
 It is not tied to Claude Code. The same MCP server runs on any MCP host, and Codex, Cursor,
 Kiro, Antigravity, and OpenCode also get native plugins with the experts and delegation
