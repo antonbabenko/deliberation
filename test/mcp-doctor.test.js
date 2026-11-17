@@ -108,3 +108,13 @@ test("D5: sessions path drift is a failure; a codex with no login is a warning w
   assert.equal(c.status, "warn");
   assert.match(c.fix, /codex-login/);
 });
+
+test("D6: session records without per-opinion verdicts give an info finding, only then", async () => {
+  const { configPath, sessionsDir } = setup({ version: 1 });
+  /** @param {any} analyzeMeta */
+  const has = async (analyzeMeta) => byCheck(await runDoctor({ providers: [], configPath, sessionsDir, env: {}, analyzeMeta }), "sessions-verdicts").length;
+  assert.equal(await has({ sessionsRead: 3, agreementVotes: 0 }), 1);
+  assert.equal(await has({ sessionsRead: 3, agreementVotes: 2 }), 0);
+  assert.equal(await has({ sessionsRead: 0, agreementVotes: 0 }), 0);
+  assert.equal(await has(null), 0);
+});
