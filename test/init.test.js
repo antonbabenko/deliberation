@@ -12,7 +12,7 @@ const { buildServer, probeHealth } = require("../server/mcp/index.js");
 const { makeConfigReader } = require("../server/openrouter/config.js");
 
 const SECRET = "sk-or-v1-test-secret-value";
-const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "delib-init-"));
+const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "init-test-"));
 
 /** A fake provider: health ok/unhealthy, ask returns `reply` or an error kind. */
 function fake(name, { healthy = true, needsLogin = false, fail = null, reply = "**Verdict**: APPROVE\nLooks fine." } = {}) {
