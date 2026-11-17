@@ -458,7 +458,8 @@
       "properties": {
         "enabled": {
           "type": "boolean",
-          "default": true
+          "default": true,
+          "description": "false turns OpenRouter off, including the built-in panel. With no providers.openrouter block, OpenRouter is on only when the apiKeyEnv variable is set; then, if no models record targets openrouter, three built-in records (z-ai/glm-5.3-flashx, openai/gpt-6.1-sol, google/gemini-3.8-flash) join ask-all and consensus. Any openrouter models record replaces them."
         },
         "apiKeyEnv": {
           "type": "string",

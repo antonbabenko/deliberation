@@ -910,6 +910,36 @@ take effect immediately without restarting Claude Code or re-running `/setup`. T
 **built-in** provider (codex / gemini / grok) still requires `/setup` to re-register
 or de-register the MCP server.
 
+### Built-in panel (key only)
+
+With `OPENROUTER_API_KEY` set (the env var named by `providers.openrouter.apiKeyEnv`) and
+no OpenRouter model record in `models`, the resolved config gets three built-in records,
+one per vendor:
+
+| Record id | Model slug | Role |
+|-----------|------------|------|
+| `glm-5-3-flashx` | `z-ai/glm-5.3-flashx` | Default for a bare `ask-openrouter` / `openrouter-default` call |
+| `gpt-6-1-sol` | `openai/gpt-6.1-sol` | Panel voice |
+| `gemini-3-8-flash` | `google/gemini-3.8-flash` | Panel voice |
+
+All three have `askAll: true` and `consensus: true`, so they fill the default
+`routing.maxFanout` of 3 in `ask-all` and all vote in `consensus`. This also applies when
+there is no config file at all.
+
+- **Enabled.** A missing `providers.openrouter` block now means "on when the key is set".
+  `providers.openrouter.enabled: false` turns OpenRouter off, built-in panel included.
+  The starter config that `/setup` writes and `config/config.default.json` both set
+  `enabled: false`, so a user with that file opts in by setting it to `true`.
+- **Replaced, not merged.** One valid `models` record with `provider: "openrouter"` (or no
+  `provider`) removes all three built-in records. Records for `ollama` / `lmstudio` do not
+  count and are listed before the built-in records.
+- **Default.** A configured default (`default: true` on a record, or
+  `providers.openrouter.defaultModel`) wins over `glm-5-3-flashx`.
+- **Arbiter.** With `consensus.arbiter: "auto"` and no CLI providers, the arbiter is the
+  first healthy OpenRouter voice (`glm-5-3-flashx`), and the other two vote.
+- **Visible.** `openrouter-list` marks these records `builtin: true`; `panel` and results
+  name them `openrouter:<record id>`.
+
 ### Concepts
 
 The config has four top-level sections, each with one job:
@@ -964,7 +994,7 @@ are not globalized):
 
 | Field | Type | Default | Notes |
 |-------|------|---------|-------|
-| `enabled` | boolean | `true` | Whether OpenRouter participates |
+| `enabled` | boolean | `true` | Whether OpenRouter participates. With no `providers.openrouter` block, on only when the key env var is set |
 | `apiKeyEnv` | string | `OPENROUTER_API_KEY` | Env var holding the API key |
 | `apiBase` | string | `https://openrouter.ai/api/v1` | OpenAI-compatible base URL. Read once at startup |
 | `allowRawModel` | boolean | `false` | Allow raw slugs (not just configured records) |
@@ -1170,7 +1200,7 @@ to the record id, so selection and the wire stay stable):
 
 ```jsonc
 {
-  "delegates": [ { "alias", "model", "experts", "askAll", "consensus", "reasoning_effort" } ],
+  "delegates": [ { "alias", "model", "experts", "askAll", "consensus", "default", "builtin", "reasoning_effort" } ],
   "defaultModelSet": true,
   "maxFanout": 3,
   "maxFanoutHigh": false,
@@ -1180,6 +1210,8 @@ to the record id, so selection and the wire stay stable):
 }
 ```
 
+- `builtin` is `true` on the records of the built-in panel (see
+  [Built-in panel](#built-in-panel-key-only)) and `false` on records from `config.json`.
 - `delegates` (and `selected`/`omitted`) list only `provider: "openrouter"` records; the
   standalone bridge cannot call `ollama`/`lmstudio` records, so they appear only in the
   unified server's panel. `invalidModels` is reported even when a provider is disabled, so a

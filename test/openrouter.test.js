@@ -210,6 +210,20 @@ test("O7: openrouter-list returns delegates object in config order", async () =>
   } finally { child.kill(); }
 });
 
+test("O7f: openrouter-list marks the built-in panel (key set, no config file)", async () => {
+  const missing = pathx.join(fsx.mkdtempSync(pathx.join(require("node:os").tmpdir(), "or-builtin-")), "absent.json");
+  const child = startBridge({ DELIBERATION_CONFIG: missing, OPENROUTER_API_KEY: "sk-test" });
+  const c = rpc(child);
+  try {
+    await c.request({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+    const r = await c.request({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "openrouter-list", arguments: { mode: "consensus" } } });
+    const payload = JSON.parse(r.result.content[0].text);
+    assert.deepEqual(payload.delegates.map((d) => d.builtin), [true, true, true]);
+    assert.equal(payload.selected.length, 3);
+    assert.equal(payload.defaultModel, "glm-5-3-flashx");
+  } finally { child.kill(); }
+});
+
 test("O7e: openrouter-list keeps valid delegates and reports a broken entry with a suggestion", async () => {
   const file = writeConfig({ version: 1, openrouter: { enabled: true, defaultModel: "d/m", models: [
     { alias: "good", model: "a/good" },

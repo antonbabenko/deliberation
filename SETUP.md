@@ -22,6 +22,28 @@ truth: changes to `models`, `routing`, or the `providers.openrouter` block hot-r
 without restarting Claude Code. Toggling a built-in provider (codex / gemini / grok)
 still requires `/setup`.
 
+### One-key quickstart
+
+You do not need a config file to use OpenRouter. Set the key and start the server:
+
+```bash
+export OPENROUTER_API_KEY=sk-or-v1-...
+```
+
+With the key set and no OpenRouter record in `models` (or no `config.json` at all),
+deliberation uses a built-in panel of three models from three vendors:
+`z-ai/glm-5.3-flashx` (the default for a bare `ask-openrouter` call),
+`openai/gpt-6.1-sol` and `google/gemini-3.8-flash`. All three take part in `ask-all` and
+`consensus`. `openrouter-list` marks them `builtin: true`.
+
+- Add any OpenRouter record under `models` and your records replace the built-in panel
+  (the two sets are not merged).
+- Set `providers.openrouter.enabled: false` to turn OpenRouter off.
+- The starter file from `/setup` sets `providers.openrouter.enabled: false`; set it to
+  `true` to use the panel with that file.
+
+Details: [TECHNICAL.md - Built-in panel](TECHNICAL.md#built-in-panel-key-only).
+
 The config sections: `providers` (transport / connection per provider),
 `models` (named model records keyed by id), `routing` (fan-out policy),
 `consensus` (`arbiter` = who synthesizes the verdict; optional `blindVote` for a blind

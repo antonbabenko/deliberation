@@ -157,6 +157,12 @@ These apply to every MCP host, not just Claude Code:
   server config - the Claude Code plugin manifest declares 1800000 and mirrors it into the
   server env so the clamp follows the real cap; on other hosts raise the cap where the host
   is launched, not in `config.json`.
+- **OpenRouter with only a key** - with `OPENROUTER_API_KEY` set and no OpenRouter record in
+  `models` (or no config file), a built-in panel of `z-ai/glm-5.3-flashx` (default for a
+  bare `ask-openrouter`), `openai/gpt-6.1-sol` and `google/gemini-3.8-flash` takes part in
+  `ask-all` and `consensus`; `openrouter-list` marks those records `builtin: true`. Any
+  OpenRouter record in `models` replaces the panel; `providers.openrouter.enabled: false`
+  turns it off.
 - **OpenRouter presets** - set presets by ID via `providers.openrouter.preset`, `providers.openrouter.defaults.preset`, or `models.<id>.preset` (or pass `preset` directly) to apply upstream provider routing rules (such as price-based sorting to save cost, or automatic fallback routing) and parameter defaults.
 - **Retries** - a failed call is retried once, and only for `network`, `rate-limit` (waiting
   for the upstream's `Retry-After`), and `empty` (a provider that exited clean but returned a

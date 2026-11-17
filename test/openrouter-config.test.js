@@ -317,10 +317,62 @@ test("C9: reader returns resolved config and re-reads on mtime change", () => {
 });
 
 test("C10: missing file => disabled openrouter, ok=true (graceful)", () => {
-  const reader = makeConfigReader(path.join(os.tmpdir(), "definitely-absent-cdg.json"));
+  const reader = makeConfigReader(path.join(os.tmpdir(), "definitely-absent-cdg.json"), {});
   const r = reader.get();
   assert.equal(r.ok, true);
   assert.equal(r.resolved.openrouter.enabled, false);
+  assert.deepEqual(r.resolved.openrouter.models, []);
+});
+
+// Built-in panel: OPENROUTER_API_KEY alone gives three vendors; user records replace it.
+const BUILTIN_SLUGS = ["z-ai/glm-5.3-flashx", "openai/gpt-6.1-sol", "google/gemini-3.8-flash"];
+const KEY_ENV = { OPENROUTER_API_KEY: "sk-test" };
+
+test("built-in panel: key + missing file => 3 built-in records, glm default, ask-all and consensus", () => {
+  const r = makeConfigReader(path.join(os.tmpdir(), "definitely-absent-cdg.json"), KEY_ENV).get();
+  const or = r.resolved.openrouter;
+  assert.equal(or.enabled, true);
+  assert.deepEqual(or.models.map((m) => m.model), BUILTIN_SLUGS);
+  assert.ok(or.models.every((m) => m.builtin === true && m.askAll === true && m.consensus === true));
+  assert.equal(or.defaultModel, "glm-5-3-flashx");
+  assert.deepEqual(or.models.filter((m) => m.default).map((m) => m.alias), ["glm-5-3-flashx"]);
+  const { askAllDelegates, consensusDelegates } = require("../server/openrouter/routing.js");
+  assert.equal(askAllDelegates(or, "code-reviewer").selected.length, 3);
+  assert.equal(consensusDelegates(or, "code-reviewer").length, 3);
+});
+
+test("built-in panel: key + config without openrouter block or records => 3 built-in records", () => {
+  const { resolved } = validateConfig({ version: 1, providers: { codex: { enabled: true } } }, KEY_ENV);
+  assert.deepEqual(resolved.openrouter.models.map((m) => m.model), BUILTIN_SLUGS);
+});
+
+test("built-in panel: key + user openrouter record => only the user record (replace, not merge)", () => {
+  const raw = { version: 1, models: { mine: { provider: "openrouter", model: "x/y", consensus: true } } };
+  const { resolved } = validateConfig(raw, KEY_ENV);
+  assert.deepEqual(resolved.openrouter.models.map((m) => m.alias), ["mine"]);
+  assert.equal(resolved.openrouter.defaultModel, null);
+});
+
+test("built-in panel: no key => none", () => {
+  const { resolved } = validateConfig({ version: 1 }, {});
+  assert.equal(resolved.openrouter.enabled, false);
+  assert.deepEqual(resolved.openrouter.models, []);
+  const { resolved: withBlock } = validateConfig({ version: 1, providers: { openrouter: { enabled: true } } }, {});
+  assert.deepEqual(withBlock.openrouter.models, []);
+});
+
+test("built-in panel: providers.openrouter.enabled:false turns it off even with the key", () => {
+  const { resolved } = validateConfig({ version: 1, providers: { openrouter: { enabled: false } } }, KEY_ENV);
+  assert.equal(resolved.openrouter.enabled, false);
+  assert.deepEqual(resolved.openrouter.models, []);
+});
+
+test("built-in panel: a configured defaultModel wins over the built-in default", () => {
+  const raw = { version: 1, providers: { openrouter: { enabled: true, defaultModel: "openrouter/auto" } } };
+  const { resolved } = validateConfig(raw, KEY_ENV);
+  assert.equal(resolved.openrouter.models.length, 3);
+  assert.equal(resolved.openrouter.defaultModel, "openrouter/auto");
+  assert.ok(resolved.openrouter.models.every((m) => m.default === false));
 });
 
 test("C11: malformed JSON => ok=false with parse error, no throw", () => {
