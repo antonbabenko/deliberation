@@ -130,10 +130,15 @@ Claude now routes complex tasks to your GPT, Gemini, Grok, local (Ollama, LM Stu
 
 **Updating on non-Claude hosts:** hosts that run the standalone server via `npx -y
 @antonbabenko/deliberation-mcp` get the latest published version on each fresh resolve. `npx`
-caches resolved packages, so if a host serves an old build, clear the npx cache
-(`rm -rf ~/.npm/_npx`) or pin/refresh the version. Run `bash scripts/commands/reload-mcp.sh`
-(or trigger the `reload-mcp` skill / command on Codex, Antigravity, OpenCode) to audit
-running worker processes and recycle the background dashboard daemon safely.
+caches resolved packages, so if a host serves an old build, first stop the dashboard with
+`npx -y @antonbabenko/deliberation-mcp dashboard --stop` (on Windows, close the dashboard process
+instead), then remove the cached copy
+(`find ~/.npm/_npx -type d -path '*/@antonbabenko/deliberation-mcp' -prune -exec rm -rf {} +`;
+on Windows the cache is `%LocalAppData%\npm-cache\_npx`) or pin/refresh the version. Then
+restart the MCP server in your host, or restart the host, and start the dashboard again with
+`npx -y @antonbabenko/deliberation-mcp dashboard` if you use it. The `reload-mcp` skill / command on Codex, Antigravity and OpenCode
+gives the same steps. `bash scripts/commands/reload-mcp.sh` works only in a clone of this
+repository; the npm package does not ship it.
 
 ### Alternative: Use `deliberation` MCP server (standalone, works with any agents)
 
@@ -227,7 +232,8 @@ You need at least one provider:
 - **Codex CLI** (GPT): `npm install -g @openai/codex`, then `codex login` (ChatGPT subscription; `codex login --device-auth` on a remote machine, one login per machine). A ChatGPT Business/Enterprise workspace can set `CODEX_ACCESS_TOKEN` instead. With neither, codex uses `CODEX_API_KEY`; `OPENAI_API_KEY` is never used.
 - **Antigravity CLI**: [Getting Started with Antigravity CLI](https://antigravity.google/docs/cli-getting-started) and [Migrating from Gemini CLI](https://antigravity.google/docs/gcli-migration), then run `agy` and login.
 - **Grok (xAI)**: no CLI to install; the bridge ships with the plugin (needs Node 18+). Set `XAI_API_KEY` (get a key at https://console.x.ai).
-- **OpenRouter**: no CLI; the bridge ships with the plugin (needs Node 18+). Set `OPENROUTER_API_KEY` (get a key at https://openrouter.ai/keys), then declare models in `~/.config/deliberation/config.json` (Windows: `%APPDATA%\deliberation\config.json`; override with `DELIBERATION_CONFIG`). Works with any OpenAI-compatible endpoint (Ollama, vLLM, LM Studio, HuggingFace Inference) - auth is skipped automatically when the key env var is empty. Supports custom OpenRouter presets (e.g. `cheapest-first`) to optimize inference cost and provider routing.
+- **OpenRouter**: no CLI; the bridge ships with the plugin (needs Node 18+). Set `OPENROUTER_API_KEY` (get a key at https://openrouter.ai/keys), then declare models in `~/.config/deliberation/config.json` (Windows: `%APPDATA%\deliberation\config.json`; override with `DELIBERATION_CONFIG`). Works with other OpenAI-compatible endpoints (vLLM, HuggingFace Inference) through `providers.openrouter.apiBase` - auth is skipped automatically when the key env var is empty. Supports custom OpenRouter presets (e.g. `cheapest-first`) to optimize inference cost and provider routing.
+- **Ollama and LM Studio**: keyless by default (set `apiKeyEnv` if your server needs a key). Each has its own provider block, `providers.ollama` (default `http://localhost:11434/v1`) and `providers.lmstudio` (default `http://localhost:1234/v1`); declare models with `provider: "ollama"` or `provider: "lmstudio"`. See [SETUP.md](SETUP.md#local-providers-ollama--lm-studio).
 
 **Windows note (CLI providers).** `npm install -g` on Windows installs a `codex.cmd` shim, not an
 executable, and Node cannot launch a `.cmd` directly - so GPT calls used to fail with nothing but a

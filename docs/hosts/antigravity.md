@@ -12,7 +12,7 @@ canonical sources (`docs/tool-guide.md`, `prompts/*.md`).
   - `deliberation/SKILL.md`: "When and how to delegate" (from `docs/tool-guide.md`).
   - `<expert>/SKILL.md`: The 8 expert subagents (`architect`, `plan-reviewer`,
     `scope-analyst`, `code-reviewer`, `security-analyst`, `researcher`, `debugger`, `writing-editor`).
-  - `reload-mcp/SKILL.md`: Gracefully cycle the dashboard daemon and audit MCP processes after an update.
+  - `reload-mcp/SKILL.md`: Steps to pick up a new version (clear the npx cache, stop the dashboard, restart the MCP server).
 - `.gemini/skills/` - Workspace-level skill mirror for native Gemini Code Assist discovery.
 
 ## Usage
@@ -35,10 +35,23 @@ Provider credentials come from the host environment:
 
 ## Updating
 
-When deliberation is updated, invoke the `reload-mcp` skill or run:
+Antigravity starts the server with `npx -y @antonbabenko/deliberation-mcp`. The npm package
+does not include this repository's `scripts/` folder. After an update:
 
 ```bash
-bash scripts/commands/reload-mcp.sh
+# stop the dashboard; prints "no running dashboard" if none runs
+npx -y @antonbabenko/deliberation-mcp dashboard --stop
+# drop the cached old build of this package (macOS, Linux)
+find ~/.npm/_npx -type d -path '*/@antonbabenko/deliberation-mcp' -prune -exec rm -rf {} +
 ```
 
-This audits active deliberation processes, protects running workloads, cleans up orphaned processes, and safely cycles the background dashboard daemon if running. Active Antigravity host sessions preserve their stdio pipes without unexpected disconnection errors.
+On Windows, `dashboard --stop` is not supported: close the dashboard process first, then
+delete the `@antonbabenko\deliberation-mcp` folders under `%LocalAppData%\npm-cache\_npx`.
+
+Then restart the deliberation MCP server in Antigravity, or restart Antigravity. The
+`reload-mcp` skill gives the same steps. In a clone of this repository,
+`bash scripts/commands/reload-mcp.sh` clears the cached package, restarts the dashboard
+and audits the running deliberation processes.
+
+If you use the dashboard, start it again on the new version with
+`npx -y @antonbabenko/deliberation-mcp dashboard`.

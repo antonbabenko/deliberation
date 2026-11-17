@@ -333,7 +333,8 @@ round and returns UNRESOLVED with `stopReason: "budget-exhausted"` - it never ab
 in-flight call. Implementation tasks always route to Gemini - GPT, Grok, and OpenRouter are advisory-only.
 
 For the full schema, the `$schema` / VS Code validation story, apiBase override matrix
-(Ollama, vLLM, LM Studio, HuggingFace), file-attachment caps, session model persistence,
+(vLLM, HuggingFace; Ollama and LM Studio use their own blocks, see
+[Local providers](#local-providers-ollama--lm-studio)), file-attachment caps, session model persistence,
 consensus cost model, and error kinds, see
 [TECHNICAL.md - OpenRouter bridge](TECHNICAL.md#openrouter-bridge).
 

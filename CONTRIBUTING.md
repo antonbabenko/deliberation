@@ -30,7 +30,7 @@ Agent instructions for working on this repo (any coding agent) are in [AGENTS.md
 
 | Area | Examples |
 |------|----------|
-| **New Providers** | Ollama, Mistral, local model integrations |
+| **New Providers** | Mistral, other local model integrations |
 | **Role Prompts** | New roles for `prompts/`, improved existing prompts |
 | **Rules** | Better delegation triggers, model selection logic |
 | **Bug Fixes** | Command issues, error messages |
@@ -130,18 +130,19 @@ First decide whether you need code at all.
 
 ### OpenAI-compatible endpoint: config only
 
-Any endpoint that serves `POST /chat/completions` (Ollama, LM Studio, Mistral, DeepSeek, a
-self-hosted vLLM, ...) runs through the OpenRouter transport with no code change. OpenRouter
-is off by default, so enable it and declare a model record in
-`~/.config/deliberation/config.json`:
+Ollama and LM Studio already have their own provider blocks (`providers.ollama`,
+`providers.lmstudio`; see [SETUP.md](SETUP.md#local-providers-ollama--lm-studio)). Any other
+endpoint that serves `POST /chat/completions` (Mistral, DeepSeek, a self-hosted vLLM, ...)
+runs through the OpenRouter transport with no code change. OpenRouter is off by default, so
+enable it and declare a model record in `~/.config/deliberation/config.json`:
 
 ```json
 {
   "providers": {
-    "openrouter": { "enabled": true, "apiBase": "http://127.0.0.1:11434/v1" }
+    "openrouter": { "enabled": true, "apiBase": "http://127.0.0.1:8000/v1" }
   },
   "models": {
-    "local-qwen": { "provider": "openrouter", "model": "qwen2.5-coder:32b", "askAll": true }
+    "local-qwen": { "provider": "openrouter", "model": "Qwen/Qwen2.5-Coder-32B-Instruct", "askAll": true }
   }
 }
 ```

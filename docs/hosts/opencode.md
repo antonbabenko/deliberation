@@ -8,7 +8,8 @@ ship as:
 
 - `.opencode/commands/*.md` - one thin slash-command per fan-out / single-provider
   tool (`/ask-all`, `/consensus`, `/ask-gpt`, `/ask-gemini`, `/ask-grok`,
-  `/ask-openrouter`, `/reload-mcp`). Each calls the matching deliberation tool or command script.
+  `/ask-openrouter`, `/reload-mcp`). Each calls the matching deliberation MCP tool; `/reload-mcp` lists
+  the update steps.
 - `.opencode/agents/*.md` - one subagent per expert persona (`architect`,
   `plan-reviewer`, `scope-analyst`, `code-reviewer`, `security-analyst`,
   `researcher`, `debugger`, `writing-editor`), each with `mode: subagent`.
@@ -129,10 +130,22 @@ Unverified (confirm at the linked doc before relying on it):
 
 ## Updating
 
-When deliberation is updated, invoke `/reload-mcp` in OpenCode or run:
+OpenCode starts the server with `npx -y @antonbabenko/deliberation-mcp`. The npm package does
+not include this repository's `scripts/` folder. After an update:
 
 ```bash
-bash scripts/commands/reload-mcp.sh
+# stop the dashboard; prints "no running dashboard" if none runs
+npx -y @antonbabenko/deliberation-mcp dashboard --stop
+# drop the cached old build of this package (macOS, Linux)
+find ~/.npm/_npx -type d -path '*/@antonbabenko/deliberation-mcp' -prune -exec rm -rf {} +
 ```
 
-This audits active deliberation processes, protects running workloads, cleans up orphaned processes, and safely cycles the background dashboard daemon if running.
+On Windows, `dashboard --stop` is not supported: close the dashboard process first, then
+delete the `@antonbabenko\deliberation-mcp` folders under `%LocalAppData%\npm-cache\_npx`.
+
+Then restart OpenCode so it starts the new server. The `/reload-mcp` command gives the same
+steps. In a clone of this repository, `bash scripts/commands/reload-mcp.sh` clears the cached package, restarts the dashboard
+and audits the running deliberation processes.
+
+If you use the dashboard, start it again on the new version with
+`npx -y @antonbabenko/deliberation-mcp dashboard`.

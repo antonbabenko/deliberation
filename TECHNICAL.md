@@ -1200,7 +1200,7 @@ to the record id, so selection and the wire stay stable):
 ### Authentication (optional)
 
 The Authorization header is sent **only** when the key env var resolves to a non-empty
-string. Keyless local endpoints (Ollama, vLLM, LM Studio) work without a dummy key.
+string. Keyless local endpoints (such as vLLM) work without a dummy key.
 `openrouter.ai` returns HTTP 401 if the key is absent; local endpoints accept no-auth
 requests.
 
@@ -1210,9 +1210,11 @@ requests.
 |----------|---------------|
 | OpenRouter | `https://openrouter.ai/api/v1` (default) |
 | HuggingFace Inference | `https://router.huggingface.co/v1` |
-| Ollama (local) | `http://localhost:11434/v1` |
-| LM Studio | `http://localhost:1234/v1` |
 | vLLM | `http://localhost:8000/v1` |
+
+Ollama and LM Studio do not go through this override. Configure them with their own
+`providers.ollama` and `providers.lmstudio` blocks and `provider: "ollama"` /
+`provider: "lmstudio"` model records (see the provider field tables above).
 
 
 ### OpenRouter Presets (Routing & Cost Optimization)

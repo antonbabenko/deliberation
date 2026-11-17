@@ -50,6 +50,23 @@ const COMMANDS = {
 };
 
 /**
+ * Body of the generated reload-mcp skill/command. Non-Claude hosts run the npm package,
+ * which ships only dist/, so the steps must not depend on the repo's scripts/ folder.
+ */
+const RELOAD_BODY = [
+  "Use this after deliberation is updated. The host keeps running the old server until the server restarts.",
+  "",
+  `The host starts the server with \`npx -y ${MCP_PACKAGE}\`. The npm package does not include the repository's \`scripts/\` folder, so follow these steps:`,
+  "",
+  `1. Stop the dashboard with \`npx -y ${MCP_PACKAGE} dashboard --stop\` (it prints "no running dashboard" if none runs). On Windows \`--stop\` is not supported: close the dashboard process instead, before step 2.`,
+  "2. Remove the cached copy so `npx` fetches the new version: `find ~/.npm/_npx -type d -path '*/@antonbabenko/deliberation-mcp' -prune -exec rm -rf {} +` (macOS, Linux). On Windows, delete the `@antonbabenko\\deliberation-mcp` folders under `%LocalAppData%\\npm-cache\\_npx`.",
+  "3. Tell the user to restart the deliberation MCP server in the host, or to restart the host.",
+  `4. If the user runs the dashboard, start it again on the new version with \`npx -y ${MCP_PACKAGE} dashboard\`.`,
+  "",
+  "In a clone of the deliberation repository, `bash scripts/commands/reload-mcp.sh` clears the cached package, restarts the dashboard and audits the running deliberation processes.",
+].join("\n");
+
+/**
  * Read a repo file as LF text with a single trailing newline. Strips a leading
  * UTF-8 BOM so start-of-file regexes (and the drift compare) are stable across
  * editors/OSes.
@@ -115,6 +132,7 @@ module.exports = {
   SHORT_DESCRIPTION,
   EXPERTS,
   COMMANDS,
+  RELOAD_BODY,
   readText,
   extractFencedBlock,
   json,
