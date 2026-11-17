@@ -457,6 +457,8 @@ cohorts, optionally narrowed by full `configId` or `activationId`.
 
 For provider internals, environment variables, and manual MCP setup, see **[TECHNICAL.md](TECHNICAL.md)**.
 
+Coming from Zen or PAL, or using the Codex plugin? See [comparisons and migration](docs/compare/).
+
 ## Author
 
 Maintained by Anton Babenko - [LinkedIn](https://linkedin.com/in/antonbabenko), [X/Twitter](https://x.com/antonbabenko).
