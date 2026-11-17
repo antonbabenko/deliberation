@@ -38,6 +38,8 @@ deliberation uses a built-in panel of three models from three vendors:
 
 - Add any OpenRouter record under `models` and your records replace the built-in panel
   (the two sets are not merged).
+- Local `ollama` / `lmstudio` records keep the panel but come first in `ask-all`, so they
+  use `routing.maxFanout` slots (default 3) before it; raise `maxFanout` to keep all three.
 - Set `providers.openrouter.enabled: false` to turn OpenRouter off.
 - The starter file from `/setup` sets `providers.openrouter.enabled: false`; set it to
   `true` to use the panel with that file.

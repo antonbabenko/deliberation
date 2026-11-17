@@ -353,6 +353,18 @@ test("built-in panel: key + user openrouter record => only the user record (repl
   assert.equal(resolved.openrouter.defaultModel, null);
 });
 
+test("built-in panel: a local record keeps the panel, comes first and uses an ask-all fan-out slot", () => {
+  const raw = { version: 1, models: { local: { provider: "ollama", model: "llama3" } } };
+  const { resolved } = validateConfig(raw, KEY_ENV);
+  const or = resolved.openrouter;
+  assert.deepEqual(or.models.map((m) => m.alias), ["local", "glm-5-3-flashx", "gpt-6-1-sol", "gemini-3-8-flash"]);
+  const { askAllDelegates, consensusDelegates } = require("../server/openrouter/routing.js");
+  const askAll = askAllDelegates(or, "code-reviewer");
+  assert.deepEqual(askAll.selected.map((m) => m.alias), ["local", "glm-5-3-flashx", "gpt-6-1-sol"]);
+  assert.deepEqual(askAll.omitted.map((m) => m.alias), ["gemini-3-8-flash"]);
+  assert.deepEqual(consensusDelegates(or, "code-reviewer").map((m) => m.alias), ["glm-5-3-flashx", "gpt-6-1-sol", "gemini-3-8-flash"]);
+});
+
 test("built-in panel: no key => none", () => {
   const { resolved } = validateConfig({ version: 1 }, {});
   assert.equal(resolved.openrouter.enabled, false);

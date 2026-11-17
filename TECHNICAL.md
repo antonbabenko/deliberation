@@ -932,7 +932,10 @@ there is no config file at all.
   `enabled: false`, so a user with that file opts in by setting it to `true`.
 - **Replaced, not merged.** One valid `models` record with `provider: "openrouter"` (or no
   `provider`) removes all three built-in records. Records for `ollama` / `lmstudio` do not
-  count and are listed before the built-in records.
+  count and are listed before the built-in records, so in `ask-all` they take
+  `routing.maxFanout` slots first: with the default of 3, one local record leaves room for
+  two built-in records. Raise `routing.maxFanout` to keep all three. `consensus` is not
+  capped, so all three built-in records still vote there.
 - **Default.** A configured default (`default: true` on a record, or
   `providers.openrouter.defaultModel`) wins over `glm-5-3-flashx`.
 - **Arbiter.** With `consensus.arbiter: "auto"` and no CLI providers, the arbiter is the
