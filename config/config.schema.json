@@ -381,7 +381,7 @@
     },
     "geminiProvider": {
       "type": "object",
-      "description": "Gemini (Antigravity CLI, agy) config. Connection is handled by agy; the model can be pinned here.",
+      "description": "Gemini config. Advisory calls use a Google AI Studio API key (GEMINI_API_KEY, or GOOGLE_API_KEY) over Google's OpenAI-compatible endpoint when one is set. The Antigravity CLI (agy) is the opt-in path: it runs workspace-write (implementation) calls, advisory calls when no key is set, and every call when transport is \"agy\". The Antigravity terms (https://antigravity.google/terms, section 6) list using third-party software to access the service as a breach that may suspend Antigravity and Gemini CLI accounts.",
       "additionalProperties": false,
       "properties": {
         "enabled": {
@@ -389,9 +389,28 @@
           "default": true,
           "description": "Whether this provider participates."
         },
+        "transport": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "api",
+            "agy"
+          ],
+          "default": "auto",
+          "description": "Which path advisory Gemini calls take. auto: the API key when GEMINI_API_KEY or GOOGLE_API_KEY is set, else agy. api: always the API key (Gemini is reported unavailable without one; agy never runs for advisory calls). agy: always the Antigravity CLI, even with a key set (read the terms first). workspace-write always uses agy. The key is never passed to agy. Read per call by the standalone bridge; the MCP server reads it once at startup."
+        },
+        "apiModel": {
+          "type": "string",
+          "default": "gemini-flash-latest",
+          "examples": [
+            "gemini-flash-latest",
+            "gemini-pro-latest"
+          ],
+          "description": "Gemini API model id for the API key path (not an agy id: agy ids such as \"gemini-3.6-flash-high\" fuse an effort the API does not take). The built-in \"gemini-flash-latest\" is Google's alias for the newest Flash model and works on the free tier; \"gemini-pro-latest\" is the Pro alias. List the ids your key can use with GET https://generativelanguage.googleapis.com/v1beta/models. The standalone bridge also honors a per-call model."
+        },
         "model": {
           "type": "string",
-          "description": "agy model id, passed through to agy's --model so it wins over ~/.gemini/settings.json. Ids fuse family and reasoning effort (e.g. \"gemini-3.6-flash-high\"); a bare family is rejected with \"requires --effort\". Run `agy models` for the catalog on THIS machine - ids differ per install, which is why the built-in default is the portable \"auto-gemini-3\" router alias. Prefer a concrete pin: the alias routes server-side and agy's catalog also carries Claude and GPT-OSS entries, so a routed call can seat a non-Gemini model in the Gemini slot and silently collapse cross-vendor independence in ask-all/consensus. Precedence: per-call model > this key > GEMINI_DEFAULT_MODEL > built-in."
+          "description": "agy path only. agy model id, passed through to agy's --model so it wins over ~/.gemini/settings.json. Ids fuse family and reasoning effort (e.g. \"gemini-3.6-flash-high\"); a bare family is rejected with \"requires --effort\". Run `agy models` for the catalog on THIS machine - ids differ per install, which is why the built-in default is the portable \"auto-gemini-3\" router alias. Prefer a concrete pin: the alias routes server-side and agy's catalog also carries Claude and GPT-OSS entries, so a routed call can seat a non-Gemini model in the Gemini slot and silently collapse cross-vendor independence in ask-all/consensus. Precedence: per-call model > this key > GEMINI_DEFAULT_MODEL > built-in."
         },
         "timeout": {
           "type": "integer",

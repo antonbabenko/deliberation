@@ -44,10 +44,16 @@ Provider credentials come from the host environment:
 
 | Provider | How it authenticates |
 |----------|----------------------|
-| Gemini | Antigravity CLI (`agy`) - native sign-in |
+| Gemini | `GEMINI_API_KEY` (Google AI Studio key; `GOOGLE_API_KEY` also works). Opt-in fallback: the Antigravity CLI (`agy`) - see the terms note below |
 | GPT (Codex) | Codex CLI auth (`codex login` / `codex login --device-auth`) or `CODEX_API_KEY` / `CODEX_ACCESS_TOKEN` |
 | Grok (xAI) | `XAI_API_KEY` |
 | OpenRouter | `OPENROUTER_API_KEY` (models configured in `~/.config/deliberation/config.json`) |
+
+Gemini note: with no key, Gemini falls back to the Antigravity CLI (`agy`). Read the
+[Antigravity terms](https://antigravity.google/terms) first. Section 6 lists "Using third
+party software, tools, or services to access the Service (e.g. using OpenClaw with
+Antigravity OAuth)" as a breach that "may be grounds for suspension or termination of your
+Antigravity and/or Gemini CLI accounts". deliberation drives `agy` as third-party software.
 
 ## Updating
 

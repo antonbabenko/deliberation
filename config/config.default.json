@@ -10,6 +10,8 @@
     },
     "gemini": {
       "enabled": true,
+      "transport": "auto",
+      "apiModel": "gemini-flash-latest",
       "model": "auto-gemini-3"
     },
     "grok": {

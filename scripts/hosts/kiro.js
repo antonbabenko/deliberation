@@ -168,7 +168,7 @@ function build(ctx) {
     "\n";
 
   // MCP server config at the Power root. Provider keys come from the host env
-  // (OPENAI/Codex auth, XAI_API_KEY, OPENROUTER_API_KEY; Gemini via the agy CLI).
+  // (OPENAI/Codex auth, GEMINI_API_KEY, XAI_API_KEY, OPENROUTER_API_KEY; agy is an opt-in Gemini fallback).
   // Kiro's own mcp.json examples omit a `type` field, so we follow that.
   out["mcp.json"] = S.json({
     mcpServers: {

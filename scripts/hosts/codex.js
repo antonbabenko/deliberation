@@ -55,7 +55,7 @@ function build(ctx) {
   });
 
   // MCP server config at the plugin root. Provider keys come from the host env
-  // (OPENAI/Codex auth, XAI_API_KEY, OPENROUTER_API_KEY, Gemini via the agy CLI).
+  // (OPENAI/Codex auth, GEMINI_API_KEY, XAI_API_KEY, OPENROUTER_API_KEY; agy is an opt-in Gemini fallback).
   out[`${PLUGIN_DIR}/.mcp.json`] = S.json({
     mcpServers: {
       deliberation: { command: "npx", args: ["-y", S.MCP_PACKAGE], type: "stdio" },

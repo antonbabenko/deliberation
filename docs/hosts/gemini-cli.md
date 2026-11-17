@@ -26,21 +26,26 @@ should show `Connected`. Gemini CLI starts stdio MCP servers only in trusted fol
 
 Gemini CLI does not pass environment variables with names like `*KEY*` or `*TOKEN*` to an
 extension's MCP server. It passes only the ones the manifest declares. The manifest declares
-two, and the install asks for both:
+three, and the install asks for each:
 
 | Setting | Provider | If blank |
 |---------|----------|----------|
+| `GEMINI_API_KEY` | Gemini (Google AI Studio key) | Gemini falls back to the Antigravity CLI (`agy`), or is off without it |
 | `XAI_API_KEY` | Grok | Grok is off |
 | `OPENROUTER_API_KEY` | OpenRouter | OpenRouter is off |
 
 Set or change them later with `gemini extensions config deliberation`. Sensitive values go
 to the system keychain.
 
-The other providers do not need a key here:
+GPT, and Gemini on the opt-in agy path, do not need a key here:
 
 - GPT: log in once with `codex login` (or `codex login --device-auth`). `CODEX_API_KEY` and
   `CODEX_ACCESS_TOKEN` from your shell do not reach the server.
-- Gemini: sign in to the Antigravity CLI (`agy`).
+- Gemini without a key: sign in to the Antigravity CLI (`agy`). Read the
+  [Antigravity terms](https://antigravity.google/terms) first. Section 6 lists "Using third
+  party software, tools, or services to access the Service (e.g. using OpenClaw with
+  Antigravity OAuth)" as a breach that "may be grounds for suspension or termination of your
+  Antigravity and/or Gemini CLI accounts". deliberation drives `agy` as third-party software.
 
 The deliberation config file (`~/.config/deliberation/config.json`) works as on every other
 host.

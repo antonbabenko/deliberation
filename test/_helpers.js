@@ -25,6 +25,10 @@ function startBridge({ env = {}, fakeBin = "fake-agy.sh" } = {}) {
       // length, so the non-answer floor is off by default here. Tests that exercise the
       // floor opt back in by overriding this via `env`.
       GEMINI_MIN_ANSWER_CHARS: "0",
+      // A developer's own AI Studio key would route advisory calls to the API instead of
+      // the fake agy. Tests of the API path set these via `env`.
+      GEMINI_API_KEY: "",
+      GOOGLE_API_KEY: "",
       ...env,
     },
     stdio: ["pipe", "pipe", "pipe"],

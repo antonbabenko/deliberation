@@ -13,11 +13,12 @@
       "avoid": ["simple-operations", "trivial-decisions", "research", "first-attempt-fixes"]
     },
     "gemini": {
-      "name": "Gemini 3",
-      "description": "Google Gemini 3 via the Antigravity CLI (agy) - specialized expert subagents",
+      "name": "Gemini",
+      "description": "Google Gemini via a Google AI Studio API key; the Antigravity CLI (agy) is the opt-in path and runs workspace-write - specialized expert subagents",
       "cli": "agy",
-      "install": "Install Antigravity from https://antigravity.google",
-      "auth": "run `agy` once and complete sign-in (OAuth)",
+      "api": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+      "install": "No install for the API key path. Optional: Antigravity from https://antigravity.google (read https://antigravity.google/terms section 6 first)",
+      "auth": "export GEMINI_API_KEY=... (key from https://aistudio.google.com/apikey; GOOGLE_API_KEY also works), or run `agy` once and complete sign-in for the opt-in agy path",
       "mcp": {
         "type": "stdio",
         "command": "node",
