@@ -82,7 +82,7 @@ on their own:
   more than they add as drop candidates.
 
 Consensus can be wrong: several models can share one blind spot. deliberation advises and shows
-the dissent; a human signs off on the result.
+the dissent; the final call stays with a human.
 
 deliberation handles the wiring for each provider, so you write only the prompt. Eight domain
 experts (Architect, Code Reviewer, Security Analyst, and five more) review your plans, find bugs,
