@@ -406,7 +406,7 @@
             "gemini-flash-latest",
             "gemini-pro-latest"
           ],
-          "description": "Gemini API model id for the API key path (not an agy id: agy ids such as \"gemini-3.6-flash-high\" fuse an effort the API does not take). The built-in \"gemini-flash-latest\" is Google's alias for the newest Flash model and works on the free tier; \"gemini-pro-latest\" is the Pro alias. List the ids your key can use with GET https://generativelanguage.googleapis.com/v1beta/models. The standalone bridge also honors a per-call model."
+          "description": "Gemini API model id for the API key path (not an agy id: agy ids such as \"gemini-3.6-flash-high\" fuse an effort the API does not take). The built-in \"gemini-flash-latest\" is Google's alias for the newest Flash model and works on the free tier; \"gemini-pro-latest\" is the Pro alias. List the ids your key can use with GET https://generativelanguage.googleapis.com/v1beta/models. A per-call model argument is ignored on this path (it is an agy id)."
         },
         "model": {
           "type": "string",

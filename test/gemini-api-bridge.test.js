@@ -40,7 +40,7 @@ test("G9: bridge with only a key answers from the API and never runs agy; replie
     const child = startBridge({ env: hermeticEnv({ GEMINI_API_KEY: "k", GEMINI_API_BASE: mock.base }) });
     const responsesP = collectResponses(child);
     send(child, { jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
-    send(child, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "gemini", arguments: { prompt: "first", "developer-instructions": "sys" } } });
+    send(child, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "gemini", arguments: { prompt: "first", "developer-instructions": "sys", model: "gemini-3.6-flash-high" } } });
     // Wait for the first answer so the reply can name its thread.
     const first = await new Promise((resolve) => {
       let buf = "";
@@ -63,6 +63,7 @@ test("G9: bridge with only a key answers from the API and never runs agy; replie
     assert.match(byId[4].error.message, /advisory only/);
     assert.equal(readArgv(child.argvLog).length, 0, "agy never ran");
     assert.equal(mock.requests.length, 2);
+    assert.equal(mock.requests[0].body.model, "gemini-flash-latest", "a per-call agy id is not sent to the API");
     const reply = mock.requests[1].body.messages.map((/** @type {any} */ m) => m.role);
     assert.deepEqual(reply, ["system", "user", "assistant", "user"], "the reply carries the prior turns");
   } finally { await mock.close(); }

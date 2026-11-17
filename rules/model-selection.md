@@ -202,7 +202,7 @@ answer must come from GPT alone, call `ask-gpt` and pass `expert:`.
 | `prompt` | string | **Required.** The delegation prompt (use 7-section format) |
 | `developer-instructions` | string | Expert prompt injection (from `prompts/*.md`) |
 | `sandbox` | `read-only`, `workspace-write` | Controls file access. `read-only` is enforced by the bridge (macOS `sandbox-exec` write-deny + prompt guard + git mutation detection); `workspace-write` is an explicit opt-in that skips that enforcement. |
-| `model` | e.g. `gemini-flash-latest` (API key path), `gemini-3.6-flash-high` (agy path) | On the API key path a Gemini API id. On the agy path an agy model id (family + fused reasoning effort; see `agy models`). Passed through to agy's `--model`, so it overrides `~/.gemini/settings.json`. Falls back to `providers.gemini.model`, then `GEMINI_DEFAULT_MODEL`, then `auto-gemini-3`. |
+| `model` | e.g. `gemini-3.6-flash-high`, `gemini-3.1-pro-low` | agy path only; the API key path ignores it and uses `providers.gemini.apiModel`. An agy model id (family + fused reasoning effort; see `agy models`). Passed through to agy's `--model`, so it overrides `~/.gemini/settings.json`. Falls back to `providers.gemini.model`, then `GEMINI_DEFAULT_MODEL`, then `auto-gemini-3`. |
 | `cwd` | path | Working directory for the task |
 | `include-directories` | string[] | Extra dirs to include alongside `cwd`. Maps to repeated `--add-dir`. |
 | `timeout` | number (ms) | Soft timeout. 1..600000. Default 300000. On expiry the bridge keeps agy alive and drains buffered stdout (stdout-drain). |

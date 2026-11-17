@@ -127,8 +127,8 @@ standalone bridge, a `gemini-reply` to a thread that started on the API path con
 the API path; asking for `workspace-write` on such a thread is an invalid-params error.
 With the API path selected, the standalone bridge starts even when `agy` is missing (a
 stderr warning; `workspace-write` calls then fail). The per-call `model` argument of the
-standalone `gemini` tool is passed to whichever path runs, so it must be an API id on the
-API path.
+standalone `gemini` tool is an agy id, so the API path ignores it and uses
+`providers.gemini.apiModel`.
 
 **Antigravity terms.** The [Antigravity terms](https://antigravity.google/terms), section 6,
 list "Using third party software, tools, or services to access the Service (e.g. using

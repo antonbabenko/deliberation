@@ -443,8 +443,10 @@ function apiProvider() {
   return _apiProvider;
 }
 /** One advisory API call; returns the bridge's tool result shape. */
-async function runGeminiApi({ prompt, developerInstructions, model, threadId, timeoutMs, cwd }) {
-  const r = await apiProvider().ask({ prompt, developerInstructions, model, threadId, timeoutMs, cwd });
+// The per-call `model` is an agy id (the tool schema even defaults it to one), so the API path
+// ignores it and uses providers.gemini.apiModel.
+async function runGeminiApi({ prompt, developerInstructions, threadId, timeoutMs, cwd }) {
+  const r = await apiProvider().ask({ prompt, developerInstructions, threadId, timeoutMs, cwd });
   if (r.isError) {
     const e = new Error(r.message || `Gemini API call failed (${r.errorKind})`);
     e.apiResult = r;
@@ -830,7 +832,7 @@ const handlers = {
               "developer-instructions": { type: "string", description: "Expert system instructions" },
               sandbox: { type: "string", enum: ["read-only", "workspace-write"], default: "read-only" },
               cwd: { type: "string", description: "Current working directory" },
-              model: { type: "string", default: DEFAULT_MODEL, description: "On the API key path (GEMINI_API_KEY / GOOGLE_API_KEY set, advisory call) a Gemini API id, default providers.gemini.apiModel then \"gemini-flash-latest\". On the agy path an agy model id fusing family + effort, e.g. \"gemini-3.6-flash-high\" (see `agy models`), passed as --model; defaults to providers.gemini.model, then GEMINI_DEFAULT_MODEL, then the \"auto-gemini-3\" router alias." },
+              model: { type: "string", default: DEFAULT_MODEL, description: "agy path only (the API key path ignores it and uses providers.gemini.apiModel). An agy model id fusing family + effort, e.g. \"gemini-3.6-flash-high\" (see `agy models`), passed as --model; defaults to providers.gemini.model, then GEMINI_DEFAULT_MODEL, then the \"auto-gemini-3\" router alias." },
               "include-directories": {
                 type: "array",
                 items: { type: "string" },
@@ -932,7 +934,6 @@ const handlers = {
         const out = await runGeminiApi({
           prompt: args.prompt,
           developerInstructions: name === "gemini" && typeof args["developer-instructions"] === "string" ? args["developer-instructions"] : undefined,
-          model: name === "gemini" && isNonEmptyString(args.model) ? args.model : undefined,
           threadId: replyToApi ? args.threadId.trim() : undefined,
           timeoutMs: (typeof args.timeout === "number" && args.timeout > 0) ? args.timeout : configuredTimeout(),
           cwd: args.cwd,
