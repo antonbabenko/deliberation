@@ -653,14 +653,15 @@ the server binary (`server/mcp/init.js`, dispatched from `server/mcp/index.js` t
 |------|--------------|
 | Detect | Runs each provider's own `health()` from `makeRuntime()`: codex = CLI on `PATH` (or `CODEX_BIN`) plus a credential (`CODEX_ACCESS_TOKEN`, `CODEX_API_KEY` or the `codex login` file), agy = CLI on `PATH` (or `AGY_BIN`), Grok = `XAI_API_KEY`, OpenRouter = `OPENROUTER_API_KEY`. Nothing is spawned and no key value is printed. A codex CLI without a login is reported, not enabled. `GEMINI_API_KEY` / `GOOGLE_API_KEY` are reported only. Ollama / LM Studio are not probed (there is no cheap check for them yet). |
 | Config | Path from `core/paths.js` (`DELIBERATION_CONFIG` wins). No file: writes `$schema`, `version: 1`, `providers.<found>.enabled: true` and `consensus.arbiter: "auto"`, with no `models`, so the [built-in panel](#built-in-panel-key-only) applies. Existing file: adds `providers.<found>.enabled: true` only where `enabled` is absent, keeps every other key and any `enabled: false`, and prints the added lines. It writes them on a terminal after a `[Y/n]` prompt, or with `--yes`; otherwise it leaves the file as is. Invalid JSON is never overwritten. Writes go through a temp file and a rename. |
-| Ping | Each found and enabled provider gets one `ask` with a one-line prompt (`reasoningEffort: "low"`, 90 s cap), in parallel. Prints `OK <seconds>` or `FAIL <errorKind>` (see [Error kinds](#error-kinds)). |
-| Demo | One `consensus` tool call through `buildServer` (the normal engine): a fixed short question, `maxRounds: 1`, `reasoningEffort: "low"`, `maxWallMs` 240 s. A `consensus.arbiter: "host"` is treated as `"auto"` for this one call, since no agent drives the loop. Prints the verdict, the arbiter and each voice. |
+| Ping | Each found and enabled provider gets one `ask` with a one-line prompt (`reasoningEffort: "low"`, 60 s cap), in parallel. Prints `OK <seconds>` or `FAIL <errorKind>` (see [Error kinds](#error-kinds)). |
+| Demo | One `consensus` tool call through `buildServer` (the normal engine): a fixed short question, `maxRounds: 1`, `reasoningEffort: "low"`, `maxWallMs` 180 s. A `consensus.arbiter: "host"` is treated as `"auto"` for this one call, since no agent drives the loop. Prints the verdict, the arbiter and each voice. |
 | Install | One line when the host is known from its env (`CLAUDECODE=1`, `GEMINI_CLI=1`, `CODEX_SANDBOX`), else a four-row table. |
 
 Prior use (a config file, or session / run records in the cache dir) makes the output shorter
 and skips the demo unless `--demo` is given. Exit codes: `0` when at least one provider
-answered the ping, `1` when none was found or none answered, or the config could not be read or
-written, `2` for an unknown option.
+answered the ping, `1` when none was found, every one found is turned off in the config, none answered, or the
+config could not be read or written (a `providers` value that is not an object counts as
+unreadable), `2` for an unknown option.
 
 ## Manual MCP setup
 

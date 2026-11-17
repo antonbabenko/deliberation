@@ -17,11 +17,11 @@ call with an AskUserQuestion, and do not split the main block.
 
 ## Step 0: Run init first
 
-Run this as ONE Bash call with the sandbox DISABLED and a 300000 ms timeout. It finds the
+Run this as ONE Bash call with the sandbox DISABLED and a 600000 ms timeout. It finds the
 credentials already on this machine, writes or merges the config (OpenRouter on when
 `OPENROUTER_API_KEY` is set), pings each provider, and runs one short demo consensus. Report its
-output; Step 1 then keeps that config. On another host, `npx -y @antonbabenko/deliberation-mcp init`
-does the same.
+output, then go on to Step 1 whatever its exit code; Step 1 keeps the config init wrote. On
+another host, `npx -y @antonbabenko/deliberation-mcp init` does the same.
 
 ```bash
 node "${CLAUDE_PLUGIN_ROOT}/server/mcp/index.js" init --yes

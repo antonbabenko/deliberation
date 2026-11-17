@@ -197,3 +197,29 @@ test("detection with a fake env and PATH (real runtime, child process)", { skip:
   const cfg = JSON.parse(fs.readFileSync(path.join(home, ".config", "deliberation", "config.json"), "utf8"));
   assert.deepEqual(cfg.providers, { gemini: { enabled: true } });
 });
+
+test("every found provider turned off in the config: clear message, exit 1, no ping", async () => {
+  const home = tmp();
+  const file = path.join(home, ".config", "deliberation", "config.json");
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ version: 1, providers: { openrouter: { enabled: false } } }));
+  const or = fake("openrouter");
+  const s = setup(home, [fake("codex", { healthy: false }), fake("gemini", { healthy: false }), fake("grok", { healthy: false }), or]);
+  assert.equal(await runInit(["--yes"], s.deps), 1);
+  assert.match(s.text(), /All providers found are turned off/);
+  assert.match(s.text(), /providers\.openrouter\.enabled to true/);
+  assert.doesNotMatch(s.text(), /No provider answered/);
+  assert.equal(or.calls.length, 0);
+});
+
+test("a providers value that is not an object is refused, file untouched", async () => {
+  const home = tmp();
+  const file = path.join(home, ".config", "deliberation", "config.json");
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const original = JSON.stringify({ version: 1, providers: [] });
+  fs.writeFileSync(file, original);
+  const s = setup(home, [fake("openrouter")]);
+  assert.equal(await runInit(["--yes"], s.deps), 1);
+  assert.match(s.text(), /"providers" must be an object/);
+  assert.equal(fs.readFileSync(file, "utf8"), original);
+});

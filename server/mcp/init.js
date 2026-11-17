@@ -26,13 +26,13 @@ const LABEL = { codex: "GPT (codex)", gemini: "Gemini (agy)", grok: "Grok (xAI)"
 /** @type {Record<string,string>} */
 const KEY_ENV = { grok: "XAI_API_KEY", openrouter: "OPENROUTER_API_KEY" };
 const PING_PROMPT = "Reply with the single word OK.";
-const PING_TIMEOUT_MS = 90000;
+const PING_TIMEOUT_MS = 60000;
 const DEMO_PROMPT = [
   "Plan: store user passwords as bcrypt hashes (cost 12) instead of unsalted SHA-256, and rehash",
   "each old hash at the user's next successful login. Approve or request changes.",
   "Keep the whole review under 80 words.",
 ].join(" ");
-const DEMO_WALL_MS = 240000;
+const DEMO_WALL_MS = 180000;
 
 const INSTALL = [
   ["Claude Code", "claude plugin marketplace add antonbabenko/agent-plugins && claude plugin install deliberation@antonbabenko"],
@@ -118,6 +118,8 @@ function readExisting(file) {
   try {
     const parsed = JSON.parse(text);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return { error: `${file} is not a JSON object` };
+    const pv = parsed.providers;
+    if (pv !== undefined && (!pv || typeof pv !== "object" || Array.isArray(pv))) return { error: `${file}: "providers" must be an object` };
     return { config: parsed };
   } catch (e) {
     return { error: `${file} is not valid JSON (${/** @type {any} */ (e).message}); fix or move it, then rerun init` };
@@ -253,6 +255,12 @@ async function runInit(argv, deps) {
   const cfg = rt.getConfig() || {};
   const enabled = found.filter((n) => !(cfg.providers && cfg.providers[n] && cfg.providers[n].enabled === false)
     && !(n === "openrouter" && cfg.openrouter && cfg.openrouter.enabled === false));
+  if (!enabled.length) {
+    out(`All providers found are turned off in ${configFile}.`);
+    out(`Set ${found.map((n) => `providers.${n}.enabled`).join(", ")} to true to use them, then rerun init.`);
+    printInstall(out, env, returning);
+    return 1;
+  }
   const pings = await Promise.all(enabled.map(async (n) => {
     const p = core.find((x) => x.name === n);
     let r;
