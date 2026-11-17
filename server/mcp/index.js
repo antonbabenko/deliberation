@@ -183,11 +183,11 @@ function consensusInputSchema() {
   };
 }
 
-// Session tools take a sessionId (+ note for annotate), NOT a prompt - so they
-// need their OWN input schemas rather than the prompt-required inputSchema().
 function doctorInputSchema() {
   return { type: "object", properties: { shellSessionsDir: { type: "string", description: "Optional: the session store dir your shell resolves (DELIBERATION_SESSIONS, else $XDG_CACHE_HOME or ~/.cache, then deliberation/sessions). When set, doctor reports drift against the dir this server uses." } } };
 }
+// Session tools take a sessionId (+ note for annotate), NOT a prompt - so they
+// need their OWN input schemas rather than the prompt-required inputSchema().
 function sessionGetInputSchema() {
   // `cwd` is advertised (optional) so session-revisit can resolve the original
   // file refs against the caller's workspace, not the server process dir. It
@@ -1701,7 +1701,9 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, config
     if (name === "doctor") {
       const paths = require("../../core/paths.js");
       // Session verdict counts come from analyze; with persistence off there are no records to count.
-      const meta = persistEnabled() ? /** @type {any} */ (runAnalyze({ sessions: 20, configuredOnly: false })).meta || null : null;
+      // A failing analyze only loses that one info finding, never the health check.
+      let meta = null;
+      try { meta = persistEnabled() ? /** @type {any} */ (runAnalyze({ sessions: 20, configuredOnly: false })).meta || null : null; } catch { /* no verdict info */ }
       return jsonResult(await require("./doctor.js").runDoctor({
         providers, configPath: configPath || paths.resolveConfigPath(), sessionsDir: sessionsDir || paths.resolveSessionsDir(),
         shellSessionsDir: typeof args.shellSessionsDir === "string" ? args.shellSessionsDir : undefined, analyzeMeta: meta,
