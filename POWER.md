@@ -259,5 +259,5 @@ If you use the dashboard, start it again on the new version with
 
 deliberation is licensed MIT (`MIT`).
 
-- Privacy: deliberation stores no data itself. Each delegation is forwarded to the provider you configure (OpenAI/Codex, Gemini via the Antigravity CLI, the xAI API, or an OpenRouter-compatible endpoint), under that provider's own privacy policy. No prompts or responses are retained by this Power.
+- [Privacy policy](https://github.com/antonbabenko/deliberation/blob/master/PRIVACY.md): each delegation goes only to the providers you configure, under their own privacy policies. deliberation sends no telemetry, and its local session store, debug log and dashboard journal are off by default.
 - [Support](https://github.com/antonbabenko/deliberation/issues)

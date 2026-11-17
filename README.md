@@ -468,3 +468,5 @@ Contributions welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow, 
 ## License
 
 [MIT](LICENSE)
+
+Privacy: see [PRIVACY.md](PRIVACY.md) for what deliberation sends and stores.

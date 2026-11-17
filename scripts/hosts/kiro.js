@@ -52,18 +52,18 @@ const GENERATED_NOTE =
 
 /**
  * The submission-mandated footer (kiro.dev/powers/submit): License (SPDX),
- * Privacy Policy link, Support contact link. deliberation stores no data
- * itself - provider calls go to whichever providers the user configures.
+ * Privacy Policy link, Support contact link. The policy itself is PRIVACY.md at
+ * the repo root.
  */
 const LICENSE_AND_SUPPORT_FOOTER = [
   "## License and support",
   "",
   "deliberation is licensed MIT (`MIT`).",
   "",
-  "- Privacy: deliberation stores no data itself. Each delegation is forwarded to" +
-    " the provider you configure (OpenAI/Codex, Gemini via the Antigravity CLI, the" +
-    " xAI API, or an OpenRouter-compatible endpoint), under that provider's own" +
-    " privacy policy. No prompts or responses are retained by this Power.",
+  `- [Privacy policy](${S.REPO_URL}/blob/master/PRIVACY.md): each delegation goes only to` +
+    " the providers you configure, under their own privacy policies. deliberation sends" +
+    " no telemetry, and its local session store, debug log and dashboard journal are off" +
+    " by default.",
   `- [Support](${S.REPO_URL}/issues)`,
 ].join("\n");
 

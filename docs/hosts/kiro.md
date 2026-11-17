@@ -58,8 +58,10 @@ official registry. Submit it at
 email, a short use-case description, and the public repository URL. The Kiro team
 reviews submissions and contacts candidates about registry inclusion. The
 submission checklist requires that `POWER.md` carries License (SPDX), a Privacy
-Policy link, and a Support contact - the generated `## License and support`
-footer satisfies this.
+Policy link, and a Support contact. The generated `## License and support` footer
+carries all three; its privacy link points to [PRIVACY.md](../../PRIVACY.md).
+Submitting the form is a separate, manual step: the footer does not submit
+anything.
 
 ## Updating
 
