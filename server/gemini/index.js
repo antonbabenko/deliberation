@@ -429,10 +429,11 @@ function configuredTimeout() {
 // Advisory calls go to the Gemini API over the shared OpenAI-compatible client when a key is
 // set (providers.gemini.transport "auto", the default) or transport is "api". agy then never
 // runs for them, and the key is never passed to agy (advisoryEnv scrubs *_KEY anyway).
-// workspace-write always uses agy. API thread ids are tracked so gemini-reply routes back here.
+// workspace-write uses agy unless transport is "api" (refused). API thread ids are tracked so gemini-reply routes back here.
 const geminiCore = require("../../core/providers/gemini.js");
 let _apiProvider = null;
 const apiThreads = new Set();
+const { MAX_SESSIONS: MAX_API_SESSIONS } = require("../../core/providers/openai-compatible.js");
 function apiSelected() {
   return geminiCore.useGeminiApi(geminiConfig().transport);
 }
@@ -453,7 +454,8 @@ async function runGeminiApi({ prompt, developerInstructions, threadId, timeoutMs
     throw e;
   }
   apiThreads.add(r.threadId);
-  if (apiThreads.size > 1000) apiThreads.delete(apiThreads.values().next().value);
+  // Same cap and insertion order as the provider's own session map, so both forget a thread together.
+  if (apiThreads.size > MAX_API_SESSIONS) apiThreads.delete(apiThreads.values().next().value);
   return { response: r.text, threadId: r.threadId };
 }
 
@@ -924,6 +926,11 @@ const handlers = {
       const replyToApi = name === "gemini-reply" && isNonEmptyString(args.threadId) && apiThreads.has(args.threadId.trim());
       if (replyToApi && writeMode) {
         if (shouldRespond) sendError(id, -32602, "Invalid params: this thread ran on the Gemini API key path, which is advisory only; start a new 'gemini' call with sandbox 'workspace-write' to use agy");
+        return;
+      }
+      // transport "api" is the operator saying agy must never run, so there is no write path.
+      if (writeMode && geminiConfig().transport === "api") {
+        if (shouldRespond) sendError(id, -32602, "Invalid params: providers.gemini.transport is \"api\", which never runs agy; workspace-write needs agy (set transport to \"auto\" or \"agy\" to allow it)");
         return;
       }
       if (replyToApi || (name === "gemini" && !writeMode && apiSelected())) {

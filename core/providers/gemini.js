@@ -5,12 +5,13 @@ const { makeOpenAICompatibleProvider } = require("./openai-compatible.js");
 
 // Google's OpenAI-compatible endpoint for the Gemini API (AI Studio keys).
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/openai";
-// A Google-maintained alias for the newest Gemini Flash model. Gemini-only (unlike agy's
-// router alias), served on the free tier, and it does not go stale when a model id retires.
+// Google's documented alias for the latest Gemini Flash release (hot-swapped with two weeks'
+// notice). Gemini-only, unlike agy's router alias, and it does not go stale when an id retires.
 const DEFAULT_GEMINI_API_MODEL = "gemini-flash-latest";
 
 /**
- * The AI Studio key: GEMINI_API_KEY first, then GOOGLE_API_KEY (the name Google's SDKs also read).
+ * The key sent to the API: GEMINI_API_KEY first, then GOOGLE_API_KEY (the name Google's SDKs
+ * also read). Only GEMINI_API_KEY switches transport "auto" to the API; see useGeminiApi.
  * @param {Record<string, string|undefined>} [env]
  * @returns {string}
  */
@@ -20,8 +21,10 @@ function geminiApiKey(env = process.env) {
 
 /**
  * Which path an ADVISORY Gemini call takes. providers.gemini.transport: "api" always uses the
- * key, "agy" always uses the Antigravity CLI, anything else ("auto", unset) uses the key when
- * one is set and falls back to agy, so an existing agy-only install keeps working.
+ * key (GEMINI_API_KEY or GOOGLE_API_KEY) and never agy; "agy" always uses the Antigravity CLI;
+ * anything else ("auto", unset) uses the API when GEMINI_API_KEY is set and agy otherwise.
+ * GOOGLE_API_KEY alone does not switch "auto": it is often a key for another Google API, and an
+ * agy-only install that happens to export one must keep working.
  * @param {(string|undefined)} transport
  * @param {Record<string, string|undefined>} [env]
  * @returns {boolean}
@@ -29,7 +32,20 @@ function geminiApiKey(env = process.env) {
 function useGeminiApi(transport, env = process.env) {
   if (transport === "api") return true;
   if (transport === "agy") return false;
-  return geminiApiKey(env) !== "";
+  return !!env.GEMINI_API_KEY;
+}
+
+/**
+ * True when this call runs on the API key path. Implementation calls go to agy, except under
+ * transport "api", which never runs agy (the unified server is advisory-only anyway).
+ * @param {(string|undefined)} transport
+ * @param {(DelegationRequest|{mode?:string}|undefined)} req
+ * @param {Record<string, string|undefined>} [env]
+ * @returns {boolean}
+ */
+function callUsesGeminiApi(transport, req, env = process.env) {
+  if (transport === "api") return true;
+  return !(req && req.mode === "implement") && useGeminiApi(transport, env);
 }
 
 /**
@@ -62,24 +78,23 @@ function makeGeminiApiProvider(opts) {
 
 /**
  * The one "gemini" provider: the API key path for advisory calls, agy for implementation
- * (workspace-write) and for installs without a key or with transport "agy".
- * @param {{agy: Provider, api: Provider, transport?: string}} opts
+ * and for installs without a key or with transport "agy". The env is read ONCE here, like the
+ * startup env core/settings.js resolves the model from, so the model and the leg always agree.
+ * @param {{agy: Provider, api: Provider, transport?: string, env?: Record<string, string|undefined>}} opts
  * @returns {Provider}
  */
-function makeGeminiProvider({ agy, api, transport }) {
-  const pick = (/** @type {DelegationRequest} */ req) =>
-    (req && req.mode === "implement") || !useGeminiApi(transport) ? agy : api;
+function makeGeminiProvider({ agy, api, transport, env = process.env }) {
+  const advisoryApi = useGeminiApi(transport, env);
+  const implementApi = callUsesGeminiApi(transport, { mode: "implement" }, env);
   return {
     name: "gemini",
-    // A getter: the active path (and so whether it can read the workspace) follows the env.
-    get capabilities() {
-      return useGeminiApi(transport)
-        ? { ...api.capabilities, canImplement: agy.capabilities.canImplement, fixedModelEffort: true }
-        : agy.capabilities;
-    },
-    health: () => (useGeminiApi(transport) ? api : agy).health(),
-    ask: (req) => pick(req).ask(req),
+    // Under transport "api" agy never runs, so nothing can implement.
+    capabilities: advisoryApi
+      ? { ...api.capabilities, canImplement: !implementApi && agy.capabilities.canImplement, fixedModelEffort: true }
+      : agy.capabilities,
+    health: () => (advisoryApi ? api : agy).health(),
+    ask: (req) => ((req && req.mode === "implement" ? implementApi : advisoryApi) ? api : agy).ask(req),
   };
 }
 
-module.exports = { makeGeminiProvider, makeGeminiApiProvider, geminiApiKey, useGeminiApi, GEMINI_API_BASE, DEFAULT_GEMINI_API_MODEL };
+module.exports = { makeGeminiProvider, makeGeminiApiProvider, geminiApiKey, useGeminiApi, callUsesGeminiApi, GEMINI_API_BASE, DEFAULT_GEMINI_API_MODEL };

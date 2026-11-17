@@ -226,7 +226,7 @@ Gemini's default path is a Google AI Studio API key. Get one at
 https://aistudio.google.com/apikey and export it before you start your host:
 
 ```bash
-export GEMINI_API_KEY=...   # GOOGLE_API_KEY also works; GEMINI_API_KEY wins when both are set
+export GEMINI_API_KEY=...
 ```
 
 With a key set, every advisory Gemini call (`/ask-gemini`, the expert tools, `/ask-all`,
@@ -239,18 +239,23 @@ needed for those calls, and the key is never passed to `agy`.
 ```
 
 - `apiModel` is a Gemini API model id, not an agy id. The default `gemini-flash-latest` is
-  Google's alias for the newest Flash model and works on the free tier; `gemini-pro-latest` is
-  the Pro alias. List the ids your key can use:
+  Google's documented alias for the latest Flash release (Google emails two weeks before it
+  moves); pin a fixed id such as `gemini-3.8-flash` to stop it moving. List the ids your key
+  can use:
   `curl -s "https://generativelanguage.googleapis.com/v1beta/models" -H "x-goog-api-key: $GEMINI_API_KEY"`.
-- `transport` picks the path for advisory calls: `auto` (default) uses the key when one is set
-  and `agy` otherwise; `api` always uses the key (Gemini shows as unavailable without one);
-  `agy` always uses the Antigravity CLI.
-- Implementation (`workspace-write`) calls always run on `agy`, since only a local CLI can edit
-  your files.
+- `transport` picks the path: `auto` (default) uses the API when `GEMINI_API_KEY` is set and
+  `agy` otherwise; `api` always uses the API and never runs `agy`, not even for
+  `workspace-write` (Gemini shows as unavailable without a key); `agy` always uses the
+  Antigravity CLI.
+- `GOOGLE_API_KEY` is read only with `transport: "api"`. It does not switch `auto`, because it
+  is often a key for another Google API, and an agy setup that happens to export one keeps
+  working. `GEMINI_API_KEY` wins when both are set.
+- Implementation (`workspace-write`) calls run on `agy` under `auto` and `agy`, since only a
+  local CLI can edit your files.
 - On the API path Gemini cannot read your workspace, so `/ask-all` and `/consensus` attach the
   orientation bundle to it, as they do for Grok and OpenRouter.
-- Reasoning effort on the API path is a per-call `reasoning_effort` (`low` / `medium` / `high`
-  / `none`); `providers.defaults.reasoningEffort` also applies.
+- Reasoning effort on the API path is sent as `reasoning_effort` from `providers.defaults.reasoningEffort`. Google accepts `minimal` / `low` / `medium` / `high`;
+  thinking cannot be turned off on Gemini 3 and later models.
 
 **agy is opt-in.** You need it only for implementation calls, or when you choose
 `transport: "agy"`. With no key set, Gemini also falls back to it so an existing agy setup keeps

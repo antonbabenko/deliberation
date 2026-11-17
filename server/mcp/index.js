@@ -1958,9 +1958,9 @@ function makeRuntime({ getServer = () => null } = {}) {
     // args), so unlike the hot-reloading models map a change needs an MCP restart. Absent
     // -> undefined, letting each adapter fall through to its env var then its built-in
     // (for codex: its own ~/.codex/config.toml).
-    // Advisory Gemini calls use the AI Studio key (GEMINI_API_KEY / GOOGLE_API_KEY) when one is
-    // set; agy stays for installs without a key, for providers.gemini.transport "agy", and for
-    // implementation. The key is never handed to agy.
+    // Advisory Gemini calls use the AI Studio key when GEMINI_API_KEY is set (or transport "api");
+    // agy stays for installs without a key, for providers.gemini.transport "agy", and for
+    // implementation outside transport "api". The key is never handed to agy.
     makeGeminiProvider({
       agy: makeAntigravityProvider({
         bridge: require("../gemini/index.js"),

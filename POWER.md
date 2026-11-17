@@ -32,11 +32,11 @@ runs one short demo consensus. It never prints key values.
 
 ### Gemini credentials
 
-Set `GEMINI_API_KEY` (a Google AI Studio key from https://aistudio.google.com/apikey;
-`GOOGLE_API_KEY` also works) in the server's environment and every Gemini call goes to the
+Set `GEMINI_API_KEY` (a Google AI Studio key from https://aistudio.google.com/apikey) in
+the server's environment and every Gemini call goes to the
 Gemini API, model `providers.gemini.apiModel` (default `gemini-flash-latest`). Without a key,
 Gemini falls back to the Antigravity CLI (`agy`); `providers.gemini.transport` (`auto` /
-`api` / `agy`) pins the choice. Before choosing `agy`, read the Antigravity terms
+`api` / `agy`) pins the choice; `api` never runs `agy` and also reads `GOOGLE_API_KEY`. Before choosing `agy`, read the Antigravity terms
 (https://antigravity.google/terms, section 6): they list "Using third party software, tools,
 or services to access the Service (e.g. using OpenClaw with Antigravity OAuth)" as a breach
 that "may be grounds for suspension or termination of your Antigravity and/or Gemini CLI

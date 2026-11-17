@@ -118,13 +118,15 @@ Gemini has two paths. Which one an advisory call takes is set by
 
 | Path | When | How |
 |------|------|-----|
-| API key (default) | advisory call and `GEMINI_API_KEY` or `GOOGLE_API_KEY` set (`auto`), or `transport: "api"` | `POST {GEMINI_API_BASE}/chat/completions` on Google's OpenAI-compatible endpoint, `Authorization: Bearer <key>`, model `providers.gemini.apiModel` (default `gemini-flash-latest`). Same HTTP client as OpenRouter (`server/openrouter` `callOpenRouter`), with `reasoning_effort` as a top-level field and errors labelled `Gemini`. Multi-turn sessions are in memory. File-blind, so fan-outs attach the orientation bundle. |
-| agy (opt-in) | every `workspace-write` call; advisory calls with no key (`auto`) or with `transport: "agy"` | the Antigravity CLI, described below |
+| API key (default) | advisory call with `GEMINI_API_KEY` set (`auto`), or any call with `transport: "api"` | `POST {GEMINI_API_BASE}/chat/completions` on Google's OpenAI-compatible endpoint, `Authorization: Bearer <key>`, model `providers.gemini.apiModel` (default `gemini-flash-latest`). Same HTTP client as OpenRouter (`server/openrouter` `callOpenRouter`), with `reasoning_effort` as a top-level field and errors labelled `Gemini`. Multi-turn sessions are in memory. File-blind, so fan-outs attach the orientation bundle. |
+| agy (opt-in) | `workspace-write` calls under `auto` and `agy`; advisory calls with no `GEMINI_API_KEY` (`auto`) or with `transport: "agy"`. Never under `transport: "api"` | the Antigravity CLI, described below |
 
-`GEMINI_API_KEY` wins over `GOOGLE_API_KEY`. The key is never passed to `agy`: the API path
+`GEMINI_API_KEY` wins over `GOOGLE_API_KEY`, and `GOOGLE_API_KEY` alone does not switch
+`auto` (it is often a key for another Google API). The key is never passed to `agy`: the API path
 does not spawn it, and the agy child env scrubs every `*_KEY` variable anyway. In the
 standalone bridge, a `gemini-reply` to a thread that started on the API path continues on
-the API path; asking for `workspace-write` on such a thread is an invalid-params error.
+the API path; asking for `workspace-write` on such a thread, or under `transport: "api"`, is an
+invalid-params error.
 With the API path selected, the standalone bridge starts even when `agy` is missing (a
 stderr warning; `workspace-write` calls then fail). The per-call `model` argument of the
 standalone `gemini` tool is an agy id, so the API path ignores it and uses
@@ -306,7 +308,7 @@ This is the single source of truth for the bridge environment variables.
 | Variable | Provider | Default | Purpose |
 |----------|----------|---------|---------|
 | `GEMINI_API_KEY` | Gemini | unset | Google AI Studio key. Set, it routes advisory Gemini calls to the Gemini API (`providers.gemini.transport` `auto`). Never passed to `agy` |
-| `GOOGLE_API_KEY` | Gemini | unset | Used when `GEMINI_API_KEY` is unset |
+| `GOOGLE_API_KEY` | Gemini | unset | Read only with `providers.gemini.transport: "api"`, when `GEMINI_API_KEY` is unset. Does not switch `auto` |
 | `GEMINI_API_BASE` | Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` | API endpoint override for the key path (mainly for tests) |
 | `GEMINI_DEFAULT_MODEL` | Gemini | `auto-gemini-3` | agy path: default model when neither the call nor `providers.gemini.model` sets one |
 | `GEMINI_DISABLE_TIMEOUT_RECOVERY` | Gemini | unset | `1` forces legacy timeout (no drain) |
@@ -2319,7 +2321,7 @@ to invoke or not invoke. Edit these to change expert behavior for your workflow.
 | Issue | Solution |
 |-------|----------|
 | MCP server not found | Restart Claude Code after setup |
-| Provider not authenticated | Codex: `codex login` (ChatGPT subscription; `codex login --device-auth` on a remote or headless machine), `CODEX_ACCESS_TOKEN` (ChatGPT Business/Enterprise), or export `CODEX_API_KEY` when there is neither; `OPENAI_API_KEY` is never used. Gemini: export `GEMINI_API_KEY` (a Google AI Studio key; `GOOGLE_API_KEY` also works), or for the opt-in agy path run `agy` once. Grok: export `XAI_API_KEY` (else calls return `errorKind: missing-auth`) |
+| Provider not authenticated | Codex: `codex login` (ChatGPT subscription; `codex login --device-auth` on a remote or headless machine), `CODEX_ACCESS_TOKEN` (ChatGPT Business/Enterprise), or export `CODEX_API_KEY` when there is neither; `OPENAI_API_KEY` is never used. Gemini: export `GEMINI_API_KEY` (a Google AI Studio key), or for the opt-in agy path run `agy` once. Grok: export `XAI_API_KEY` (else calls return `errorKind: missing-auth`) |
 | `tool "ask-grok" timed out after 60s` from the host, or a `timeout` result naming `MCP_TOOL_TIMEOUT=60000` (Claude Code on the web) | The host exports `MCP_TOOL_TIMEOUT=60000`. The current manifest overrides it per server (`"timeout": 1800000` + env mirror), so either message means the plugin install predates that manifest: `claude plugin update deliberation@antonbabenko`, start a new session. Hand-written `.mcp.json`: add `"timeout": 1800000` and `"env": {"MCP_TOOL_TIMEOUT": "1800000"}` to the entry. `/deliberation:doctor` reports it. See [Timeouts](#timeouts) |
 | GPT returns `errorKind: "auth"` with `refresh token was already used` / `has expired` / `was revoked` | The `auth.json` in use was copied from another machine, and one of the copies refreshed first (a ChatGPT refresh token works once), or the login expired. Give each machine its own login: the next GPT call starts `codex login --device-auth` and shows its link and code (see "Login on first use"), or set `CODEX_ACCESS_TOKEN` (Business/Enterprise). A seeded secret must come from a login used for nothing else and must be re-seeded after its first refresh. See "One login per machine" under [Environment variables](#environment-variables) |
 | `deliberation-gemini` shows `CONNECTION_CLOSED` (Claude Code on the web) | No `agy` in the container and no Gemini key: the standalone Gemini bridge refuses to start rather than advertise tools it cannot serve. Export `GEMINI_API_KEY` and it starts and answers advisory calls over the API. The unified server keeps working and lists gemini under `panel.unavailable`; `/consensus` and `/ask-all` run on the remaining providers |

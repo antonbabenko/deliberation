@@ -113,11 +113,10 @@ Print only the reminders relevant to what the Step-1 status showed as missing:
 
 - Codex: `codex login` (`codex login --device-auth` on a remote or headless machine; never copy `~/.codex/auth.json` between machines), or `CODEX_ACCESS_TOKEN` for a ChatGPT Business/Enterprise workspace
 - Gemini (default): `export GEMINI_API_KEY=...` with a Google AI Studio key
-  (https://aistudio.google.com/apikey) in your shell profile, then restart. `GOOGLE_API_KEY` also
-  works. Advisory Gemini calls (ask-gemini, the expert tools, ask-all, consensus) then use the
+  (https://aistudio.google.com/apikey) in your shell profile, then restart. Advisory Gemini calls (ask-gemini, the expert tools, ask-all, consensus) then use the
   Gemini API and need no agy login.
 - Gemini via agy (opt-in): only for `workspace-write` (implementation) calls, or if you choose
-  `providers.gemini.transport: "agy"`. Run `agy` once and complete sign-in. Show the user this
+  `providers.gemini.transport: "agy"`. `transport: "api"` never runs agy. Run `agy` once and complete sign-in. Show the user this
   warning before they opt in: the Antigravity terms (https://antigravity.google/terms, section 6)
   list "Using third party software, tools, or services to access the Service (e.g. using OpenClaw
   with Antigravity OAuth)" as a breach that "may be grounds for suspension or termination of your

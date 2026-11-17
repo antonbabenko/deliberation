@@ -106,7 +106,7 @@ fi
 command -v agy   >/dev/null 2>&1 && AGY_STATUS="installed (opt-in; only needed for Gemini workspace-write or with no API key)" || AGY_STATUS="not installed (optional; only needed for Gemini workspace-write)"
 # Gemini's default path is an AI Studio API key; the value is never printed.
 if [ -n "${GEMINI_API_KEY:-}" ]; then GEMINI_KEY_STATUS="set (GEMINI_API_KEY)"
-elif [ -n "${GOOGLE_API_KEY:-}" ]; then GEMINI_KEY_STATUS="set (GOOGLE_API_KEY)"
+elif [ -n "${GOOGLE_API_KEY:-}" ]; then GEMINI_KEY_STATUS="only GOOGLE_API_KEY (read only with providers.gemini.transport \"api\"; export GEMINI_API_KEY to use it by default)"
 else GEMINI_KEY_STATUS="MISSING (export GEMINI_API_KEY=...; key from https://aistudio.google.com/apikey)"; fi
 
 # --- keep the plugin manifest as the only MCP registration ---

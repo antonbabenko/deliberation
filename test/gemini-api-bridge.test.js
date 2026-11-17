@@ -34,7 +34,7 @@ function hermeticEnv(extra) {
   return { DELIBERATION_CONFIG: path.join(dir, "missing.json"), ...extra };
 }
 
-test("G9: bridge with only a key answers from the API and never runs agy; replies continue the thread", async () => {
+test("B1: bridge with only a key answers from the API and never runs agy; replies continue the thread", async () => {
   const mock = await mockGeminiApi("FROM API");
   try {
     const child = startBridge({ env: hermeticEnv({ GEMINI_API_KEY: "k", GEMINI_API_BASE: mock.base }) });
@@ -69,7 +69,7 @@ test("G9: bridge with only a key answers from the API and never runs agy; replie
   } finally { await mock.close(); }
 });
 
-test("G10: bridge with a key still runs agy for workspace-write and for transport 'agy'", async () => {
+test("B2: bridge with a key runs agy for workspace-write and transport 'agy', never for transport 'api'", async () => {
   const mock = await mockGeminiApi();
   try {
     const child = startBridge({ env: hermeticEnv({ GEMINI_API_KEY: "k", GEMINI_API_BASE: mock.base }) });
@@ -93,10 +93,21 @@ test("G10: bridge with a key still runs agy for workspace-write and for transpor
     await pinnedP;
     assert.ok(readArgv(pinned.argvLog)[0].includes("--sandbox"), "transport agy keeps advisory calls on agy");
     assert.equal(mock.requests.length, 0);
+
+    const apiCfg = path.join(dir, "api.json");
+    fs.writeFileSync(apiCfg, JSON.stringify({ version: 1, providers: { gemini: { transport: "api" } } }));
+    const apiOnly = startBridge({ env: { DELIBERATION_CONFIG: apiCfg, GEMINI_API_KEY: "k", GEMINI_API_BASE: mock.base } });
+    const apiP = collectResponses(apiOnly);
+    send(apiOnly, { jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+    send(apiOnly, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "gemini", arguments: { prompt: "hi", sandbox: "workspace-write" } } });
+    setTimeout(() => apiOnly.stdin.end(), 1500);
+    const apiResponses = await apiP;
+    assert.match(apiResponses.find((m) => m.id === 2).error.message, /never runs agy/);
+    assert.equal(readArgv(apiOnly.argvLog).length, 0, "transport api never runs agy, even for workspace-write");
   } finally { await mock.close(); }
 });
 
-test("G11: bridge with a key starts even when agy is missing", async () => {
+test("B3: bridge with a key starts even when agy is missing", async () => {
   const mock = await mockGeminiApi("NO AGY NEEDED");
   try {
     const child = startBridge({ fakeBin: "does-not-exist", env: hermeticEnv({ GEMINI_API_KEY: "k", GEMINI_API_BASE: mock.base }) });

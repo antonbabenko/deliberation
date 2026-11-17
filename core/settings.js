@@ -1,5 +1,5 @@
 "use strict";
-const { useGeminiApi, DEFAULT_GEMINI_API_MODEL } = require("./providers/gemini.js");
+const { callUsesGeminiApi, DEFAULT_GEMINI_API_MODEL } = require("./providers/gemini.js");
 /** Resolve once, before cache/dispatch/introspection. Request overrides are separate from the baseline.
  * @param {string} name @param {any} cfg @param {any} [req] @param {any} [env] */
 function resolveSettings(name,cfg={},req={},env=process.env) {
@@ -10,7 +10,7 @@ function resolveSettings(name,cfg={},req={},env=process.env) {
   const base=sep>0?name.slice(0,sep):name;
   const provider=cfg.providers?.[base]||{};
   // Gemini over the API key: an API model id and a per-call effort, unlike agy's fused ids.
-  const geminiApi=base==='gemini'&&useGeminiApi(c.transport,env);
+  const geminiApi=base==='gemini'&&callUsesGeminiApi(c.transport,req,env);
   const agy=base==='gemini'&&!geminiApi;
   const preset=base==='openrouter'?(req.preset??alias?.preset??provider.preset??cfg.openrouter?.preset??d.preset):undefined;
   const ask=alias?.reasoning_effort??(base==='openrouter'?d.reasoning_effort:c.reasoningEffort)??(base==='grok'?env.GROK_REASONING_EFFORT||'high':null);

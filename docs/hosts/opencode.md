@@ -66,7 +66,7 @@ credentials from the host environment. Set whichever providers you use:
 | Provider | How it authenticates |
 |----------|----------------------|
 | GPT (Codex) | Codex CLI auth (`codex login`, e.g. ChatGPT - `codex login --device-auth` on a remote machine; or `CODEX_ACCESS_TOKEN`; else `CODEX_API_KEY`) |
-| Gemini | `GEMINI_API_KEY` (Google AI Studio key; `GOOGLE_API_KEY` also works). Opt-in fallback: the Antigravity CLI (`agy`) - see the terms note below |
+| Gemini | `GEMINI_API_KEY` (Google AI Studio key). Opt-in fallback: the Antigravity CLI (`agy`) - see the terms note below |
 | Grok (xAI) | `XAI_API_KEY` |
 | OpenRouter | `OPENROUTER_API_KEY` (advisory-only; declare models in `~/.config/deliberation/config.json`) |
 

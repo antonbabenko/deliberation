@@ -18,7 +18,7 @@
       "cli": "agy",
       "api": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
       "install": "No install for the API key path. Optional: Antigravity from https://antigravity.google (read https://antigravity.google/terms section 6 first)",
-      "auth": "export GEMINI_API_KEY=... (key from https://aistudio.google.com/apikey; GOOGLE_API_KEY also works), or run `agy` once and complete sign-in for the opt-in agy path",
+      "auth": "export GEMINI_API_KEY=... (key from https://aistudio.google.com/apikey), or run `agy` once and complete sign-in for the opt-in agy path",
       "mcp": {
         "type": "stdio",
         "command": "node",

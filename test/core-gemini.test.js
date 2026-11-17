@@ -4,7 +4,7 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const http = require("node:http");
 const {
-  makeGeminiProvider, makeGeminiApiProvider, geminiApiKey, useGeminiApi, DEFAULT_GEMINI_API_MODEL,
+  makeGeminiProvider, makeGeminiApiProvider, geminiApiKey, useGeminiApi, callUsesGeminiApi, DEFAULT_GEMINI_API_MODEL,
 } = require("../core/providers/gemini.js");
 const { resolveSettings } = require("../core/settings.js");
 
@@ -50,11 +50,11 @@ async function mockGeminiApi(reply = "MOCK GEMINI API OK") {
 
 // --- provider resolution ---
 
-test("G1: key only -> API path; GOOGLE_API_KEY is accepted, GEMINI_API_KEY wins", () => {
+test("G1: key only -> API path; GEMINI_API_KEY wins as the key; GOOGLE_API_KEY alone does not switch auto", () => {
   assert.equal(useGeminiApi(undefined, { GEMINI_API_KEY: "k" }), true);
-  assert.equal(useGeminiApi("auto", { GOOGLE_API_KEY: "g" }), true);
+  assert.equal(useGeminiApi("auto", { GOOGLE_API_KEY: "g" }), false, "an unrelated Google key must not reroute an agy install");
   assert.equal(geminiApiKey({ GEMINI_API_KEY: "k", GOOGLE_API_KEY: "g" }), "k");
-  assert.equal(geminiApiKey({ GOOGLE_API_KEY: "g" }), "g");
+  assert.equal(geminiApiKey({ GOOGLE_API_KEY: "g" }), "g", "used as the key under transport api");
 });
 
 test("G2: agy only (no key) -> agy path, so an existing install keeps working", () => {
@@ -67,25 +67,28 @@ test("G3: both key and agy -> API by default; transport 'agy' opts back into agy
   assert.equal(useGeminiApi(undefined, env), true);
   assert.equal(useGeminiApi("agy", env), false);
   assert.equal(useGeminiApi("api", {}), true);
+  assert.equal(callUsesGeminiApi(undefined, { mode: "implement" }, env), false, "implementation goes to agy under auto");
+  assert.equal(callUsesGeminiApi("api", { mode: "implement" }, {}), true, "transport api never runs agy");
 });
 
-test("G4: dispatcher routes advisory calls by key, implementation always to agy", async () => {
-  const p = makeGeminiProvider({ agy: leg("agy", { canImplement: true }), api: leg("api") });
-  await withKeys({}, async () => {
-    assert.equal(/** @type {any} */ (await p.ask({ prompt: "x" })).text, "agy");
-    assert.equal(p.capabilities.walksFilesystem, true);
-  });
-  await withKeys({ GEMINI_API_KEY: "k" }, async () => {
-    assert.equal(/** @type {any} */ (await p.ask({ prompt: "x" })).text, "api");
-    assert.equal(/** @type {any} */ (await p.ask({ prompt: "x", mode: "implement" })).text, "agy");
-    assert.equal(p.capabilities.walksFilesystem, false, "API path is file-blind, so orientation files get attached");
-    assert.equal(p.capabilities.canImplement, true, "implementation capability still comes from agy");
-    assert.equal(/** @type {any} */ (await p.health()).via, "api");
-  });
-  const pinned = makeGeminiProvider({ agy: leg("agy"), api: leg("api"), transport: "agy" });
-  await withKeys({ GEMINI_API_KEY: "k" }, async () => {
-    assert.equal(/** @type {any} */ (await pinned.ask({ prompt: "x" })).text, "agy");
-  });
+test("G4: dispatcher routes advisory calls by key, implementation to agy, and never agy under transport api", async () => {
+  const noKey = makeGeminiProvider({ agy: leg("agy", { canImplement: true }), api: leg("api"), env: {} });
+  assert.equal(/** @type {any} */ (await noKey.ask({ prompt: "x" })).text, "agy");
+  assert.equal(noKey.capabilities.walksFilesystem, true);
+
+  const keyed = makeGeminiProvider({ agy: leg("agy", { canImplement: true }), api: leg("api"), env: { GEMINI_API_KEY: "k" } });
+  assert.equal(/** @type {any} */ (await keyed.ask({ prompt: "x" })).text, "api");
+  assert.equal(/** @type {any} */ (await keyed.ask({ prompt: "x", mode: "implement" })).text, "agy");
+  assert.equal(keyed.capabilities.walksFilesystem, false, "API path is file-blind, so orientation files get attached");
+  assert.equal(keyed.capabilities.canImplement, true, "implementation capability still comes from agy");
+  assert.equal(/** @type {any} */ (await keyed.health()).via, "api");
+
+  const pinnedAgy = makeGeminiProvider({ agy: leg("agy"), api: leg("api"), transport: "agy", env: { GEMINI_API_KEY: "k" } });
+  assert.equal(/** @type {any} */ (await pinnedAgy.ask({ prompt: "x" })).text, "agy");
+
+  const apiOnly = makeGeminiProvider({ agy: leg("agy", { canImplement: true }), api: leg("api"), transport: "api", env: {} });
+  assert.equal(/** @type {any} */ (await apiOnly.ask({ prompt: "x", mode: "implement" })).text, "api");
+  assert.equal(apiOnly.capabilities.canImplement, false);
 });
 
 test("G5: API provider health names the missing key", async () => {
@@ -99,14 +102,18 @@ test("G5: API provider health names the missing key", async () => {
 });
 
 test("G6: settings resolve the API model on the key path and the agy model otherwise", () => {
-  const cfg = { providers: { gemini: { model: "gemini-3.6-flash-high", apiModel: "gemini-pro-latest" } } };
-  assert.equal(resolveSettings("gemini", cfg, {}, { GEMINI_API_KEY: "k" }).model, "gemini-pro-latest");
+  const cfg = { providers: { gemini: { model: "gemini-3.6-flash-high", apiModel: "gemini-3.8-flash" } } };
+  assert.equal(resolveSettings("gemini", cfg, {}, { GEMINI_API_KEY: "k" }).model, "gemini-3.8-flash");
   assert.equal(resolveSettings("gemini", { providers: { gemini: {} } }, {}, { GEMINI_API_KEY: "k" }).model, DEFAULT_GEMINI_API_MODEL);
   const agy = resolveSettings("gemini", cfg, {}, {});
   assert.equal(agy.model, "gemini-3.6-flash-high");
   assert.equal(agy.reasoningEffort, "high");
   const pinned = resolveSettings("gemini", { providers: { gemini: { ...cfg.providers.gemini, transport: "agy" } } }, {}, { GEMINI_API_KEY: "k" });
   assert.equal(pinned.model, "gemini-3.6-flash-high");
+  const implement = resolveSettings("gemini", cfg, { mode: "implement" }, { GEMINI_API_KEY: "k" });
+  assert.equal(implement.model, "gemini-3.6-flash-high", "an implementation call runs on agy, so it gets the agy model");
+  const effort = resolveSettings("gemini", { providers: { gemini: { reasoningEffort: "low" } } }, {}, { GEMINI_API_KEY: "k" });
+  assert.equal(effort.reasoningEffort, "low", "configured effort reaches the API call");
 });
 
 // --- HTTP request shape ---
@@ -153,4 +160,27 @@ test("G8: an API error is labelled Gemini and classified, never leaking the key"
       assert.ok(!JSON.stringify(r).includes("secret-key-xyz"));
     });
   } finally { await new Promise((r) => server.close(() => r(undefined))); }
+});
+
+test("G9: the shared client's OpenRouter defaults are unchanged (reasoning object, OpenRouter label)", async () => {
+  /** @type {any} */ let sent;
+  const fetchImpl = async (/** @type {any} */ _url, /** @type {any} */ init) => {
+    sent = JSON.parse(init.body);
+    return { ok: false, status: 500, text: async () => "boom", headers: { get: () => null } };
+  };
+  const { callOpenRouter } = /** @type {any} */ (require("../server/openrouter/index.js"));
+  await assert.rejects(
+    callOpenRouter({ apiBase: "http://x", apiKey: "k", model: "m", messages: [], reasoningEffort: "high", fetchImpl }),
+    /^Error: OpenRouter API error 500/,
+  );
+  assert.deepEqual(sent.reasoning, { effort: "high" });
+  assert.equal(sent.reasoning_effort, undefined);
+});
+
+test("G10: the agy child env never carries a Gemini key", () => {
+  const { advisoryEnv } = require("../server/gemini/index.js");
+  const env = advisoryEnv({ PATH: "/bin", GEMINI_API_KEY: "secret", GOOGLE_API_KEY: "secret2" });
+  assert.equal(env.GEMINI_API_KEY, undefined);
+  assert.equal(env.GOOGLE_API_KEY, undefined);
+  assert.equal(env.PATH, "/bin");
 });

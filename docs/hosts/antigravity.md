@@ -44,7 +44,7 @@ Provider credentials come from the host environment:
 
 | Provider | How it authenticates |
 |----------|----------------------|
-| Gemini | `GEMINI_API_KEY` (Google AI Studio key; `GOOGLE_API_KEY` also works). Opt-in fallback: the Antigravity CLI (`agy`) - see the terms note below |
+| Gemini | `GEMINI_API_KEY` (Google AI Studio key). Opt-in fallback: the Antigravity CLI (`agy`) - see the terms note below |
 | GPT (Codex) | Codex CLI auth (`codex login` / `codex login --device-auth`) or `CODEX_API_KEY` / `CODEX_ACCESS_TOKEN` |
 | Grok (xAI) | `XAI_API_KEY` |
 | OpenRouter | `OPENROUTER_API_KEY` (models configured in `~/.config/deliberation/config.json`) |
