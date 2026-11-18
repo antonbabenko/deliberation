@@ -24,7 +24,7 @@
  *   steering/*   - subdir. Markdown workflow files. Kiro steering frontmatter
  *                  (`inclusion: always`) MUST be the first bytes of the file.
  *
- * These paths (POWER.md, mcp.json, steering/) do not collide with the Codex
+ * These paths (plugin.json, POWER.md, mcp.json, steering/) do not collide with the Codex
  * (.codex-plugin/, .mcp.json, skills/, .agents/) or Cursor (.cursor/) outputs.
  *
  * Source of truth: docs/tool-guide.md (host-neutral "when to delegate") for the POWER.md

@@ -503,4 +503,4 @@ Contributions welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow, 
 
 Privacy: see [PRIVACY.md](PRIVACY.md) for what deliberation sends and stores.
 
-Support: open an issue at https://github.com/antonbabenko/deliberation/issues.
+Support: open an issue in the [issue tracker](https://github.com/antonbabenko/deliberation/issues).
