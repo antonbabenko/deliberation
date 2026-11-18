@@ -1,0 +1,14 @@
+---
+// Wrapper for rendered Markdown. `src/styles/content.css` styles `.prose`.
+// `titled`: the page already printed this text as its H1, so the Markdown's own leading
+// H2 with the same words is not shown twice.
+import '../styles/content.css'
+
+interface Props {
+  titled?: boolean
+}
+const { titled = false } = Astro.props
+---
+<div class:list={['prose', { titled }]}>
+  <slot />
+</div>

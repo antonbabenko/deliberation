@@ -1,0 +1,34 @@
+---
+// Every major feature and configuration option on one page. Content: data/features.ts.
+import Layout from '../layouts/Layout.astro'
+import { routeOf, breadcrumbList } from '../lib/seo.ts'
+import { featureSections } from '../data/features.ts'
+
+const sections = featureSections()
+const description = 'Everything Deliberation does and every setting that changes it: commands and tools, consensus, providers and models, experts, dashboard, sessions, privacy defaults and the config file.'
+---
+<Layout title="Features and configuration" description={description} jsonLd={[breadcrumbList([{ name: 'Home', slug: '' }, { name: 'Features', slug: 'features' }])]}>
+  <div class="doc">
+    <nav class="crumbs" aria-label="Breadcrumb" data-pagefind-ignore>
+      <ol><li><a href={routeOf('')}>Home</a></li><li aria-current="page">Features</li></ol>
+    </nav>
+    <h1>Features and configuration</h1>
+    <p class="lede">Everything Deliberation does and every setting that changes it. The home page has the short version.</p>
+    <div class="split">
+      <nav class="side" aria-label="On this page" data-spy data-pagefind-ignore>
+        <h2>On this page</h2>
+        <ol>{sections.map((s) => <li><a href={`#${s.id}`}>{s.title}</a></li>)}</ol>
+      </nav>
+      <div class="sections">
+        {sections.map((s) => (
+          <section id={s.id} aria-labelledby={`${s.id}-h`}>
+            <h2 id={`${s.id}-h`}><a href={`#${s.id}`}>{s.title}</a></h2>
+            <Fragment set:html={s.html} />
+          </section>
+        ))}
+        <p class="meta source">Defaults are read from <code>config/config.default.json</code> at build time. The full reference is in <a href={routeOf('providers')}>Providers and configuration</a> and the <a href={routeOf('reference')}>technical reference</a>.</p>
+        <nav class="pager" aria-label="Pages" data-pagefind-ignore><a href={routeOf('install')}>Install</a><a href={routeOf('sample-runs')}>Sample runs</a></nav>
+      </div>
+    </div>
+  </div>
+</Layout>

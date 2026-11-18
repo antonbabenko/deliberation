@@ -1,0 +1,8 @@
+---
+// A copyable command. The Copy key shows only when scripts run; the text is selectable either way.
+interface Props {
+  text: string
+}
+const { text } = Astro.props
+---
+<div class="cmd"><pre><code>{text}</code></pre><button type="button" class="copy js-only" data-copy>Copy</button></div>

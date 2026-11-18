@@ -1,0 +1,44 @@
+---
+// The home capture: one recorded run drawn the way the dashboard draws it, one lane per
+// voice, with a run selector above and an inspector below. The first run of
+// src/lib/runs.ts is prerendered here and is complete without script. The selector
+// fetches any other run as a same-origin HTML fragment (src/pages/runs/[id].astro), so
+// the page does not carry every recorded answer. Search leaves the capture out: each
+// run has its own page under /sample-runs/, and that page is the one to find.
+import RunBox from './RunBox.astro'
+import { runs } from '../lib/runs.ts'
+import { BASE, routeOf } from '../lib/seo.ts'
+import { describe } from '../lib/run-model.ts'
+---
+<section class="capture" aria-labelledby="capture-h" data-capture data-pagefind-ignore>
+  <div class="cap-head">
+    <h2 id="capture-h">One recorded run</h2>
+    <p class="cap-cue js-only">
+      <i class="cue-box" aria-hidden="true"></i>
+      <span class="cue-wide">Click any box or mark to read that answer in full.</span>
+      <span class="cue-narrow">Tap any row to read that answer in full.</span>
+    </p>
+    <a href={routeOf('sample-runs')}>Every run, round by round</a>
+  </div>
+
+  {runs.length > 1 && (
+    <fieldset class="runs js-only">
+      <legend class="sr">Recorded run</legend>
+      {runs.map((run, i) => {
+        const d = describe(run)
+        return (
+          <>
+            <input class="sr" type="radio" name="run" id={`run-${run.id}`} value={run.id} checked={i === 0} data-src={`${BASE}runs/${run.id}/`} data-more={`${routeOf('sample-runs')}${run.id}/`} />
+            <label for={`run-${run.id}`}>
+              <span class="r-kind">{d.short}, {d.expert}</span>
+              <span class={`r-out${run.outcome.converged ? '' : ' open'}`}>{d.outcome}</span>
+            </label>
+          </>
+        )
+      })}
+    </fieldset>
+  )}
+
+  <p class="cap-status js-only" role="status" hidden></p>
+  <RunBox run={runs[0]} />
+</section>

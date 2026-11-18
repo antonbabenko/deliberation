@@ -1,0 +1,419 @@
+{
+  "id": "config-fail-closed",
+  "recordedAt": "2026-11-18T16:36:13.057Z",
+  "deliberationVersion": "4.6.1",
+  "runId": "7c9c77d2",
+  "tool": "consensus-step",
+  "expert": "plan-reviewer",
+  "question": "Review this plan before it is implemented. Check correctness, user impact (a JSON typo now blocks every call; hot reload; first-run users; hosts that start the server before the user fixes the file), consistency across the unified server and the three bridges, and missing tests.",
+  "subject": {
+    "type": "plan",
+    "related": "https://github.com/antonbabenko/deliberation/pull/295",
+    "title": "Refuse provider calls when the config file exists but cannot be read",
+    "short": "Unreadable config file"
+  },
+  "planUnderReview": "Review this plan before it is implemented. Check correctness, user impact (a JSON typo now blocks every call; hot reload; first-run users; hosts that start the server before the user fixes the file), consistency across the unified server and the three bridges, and missing tests.\n\nSUBJECT: follow-up to pull request #295 (merge commit c8cf5f9, \"fix(mcp): refuse calls to a provider disabled in config\"). That PR made every tool refuse a provider with providers.<name>.enabled: false. It left one gap: when the config file exists but cannot be read, the grok and gemini bridges and the unified server treat every provider as ENABLED, while the openrouter bridge refuses. So a user who disabled a provider and then breaks the JSON gets that provider called again.\n\nPLAN (draft v1)\n\nGoal: when ~/.config/deliberation/config.json exists but cannot be parsed, every provider call fails closed with errorKind \"config\" and a message naming the file and the parse error, instead of falling back to defaults. A missing config file keeps today's defaults.\n\n1. One shared rule in core/provider.js: configErrorResult(error, configPath) returns { isError: true, errorKind: \"config\", retryable: false, message: \"Deliberation config at <path> could not be read (<error>). Fix the file or move it aside; with no file, the defaults apply.\" }. \"Cannot be read\" = the reader returns ok:false: JSON parse failure, and any read error other than ENOENT (EACCES, EISDIR). ENOENT stays ok:true with defaults (unchanged).\n2. Unified server (server/mcp/index.js): before any provider dispatch - ask-gpt/ask-gemini/ask-grok/ask-openrouter, ask-one, ask-all, the expert tools, consensus, and consensus-step dispatch_peers - if getConfigError() is non-null, return the config error and call no provider. consensus today only adds a warning (\"config not loaded: ...\"); that becomes a hard stop. Tools that make no provider call (panel, doctor, analyze, session-get, the dashboard) keep working and report the error.\n3. Grok and Gemini bridges: grokConfigBlock()/geminiConfig() today return {} on any config problem. Add a check at the top of grok/grok-reply and gemini/gemini-reply: if the reader result is ok:false, answer errorKind \"config\" before any xAI request or agy spawn. Other tools in those bridges (grok file listing/cleanup) keep working.\n4. OpenRouter bridge: already fails closed with code \"config\" and the raw reader error; change the text to the shared message so all four surfaces say the same thing.\n5. Hot reload: all readers are stat-gated on mtime, so fixing the file clears the error on the next call with no restart. No change needed.\n6. Tests (new file test/config-fail-closed.test.js): per surface (unified ask-*, ask-one, consensus-step dispatch_peers, grok bridge, gemini bridge, openrouter bridge): (a) bad JSON -> errorKind config, the message names the path and the parse error, the provider stub is never called; (b) fix the file in place -> the next call succeeds (hot reload); (c) missing file -> defaults, calls go through; (d) EACCES (chmod 000, skipped on Windows and as root) -> errorKind config.\n7. Docs: TECHNICAL.md (config load states), SETUP.md (what a typo does), docs/tool-guide.md (errorKind config), README config summary.\n\nOut of scope: schema-validation warnings that do not make the reader fail (unknown keys, bad values the validator replaces with defaults) keep today's warn-and-continue behavior.\n\nRELEVANT CODE (excerpts at c8cf5f9)\n\ncore/provider.js - the shared rule:\n```js\nfunction providerEnabled(config, name) {\n  const p = config && config.providers && config.providers[name];\n  return !p || p.enabled !== false;\n}\n```\n\nserver/openrouter/config.js - the one reader every surface uses:\n```js\n// Stat-gated reader: re-reads + re-validates only when the file mtime changes.\n// Never throws. Missing file => ok:true, openrouter off unless the key is set (then the\n// built-in panel). Bad JSON => ok:false parse error.\nfunction makeConfigReader(filePath, env = process.env) {\n  let cachedMtimeMs = null; let cachedResult = null;\n  function read() {\n    let raw;\n    try { raw = fs.readFileSync(filePath, \"utf8\"); }\n    catch (err) {\n      if (err && err.code === \"ENOENT\") return { ok: true, error: null, resolved: { configLoadState: \"missing\", version: 1, providers: {}, openrouter: validateConfig({}, env).resolved.openrouter, consensus: {...}, sessions: {...}, dashboard: {...} } };\n      return fail(`read failed: ${err.message}`);\n    }\n    let parsed;\n    try { parsed = JSON.parse(raw); } catch (err) { return fail(`JSON parse failed: ${err.message}`); }\n    return validateConfig(parsed, env);\n  }\n  return { get() {\n    let mtimeMs = null; try { mtimeMs = fs.statSync(filePath).mtimeMs; } catch (_) { mtimeMs = null; }\n    if (cachedResult === null || mtimeMs !== cachedMtimeMs) { cachedResult = read(); cachedMtimeMs = mtimeMs; }\n    return cachedResult;\n  } };\n}\n// fail(message) => { ok: false, resolved: null, error: message }\n```\n\nserver/grok/index.js:\n```js\n// Reader is lazy + stat-gated (hot-reload) and never throws: any failure yields an\n// empty block, falling through to the env var then the built-in.\nfunction grokConfigBlock() {\n  try {\n    if (!configReader) configReader = makeConfigReader(resolveConfigPath());\n    const r = configReader.get();\n    return (r && r.resolved && r.resolved.providers && r.resolved.providers.grok) || {};\n  } catch { return {}; }\n}\n// in tools/call:\nif ((name === \"grok\" || name === \"grok-reply\") && !providerEnabled({ providers: { grok: grokConfigBlock() } }, \"grok\")) {\n  logCall(id, name, \"disabled\", 0);\n  sendResponse(id, { content: [{ type: \"text\", text: `Error: ${disabledMessage(\"grok\", resolveConfigPath())}` }], isError: true, errorKind: \"disabled\", retryable: false });\n  return;\n}\n```\n\nserver/gemini/index.js:\n```js\n// Lazy + fail-soft, mirroring the Grok bridge: a broken config must never take the bridge down, only lose the pin.\nfunction geminiConfig() {\n  try {\n    if (!_cfgReader) _cfgReader = makeConfigReader(resolveConfigPath());\n    const r = _cfgReader.get();\n    return (r && r.resolved && r.resolved.providers && r.resolved.providers.gemini) || {};\n  } catch { return {}; }\n}\n// in tools/call (no logCall here):\nif ((name === \"gemini\" || name === \"gemini-reply\") && !providerEnabled({ providers: { gemini: geminiConfig() } }, \"gemini\")) {\n  sendResponse(id, disabledResponse(\"gemini\")); return;\n}\n```\n\nserver/openrouter/index.js (already fails closed):\n```js\nconst cfg = configReader.get();\nif (!cfg.ok) {\n  if (name === \"openrouter-list\") { /* returns { delegates: [], selected: [], error: cfg.error } */ return; }\n  sendResponse(id, errorResult(id, { code: \"config\", message: cfg.error }, name, startedAt)); // errorKind \"config\"\n  return;\n}\nif ((name === \"openrouter\" || name === \"openrouter-reply\") && !providerEnabled(cfg.resolved, \"openrouter\")) { /* errorKind disabled */ }\n```\n\nserver/mcp/index.js (unified server):\n```js\n// makeRuntime\nconst reader = makeConfigReader(resolveConfigPath());\nconst getConfig = () => (reader.get().resolved || { providers: {}, openrouter: {} });\nconst getConfigError = () => { const r = reader.get(); return r && r.ok === false ? (r.error || \"config load failed\") : null; };\n// Provider model/reasoningEffort/timeout are read ONCE at startup from getConfig(); a change needs a restart.\n\n// buildServer\nconst startupConfig = structuredClone(getConfig() || {});\nconst activeConfig = () => effectiveConfig(getConfig() || {}, startupConfig);\nconst dispatchConfig = () => runContext.getStore()?.config || activeConfig();\n\n// core/settings.js\nfunction effectiveConfig(cfg, startup) {\n  return { ...cfg, providers: Object.fromEntries(Object.entries({ ...startup.providers, ...cfg.providers })\n    .map(([name, c]) => [name, { ...(startup.providers?.[name] || {}), enabled: c?.enabled }])) };\n}\n// So: broken at startup -> providers {} -> every provider enabled. Broken after a good start ->\n// cfg.providers is {} -> each provider keeps the enabled flag it had at STARTUP (not the last good edit).\n\n// ask-* tools:\nif (!providerEnabled(dispatchConfig(), p.name)) return { content: [{ type: \"text\", text: JSON.stringify({ result: disabledResult(p.name) }) }] };\n// consensus (runConsensus):\nconst cfgErr = getConfigError(); if (cfgErr) warnings.push(`config not loaded: ${cfgErr}`);  // then dispatches anyway\n```\n\nExisting tests: test/provider-disabled.test.js PD1-PD10 cover the disabled flag on every surface and hot reload on the Grok bridge (PD10). No test covers a broken config on any surface.\n\nContext: Deliberation is a local MCP server (plus three standalone bridge MCP servers) that hosts like Claude Code, Codex, Cursor and Gemini CLI start at session start. The config file is optional; first-run users have none. Node 18+, no runtime dependencies.",
+  "panel": [
+    {
+      "provider": "grok",
+      "source": "grok",
+      "model": "grok-4.7",
+      "reasoningEffort": "medium",
+      "role": "peer"
+    },
+    {
+      "provider": "openrouter",
+      "source": "openrouter:glm-5-3-flashx",
+      "model": "z-ai/glm-5.3-flashx",
+      "reasoningEffort": "medium",
+      "role": "peer"
+    },
+    {
+      "provider": "openrouter",
+      "source": "openrouter:gpt-6-1-sol",
+      "model": "openai/gpt-6.1-sol",
+      "reasoningEffort": "medium",
+      "role": "peer"
+    },
+    {
+      "provider": "openrouter",
+      "source": "openrouter:gemini-3-8-flash",
+      "model": "google/gemini-3.8-flash",
+      "reasoningEffort": "high",
+      "role": "peer"
+    }
+  ],
+  "notOnPanel": [
+    {
+      "provider": "codex",
+      "reason": "providers.codex.enabled: false in the recording machine's config"
+    },
+    {
+      "provider": "gemini",
+      "reason": "providers.gemini.enabled: false in the recording machine's config"
+    }
+  ],
+  "arbiter": {
+    "kind": "host"
+  },
+  "limits": {
+    "maxRounds": 5
+  },
+  "steps": [
+    {
+      "action": "init",
+      "status": "await_blind",
+      "round": 1
+    },
+    {
+      "action": "record_blind",
+      "status": "await_peers",
+      "round": 1
+    },
+    {
+      "action": "dispatch_peers",
+      "status": "await_adjudication",
+      "round": 1
+    },
+    {
+      "action": "submit_adjudication",
+      "status": "await_revision",
+      "round": 1
+    },
+    {
+      "action": "submit_revision",
+      "status": "await_blind",
+      "round": 2
+    },
+    {
+      "action": "record_blind",
+      "status": "await_peers",
+      "round": 2
+    },
+    {
+      "action": "dispatch_peers",
+      "status": "await_adjudication",
+      "round": 2
+    },
+    {
+      "action": "submit_adjudication",
+      "status": "converged",
+      "round": 2
+    }
+  ],
+  "rounds": [
+    {
+      "n": 1,
+      "hostBlindVerdict": {
+        "verdict": "REQUEST_CHANGES",
+        "summary": "Failing closed on an unreadable config is right and the bridge changes are sound, but the hot-reload claim is wrong for a server started on a broken file and the consensus-step error path is unspecified.",
+        "criticalIssues": [
+          {
+            "id": "r1-host-1",
+            "category": "correctness",
+            "text": "hot reload does not restore startup-only provider pins (model, reasoningEffort, timeout) in the unified server when it started on a broken config"
+          },
+          {
+            "id": "r1-host-2",
+            "category": "ambiguity",
+            "text": "consensus-step dispatch_peers behavior on a config error (terminal vs resumable) is unspecified"
+          }
+        ],
+        "text": "**Verdict**: REQUEST CHANGES\n**Critical issues** (must-fix; empty = none):\n  - `[correctness]` Step 5 claims hot reload needs no change, but the unified server reads providers.<name>.model/reasoningEffort/timeout once at startup (makeRuntime) and clones startupConfig at startup. A server started while the file is broken stays on built-in model, effort and timeout pins after the user fixes the file; calls then succeed silently with the wrong pins until a restart. The plan must say what happens there (rebuild, warn, or keep failing until restart).\n  - `[ambiguity]` Step 2 does not say how consensus-step dispatch_peers reports a config error. If it is terminal (unresolved), a user who fixes a typo mid-run loses the session; if it returns an error and leaves the session in await_peers, the run resumes. Pick the second and test it.\n**One-line bottom line**: Failing closed on an unreadable config is right and the bridge changes are sound, but the hot-reload claim is wrong for a server started on a broken file and the consensus-step error path is unspecified.\n\nVERDICT: REQUEST_CHANGES\n- [correctness] hot reload does not restore startup-only provider pins (model, reasoningEffort, timeout) in the unified server when it started on a broken config\n- [ambiguity] consensus-step dispatch_peers behavior on a config error (terminal vs resumable) is unspecified"
+      },
+      "peers": [
+        {
+          "source": "grok",
+          "provider": "grok",
+          "model": "grok-4.7",
+          "reasoningEffort": "medium",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r1-grok-1",
+              "category": "ambiguity",
+              "text": "configErrorResult() is {isError, errorKind, retryable, message}, which is not a valid result on any surface. Unified ask-* returns content[].text JSON and today omits isError/errorKind; bridges need sendResponse content plus errorKind; openrouter-list still returns raw cfg.error; runConsensus only pushes a warning and returns a result object. Specify the exact object for unified ask-*/ask-one/ask-all/expert tools, each bridge (including list), and consensus / consensus-step dispatch_peers, with isError true, errorKind \"config\", the shared text, and no provider call. Do not return the helper object raw."
+            },
+            {
+              "id": "r1-grok-2",
+              "category": "correctness",
+              "text": "Item 5 is wrong for hosts that start the server before the file is fixed. startupConfig is taken once from getConfig(), and on ok:false that is {providers:{}, openrouter:{}} because resolved is null. effectiveConfig then keeps startup model, reasoningEffort, and timeout for the process lifetime; only enabled is live. A JSON save clears the error via mtime, but the next call uses failed-start defaults, not the repaired file. Re-snapshot those frozen fields on the first ok:true read if startup load failed, and test: bad file at process start, fix in place, next ask uses the file’s model/timeout and still honors enabled:false."
+            },
+            {
+              "id": "r1-grok-3",
+              "category": "correctness",
+              "text": "The new check is easy to miss beside helpers that still fail open. grokConfigBlock/geminiConfig turn ok:false into {}; providerEnabled treats a missing provider as enabled; getConfig() substitutes an empty providers object. Guard reader.get().ok === false in the one path each surface uses before every xAI call, agy spawn, or unified dispatch (not only the four tool names), and do not let the empty fallback look like a successful config."
+            }
+          ],
+          "summary": "REJECT. The fail-closed goal and ENOENT defaults are right, but the plan cannot be implemented safely: configErrorResult matches no current MCP/consensus envelope, and a host that starts before the JSON is fixed never re-reads startup-frozen provider fields after repair. Confidence: high.",
+          "text": "**[REJECT]**\n\n**Justification**: Fail-closed on a present but unreadable config is the right rule, and the missing-file path is specified correctly. The plan is not executable as written: the shared error object does not match any live response envelope, the consensus hard stop has no result contract, and item 5 is false for a process that starts before the file is fixed because startup-frozen provider fields stay at the failed-load fallback.\n\n**Summary**: Clarity: the ok:false rule is clear, the per-surface return contract is not. Verifiability: tests never check the repaired file’s model/timeout after a bad startup. Completeness: startup snapshot vs live enabled is unstated. Big Picture: goal is right; hot-reload “no change” is wrong for that host timeline.\n\n**Blocking issues**:\n- Unified, bridge, and consensus results are unspecified, so a typo can be invisible or break consensus.\n- A server that starts on a broken file keeps frozen default model/timeout/reasoningEffort after the file is fixed.\n- Fail-open helpers (`grokConfigBlock`, `geminiConfig`, `getConfig()` empty fallback, `providerEnabled`) remain the call path unless the ok:false check is the single choke point.\n\n<SUMMARY> REJECT. The fail-closed goal and ENOENT defaults are right, but the plan cannot be implemented safely: configErrorResult matches no current MCP/consensus envelope, and a host that starts before the JSON is fixed never re-reads startup-frozen provider fields after repair. Confidence: high. </SUMMARY>\n\n- [ambiguity] configErrorResult() is {isError, errorKind, retryable, message}, which is not a valid result on any surface. Unified ask-* returns content[].text JSON and today omits isError/errorKind; bridges need sendResponse content plus errorKind; openrouter-list still returns raw cfg.error; runConsensus only pushes a warning and returns a result object. Specify the exact object for unified ask-*/ask-one/ask-all/expert tools, each bridge (including list), and consensus / consensus-step dispatch_peers, with isError true, errorKind \"config\", the shared text, and no provider call. Do not return the helper object raw.\n- [correctness] Item 5 is wrong for hosts that start the server before the file is fixed. startupConfig is taken once from getConfig(), and on ok:false that is {providers:{}, openrouter:{}} because resolved is null. effectiveConfig then keeps startup model, reasoningEffort, and timeout for the process lifetime; only enabled is live. A JSON save clears the error via mtime, but the next call uses failed-start defaults, not the repaired file. Re-snapshot those frozen fields on the first ok:true read if startup load failed, and test: bad file at process start, fix in place, next ask uses the file’s model/timeout and still honors enabled:false.\n- [correctness] The new check is easy to miss beside helpers that still fail open. grokConfigBlock/geminiConfig turn ok:false into {}; providerEnabled treats a missing provider as enabled; getConfig() substitutes an empty providers object. Guard reader.get().ok === false in the one path each surface uses before every xAI call, agy spawn, or unified dispatch (not only the four tool names), and do not let the empty fallback look like a successful config.\n\nVERDICT: REQUEST_CHANGES",
+          "ms": 221161
+        },
+        {
+          "source": "openrouter:glm-5-3-flashx",
+          "provider": "openrouter",
+          "model": "z-ai/glm-5.3-flashx",
+          "reasoningEffort": "medium",
+          "verdict": "APPROVE",
+          "criticalIssues": [
+            {
+              "id": "r1-glm-5-3-flashx-1",
+              "category": "ambiguity",
+              "text": "Item 3: specify that bridges must check the raw reader result (ok:false), since grokConfigBlock()/geminiConfig() return only the derived block and cannot distinguish parse failure from \"not configured\"."
+            },
+            {
+              "id": "r1-glm-5-3-flashx-2",
+              "category": "correctness",
+              "text": "Test plan omits a runConsensus hard-stop case on the unified server even though item 2 changes consensus from warning to hard stop."
+            },
+            {
+              "id": "r1-glm-5-3-flashx-3",
+              "category": "ops",
+              "text": "Note the mtime-staleness edge: chmod-only breakage won't invalidate a cached good read until mtime changes; document or accept explicitly."
+            }
+          ],
+          "summary": "The plan is executable as written. It correctly identifies the gap (fail-soft `{}` on read/parse errors in the grok/gemini bridges and the unified server vs. fail-closed in openrouter), defines a single shared rule with a precise definition of \"cannot be read\" (ok:false minus ENOENT), specifies per-surface behavior including tools that must keep working, and includes concrete tests per surface with hot-reload and missing-file cases. Doc updates match the repo's docs-in-same-PR rule. A capable developer can start from the named files and excerpts.",
+          "text": "**[APPROVE]**\n\n**Justification**: The plan is executable as written. It correctly identifies the gap (fail-soft `{}` on read/parse errors in the grok/gemini bridges and the unified server vs. fail-closed in openrouter), defines a single shared rule with a precise definition of \"cannot be read\" (ok:false minus ENOENT), specifies per-surface behavior including tools that must keep working, and includes concrete tests per surface with hot-reload and missing-file cases. Doc updates match the repo's docs-in-same-PR rule. A capable developer can start from the named files and excerpts.\n\n**Non-blocking notes** (not rejection reasons):\n- Implementation detail for item 3: `grokConfigBlock()`/`geminiConfig()` currently return only the derived provider block, so the \"ok:false\" check needs the raw reader result (e.g. a `configLoadError()` helper), not the existing block-returning wrappers. The plan implies this but doesn't say it.\n- Hot-reload edge: `chmod 000` alone doesn't change mtime, so a cached good read persists until the mtime changes. Test (d) is safe with fresh files; worth a comment so no one expects chmod to invalidate a warm cache.\n- Test list for the unified server names \"consensus-step dispatch_peers\" but not `runConsensus` itself (the warning→hard-stop change in item 2); add a case there.\n- Item 2's hard stop for consensus is a behavior change for users with a broken-but-ignored config — the docs step covers it, but calling it out in CHANGELOG wording would help.\n\nVERDICT: APPROVE\n- [ambiguity] Item 3: specify that bridges must check the raw reader result (ok:false), since grokConfigBlock()/geminiConfig() return only the derived block and cannot distinguish parse failure from \"not configured\".\n- [correctness] Test plan omits a runConsensus hard-stop case on the unified server even though item 2 changes consensus from warning to hard stop.\n- [ops] Note the mtime-staleness edge: chmod-only breakage won't invalidate a cached good read until mtime changes; document or accept explicitly.",
+          "ms": 9446
+        },
+        {
+          "source": "openrouter:gpt-6-1-sol",
+          "provider": "openrouter",
+          "model": "openai/gpt-6.1-sol",
+          "reasoningEffort": "medium",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r1-gpt-6-1-sol-1",
+              "category": "correctness",
+              "text": "Step 5 incorrectly promises next-call recovery: chmod does not normally change mtime, so cached permission failures can persist after repair and cached successes can hide newly unreadable config."
+            },
+            {
+              "id": "r1-gpt-6-1-sol-2",
+              "category": "ops",
+              "text": "Step 6 lacks acceptance coverage for several protected dispatch paths and for hosts starting with broken config, remaining alive through repair, and retaining usable diagnostics."
+            }
+          ],
+          "summary": "REJECT: Fix the reader’s mtime-only invalidation so permission failures and permission restoration are detected. Expand acceptance tests to cover all named dispatch paths, startup with broken config, permission-only recovery, and diagnostic availability. Confidence: high, based on the supplied reader implementation.",
+          "text": "**REJECT**\n\n**Justification:** The fail-closed policy is appropriate, preserves first-run defaults, and addresses the disabled-provider bypass. However, the claim that existing readers need no hot-reload changes is incorrect for permission errors. The proposed tests also omit several expressly protected dispatch paths and important startup/recovery scenarios.\n\n**Summary**\n- **Clarity:** Implementation locations and intended error behavior are actionable.\n- **Verifiability:** Good baseline, but incomplete dispatch and lifecycle coverage.\n- **Completeness:** Permission changes invalidate the assumed recovery behavior.\n- **Big Picture:** Scope is sound; recovery must work in already-running host sessions.\n\n**Blocking issues**\n\n1. **Step 5 — mtime-only caching does not support the promised permission-error recovery.** Changing file permissions normally changes `ctime`, not `mtime`. If the reader caches EACCES, fixing permissions can leave every provider blocked indefinitely. Conversely, a cached successful read can conceal a subsequent permission failure. Update cache invalidation to detect permission/access-state changes, and test both directions without restarting or rewriting the file. Clarify whether content edits preserving mtime are supported rather than promising unconditional next-call recovery.\n\n2. **Step 6 — acceptance coverage omits protected entry points and startup lifecycle cases.** Add coverage for `ask-all`, expert tools, and `consensus`, not only `consensus-step`. Exercise starting the server with invalid config and repairing it while that process remains alive, plus an error occurring after a previously successful read. Include permission restoration without an accompanying content write. Verify provider stubs remain untouched on every blocked dispatch path and that non-provider diagnostic tools remain usable.\n\n<SUMMARY>\nREJECT: Fix the reader’s mtime-only invalidation so permission failures and permission restoration are detected. Expand acceptance tests to cover all named dispatch paths, startup with broken config, permission-only recovery, and diagnostic availability. Confidence: high, based on the supplied reader implementation.\n</SUMMARY>\n\nVERDICT: REQUEST_CHANGES\n- [correctness] Step 5 incorrectly promises next-call recovery: chmod does not normally change mtime, so cached permission failures can persist after repair and cached successes can hide newly unreadable config.\n- [ops] Step 6 lacks acceptance coverage for several protected dispatch paths and for hosts starting with broken config, remaining alive through repair, and retaining usable diagnostics.",
+          "ms": 25696
+        },
+        {
+          "source": "openrouter:gemini-3-8-flash",
+          "provider": "openrouter",
+          "model": "google/gemini-3.8-flash",
+          "reasoningEffort": "high",
+          "verdict": "APPROVE",
+          "criticalIssues": [],
+          "summary": "Verdict: APPROVE. The plan is well-specified, consistent across the unified server and all three bridges, and safe for first-run users. Hot reload works via the existing mtime stat-gating. Confidence: 95%.",
+          "text": "**[APPROVE]**\n\n**Justification**: The plan cleanly resolves the fail-closed gap from PR #295 across all four surfaces (unified MCP server and the Grok, Gemini, and OpenRouter bridges). It builds on the existing stat-gated `makeConfigReader`, preserves the default behavior for missing config files (`ENOENT`), supports hot-reload upon fixing file typos, and defines executable test cases and doc updates.\n\n**Observations for implementation (non-blocking)**:\n1. **Consensus tool test**: In Step 6, add an explicit test for the top-level `consensus` tool alongside `consensus-step dispatch_peers` to verify that config failure becomes a hard stop rather than a warning.\n2. **Generated files sync**: Updating `docs/tool-guide.md` triggers host generator changes; ensure `npm run sync` is run so `npm run sync:check` passes in CI per `AGENTS.md`.\n3. **Response wrapping**: In `server/mcp/index.js`, ensure `configErrorResult` matches the wrapping pattern of `disabledResult` (`{ content: [{ type: \"text\", text: JSON.stringify({ result: configErrorResult(...) }) }] }`) so host agents parse it cleanly.\n\n<SUMMARY>\nVerdict: APPROVE. The plan is well-specified, consistent across the unified server and all three bridges, and safe for first-run users. Hot reload works via the existing mtime stat-gating. Confidence: 95%.\n</SUMMARY>\n\nVERDICT: APPROVE",
+          "ms": 99109
+        }
+      ],
+      "roundMs": 221161,
+      "slowest": "grok",
+      "adjudication": [
+        {
+          "issueId": "r1-grok-1",
+          "source": "grok",
+          "decision": "accept",
+          "reason": "True: unified ask-* wrap results as {result:{...}} in content text, the bridges send MCP content plus errorKind, openrouter-list returns a JSON payload. The revision will specify each envelope."
+        },
+        {
+          "issueId": "r1-grok-2",
+          "source": "grok",
+          "decision": "accept",
+          "reason": "Same as the host's own blind issue: makeRuntime and buildServer snapshot these at startup, so a server started on a broken file runs on built-in pins after the fix."
+        },
+        {
+          "issueId": "r1-grok-3",
+          "source": "grok",
+          "decision": "accept",
+          "reason": "Raised also by glm; the guard must sit on the reader result in the one path each surface dispatches through, not only beside named tools."
+        },
+        {
+          "issueId": "r1-glm-5-3-flashx-1",
+          "source": "openrouter:glm-5-3-flashx",
+          "decision": "accept",
+          "reason": "Duplicate of grok's fail-open point; the revision exposes the reader result to the guard."
+        },
+        {
+          "issueId": "r1-glm-5-3-flashx-2",
+          "source": "openrouter:glm-5-3-flashx",
+          "decision": "accept",
+          "reason": "consensus changes from warning to hard stop, so it needs its own test."
+        },
+        {
+          "issueId": "r1-glm-5-3-flashx-3",
+          "source": "openrouter:glm-5-3-flashx",
+          "decision": "accept",
+          "reason": "Verified: chmod changes ctime, not mtime, so the mtime-keyed cache misses it in both directions. Same issue as gpt-6-1-sol."
+        },
+        {
+          "issueId": "r1-gpt-6-1-sol-1",
+          "source": "openrouter:gpt-6-1-sol",
+          "decision": "accept",
+          "reason": "Verified as above; the cache key will include ctimeMs and size."
+        },
+        {
+          "issueId": "r1-gpt-6-1-sol-2",
+          "source": "openrouter:gpt-6-1-sol",
+          "decision": "accept",
+          "reason": "The broken-at-start case is the realistic host case (server starts at session start) and is now a required test, with ask-all, expert tools and consensus added."
+        },
+        {
+          "issueId": "r1-host-1",
+          "source": "host",
+          "decision": "accept",
+          "reason": "Kept from the blind verdict; grok raised the same issue independently."
+        },
+        {
+          "issueId": "r1-host-2",
+          "source": "host",
+          "decision": "accept",
+          "reason": "Kept: a terminal stop would discard a live session over a typo; it must return an error and stay in await_peers."
+        }
+      ],
+      "hostVerdict": "REQUEST_CHANGES",
+      "revision": "Review this plan before it is implemented. Check correctness, user impact (a JSON typo now blocks every call; hot reload; first-run users; hosts that start the server before the user fixes the file), consistency across the unified server and the three bridges, and missing tests.\n\nSUBJECT: follow-up to pull request #295 (merge commit c8cf5f9, \"fix(mcp): refuse calls to a provider disabled in config\"). That PR made every tool refuse a provider with providers.<name>.enabled: false. It left one gap: when the config file exists but cannot be read, the grok and gemini bridges and the unified server treat every provider as ENABLED, while the openrouter bridge refuses. So a user who disabled a provider and then breaks the JSON gets that provider called again.\n\nPLAN (revision v2; changes from v1 are marked [v2])\n\nGoal: when ~/.config/deliberation/config.json exists but cannot be read or parsed, every provider call fails closed with errorKind \"config\" and a message naming the file and the error, instead of falling back to defaults. A missing config file keeps today's defaults.\n\n1. Shared message in core/provider.js: configErrorMessage(error, configPath) returns \"Deliberation config at <path> could not be read (<error>). Fix the file or move it aside; with no file, the defaults apply.\" \"Cannot be read\" = the reader returns ok:false: JSON parse failure, and any read error other than ENOENT (EACCES, EISDIR). ENOENT stays ok:true with defaults (unchanged). [v2] This is a message helper only; each surface wraps it in its own existing envelope (step 3), never returns a bare object.\n\n2. [v2] Reader cache key (server/openrouter/config.js makeConfigReader): re-read when any of mtimeMs, ctimeMs, size or ino changes, not mtime alone. chmod changes ctime but not mtime, so today a cached good read hides a newly unreadable file and a cached EACCES survives the repair. A stat failure other than ENOENT (e.g. the parent directory loses search permission) is itself an ok:false result, not a cache hit.\n\n3. [v2] Where the guard sits and what each surface returns. The guard reads the raw reader result (ok:false), never a derived block: grokConfigBlock(), geminiConfig() and getConfig() keep their {} fallbacks for model/timeout pins, but they are no longer consulted for the \"may I call a provider\" decision.\n   a. Unified server, ask-gpt/ask-gemini/ask-grok/ask-openrouter and ask-one: same envelope as the disabled refusal today: content text JSON { result: { provider, isError: true, errorKind: \"config\", retryable: false, ms: 0, message } }.\n   b. Unified server, ask-all and the eight expert tools: their normal envelope with zero provider results, plus top-level error (the shared message) and errorKind \"config\"; MCP isError true. No provider is called.\n   c. Unified server, consensus (server-arbiter): terminal { status: \"unresolved\", stopReason: \"config-error\", error: message } - the same shape as the existing stopReasons (no-providers, budget-exhausted). Today it only pushes a \"config not loaded\" warning and dispatches anyway.\n   d. Unified server, consensus-step: init, record_blind, submit_adjudication and submit_revision are local transitions and keep working. dispatch_peers returns { error: \"config\", errorKind: \"config\", message, status: \"await_peers\" } and leaves the session state untouched, so the user fixes the file and calls dispatch_peers again in the same session. It is NOT terminal.\n   e. In addition to the tool-level checks, one backstop in the unified server's shared provider call path (the wrapper every provider call goes through, where runContext is set): if the reader is ok:false, the call returns the config error without reaching the adapter. A new tool that forgets the tool-level check still fails closed.\n   f. Grok and Gemini bridges: at the top of every tools/call branch that reaches xAI or agy (grok, grok-reply, gemini, gemini-reply), read the reader result first; on ok:false send { content: [{ type: \"text\", text: \"Error: \" + message }], isError: true, errorKind: \"config\", retryable: false } and logCall(id, name, \"config\", ms). The Gemini bridge gains the logCall it lacks today. Tools with no provider request (grok file listing/cleanup) keep working.\n   g. OpenRouter bridge: already fails closed; switch the text to the shared message. openrouter-list keeps its JSON payload shape ({ delegates: [], selected: [] ...}) with error = the shared message and a new errorKind: \"config\" field.\n\n4. [v2] Server started on a broken file (\"late start\"). The unified server reads providers.<name>.model, reasoningEffort and timeout once at startup (makeRuntime constructor args) and clones startupConfig once. If that first read was ok:false, those snapshots are empty and would stay empty after the user fixes the file, so calls would silently run on built-in pins until a restart. Fix: extract the provider construction in makeRuntime into buildProviders(providersConfig). When the startup read failed, the server records startupFailed = true; on the first later ok:true read it rebuilds the providers from that read, swaps them into the registry, and re-clones startupConfig from it, once. After that, the normal rule applies (pins need a restart; enabled is live). A start with a good file is unchanged.\n\n5. Hot reload: with steps 2 and 4, fixing the file (content or permissions) clears the error on the next call with no restart, including for a server that started on the broken file.\n\n6. Tests (new file test/config-fail-closed.test.js). Per surface - unified ask-* and ask-one, ask-all, one expert tool, consensus, consensus-step dispatch_peers, grok bridge, gemini bridge, openrouter bridge (+ openrouter-list):\n   (a) bad JSON -> errorKind config, the message names the path and the parse error, the provider stub is never called;\n   (b) fix the file in place -> the next call succeeds (hot reload);\n   (c) missing file -> defaults, calls go through;\n   (d) EACCES via chmod 000 on a previously good file with a cached read, then chmod 644 -> errorKind config, then success (skipped on Windows and as root).\n   Plus: [v2] (e) broken at process start, fixed in place: the next ask uses the file's model and timeout and still honors enabled:false; (f) consensus-step: dispatch_peers on a broken file returns the error, the session stays in await_peers, a second dispatch_peers after the fix proceeds to await_adjudication; (g) the call-path backstop refuses when the tool-level check is bypassed (call the wrapper directly).\n\n7. Docs: TECHNICAL.md (config load states, the new stopReason), SETUP.md (what a typo does and how to recover), docs/tool-guide.md (errorKind config), README config summary.\n\nOut of scope: schema-validation warnings that do not make the reader fail (unknown keys, bad values the validator replaces with defaults) keep today's warn-and-continue behavior. Pins changing on an ordinary (good -> good) edit still need a restart, as today.\n\nRELEVANT CODE (excerpts at c8cf5f9)\n\ncore/provider.js:\n```js\nfunction providerEnabled(config, name) {\n  const p = config && config.providers && config.providers[name];\n  return !p || p.enabled !== false;\n}\n```\n\nserver/openrouter/config.js - the one reader every surface uses:\n```js\nfunction makeConfigReader(filePath, env = process.env) {\n  let cachedMtimeMs = null; let cachedResult = null;\n  function read() {\n    let raw;\n    try { raw = fs.readFileSync(filePath, \"utf8\"); }\n    catch (err) {\n      if (err && err.code === \"ENOENT\") return { ok: true, error: null, resolved: { configLoadState: \"missing\", providers: {}, ... } };\n      return fail(`read failed: ${err.message}`);\n    }\n    let parsed;\n    try { parsed = JSON.parse(raw); } catch (err) { return fail(`JSON parse failed: ${err.message}`); }\n    return validateConfig(parsed, env);\n  }\n  return { get() {\n    let mtimeMs = null; try { mtimeMs = fs.statSync(filePath).mtimeMs; } catch (_) { mtimeMs = null; }\n    if (cachedResult === null || mtimeMs !== cachedMtimeMs) { cachedResult = read(); cachedMtimeMs = mtimeMs; }\n    return cachedResult;\n  } };\n}\n// fail(message) => { ok: false, resolved: null, error: message }\n```\n\nserver/grok/index.js and server/gemini/index.js (same pattern):\n```js\nfunction grokConfigBlock() {\n  try {\n    if (!configReader) configReader = makeConfigReader(resolveConfigPath());\n    const r = configReader.get();\n    return (r && r.resolved && r.resolved.providers && r.resolved.providers.grok) || {};\n  } catch { return {}; }\n}\nif ((name === \"grok\" || name === \"grok-reply\") && !providerEnabled({ providers: { grok: grokConfigBlock() } }, \"grok\")) {\n  logCall(id, name, \"disabled\", 0);\n  sendResponse(id, { content: [{ type: \"text\", text: `Error: ${disabledMessage(\"grok\", resolveConfigPath())}` }], isError: true, errorKind: \"disabled\", retryable: false });\n  return;\n}\n// gemini: same, via geminiConfig(), and no logCall\n```\n\nserver/openrouter/index.js:\n```js\nconst cfg = configReader.get();\nif (!cfg.ok) {\n  if (name === \"openrouter-list\") { /* { delegates: [], selected: [], error: cfg.error } */ return; }\n  sendResponse(id, errorResult(id, { code: \"config\", message: cfg.error }, name, startedAt)); // errorKind \"config\"\n  return;\n}\n```\n\nserver/mcp/index.js:\n```js\n// makeRuntime\nconst reader = makeConfigReader(resolveConfigPath());\nconst getConfig = () => (reader.get().resolved || { providers: {}, openrouter: {} });\nconst getConfigError = () => { const r = reader.get(); return r && r.ok === false ? (r.error || \"config load failed\") : null; };\nconst initialProviders = getConfig().providers || {};\nconst providers = [ makeCodexProvider({ model: codexCfg.model, reasoningEffort: ..., timeoutMs: providerTimeout(\"codex\") }), makeGeminiProvider({...}), ... ];\n// buildServer\nconst startupConfig = structuredClone(getConfig() || {});\nconst activeConfig = () => effectiveConfig(getConfig() || {}, startupConfig);\nconst dispatchConfig = () => runContext.getStore()?.config || activeConfig();\n// core/settings.js effectiveConfig: providers keep their startup settings; only `enabled` is read live.\n// ask-*: if (!providerEnabled(dispatchConfig(), p.name)) return { content: [{ type: \"text\", text: JSON.stringify({ result: disabledResult(p.name) }) }] };\n// runConsensus: const cfgErr = getConfigError(); if (cfgErr) warnings.push(`config not loaded: ${cfgErr}`);  // then dispatches anyway\n```\n\nExisting tests: test/provider-disabled.test.js PD1-PD10 cover the disabled flag on every surface and hot reload on the Grok bridge. No test covers a broken config on any surface.\n\nContext: Deliberation is a local MCP server (plus three standalone bridge MCP servers) that hosts like Claude Code, Codex, Cursor and Gemini CLI start at session start. The config file is optional; first-run users have none. Node 18+, no runtime dependencies.",
+      "revisionSummary": "v2: per-surface result envelopes; guard on the raw reader result in each surface's dispatch path; reader cache keyed on mtime+ctime+size+ino (chmod); late start rebuilds startup-only pins on the first good read; consensus-step dispatch_peers stays resumable; tests for broken-at-start, chmod, consensus, ask-all and expert tools.",
+      "convergence": {
+        "converged": false,
+        "reason": "Two of four peers (grok, openrouter:gpt-6-1-sol) voted REQUEST_CHANGES, and the host accepted all 10 critical issues in the pool (8 from peers, 2 from its own blind verdict), so the plan went back for a revision."
+      }
+    },
+    {
+      "n": 2,
+      "hostBlindVerdict": {
+        "verdict": "APPROVE",
+        "summary": "v2 closes every round-1 gap - concrete per-surface envelopes, a guard on the raw reader result, a chmod-aware cache, a resumable dispatch_peers and a late-start rebuild of the pins - so the plan is ready to implement.",
+        "criticalIssues": [],
+        "text": "**Verdict**: APPROVE\n**Critical issues** (must-fix; empty = none):\n  (none)\n**One-line bottom line**: v2 closes every round-1 gap - concrete per-surface envelopes, a guard on the raw reader result, a chmod-aware cache, a resumable dispatch_peers and a late-start rebuild of the pins - so the plan is ready to implement.\n\nNon-blocking notes:\n- The late-start rebuild (step 4) swaps provider instances; any per-instance state on the old ones (a pending codex device login) is dropped. Acceptable because a broken start has made no provider call yet, but say so in a code comment.\n- A non-atomic editor save can expose a half-written file for a moment, so one call can fail closed in that window. It returns errorKind config and the next call succeeds; worth one line in SETUP.md.\n\nVERDICT: APPROVE"
+      },
+      "peers": [
+        {
+          "source": "grok",
+          "provider": "grok",
+          "model": "grok-4.7",
+          "reasoningEffort": "medium",
+          "verdict": "APPROVE",
+          "criticalIssues": [],
+          "summary": "APPROVE. v2 closes the fail-open gap, late-start pin freeze, and chmod cache hole with per-surface envelopes and tests that a developer can implement from the named bindings. No critical blockers. Confidence: high.",
+          "text": "**[APPROVE]**\n\n**Justification**: v2 is executable as written. Fail-closed is tied to the raw reader `ok: false` result (not `grokConfigBlock` / `geminiConfig` / `getConfig` fallbacks), each surface has an envelope that matches how that surface already reports failure, ENOENT stays defaults, and a broken start cannot freeze empty model/timeout pins because the first later `ok: true` read rebuilds providers and re-clones `startupConfig` once. Cache invalidation on `mtimeMs`+`ctimeMs`+`size`+`ino`, with non-ENOENT stat failure as `ok: false` rather than a cache hit, covers the chmod hole on Unix. Tests (a)–(g) are enough to prove the user-visible cases: typo blocks provider calls, in-place fix and missing file, late start, resumable `dispatch_peers`, and the unified call-path backstop.\n\nChecked, not blocking: a JSON typo blocks provider calls only (grok listing/cleanup still run); first-run with no file is unchanged; bridges read config live so they do not need the unified startup rebuild; permission-only hot reload is a Unix `ctime` behavior (the chmod test is already skipped on Windows and as root). Step 6’s blanket `errorKind: \"config\"` is overridden by the more specific consensus shape in 3c (`stopReason: \"config-error\"`).\n\n**Blocking issues**: none.\n\n<SUMMARY>\nAPPROVE. v2 closes the fail-open gap, late-start pin freeze, and chmod cache hole with per-surface envelopes and tests that a developer can implement from the named bindings. No critical blockers. Confidence: high.\n</SUMMARY>\n\nVERDICT: APPROVE",
+          "ms": 353102
+        },
+        {
+          "source": "openrouter:glm-5-3-flashx",
+          "provider": "openrouter",
+          "model": "z-ai/glm-5.3-flashx",
+          "reasoningEffort": "medium",
+          "verdict": "APPROVE",
+          "criticalIssues": [
+            {
+              "id": "r2-glm-5-3-flashx-1",
+              "category": "ambiguity",
+              "text": "step 3b: specify where `error` / `errorKind` sit inside ask-all's and the expert tools' envelope (e.g. `result.errorKind` vs top-level of the content JSON); current wording is inferable but not pinned."
+            },
+            {
+              "id": "r2-glm-5-3-flashx-2",
+              "category": "ops",
+              "text": "step 4: state how the rebuild is observed by tests/logs (a one-line log or a test hook), so the one-shot rebuild being skipped or double-fired is detectable."
+            }
+          ],
+          "summary": "v2 resolves the round-1 blockers (per-surface envelopes, guard on the raw reader result, mtime+ctime+size+ino cache key, late-start rebuild). Each task now names the file, function or path where the work happens, and the fallback semantics are stated explicitly (missing file keeps defaults; helper `{}` fallbacks retained but not used for the enable decision). Cross-surface consistency is covered surface-by-surface, including consensus and consensus-step resumability. Test plan (a)–(g) covers the failure modes raised: broken at start, chmod-with-hot-cache, hot reload, backstop bypass, and Windows/root skips. Hot reload logic is coherent: cache key change plus one-shot provider rebuild covers both content and permission fixes with and without a restart. Remaining nits (exact placement of ask-all's top-level error fields, wording of the shared message) are resolvable by a developer without blocking.",
+          "text": "**APPROVE**\n\n**Justification**: v2 resolves the round-1 blockers (per-surface envelopes, guard on the raw reader result, mtime+ctime+size+ino cache key, late-start rebuild). Each task now names the file, function or path where the work happens, and the fallback semantics are stated explicitly (missing file keeps defaults; helper `{}` fallbacks retained but not used for the enable decision). Cross-surface consistency is covered surface-by-surface, including consensus and consensus-step resumability. Test plan (a)–(g) covers the failure modes raised: broken at start, chmod-with-hot-cache, hot reload, backstop bypass, and Windows/root skips. Hot reload logic is coherent: cache key change plus one-shot provider rebuild covers both content and permission fixes with and without a restart. Remaining nits (exact placement of ask-all's top-level error fields, wording of the shared message) are resolvable by a developer without blocking.\n\nVERDICT: APPROVE\n\n- [ambiguity] step 3b: specify where `error` / `errorKind` sit inside ask-all's and the expert tools' envelope (e.g. `result.errorKind` vs top-level of the content JSON); current wording is inferable but not pinned.\n- [ops] step 4: state how the rebuild is observed by tests/logs (a one-line log or a test hook), so the one-shot rebuild being skipped or double-fired is detectable.\n\nConfidence: high (90%+).",
+          "ms": 6454
+        },
+        {
+          "source": "openrouter:gpt-6-1-sol",
+          "provider": "openrouter",
+          "model": "openai/gpt-6.1-sol",
+          "reasoningEffort": "medium",
+          "verdict": "APPROVE",
+          "criticalIssues": [],
+          "summary": "APPROVE — no blocking issues. The plan specifies consistent fail-closed behavior, recoverable hot reload, late-start initialization, and executable regression tests. Confidence: high based on the supplied excerpts; repository contents were not independently inspected.",
+          "text": "**APPROVE**\n\n**Justification**: The revised plan is executable from the supplied references and addresses the original fail-open behavior consistently. It preserves missing-file defaults, blocks unreadable configurations before provider dispatch, specifies surface-compatible responses, and covers recovery without restarting—including a broken configuration at startup. The provider-call backstop and resumable `consensus-step` behavior close the main bypass and workflow risks.\n\n**Summary**\n- **Clarity**: Implementation locations, guard placement, and response envelopes are sufficiently specified.\n- **Verifiability**: Concrete tests cover blocked dispatch, recovery, permissions, startup pins, and session continuity.\n- **Completeness**: First-run behavior, schema-warning exclusions, and ordinary restart-only settings are explicit.\n- **Big Picture**: The change stays focused on configuration-read failures while preserving existing configuration semantics.\n\nNo critical issues identified from the supplied code and plan.\n\n<SUMMARY>\nAPPROVE — no blocking issues. The plan specifies consistent fail-closed behavior, recoverable hot reload, late-start initialization, and executable regression tests. Confidence: high based on the supplied excerpts; repository contents were not independently inspected.\n</SUMMARY>\n\nVERDICT: APPROVE",
+          "ms": 19153
+        },
+        {
+          "source": "openrouter:gemini-3-8-flash",
+          "provider": "openrouter",
+          "model": "google/gemini-3.8-flash",
+          "reasoningEffort": "high",
+          "verdict": "APPROVE",
+          "criticalIssues": [],
+          "summary": "Plan approved. The v2 revision resolves all prior envelope, cache invalidation, and startup snapshot gaps with exact per-surface result shapes, robust stat caching, a late-start provider rebuild mechanism, and comprehensive tests across all unified tools and provider bridges. No blocking issues found. Confidence: 95%.",
+          "text": "**[APPROVE]**\n\n**Justification**: The revision (v2) is concrete, well-scoped, and directly addresses every edge case from Round 1. It provides exact per-surface response envelopes, ensures cache invalidation on permissions (`ctime`) as well as modifications, cleanly handles the \"late start\" provider rebuild problem without breaking immutability guarantees for good starts, preserves session resumability in `consensus-step`, and specifies an exhaustive test matrix covering all surfaces. A capable developer can implement this plan without ambiguity or getting stuck.\n\n<SUMMARY>\nPlan approved. The v2 revision resolves all prior envelope, cache invalidation, and startup snapshot gaps with exact per-surface result shapes, robust stat caching, a late-start provider rebuild mechanism, and comprehensive tests across all unified tools and provider bridges. No blocking issues found. Confidence: 95%.\n</SUMMARY>\n\nVERDICT: APPROVE",
+          "ms": 43066
+        }
+      ],
+      "roundMs": 353102,
+      "slowest": "grok",
+      "adjudication": [
+        {
+          "issueId": "r2-glm-5-3-flashx-1",
+          "source": "openrouter:glm-5-3-flashx",
+          "decision": "dismiss",
+          "reason": "Step 3b already says top-level of the content JSON next to the zero-result list, and MCP isError true; the reviewer calls it inferable and still approves."
+        },
+        {
+          "issueId": "r2-glm-5-3-flashx-2",
+          "source": "openrouter:glm-5-3-flashx",
+          "decision": "defer",
+          "reason": "Test 6(e) already asserts the rebuild through its effect (the repaired model and timeout are used); a log line is a good implementation detail, not a plan gap."
+        }
+      ],
+      "hostVerdict": "APPROVE",
+      "revision": null,
+      "revisionSummary": null,
+      "convergence": {
+        "converged": true,
+        "reason": "Every responding peer (4 of 4) voted APPROVE, none REJECTED, the two issues listed by openrouter:glm-5-3-flashx were dismissed or deferred with a reason, and the host adjudicated APPROVE."
+      }
+    }
+  ],
+  "outcome": {
+    "verdict": "APPROVE",
+    "converged": true,
+    "rounds": 2,
+    "confidence": "medium",
+    "finalReportHeadline": "CONVERGED in 2 round(s) (confidence: medium)",
+    "openDissent": [],
+    "nonBlockingThemes": [
+      {
+        "theme": "The one-shot late-start rebuild should be observable (a log line or a test hook) so a skipped or double-fired rebuild is detectable; deferred to implementation because test 6(e) asserts its effect.",
+        "raisedBy": [
+          "openrouter:glm-5-3-flashx"
+        ]
+      },
+      {
+        "theme": "The late-start rebuild swaps provider instances, so per-instance state on the old ones (a pending codex device login) is dropped; acceptable because a broken start has made no provider call yet.",
+        "raisedBy": [
+          "host (blind)"
+        ]
+      },
+      {
+        "theme": "A non-atomic editor save can expose a half-written file for a moment, so one call can fail closed in that window and the next succeeds.",
+        "raisedBy": [
+          "host (blind)"
+        ]
+      },
+      {
+        "theme": "Permission-only hot reload relies on Unix ctime; the chmod test is skipped on Windows and as root.",
+        "raisedBy": [
+          "grok"
+        ]
+      }
+    ]
+  },
+  "notes": [
+    "Recorded live with the consensus-step MCP tool; the host drove the loop as arbiter per commands/consensus.md.",
+    "The question is a real follow-up left open by pull request #295: the host wrote plan v1 from the code at that merge, put it to the panel, and wrote v2 from the accepted issues. No reviewer was asked to disagree.",
+    "Peer text, verdicts, critical issues, models, reasoning effort and ms are verbatim from the run journal; round 2 texts also match the persisted session record byte for byte. Model replies may contain non-ASCII punctuation; it is kept as returned.",
+    "Each peer summary is copied verbatim from the reply's <SUMMARY> block, from its **Summary** line, or, when the reply has neither (openrouter:glm-5-3-flashx in both rounds), from its **Justification** line.",
+    "In round 1, grok and openrouter:gpt-6-1-sol open their replies with a REJECT heading but end with VERDICT: REQUEST_CHANGES; the engine reads the final VERDICT line, so both count as REQUEST_CHANGES.",
+    "openrouter:glm-5-3-flashx voted APPROVE in both rounds and still listed bullets; the engine counts every bullet as a critical issue, so the host ruled on each one.",
+    "Trimmed as boilerplate: per-call provenance (runtime, activation, attempt and config ids, the config snapshot), the full loop and session ids, and the engine finalReport body, which repeats rounds[0].revision word for word.",
+    "subject.title, revisionSummary (the diffSummary sent with submit_revision), convergence.reason and outcome.nonBlockingThemes are written by the host; the engine returns converged, verdict and confidence only."
+  ]
+}

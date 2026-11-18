@@ -1,0 +1,15 @@
+---
+// Plausible analytics (cookieless). Production builds only, so `astro dev` sends nothing. A
+// production build served locally (astro preview) does load it; Plausible ignores localhost.
+// Disclosed in PRIVACY.md under "This website".
+const enabled = import.meta.env.PROD
+---
+{enabled && (
+  <>
+    <script is:inline async src="https://plausible.io/js/pa-sYF8gMBmNuO3YLgCkYTd-.js"></script>
+    <script is:inline>
+      window.plausible=window.plausible||function(){(plausible.q=plausible.q||[]).push(arguments)},plausible.init=plausible.init||function(i){plausible.o=i||{}};
+      plausible.init()
+    </script>
+  </>
+)}

@@ -1,0 +1,40 @@
+---
+// Talks about Deliberation, from the list in data/talks.ts.
+import Layout from '../layouts/Layout.astro'
+import { BASE, breadcrumbList, routeOf } from '../lib/seo.ts'
+import { plural } from '../lib/run-model.ts'
+import { talks } from '../data/talks.ts'
+
+const description = 'Talks about Deliberation, with their slides.'
+---
+<Layout title="Talks" description={description} jsonLd={[breadcrumbList([{ name: 'Home', slug: '' }, { name: 'Talks', slug: 'talks' }])]}>
+  <div class="doc">
+    <nav class="crumbs" aria-label="Breadcrumb" data-pagefind-ignore>
+      <ol><li><a href={routeOf('')}>Home</a></li><li aria-current="page">Talks</li></ol>
+    </nav>
+    <h1>Talks</h1>
+    <p class="lede">{talks.length === 1 ? 'One talk about Deliberation so far, with its slides.' : `${plural(talks.length, 'talk')} about Deliberation, with their slides.`}</p>
+    <ul class="talks">
+      {talks.map((t) => (
+        <li id={t.id}>
+          <a class="talk-cover" href={t.slides} aria-label={`Slides of ${t.title} (PDF on Dropbox)`}>
+            <img src={`${BASE}${t.cover.src}`} width={t.cover.width} height={t.cover.height} alt={t.cover.alt} loading="lazy" decoding="async" />
+          </a>
+          <div class="talk-text">
+            <h2>{t.title}</h2>
+            <p class="talk-line">{t.line}</p>
+            <dl class="facts">
+              <div><dt>Speaker</dt><dd>{t.speaker}</dd></div>
+              {t.event && <div><dt>Event</dt><dd>{t.event}</dd></div>}
+              {t.date && <div><dt>Date</dt><dd>{t.date}</dd></div>}
+              {t.slideCount && <div><dt>Slides</dt><dd>{t.slideCount}</dd></div>}
+            </dl>
+            <p>{t.about}</p>
+            <p><a class="go" href={t.slides}>Open the slides (PDF)</a></p>
+          </div>
+        </li>
+      ))}
+    </ul>
+    <nav class="pager" aria-label="Pages" data-pagefind-ignore><a href={routeOf('sample-runs')}>Sample runs</a><a href={routeOf('features')}>Features</a></nav>
+  </div>
+</Layout>

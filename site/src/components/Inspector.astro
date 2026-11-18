@@ -1,0 +1,219 @@
+---
+// The inspector of one recorded run: one prerendered panel per selectable element (a
+// peer answer, a host blind verdict, a round's adjudication). The capture script shows
+// one panel at a time. Response text is verbatim and escaped by the template. One more
+// panel holds the run's question and the init prompt the panel was sent.
+import Verdict from './Verdict.astro'
+import { type Run, blindState, dur, failed, rulingsLost, unrecorded, firstSentence, raisedBy, rulingIssue, panelId, plural, promptId, rulingOf, state, subjectKind, voices, word } from '../lib/run-model.ts'
+
+interface Props {
+  run: Run
+}
+const { run } = Astro.props
+const vs = voices(run)
+const host = vs[0]
+const voiceOf = (source: string) => vs.find((v) => v.source === source) ?? host
+---
+<div class="insp" hidden tabindex="-1" role="region" aria-label="Inspector">
+  {run.planUnderReview && (
+    <div class="insp-panel" id={promptId(run)} hidden>
+      <div class="insp-bar">
+        <h3><i class="swatch ih"></i>Prompt<span>what the panel was sent in round 1</span></h3>
+        <button type="button" class="insp-close" data-close>Close</button>
+      </div>
+      <div class="insp-body">
+        <div class="insp-side">
+          <dl class="facts">
+            <div><dt>Subject</dt><dd>{subjectKind(run)}</dd></div>
+            <div><dt>Expert</dt><dd>{run.expert}</dd></div>
+            <div><dt>Sent to</dt><dd>{plural(run.panel.length, 'reviewer')}</dd></div>
+            <div><dt>Length</dt><dd>{plural(run.planUnderReview.length, 'character')}</dd></div>
+          </dl>
+          <h4>Question, verbatim</h4>
+          <p class="ask">{run.question}</p>
+        </div>
+        <div class="insp-main">
+          <h4>Init prompt sent to the panel, verbatim</h4>
+          <pre class="payload" tabindex="0">{run.planUnderReview}</pre>
+        </div>
+      </div>
+    </div>
+  )}
+  {run.rounds.map((r) => (
+    <>
+      <div class="insp-panel" id={panelId(run, r, 'blind')} hidden>
+        <div class="insp-bar">
+          <h3><i class="swatch ih"></i>host agent <Verdict v={blindState(r)} /><span>blind verdict, round {r.n}</span></h3>
+          <button type="button" class="insp-close" data-close>Close</button>
+        </div>
+        {r.hostBlindVerdict ? (
+          <div class="insp-body">
+            <div class="insp-side">
+              <dl class="facts">
+                <div><dt>Verdict</dt><dd>{word(r.hostBlindVerdict.verdict)}</dd></div>
+                <div><dt>Voice</dt><dd>host agent, the arbiter</dd></div>
+                <div><dt>Recorded</dt><dd>before the panel was revealed</dd></div>
+                <div><dt>Critical issues</dt><dd>{r.hostBlindVerdict.criticalIssues.length}</dd></div>
+              </dl>
+              {r.hostBlindVerdict.criticalIssues.length > 0 && (
+                <>
+                  <h4>Critical issues</h4>
+                  <ul class="ilist">
+                    {r.hostBlindVerdict.criticalIssues.map((c) => <li><span class="cat">{c.category}</span> {c.text}</li>)}
+                  </ul>
+                </>
+              )}
+            </div>
+            <div class="insp-main">
+              <h4>Verdict text, verbatim</h4>
+              <pre class="payload" tabindex="0">{r.hostBlindVerdict.text}</pre>
+            </div>
+          </div>
+        ) : (
+          <div class="insp-body">
+            <div class="insp-side">
+              <dl class="facts">
+                <div><dt>Verdict</dt><dd>not recorded</dd></div>
+                <div><dt>Voice</dt><dd>host agent, the arbiter</dd></div>
+                <div><dt>Critical issues</dt><dd>not recorded</dd></div>
+              </dl>
+            </div>
+            <div class="insp-main">
+              <h4>Blind verdict not recorded</h4>
+              <p class="lost">The host agent's blind verdict for this round was not kept, so none is shown here.</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {r.peers.map((p) => {
+        const v = voiceOf(p.source)
+        const lost = failed(p)
+        return (
+          <div class="insp-panel" id={panelId(run, r, p.source)} hidden>
+            <div class="insp-bar">
+              <h3><i class={`swatch i${v.ink}`}></i>{v.label} <Verdict v={state(p)} /><span>round {r.n}{lost && ', no answer'}</span></h3>
+              <button type="button" class="insp-close" data-close>Close</button>
+            </div>
+            <div class="insp-body">
+              <div class="insp-side">
+                <dl class="facts">
+                  {lost ? (
+                    <>
+                      <div><dt>Verdict</dt><dd>none, the call failed</dd></div>
+                      <div><dt>Error</dt><dd>{p.errorKind ?? 'error'}</dd></div>
+                      <div><dt>Ended after</dt><dd>{dur(p.ms)}</dd></div>
+                    </>
+                  ) : unrecorded(p) ? (
+                    <>
+                      <div><dt>Verdict</dt><dd>not recorded</dd></div>
+                      <div><dt>Call time</dt><dd>{dur(p.ms)}</dd></div>
+                    </>
+                  ) : (
+                    <>
+                      <div><dt>Verdict</dt><dd>{word(state(p))}</dd></div>
+                      <div><dt>Time</dt><dd>{dur(p.ms)}</dd></div>
+                    </>
+                  )}
+                  <div><dt>Model</dt><dd>{p.model}</dd></div>
+                  <div><dt>Reasoning</dt><dd>{p.reasoningEffort ?? 'default'}</dd></div>
+                </dl>
+                {!lost && !(unrecorded(p) && p.criticalIssues.length === 0) && <h4>{plural(p.criticalIssues.length, 'critical issue')}</h4>}
+                {p.criticalIssues.length > 0 && (
+                  <ul class="ilist">
+                    {p.criticalIssues.map((c) => {
+                      const ruling = rulingOf(r, c.id)
+                      return (
+                        <li>
+                          <span class="cat">{c.category}</span> {c.text}
+                          {ruling && <span class="why"><b class={`rul ${ruling.decision}`}>{ruling.decision}</b> {ruling.reason}</span>}
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )}
+              </div>
+              <div class="insp-main">
+                {lost ? (
+                  <>
+                    <h4>No response</h4>
+                    <p class="lost">{p.message ? <>The call ended with: <code>{p.message}</code></> : 'The call failed before the reviewer answered.'}</p>
+                    <p class="lost">A failed call is not a vote. It does not count toward convergence, and it leaves no issues for the host agent to rule on.</p>
+                  </>
+                ) : p.text ? (
+                  <>
+                    <h4>Response, verbatim</h4>
+                    {unrecorded(p) && <p class="lost">The engine read no verdict from this reply, so it is not counted as a vote.</p>}
+                    <pre class="payload" tabindex="0">{p.text}</pre>
+                  </>
+                ) : unrecorded(p) ? (
+                  <>
+                    <h4>Verdict not recorded</h4>
+                    <p class="lost">The call returned after {dur(p.ms)} without an error, but neither its verdict nor its text was kept. Only the timing is known.</p>
+                    <p class="lost">An answer with no recorded verdict is not counted as a vote, and it is not a failed call.</p>
+                  </>
+                ) : (
+                  <>
+                    <h4>Response</h4>
+                    <p class="lost">The recording holds no response text for this answer.</p>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        )
+      })}
+
+      <div class="insp-panel" id={panelId(run, r, 'ruling')} hidden>
+        <div class="insp-bar">
+          <h3><i class="swatch ih"></i>host agent <Verdict v={r.hostVerdict} /><span>adjudication, round {r.n}</span></h3>
+          <button type="button" class="insp-close" data-close>Close</button>
+        </div>
+        <div class="insp-body">
+          <div class="insp-side">
+            <dl class="facts">
+              <div><dt>Host verdict</dt><dd>{word(r.hostVerdict)}</dd></div>
+              <div><dt>Round</dt><dd>{r.convergence.converged ? 'converged' : 'not converged'}</dd></div>
+              <div><dt>Rulings</dt><dd>{rulingsLost(r) ? 'not recorded' : r.adjudication.length}</dd></div>
+              {rulingsLost(r) && r.acceptedIssues != null && <div><dt>Accepted</dt><dd>{plural(r.acceptedIssues, 'issue')}</dd></div>}
+              <div><dt>Round time</dt><dd>{dur(r.roundMs)}</dd></div>
+            </dl>
+            <h4>Why the round closed this way</h4>
+            <p>{r.convergence.reason}</p>
+            {r.revisionSummary && (
+              <>
+                <h4>Revision sent to the next round</h4>
+                <p>{r.revisionSummary}</p>
+              </>
+            )}
+          </div>
+          <div class="insp-main">
+            <h4>{rulingsLost(r) ? 'Rulings not recorded' : `${plural(r.adjudication.length, 'ruling')}, with the reason the host agent wrote`}</h4>
+            {rulingsLost(r) ? (
+              <p class="lost">
+                The host agent ruled on this round, but its individual rulings and reasons were not kept. What survives is its verdict, {word(r.hostVerdict)}
+                {r.acceptedIssues != null && <>, and the count of critical issues it accepted, {r.acceptedIssues}</>}.
+              </p>
+            ) : r.adjudication.length > 0 ? (
+              <ul class="ilist">
+                {r.adjudication.map((a) => {
+                  const issue = rulingIssue(r, a)
+                  const v = raisedBy(vs, a.source)
+                  return (
+                    <li>
+                      <b class={`rul ${a.decision}`}>{a.decision}</b> <span class={`v i${v.ink}`}>{v.label}</span>{' '}
+                      {issue && firstSentence(issue.text)}
+                      <span class="why">{a.reason}</span>
+                    </li>
+                  )
+                })}
+              </ul>
+            ) : (
+              <p>No reviewer listed a critical issue, so there was nothing to rule on.</p>
+            )}
+          </div>
+        </div>
+      </div>
+    </>
+  ))}
+</div>

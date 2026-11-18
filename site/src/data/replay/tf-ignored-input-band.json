@@ -1,0 +1,1170 @@
+{
+  "id": "tf-ignored-input-band",
+  "recordedAt": "2026-11-02T20:10:55.995Z",
+  "deliberationVersion": "4.0.0",
+  "runId": "0235dc27",
+  "provenance": "recovered",
+  "tool": "consensus-step",
+  "expert": "architect",
+  "question": "Decide the severity band in a Terraform module PR reviewer (Check G, rule compat.expression-behaviour-changed) for a change that makes an input the module previously IGNORED on one code path take effect there.",
+  "subject": {
+    "type": "question",
+    "related": "https://github.com/terraform-aws-modules/terraform-aws-eventbridge/pull/212",
+    "title": "Is passing an ignored input to a Terraform data source a breaking change?",
+    "short": "Terraform ignored input"
+  },
+  "planUnderReview": "Decide the severity band in a Terraform module PR reviewer (Check G, rule compat.expression-behaviour-changed) for a change that makes an input the module previously IGNORED on one code path take effect there.\n\nCurrent Severity rule (check-g-behaviour.md): CRITICAL when a value the variable's type accepts and its description allows now plans differently and the change does not declare a break; HIGH when it declares the break with no migration path; LOW when the only inputs affected are ones the provider rejects or the description rules out (a value the module silently dropped now errors). Verdict ladder: rule 0 = any CRITICAL whose CRITICAL/HIGH are all compat.* -> \"hold for next major\" (COMMENT); HIGH/MEDIUM -> block (REQUEST_CHANGES, rules 1/2/6); LOW only -> approve with nits (COMMENT). The interface rules of Check A own changed inputs/outputs/types/defaults/addresses; this rule covers same interface, different behaviour.\n\nMotivating case: terraform-aws-modules/terraform-aws-eventbridge#212 \"fix: Add region to aws_cloudwatch_event_bus data source\". With create_bus = false, the module looked up an existing bus via a data source that ignored var.region (read in the provider's region), while the module's other resources already used var.region. The PR adds region = var.region to the data source. Callers with region = null see no change; callers who set region to another region now read the bus in that region, so derived ARNs change. Maintainers merged it as a patch fix. Two reviewer runs of the same diff rated it CRITICAL (-> hold for next major) and then LOW, because no rule covers this case.\n\nOptions:\nA) New LOW band: when the only callers affected set an input the base ignored on that path, and the head gives it the effect its name and description state (the same effect it already has on the module's other resources), rate LOW; summary names the input, path and observable change and asks for a release note. No major release.\nB) Same condition, MEDIUM (blocks with REQUEST_CHANGES until the description states the change for those callers; once stated, LOW).\nC) Keep CRITICAL (any caller-observable change for an allowed value is a break), add only guidance that the summary call it a fix of an ignored input.\nD) Other.\n\nConstraints: no provider facts from memory; the band must be decidable by the reviewer from the code diff and the variable's description; it must not open a loophole where any behaviour change is relabelled a 'fix' to dodge CRITICAL (e.g. require the input to already apply elsewhere in the module, or its description to promise the effect). Give the exact condition wording you would put in the rule.",
+  "panel": [
+    {
+      "provider": "codex",
+      "source": "codex",
+      "model": "gpt-6.1-sol",
+      "reasoningEffort": "high",
+      "role": "peer"
+    },
+    {
+      "provider": "gemini",
+      "source": "gemini",
+      "model": "gemini-3.8-flash-high",
+      "reasoningEffort": null,
+      "role": "peer"
+    },
+    {
+      "provider": "grok",
+      "source": "grok",
+      "model": "grok-4.7",
+      "reasoningEffort": "medium",
+      "role": "peer"
+    },
+    {
+      "provider": "openrouter",
+      "source": "openrouter:glm-5-3-flashx",
+      "model": "z-ai/glm-5.3-flashx",
+      "reasoningEffort": "medium",
+      "role": "peer"
+    }
+  ],
+  "arbiter": {
+    "kind": "host"
+  },
+  "limits": {
+    "maxRounds": 5
+  },
+  "steps": [
+    {
+      "action": "init",
+      "status": "await_blind",
+      "round": 1
+    },
+    {
+      "action": "record_blind",
+      "status": "await_peers",
+      "round": 1
+    },
+    {
+      "action": "dispatch_peers",
+      "status": "await_adjudication",
+      "round": 1
+    },
+    {
+      "action": "submit_adjudication",
+      "status": "await_revision",
+      "round": 1
+    },
+    {
+      "action": "submit_revision",
+      "status": "await_blind",
+      "round": 2
+    },
+    {
+      "action": "record_blind",
+      "status": "await_peers",
+      "round": 2
+    },
+    {
+      "action": "dispatch_peers",
+      "status": "await_adjudication",
+      "round": 2
+    },
+    {
+      "action": "submit_adjudication",
+      "status": "await_revision",
+      "round": 2
+    },
+    {
+      "action": "submit_revision",
+      "status": "await_blind",
+      "round": 3
+    },
+    {
+      "action": "record_blind",
+      "status": "await_peers",
+      "round": 3
+    },
+    {
+      "action": "dispatch_peers",
+      "status": "await_adjudication",
+      "round": 3
+    },
+    {
+      "action": "submit_adjudication",
+      "status": "await_revision",
+      "round": 3
+    },
+    {
+      "action": "submit_revision",
+      "status": "await_blind",
+      "round": 4
+    },
+    {
+      "action": "record_blind",
+      "status": "await_peers",
+      "round": 4
+    },
+    {
+      "action": "dispatch_peers",
+      "status": "await_adjudication",
+      "round": 4
+    },
+    {
+      "action": "submit_adjudication",
+      "status": "await_revision",
+      "round": 4
+    },
+    {
+      "action": "submit_revision",
+      "status": "await_blind",
+      "round": 5
+    },
+    {
+      "action": "record_blind",
+      "status": "await_peers",
+      "round": 5
+    },
+    {
+      "action": "dispatch_peers",
+      "status": "await_adjudication",
+      "round": 5
+    },
+    {
+      "action": "submit_adjudication",
+      "status": "await_revision",
+      "round": 5
+    },
+    {
+      "action": "submit_revision",
+      "status": "unresolved",
+      "round": 5
+    }
+  ],
+  "rounds": [
+    {
+      "n": 1,
+      "hostBlindVerdict": {
+        "verdict": "REQUEST_CHANGES",
+        "summary": "pick A (LOW, no major), anchored on the input already taking that effect elsewhere at the base, or its description naming the path, with default callers unchanged; anything short of that stays CRITICAL.",
+        "criticalIssues": [
+          {
+            "id": "r1-host-1",
+            "category": "correctness",
+            "text": "Option A as worded (\"the effect its name and description state\") is too loose: a reviewer can call any behaviour change a fix. The band needs a code-checkable anchor: at the base, the same input already reaches the same provider argument on the module's other resources or data sources, or the variable's description names this path; and every caller that leaves the input at its default plans identically at base and head."
+          },
+          {
+            "id": "r1-host-2",
+            "category": "ambiguity",
+            "text": "The rule must say what the LOW finding asks for (a release note naming the input, the path and the change) and what happens when the anchor fails (CRITICAL as today)."
+          }
+        ],
+        "text": "Verdict: REQUEST CHANGES\nCritical issues:\n- [correctness] Option A as worded (\"the effect its name and description state\") is too loose: a reviewer can call any behaviour change a fix. The band needs a code-checkable anchor: at the base, the same input already reaches the same provider argument on the module's other resources or data sources, or the variable's description names this path; and every caller that leaves the input at its default plans identically at base and head.\n- [ambiguity] The rule must say what the LOW finding asks for (a release note naming the input, the path and the change) and what happens when the anchor fails (CRITICAL as today).\nBottom line: pick A (LOW, no major), anchored on the input already taking that effect elsewhere at the base, or its description naming the path, with default callers unchanged; anything short of that stays CRITICAL.\nVERDICT: REQUEST_CHANGES"
+      },
+      "peers": [
+        {
+          "source": "codex",
+          "provider": "codex",
+          "model": "gpt-6.1-sol",
+          "reasoningEffort": "high",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r1-codex-1",
+              "category": "ambiguity",
+              "text": "Require the promise to exist at the base revision and cover the affected path; head-only documentation must not establish the exception."
+            },
+            {
+              "id": "r1-codex-2",
+              "category": "ops",
+              "text": "A LOW release-note request is optional; use MEDIUM until the description explicitly discloses affected callers and observable consequences."
+            }
+          ],
+          "summary": null,
+          "text": null,
+          "ms": 84545
+        },
+        {
+          "source": "gemini",
+          "provider": "gemini",
+          "model": "gemini-3.8-flash-high",
+          "reasoningEffort": null,
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r1-gemini-1",
+              "category": "correctness",
+              "text": "Option A does not enforce default-value invariance; wiring an ignored variable with a non-null default alters behavior for callers who omitted the input, turning a breaking change into a false LOW."
+            },
+            {
+              "id": "r1-gemini-2",
+              "category": "ambiguity",
+              "text": "Framing the rule around \"callers affected\" relies on external caller state that static module analysis cannot inspect; the condition must be phrased via module input invariance."
+            },
+            {
+              "id": "r1-gemini-3",
+              "category": "scope",
+              "text": "Requiring that the input already applies to \"other resources in the module\" improperly excludes single-resource modules and isolated submodules."
+            }
+          ],
+          "summary": null,
+          "text": null,
+          "ms": 140975
+        },
+        {
+          "source": "grok",
+          "provider": "grok",
+          "model": "grok-4.7",
+          "reasoningEffort": "medium",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r1-grok-1",
+              "category": "correctness",
+              "text": "Option A is not decidable as written: \"only callers who set the input are affected\" depends on null-versus-omit equivalence, a provider fact excluded by the evidence rule, and the new band has no precedence over CRITICAL, so the two-run split remains."
+            },
+            {
+              "id": "r1-grok-2",
+              "category": "ambiguity",
+              "text": "\"Name and description\" and \"same effect\" can be satisfied by a matching name or a vague description, which lets a real behaviour change dodge CRITICAL; the base description must be unchanged and must state the effect, not merely name V."
+            },
+            {
+              "id": "r1-grok-3",
+              "category": "scope",
+              "text": "Option B blocks in Check G until a variable description records a caller-facing change, which is changelog text on an interface Check A already owns; Option C adds no decidable band."
+            }
+          ],
+          "summary": null,
+          "text": null,
+          "ms": 153106
+        },
+        {
+          "source": "openrouter:glm-5-3-flashx",
+          "provider": "openrouter",
+          "model": "z-ai/glm-5.3-flashx",
+          "reasoningEffort": "medium",
+          "verdict": "APPROVE",
+          "criticalIssues": [
+            {
+              "id": "r1-openrouter:glm-5-3-flashx-1",
+              "category": "ambiguity",
+              "text": "The CRITICAL clause and the new LOW band overlap as written; add an explicit precedence sentence or the two runs will still diverge on edge cases."
+            },
+            {
+              "id": "r1-openrouter:glm-5-3-flashx-2",
+              "category": "correctness",
+              "text": "Condition 3's \"takes effect on at least one other resource\" should require the same variable honoured on a comparable path, or the anti-loophole guard is weak."
+            },
+            {
+              "id": "r1-openrouter:glm-5-3-flashx-3",
+              "category": "ops",
+              "text": "No regression fixture is planned for the motivating PR; add it to the behaviour suites when the wording lands."
+            }
+          ],
+          "summary": null,
+          "text": null,
+          "ms": 15258
+        }
+      ],
+      "roundMs": 154334,
+      "slowest": "grok",
+      "adjudication": [
+        {
+          "issueId": null,
+          "source": "claude",
+          "category": "correctness",
+          "description": "Option A needs a code-checkable anchor and default invariance",
+          "decision": "accept",
+          "reason": "Raised also by gemini, grok and glm; folded into conditions 3 and 4."
+        },
+        {
+          "issueId": null,
+          "source": "claude",
+          "category": "ambiguity",
+          "description": "Say what the LOW finding asks for and what applies when the anchor fails",
+          "decision": "accept",
+          "reason": "Release-note ask and fallback to CRITICAL/HIGH written into the rule."
+        },
+        {
+          "issueId": null,
+          "source": "codex",
+          "category": "ambiguity",
+          "description": "Promise must exist at the base revision and cover the path; head-only docs do not count",
+          "decision": "accept",
+          "reason": "Condition 3 reads the base description only; condition 1 requires the description unchanged."
+        },
+        {
+          "issueId": null,
+          "source": "codex",
+          "category": "ops",
+          "description": "Use MEDIUM until the PR description discloses affected callers",
+          "decision": "dismiss",
+          "reason": "Blocking a fix with REQUEST_CHANGES over release-note text puts a process ask into the severity scale; grok also argues B is out of scope for Check G. The LOW finding still lists the ask, and a false 'no change' claim stays judged by the existing claim rules."
+        },
+        {
+          "issueId": null,
+          "source": "gemini",
+          "category": "correctness",
+          "description": "No default-value invariance: wiring a variable with a non-null default changes callers who omitted it",
+          "decision": "accept",
+          "reason": "Condition 4: at the variable's default the head expression yields what the base did, or null."
+        },
+        {
+          "issueId": null,
+          "source": "gemini",
+          "category": "ambiguity",
+          "description": "Phrase via module input values, not external callers",
+          "decision": "accept",
+          "reason": "Conditions rewritten over the variable's values and the two revisions' code."
+        },
+        {
+          "issueId": null,
+          "source": "gemini",
+          "category": "scope",
+          "description": "'Applies to other resources' excludes single-resource modules",
+          "decision": "accept",
+          "reason": "Condition 3 is an OR: the base description naming the path or saying it applies to every resource is enough."
+        },
+        {
+          "issueId": null,
+          "source": "grok",
+          "category": "correctness",
+          "description": "Null vs omit equivalence and no precedence over CRITICAL",
+          "decision": "accept",
+          "reason": "Null as an unset argument is a Terraform language rule, not a provider fact; stated in condition 4. Precedence sentence added: the band is decided before CRITICAL."
+        },
+        {
+          "issueId": null,
+          "source": "grok",
+          "category": "ambiguity",
+          "description": "Matching name or vague description must not satisfy the anchor; base description must be unchanged and state the effect",
+          "decision": "accept",
+          "reason": "Anchor is the same variable setting the same argument at the base, or a base description that names the path or every resource; description unchanged per condition 1."
+        },
+        {
+          "issueId": null,
+          "source": "grok",
+          "category": "scope",
+          "description": "Option B is changelog text owned elsewhere; Option C adds no band",
+          "decision": "accept",
+          "reason": "Agreed; neither B nor C is chosen."
+        },
+        {
+          "issueId": null,
+          "source": "openrouter:glm-5-3-flashx",
+          "category": "ambiguity",
+          "description": "CRITICAL and LOW overlap; add precedence",
+          "decision": "accept",
+          "reason": "Same as grok's precedence point; added."
+        },
+        {
+          "issueId": null,
+          "source": "openrouter:glm-5-3-flashx",
+          "category": "correctness",
+          "description": "Require the same variable honoured on a comparable path",
+          "decision": "accept",
+          "reason": "Condition 3 requires the same variable on the same provider argument."
+        },
+        {
+          "issueId": null,
+          "source": "openrouter:glm-5-3-flashx",
+          "category": "ops",
+          "description": "No regression example for the motivating PR",
+          "decision": "accept",
+          "reason": "A worked example for the case is added beside the subnet-ids example, and the reviewer index test checks the band's wording."
+        }
+      ],
+      "hostVerdict": "REQUEST_CHANGES",
+      "revision": "Decision: Option A, a LOW \"ignored input\" band for compat.expression-behaviour-changed, with the exact wording below. Options B and C rejected (B puts release-note text into the severity scale and blocks a fix; C adds no decidable band and keeps the run-to-run split).\n\nContext (unchanged): Check G rule compat.expression-behaviour-changed. Current bands: CRITICAL for an allowed value that plans differently with no declared break; HIGH when declared with no migration path; LOW when only provider-rejected or description-ruled-out values are affected. Ladder: rule 0 (CRITICAL, all CRITICAL/HIGH compat.*) -> hold for next major; HIGH/MEDIUM block; LOW only -> approve with nits. Check A owns interface changes (type, default, description, outputs, addresses). Motivating case: terraform-aws-eventbridge#212 adds region = var.region to the aws_cloudwatch_event_bus data source used when create_bus = false; var.region (default null) already set region on the module's other resources at the base.\n\nRule text to add to the Severity bullet, decided BEFORE the CRITICAL band:\n\n\"LOW, the ignored-input band, when all four hold, each read from the code of the base and head revisions and from the base revision's variable description, never from the pull request text:\n1. The variable's interface is unchanged: Check A finds no change to its type, default or description, and the change adds or changes only arguments whose value reads it.\n2. At the base the variable reached no argument on the changed path; at the head it does.\n3. At the base the same variable already set the same provider argument, the way the head now sets it here, on another resource or data source of the module; or the base description of the variable names the changed path or says the input applies to every resource of the module. A matching name of another variable, or a description that only names the variable, is not enough.\n4. At the variable's default, the head's expression for the argument yields the base's value or null, and an argument set to null is unset (a Terraform language rule, not a provider fact), so a module call that leaves the variable unset plans the same at both revisions.\nThen only module calls that set the variable to a non-default value plan differently, and they get the effect the base already gave that variable elsewhere, or the effect its base description promised. The finding's summary names the variable, the changed path and what such a call now plans differently, and asks for a line in the release notes; the change needs no major release. When any condition fails, the CRITICAL and HIGH bands apply as written.\"\n\nWorked example to add after the subnet-ids example (\"A Region Now Passed to a Data Source\"): eventbridge#212. var.region defaults to null and set region on the module's resources at the base; the data source on the create_bus = false path read no region at the base and reads var.region at the head; type, default and description unchanged; at the default the argument is null, so unset. All four hold: LOW at the data source line, summary \"module calls that set region now look the existing bus up in that region, as the module's other resources already did; derived ARNs follow it; say so in the release notes\". Had var.region defaulted to a fixed region, condition 4 fails and the finding is CRITICAL unless the change declares the break.\n\nRegression guard: tests/reviewer-index-test.sh checks that the Severity section names the ignored-input band and its four conditions, and a mutation that drops condition 4 is caught.\n\nOut of scope: changes to the claim rules (compat.claim-contradicts-analysis) and to the ladder.",
+      "revisionSummary": "Chose A with four code-checkable conditions (unchanged interface, newly reached path, base anchor, default invariance), precedence before CRITICAL, fallback, release-note ask, worked example; rejected B and C.",
+      "convergence": {
+        "converged": false,
+        "reason": "codex, gemini and grok voted REQUEST_CHANGES and openrouter:glm-5-3-flashx voted APPROVE. The host accepted 12 issues and dismissed codex's call for a blocking MEDIUM band, then revised the plan to option A with four code-checkable conditions."
+      }
+    },
+    {
+      "n": 2,
+      "hostBlindVerdict": {
+        "verdict": "REQUEST_CHANGES",
+        "summary": "sound band; tighten condition 4 so null counts as unchanged only where the base left the argument unset.",
+        "criticalIssues": [
+          {
+            "id": "r2-host-1",
+            "category": "correctness",
+            "text": "Condition 4's \"the base's value or null\" is wrong when the base set the argument from something else (a literal or another variable): a head that yields null at the default would then unset it and change the plan. It should read \"yields exactly what the base set the argument to, or null only where the base left the argument unset\"."
+          }
+        ],
+        "text": "Verdict: REQUEST CHANGES\nCritical issues:\n- [correctness] Condition 4's \"the base's value or null\" is wrong when the base set the argument from something else (a literal or another variable): a head that yields null at the default would then unset it and change the plan. It should read \"yields exactly what the base set the argument to, or null only where the base left the argument unset\".\nBottom line: sound band; tighten condition 4 so null counts as unchanged only where the base left the argument unset.\nVERDICT: REQUEST_CHANGES"
+      },
+      "peers": [
+        {
+          "source": "codex",
+          "provider": "codex",
+          "model": "gpt-6.1-sol",
+          "reasoningEffort": "high",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r2-codex-1",
+              "category": "correctness",
+              "text": "Condition 4 permits head null when the base argument is non-null, so the four conditions do not establish default invariance. Restrict the null shortcut to base omission/null and require equivalent changed arguments across otherwise identical allowed caller inputs."
+            }
+          ],
+          "summary": null,
+          "text": null,
+          "ms": 72790
+        },
+        {
+          "source": "gemini",
+          "provider": "gemini",
+          "model": "gemini-3.8-flash-high",
+          "reasoningEffort": null,
+          "verdict": "APPROVE",
+          "criticalIssues": [],
+          "summary": null,
+          "text": null,
+          "ms": 198786
+        },
+        {
+          "source": "grok",
+          "provider": "grok",
+          "model": "grok-4.7",
+          "reasoningEffort": "medium",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r2-grok-1",
+              "category": "correctness",
+              "text": "Condition 4 treats a head null as enough (\"base's value or null\") even when the base argument had a non-null value, so a call that leaves the variable unset can plan differently and still be LOW. Null matches only an omitted or null base argument; a non-null base value must be reproduced; no default means the band fails."
+            },
+            {
+              "id": "r2-grok-2",
+              "category": "correctness",
+              "text": "\"Only non-default callers plan differently\" is false unless the new expression reads only this variable (or locals that read only it). Any other input that did not already reach this argument at the base fails the band."
+            },
+            {
+              "id": "r2-grok-3",
+              "category": "ambiguity",
+              "text": "\"Changed path\", \"the way the head now sets it\", and \"description names the changed path\" are not decidable. Define the path as the argument address, \"the way\" as the same expression, and the description arm as a literal type or address in the base text; \"every resource\" does not cover data sources unless the base description says so."
+            },
+            {
+              "id": "r2-grok-4",
+              "category": "ops",
+              "text": "New Severity sentences must be added to the sentence allowlist reviewer-index-test.sh already enforces; the stated guard does not mention that, so the change fails the existing multiset check."
+            }
+          ],
+          "summary": null,
+          "text": null,
+          "ms": 197052
+        },
+        {
+          "source": "openrouter:glm-5-3-flashx",
+          "provider": "openrouter",
+          "model": "z-ai/glm-5.3-flashx",
+          "reasoningEffort": "medium",
+          "verdict": "APPROVE",
+          "criticalIssues": [
+            {
+              "id": "r2-openrouter:glm-5-3-flashx-1",
+              "category": "ambiguity",
+              "text": "Condition 1 delegates part of the test to \"Check A finds no change\", coupling band selection to another check's output; if Check A is unavailable or its scope drifts, the rule's trigger moves silently. Operational, since both run in the same review, but worth a one-line note that absence of a Check A finding is the deciding fact, not Check A's execution."
+            },
+            {
+              "id": "r2-openrouter:glm-5-3-flashx-2",
+              "category": "correctness",
+              "text": "The worked example's summary asserts \"derived ARNs follow it\"; the four conditions verify the region argument's behavior at the default, not every derived-attribute effect. The rule already requires the summary to name \"what such a call now plans differently\", which the ladder's evidence should back; keep that coupling explicit so the example's ARN claim does not read as automatic."
+            }
+          ],
+          "summary": null,
+          "text": null,
+          "ms": 9702
+        }
+      ],
+      "roundMs": 199487,
+      "slowest": "gemini",
+      "adjudication": [
+        {
+          "issueId": null,
+          "source": "claude",
+          "category": "correctness",
+          "description": "Condition 4 null shortcut wrong when base argument was non-null",
+          "decision": "accept",
+          "reason": "Also raised by codex and grok; null counts only where the base left the argument unset or null, and a variable with no default fails the band."
+        },
+        {
+          "issueId": null,
+          "source": "codex",
+          "category": "correctness",
+          "description": "Restrict null shortcut; require equivalent arguments across otherwise identical inputs",
+          "decision": "accept",
+          "reason": "Covered by the tightened condition 4 plus grok's new condition that the head expression reads only this variable."
+        },
+        {
+          "issueId": null,
+          "source": "grok",
+          "category": "correctness",
+          "description": "Null matches only an omitted or null base argument; no default fails the band",
+          "decision": "accept",
+          "reason": "Same as above; written into condition 4."
+        },
+        {
+          "issueId": null,
+          "source": "grok",
+          "category": "correctness",
+          "description": "Head expression must read only this variable, or locals that read only it",
+          "decision": "accept",
+          "reason": "Otherwise another input could change the plan for default calls; added to condition 2."
+        },
+        {
+          "issueId": null,
+          "source": "grok",
+          "category": "ambiguity",
+          "description": "Define changed path, 'the way', the description arm; 'every resource' excludes data sources",
+          "decision": "accept",
+          "reason": "Path is the argument's address (block address plus argument name); 'the way' is the same expression; the description arm needs the block type, its address or 'every resource and data source' in the base text."
+        },
+        {
+          "issueId": null,
+          "source": "grok",
+          "category": "ops",
+          "description": "New sentences must be recorded in the sentence record the index test enforces",
+          "decision": "accept",
+          "reason": "The change adds '+' lines to tests/reviewer-index-sentences.txt for every new sentence of check-g-behaviour.md."
+        },
+        {
+          "issueId": null,
+          "source": "openrouter:glm-5-3-flashx",
+          "category": "ambiguity",
+          "description": "Condition 1 depends on Check A's output",
+          "decision": "accept",
+          "reason": "Condition 1 now reads the diff directly: no change to the variable's type, default or description."
+        },
+        {
+          "issueId": null,
+          "source": "openrouter:glm-5-3-flashx",
+          "category": "correctness",
+          "description": "Worked example claims derived ARNs follow without evidence",
+          "decision": "accept",
+          "reason": "Example summary limited to what the conditions show: the data source now reads the bus in that region."
+        }
+      ],
+      "hostVerdict": "REQUEST_CHANGES",
+      "revision": "Decision: Option A, a LOW \"ignored input\" band for compat.expression-behaviour-changed, with the exact wording below. Options B and C rejected (B puts release-note text into the severity scale and blocks a fix; C adds no decidable band and keeps the run-to-run split).\n\nContext (unchanged): Check G rule compat.expression-behaviour-changed. Current bands: CRITICAL for an allowed value that plans differently with no declared break; HIGH when declared with no migration path; LOW when only provider-rejected or description-ruled-out values are affected. Ladder: rule 0 (CRITICAL, all CRITICAL/HIGH compat.*) -> hold for next major; HIGH/MEDIUM block; LOW only -> approve with nits. Motivating case: terraform-aws-eventbridge#212 adds region = var.region to the aws_cloudwatch_event_bus data source used when create_bus = false; var.region (default null) already set region = var.region on the module's resources at the base.\n\nRule text to add to the Severity bullet, decided BEFORE the CRITICAL band:\n\n\"LOW, the ignored-input band, when all five hold, each read from the code of the base and head revisions and from the base revision's variable description, never from the pull request text. The argument is one argument of one block, named by the block's address and the argument's name.\n1. The diff changes no type, default or description of the variable.\n2. At the base the argument's value read the variable in no way; at the head its expression reads the variable and no other input, directly or through locals that read only it.\n3. At the base the same variable already set the same argument name on another block of the module with the same expression; or the base description of the variable names this block's type or address, or says the input applies to every resource and data source of the module. Another variable with a matching name, or a description that names only the variable, is not enough.\n4. The variable has a default, and at that default the head's expression yields exactly what the base set the argument to; null counts as equal only where the base left the argument unset or null, since an argument set to null is unset (a Terraform language rule, not a provider fact). So a module call that leaves the variable unset plans the same at both revisions.\n5. No other argument changes in the same diff hunk for a reason this band does not cover; any other change is judged on its own.\nThen only module calls that set the variable to a value other than its default plan differently, and they get the effect the base already gave that variable on the other block, or the effect its base description promised. The finding's summary names the variable, the argument's block and what such a call now plans differently, and asks for a line in the release notes; the change needs no major release. When any condition fails, the CRITICAL and HIGH bands apply as written.\"\n\nWorked example to add after the subnet-ids example (\"A Region Now Passed to a Data Source\"): eventbridge#212. var.region defaults to null and set region = var.region on the module's resources at the base; data.aws_cloudwatch_event_bus.this (the create_bus = false path) set no region at the base and sets region = var.region at the head; type, default and description unchanged; at the default the head yields null where the base left region unset. All five hold: LOW at the data source line, summary \"module calls that set region now read the existing bus in that region, as the module's resources already did; say so in the release notes\". Had var.region defaulted to a fixed region, condition 4 fails and the finding is CRITICAL unless the change declares the break.\n\nRegression guard: tests/reviewer-index-test.sh checks that the Severity section names the ignored-input band and its conditions, with a mutation that drops condition 4 caught; every new sentence of check-g-behaviour.md gets a \"+\" line in tests/reviewer-index-sentences.txt, which the sentence multiset check enforces.\n\nOut of scope: changes to the claim rules (compat.claim-contradicts-analysis) and to the ladder.",
+      "revisionSummary": "Condition 4 null only where base left the argument unset; head expression reads only the variable; path, 'same expression' and description arm defined; condition 1 reads the diff directly; example summary trimmed; sentence record update named.",
+      "convergence": {
+        "converged": false,
+        "reason": "codex and grok voted REQUEST_CHANGES; gemini and openrouter:glm-5-3-flashx approved. The host accepted all 8 issues and revised the conditions."
+      }
+    },
+    {
+      "n": 3,
+      "hostBlindVerdict": {
+        "verdict": "REQUEST_CHANGES",
+        "summary": "conditions 1-4 are decidable and close the loophole; turn 5 into a scope sentence and the band is ready.",
+        "criticalIssues": [
+          {
+            "id": "r3-host-1",
+            "category": "ambiguity",
+            "text": "Condition 5 (\"no other argument changes in the same diff hunk for a reason this band does not cover\") cannot be decided and is not a condition of this argument; replace it with a scope sentence: the band rates this one argument, and every other change in the diff is judged on its own rule."
+          }
+        ],
+        "text": "Verdict: REQUEST CHANGES\nCritical issues:\n- [ambiguity] Condition 5 (\"no other argument changes in the same diff hunk for a reason this band does not cover\") cannot be decided and is not a condition of this argument; replace it with a scope sentence: the band rates this one argument, and every other change in the diff is judged on its own rule.\nBottom line: conditions 1-4 are decidable and close the loophole; turn 5 into a scope sentence and the band is ready.\nVERDICT: REQUEST_CHANGES"
+      },
+      "peers": [
+        {
+          "source": "codex",
+          "provider": "codex",
+          "model": "gpt-6.1-sol",
+          "reasoningEffort": "high",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r3-codex-1",
+              "category": "correctness",
+              "text": "Condition 4 does not justify the claim that only nondefault values can change plans. Explicitly supplied inputs can be unknown during planning and eventually equal the default; newly consuming them can defer data lookups and introduce downstream planning failures. Narrow the guarantee and define whether those effects qualify for LOW."
+            }
+          ],
+          "summary": null,
+          "text": null,
+          "ms": 175807
+        },
+        {
+          "source": "gemini",
+          "provider": "gemini",
+          "model": "gemini-3.8-flash-high",
+          "reasoningEffort": null,
+          "verdict": "APPROVE",
+          "criticalIssues": [],
+          "summary": null,
+          "text": null,
+          "ms": 138571
+        },
+        {
+          "source": "grok",
+          "provider": "grok",
+          "model": "grok-4.7",
+          "reasoningEffort": "medium",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r3-grok-1",
+              "category": "correctness",
+              "text": "The block must already exist at the base with unchanged count, for_each, and enclosing dynamic conditions. A missing block is not an unset argument, so the null shortcut can band a new read LOW."
+            },
+            {
+              "id": "r3-grok-2",
+              "category": "correctness",
+              "text": "Condition 2 allows functions, operators, and conditionals that only read the variable. The description arm never checks that non-default callers get the anchor expression or a pure pass-through, so the promised effect is asserted rather than tested."
+            },
+            {
+              "id": "r3-grok-3",
+              "category": "correctness",
+              "text": "\"Names this block's type\" anchors the wrong block when a resource and a data source share a provider type. Require this block's full address, or an explicit all-resources-and-data-sources claim, and exclude child-module blocks."
+            },
+            {
+              "id": "r3-grok-4",
+              "category": "ambiguity",
+              "text": "\"Same expression\" has no comparison rule, and condition 5 keys off diff-hunk boundaries while also saying other changes are judged on their own. Both make the band unstable across reviewers."
+            },
+            {
+              "id": "r3-grok-5",
+              "category": "correctness",
+              "text": "Failure text applies only the CRITICAL and HIGH bands, dropping the existing provider-rejected LOW band, and \"the change needs no major release\" plus \"only calls that set the variable plan differently\" are false for gated blocks and mixed diffs."
+            }
+          ],
+          "summary": null,
+          "text": null,
+          "ms": 228851
+        },
+        {
+          "source": "openrouter:glm-5-3-flashx",
+          "provider": "openrouter",
+          "model": "z-ai/glm-5.3-flashx",
+          "reasoningEffort": "medium",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r3-openrouter:glm-5-3-flashx-1",
+              "category": "correctness",
+              "text": "Condition 4 is undecidable when the base argument was an expression of another input (e.g. `region = var.other`, or a local). \"Exactly what the base set the argument to\" cannot be read from code; require the base argument to be unset/null or a literal (and condition 2 already bars the variable, but not other inputs), or define equality structurally (base unset/null, or base literal equal to the head expression evaluated at the default)."
+            },
+            {
+              "id": "r3-openrouter:glm-5-3-flashx-2",
+              "category": "ambiguity",
+              "text": "Condition 3's \"another block of the module\" is unclear when that block has `count`/`for_each` or sits in a child module; state whether instance-expanded blocks and sibling-module resources satisfy \"same argument name with the same expression\"."
+            }
+          ],
+          "summary": null,
+          "text": null,
+          "ms": 9198
+        }
+      ],
+      "roundMs": 229713,
+      "slowest": "grok",
+      "adjudication": [
+        {
+          "issueId": null,
+          "source": "claude",
+          "category": "ambiguity",
+          "description": "Condition 5 undecidable; replace with a scope sentence",
+          "decision": "accept",
+          "reason": "Grok raised the same; condition 5 removed, scope sentence added."
+        },
+        {
+          "issueId": null,
+          "source": "codex",
+          "category": "correctness",
+          "description": "Explicit unknown inputs equal to the default can still change plans (deferred data reads)",
+          "decision": "accept",
+          "reason": "Guarantee narrowed to 'only module calls that set the variable plan differently', whatever value they pass; the summary names a deferred data read when the block is a data source."
+        },
+        {
+          "issueId": null,
+          "source": "grok",
+          "category": "correctness",
+          "description": "Block must exist at base with unchanged count, for_each and dynamic conditions",
+          "decision": "accept",
+          "reason": "Added as condition 1."
+        },
+        {
+          "issueId": null,
+          "source": "grok",
+          "category": "correctness",
+          "description": "Head expression may be any function of the variable; effect not tested",
+          "decision": "accept",
+          "reason": "Head expression must be the bare variable reference, or the anchor's expression text."
+        },
+        {
+          "issueId": null,
+          "source": "grok",
+          "category": "correctness",
+          "description": "Block type anchor ambiguous when resource and data source share a type; exclude child modules",
+          "decision": "accept",
+          "reason": "Description arm needs the block's full address or an explicit every-resource-and-data-source statement; anchors are blocks of the same module, never a child module."
+        },
+        {
+          "issueId": null,
+          "source": "grok",
+          "category": "ambiguity",
+          "description": "'Same expression' has no comparison rule; condition 5 keyed off hunks",
+          "decision": "accept",
+          "reason": "Same expression means identical text once whitespace is ignored; condition 5 removed."
+        },
+        {
+          "issueId": null,
+          "source": "grok",
+          "category": "correctness",
+          "description": "Fallback drops the existing provider-rejected LOW band; claims false for gated blocks and mixed diffs",
+          "decision": "accept",
+          "reason": "Fallback now 'the other bands apply as written'; gating fixed by condition 1; the band rates this one argument only."
+        },
+        {
+          "issueId": null,
+          "source": "openrouter:glm-5-3-flashx",
+          "category": "correctness",
+          "description": "Condition 4 undecidable when the base argument was another input's expression",
+          "decision": "accept",
+          "reason": "Condition 4 now: the base argument is absent or literal null, and the variable's default is null."
+        },
+        {
+          "issueId": null,
+          "source": "openrouter:glm-5-3-flashx",
+          "category": "ambiguity",
+          "description": "Anchor block with count/for_each or in a child module",
+          "decision": "accept",
+          "reason": "Anchor is any block of the same module, expanded or not, whose argument has the same expression; child-module blocks never anchor."
+        }
+      ],
+      "hostVerdict": "REQUEST_CHANGES",
+      "revision": "Decision: Option A, a LOW \"ignored input\" band for compat.expression-behaviour-changed, with the exact wording below. Options B and C rejected (B puts release-note text into the severity scale and blocks a fix; C adds no decidable band and keeps the run-to-run split).\n\nContext (unchanged): Check G rule compat.expression-behaviour-changed. Current bands: CRITICAL for an allowed value that plans differently with no declared break; HIGH when declared with no migration path; LOW when only provider-rejected or description-ruled-out values are affected. Ladder: rule 0 (CRITICAL, all CRITICAL/HIGH compat.*) -> hold for next major; HIGH/MEDIUM block; LOW only -> approve with nits. Motivating case: terraform-aws-eventbridge#212 adds region = var.region to data.aws_cloudwatch_event_bus.this, used when create_bus = false; var.region (default null) already set region = var.region on the module's resources at the base.\n\nRule text to add to the Severity bullet, decided BEFORE the CRITICAL band:\n\n\"LOW, the ignored-input band, when all five hold for one argument of one block, each read from the code of the base and head revisions and from the base revision's variable description, never from the pull request text:\n1. The block exists at the base with the same address, and its count, for_each and any enclosing dynamic block are unchanged.\n2. The diff changes no type, default or description of the variable, and the variable's default is null.\n3. At the base the argument is absent or set to the literal null; at the head it is set to the bare variable reference, or to the anchor's expression of condition 4.\n4. At the base the same variable already set the same argument name, with the same expression (identical text once whitespace is ignored), on another block of this module, expanded by count or for_each or not; a block of a child module never anchors. Or, with the head set to the bare variable reference, the base description of the variable names this block's full address, or says the input applies to every resource and data source of the module. Another variable with a matching name, or a description that names only the variable or the block's type, is not enough.\n5. An argument set to null is unset (a Terraform language rule, not a provider fact), so with conditions 2 and 3 a module call that leaves the variable unset plans the same at both revisions.\nThen only module calls that set the variable plan differently, whatever value they pass, and they get the effect the base already gave that variable on the anchor block, or the effect its base description promised. The finding's summary names the variable, the block and what such a call now plans differently, including a data source read that an unknown value moves to apply, and asks for a line in the release notes; the change needs no major release. The band rates this one argument; every other change in the diff is judged under its own rule. When any condition fails, the other bands apply as written.\"\n\nWorked example to add after the subnet-ids example (\"A Region Now Passed to a Data Source\"): eventbridge#212. data.aws_cloudwatch_event_bus.this exists at the base with an unchanged count; var.region defaults to null, and its type, default and description are unchanged; the data source set no region at the base and sets region = var.region at the head; at the base the module's resources already set region = var.region. All five hold: LOW at the data source line, summary \"module calls that set region now read the existing bus in that region, as the module's resources already did; say so in the release notes\". Had var.region defaulted to a fixed region, condition 2 fails and the finding is CRITICAL unless the change declares the break.\n\nRegression guard: tests/reviewer-index-test.sh checks that the Severity section names the ignored-input band and its conditions, with a mutation that drops the default-null clause caught; every new sentence of check-g-behaviour.md gets a \"+\" line in tests/reviewer-index-sentences.txt, which the sentence multiset check enforces.\n\nOut of scope: changes to the claim rules (compat.claim-contradicts-analysis) and to the ladder.",
+      "revisionSummary": "Block must exist unchanged at base; base argument absent or null and variable default null; head expression bare reference or anchor text; anchors same-module only, description arm needs full address; same expression = identical text ignoring whitespace; condition 5 replaced by scope sentence; guarantee narrowed to calls that set the variable; fallback keeps all other bands.",
+      "convergence": {
+        "converged": false,
+        "reason": "codex, grok and openrouter:glm-5-3-flashx voted REQUEST_CHANGES; gemini approved. The host accepted all 9 issues and revised the conditions."
+      }
+    },
+    {
+      "n": 4,
+      "hostBlindVerdict": {
+        "verdict": "APPROVE",
+        "summary": "every condition is now decidable from code and closes the relabelling loophole; a non-blocking wording tweak is that the condition 4 anchor should say a resource or data block, so a module call block does not count.",
+        "criticalIssues": [],
+        "text": "Verdict: APPROVE\nCritical issues: none\nBottom line: every condition is now decidable from code and closes the relabelling loophole; a non-blocking wording tweak is that the condition 4 anchor should say a resource or data block, so a module call block does not count.\nVERDICT: APPROVE"
+      },
+      "peers": [
+        {
+          "source": "codex",
+          "provider": "codex",
+          "model": "gpt-6.1-sol",
+          "reasoningEffort": "high",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r4-codex-1",
+              "category": "correctness",
+              "text": "Conditions 2 and 3 do not establish condition 5: an anchor and head using `coalesce(var.region, \"us-east-1\")` produce a non-null argument even when the caller omits the null-default variable. The base target argument was unset, so default callers can change behavior. Terraform's [coalesce documentation](https://developer.hashicorp.com/terraform/language/functions/coalesce) confirms this evaluation. Require bare variable references; otherwise condition 5 needs a separate, explicit proof obligation."
+            },
+            {
+              "id": "r4-codex-2",
+              "category": "correctness",
+              "text": "“Identical text once whitespace is ignored” can equate different expressions: `var.name == null ? null : \"${var.name} a\"` and `var.name == null ? null : \"${var.name}a\"` both preserve null but produce different non-null values. Whitespace inside [string literals](https://developer.hashicorp.com/terraform/language/expressions/strings) is content. Restricting both assignments to the same bare variable reference also removes this false match."
+            }
+          ],
+          "summary": null,
+          "text": null,
+          "ms": 77015
+        },
+        {
+          "source": "gemini",
+          "provider": "gemini",
+          "model": "gemini-3.8-flash-high",
+          "reasoningEffort": null,
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r4-gemini-1",
+              "category": "correctness",
+              "text": "Condition 3 permits arbitrary anchor expressions that can evaluate non-null when the variable is unset, breaking the plan-invariance guarantee for existing callers."
+            },
+            {
+              "id": "r4-gemini-2",
+              "category": "ambiguity",
+              "text": "Condition 5 remains in the enumerated list and preamble (\"all five hold\") despite Round 3 resolution removing it in favor of a trailing scope sentence."
+            },
+            {
+              "id": "r4-gemini-3",
+              "category": "correctness",
+              "text": "Worked example summary omits the target block address (data.aws_cloudwatch_event_bus.this), violating the rule's requirement to name the block."
+            },
+            {
+              "id": "r4-gemini-4",
+              "category": "ambiguity",
+              "text": "Condition 1 attributes an enclosing dynamic block to a top-level addressed block, creating category confusion."
+            }
+          ],
+          "summary": null,
+          "text": null,
+          "ms": 208080
+        },
+        {
+          "source": "grok",
+          "provider": "grok",
+          "model": "grok-4.7",
+          "reasoningEffort": "medium",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r4-grok-1",
+              "category": "correctness",
+              "text": "Condition 5 does not follow from conditions 2 and 3 when the head copies an anchor expression that is not null when the variable is null; require a bare var.<name> reference only."
+            },
+            {
+              "id": "r4-grok-2",
+              "category": "correctness",
+              "text": "Null-is-unset is false for module inputs and is not a language rule for nested attributes; limit the band to a direct argument of a resource or data block."
+            },
+            {
+              "id": "r4-grok-3",
+              "category": "correctness",
+              "text": "\"Whatever value they pass\" contradicts condition 5: an explicit null does not change the plan."
+            },
+            {
+              "id": "r4-grok-4",
+              "category": "correctness",
+              "text": "Condition 2 does not freeze validation, nullable, or sensitive, so an unset call can still fail or plan differently while all five conditions hold."
+            }
+          ],
+          "summary": null,
+          "text": null,
+          "ms": 209124
+        },
+        {
+          "source": "openrouter:glm-5-3-flashx",
+          "provider": "openrouter",
+          "model": "z-ai/glm-5.3-flashx",
+          "reasoningEffort": "medium",
+          "verdict": "APPROVE",
+          "criticalIssues": [],
+          "summary": null,
+          "text": null,
+          "ms": 12218
+        }
+      ],
+      "roundMs": 209895,
+      "slowest": "grok",
+      "adjudication": [
+        {
+          "issueId": null,
+          "source": "codex",
+          "category": "correctness",
+          "description": "Anchor expressions like coalesce(var.x, literal) break default invariance; require bare variable references",
+          "decision": "accept",
+          "reason": "Raised by codex, gemini and grok; head and anchor must both be the bare reference var.<name>."
+        },
+        {
+          "issueId": null,
+          "source": "codex",
+          "category": "correctness",
+          "description": "Whitespace-insensitive text match can equate different expressions",
+          "decision": "accept",
+          "reason": "Removed with the bare-reference rule; no expression comparison remains."
+        },
+        {
+          "issueId": null,
+          "source": "gemini",
+          "category": "correctness",
+          "description": "Arbitrary anchor expressions may be non-null when the variable is unset",
+          "decision": "accept",
+          "reason": "Same as the bare-reference fix."
+        },
+        {
+          "issueId": null,
+          "source": "gemini",
+          "category": "ambiguity",
+          "description": "Condition 5 is still counted as a condition",
+          "decision": "accept",
+          "reason": "Now four conditions; the null-is-unset sentence is the reason that follows them."
+        },
+        {
+          "issueId": null,
+          "source": "gemini",
+          "category": "correctness",
+          "description": "Worked example summary omits the block address",
+          "decision": "accept",
+          "reason": "Summary now names data.aws_cloudwatch_event_bus.this."
+        },
+        {
+          "issueId": null,
+          "source": "gemini",
+          "category": "ambiguity",
+          "description": "Dynamic block wording confuses a top-level block with nested ones",
+          "decision": "accept",
+          "reason": "The argument must be a direct argument of a resource or data block; dynamic wording dropped."
+        },
+        {
+          "issueId": null,
+          "source": "grok",
+          "category": "correctness",
+          "description": "Head may copy a non-null anchor expression; require bare reference",
+          "decision": "accept",
+          "reason": "Same as the bare-reference fix."
+        },
+        {
+          "issueId": null,
+          "source": "grok",
+          "category": "correctness",
+          "description": "Null-is-unset does not hold for module inputs or nested attributes",
+          "decision": "accept",
+          "reason": "Band limited to a direct argument of a resource or data block; anchors are resource or data blocks too, never a module call."
+        },
+        {
+          "issueId": null,
+          "source": "grok",
+          "category": "correctness",
+          "description": "'Whatever value they pass' contradicts explicit null",
+          "decision": "accept",
+          "reason": "Now 'calls that set the variable to a value other than null'."
+        },
+        {
+          "issueId": null,
+          "source": "grok",
+          "category": "correctness",
+          "description": "Validation, nullable and sensitive not frozen",
+          "decision": "accept",
+          "reason": "Condition now: the diff changes nothing in the variable's block."
+        },
+        {
+          "issueId": null,
+          "source": "claude",
+          "category": "scope",
+          "description": "Anchor should be a resource or data block, not a module call",
+          "decision": "accept",
+          "reason": "Folded into the same fix as grok's module-input point."
+        }
+      ],
+      "hostVerdict": "REQUEST_CHANGES",
+      "revision": "Decision: Option A, a LOW \"ignored input\" band for compat.expression-behaviour-changed, with the exact wording below. Options B and C rejected (B puts release-note text into the severity scale and blocks a fix; C adds no decidable band and keeps the run-to-run split).\n\nContext (unchanged): Check G rule compat.expression-behaviour-changed. Current bands: CRITICAL for an allowed value that plans differently with no declared break; HIGH when declared with no migration path; LOW when only provider-rejected or description-ruled-out values are affected. Ladder: rule 0 (CRITICAL, all CRITICAL/HIGH compat.*) -> hold for next major; HIGH/MEDIUM block; LOW only -> approve with nits. Motivating case: terraform-aws-eventbridge#212 adds region = var.region to data.aws_cloudwatch_event_bus.this, used when create_bus = false; var.region (default null) already set region = var.region on the module's resources at the base.\n\nRule text to add to the Severity bullet, decided BEFORE the CRITICAL band:\n\n\"LOW, the ignored-input band, when all four hold for one direct argument of one resource or data block (not a nested block, not a module input), each read from the code of the base and head revisions and from the base revision's variable description, never from the pull request text:\n1. The block exists at the base with the same address and the same count or for_each.\n2. The diff changes nothing in the variable's block, and its default is null.\n3. At the base the argument is absent or set to the literal null; at the head it is set to the bare reference var.<name>.\n4. At the base the same variable already set the same argument name, as the bare reference var.<name>, on another resource or data block of this module, expanded by count or for_each or not; or the base description of the variable names this block's full address, or says the input applies to every resource and data source of the module. A block of a child module, a module call, another variable with a matching name, or a description that names only the variable or the block's type, is not enough.\nAn argument set to null is unset (a Terraform language rule for a direct argument of a resource or data block, not a provider fact), so a module call that leaves the variable unset or sets it to null plans the same at both revisions. Only module calls that set the variable to a value other than null plan differently, and they get the effect the base already gave that variable on the anchor block, or the effect its base description promised. The finding's summary names the variable, the block's address and what such a call now plans differently, including a data source read that an unknown value moves to apply, and asks for a line in the release notes; the change needs no major release. The band rates this one argument; every other change in the diff is judged under its own rule. When any condition fails, the other bands apply as written.\"\n\nWorked example to add after the subnet-ids example (\"A Region Now Passed to a Data Source\"): eventbridge#212. data.aws_cloudwatch_event_bus.this exists at the base with the same count; nothing in var.region's block changes and its default is null; the data source set no region at the base and sets region = var.region at the head; at the base the module's resources already set region = var.region. All four hold: LOW at the data source line, summary \"module calls that set region now make data.aws_cloudwatch_event_bus.this read the existing bus in that region, as the module's resources already did; say so in the release notes\". Had var.region defaulted to a fixed region, condition 2 fails and the finding is CRITICAL unless the change declares the break.\n\nRegression guard: tests/reviewer-index-test.sh checks that the Severity section names the ignored-input band and its conditions, with a mutation that drops the default-null clause caught; every new sentence of check-g-behaviour.md gets a \"+\" line in tests/reviewer-index-sentences.txt, which the sentence multiset check enforces.\n\nOut of scope: changes to the claim rules (compat.claim-contradicts-analysis) and to the ladder.",
+      "revisionSummary": "Bare var reference only (head and anchor); direct argument of a resource or data block, anchors the same; variable block unchanged; four conditions plus the null-is-unset reason; non-null callers only; example names the block.",
+      "convergence": {
+        "converged": false,
+        "reason": "codex, gemini and grok voted REQUEST_CHANGES; openrouter:glm-5-3-flashx approved. The host had approved blind but accepted all 11 issues and revised the rule again."
+      }
+    },
+    {
+      "n": 5,
+      "hostBlindVerdict": {
+        "verdict": "APPROVE",
+        "summary": "with bare references on direct resource or data block arguments the band is decidable and tight; it covers the motivating case and every looser case falls back to CRITICAL.",
+        "criticalIssues": [],
+        "text": "Verdict: APPROVE\nCritical issues: none\nBottom line: with bare references on direct resource or data block arguments the band is decidable and tight; it covers the motivating case and every looser case falls back to CRITICAL.\nVERDICT: APPROVE"
+      },
+      "peers": [
+        {
+          "source": "codex",
+          "provider": "codex",
+          "model": "gpt-6.1-sol",
+          "reasoningEffort": "high",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r5-codex-1",
+              "category": "correctness",
+              "text": "Null-as-unset proves argument-value equivalence, not dependency-graph equivalence. A null-valued module output depending on the target can form a new cycle when forwarded to it. Narrow the guarantee and keep dependency-cycle failures outside this automatic LOW band."
+            },
+            {
+              "id": "r5-codex-2",
+              "category": "ambiguity",
+              "text": "Condition 4 accepts descriptions that merely name the full address, including explicit exclusions. Require an affirmative promise that this variable controls this argument on that block, preserving any stated qualifications."
+            }
+          ],
+          "summary": "Retain Option A after narrowing null invariance to exclude dependency effects and requiring an affirmative description promise. Effort: Short. Confidence: medium pending a dependency replay. Top risk: automatically rating a newly introduced dependency cycle LOW because all four syntactic conditions hold.",
+          "text": "**Bottom line:** Keep Option A, but revise two predicates before approval. The four conditions establish value forwarding; they do not establish dependency equivalence or that a description promises the newly added behavior.\n\n**Action plan:**\n\n1. Narrow the invariance statement to omitted inputs and literal `null` inputs. Explicitly retain ordinary severity treatment for dependency cycles introduced by the new reference.\n2. Require the description arm to positively state that this input controls this argument on the named block. A mention, exclusion or conditional promise is insufficient.\n3. Add negative regression cases for both gaps alongside the default-null mutation guard.\n\n**Effort:** Short (1-4h).  \n**Confidence:** Medium: the description counterexample is textual; the dependency counterexample follows documented graph semantics but was not executed.\n\nThe dependency counterexample is a caller passing `module.example.null_output` into the input, where that output has `value = null` and `depends_on = [data.example.target]`. At base, the target does not reference the input, and an independent anchor can already consume it. At head, forwarding the input to the target closes a dependency cycle despite the expression's null value. Terraform infers dependencies from references, and outputs can carry explicit dependencies. This is an inference from those documented rules, not an observed replay. [References and dependencies](https://developer.hashicorp.com/terraform/language/expressions/references#named-values-and-dependencies), [output dependencies](https://developer.hashicorp.com/terraform/language/block/output#depends_on).\n\nThe description counterexample is simpler: `\"This input does not affect data.example.target\"` names the full address and therefore satisfies condition 4 as written. The later assertion that the description “promised” the effect conflicts with that mechanically sufficient condition.\n\n<SUMMARY>\nRetain Option A after narrowing null invariance to exclude dependency effects and requiring an affirmative description promise. Effort: Short. Confidence: medium pending a dependency replay. Top risk: automatically rating a newly introduced dependency cycle LOW because all four syntactic conditions hold.\n</SUMMARY>\n\nVERDICT: REQUEST_CHANGES\n- [correctness] Null-as-unset proves argument-value equivalence, not dependency-graph equivalence. A null-valued module output depending on the target can form a new cycle when forwarded to it. Narrow the guarantee and keep dependency-cycle failures outside this automatic LOW band.\n- [ambiguity] Condition 4 accepts descriptions that merely name the full address, including explicit exclusions. Require an affirmative promise that this variable controls this argument on that block, preserving any stated qualifications.",
+          "ms": 100984
+        },
+        {
+          "source": "gemini",
+          "provider": "gemini",
+          "model": "gemini-3.8-flash-high",
+          "reasoningEffort": null,
+          "verdict": "APPROVE",
+          "criticalIssues": [],
+          "summary": "Bottom line: The Option A ignored-input LOW band for compat.expression-behaviour-changed is architecturally sound, preserving default invariance while preventing false CRITICAL blocks on input propagation.\nEffort: Quick (<1h).\nConfidence: high.\nTop risk: Callers explicitly passing non-null values will observe plan differences (including potential resource recreation or deferred data source reads), which is mitigated by requiring explicit release notes and summary disclosure.",
+          "text": "### Essential\n\n- **Bottom line**: The proposed Option A plan for the \"ignored-input\" LOW band of `compat.expression-behaviour-changed` is architecturally sound and ready for adoption. It guarantees default invariance via Terraform's language rule (`null` equals unset for direct arguments), keeps verification decidable and fail-closed, and resolves false-positive CRITICAL blocks (such as `terraform-aws-eventbridge#212`) without touching the ladder or claim rules.\n- **Action plan**:\n  1. Add the ignored-input LOW band text to the Severity section of `check-g-behaviour.md`, positioned immediately before the CRITICAL band.\n  2. Add the worked example (\"A Region Now Passed to a Data Source: eventbridge#212\") immediately after the subnet-ids example in `check-g-behaviour.md`.\n  3. Add the exact new sentences of `check-g-behaviour.md` as `+` entries in `tests/reviewer-index-sentences.txt`.\n  4. Add the regression check and the `default-null` mutation refusal to `tests/reviewer-index-test.sh`.\n  5. Run `tests/reviewer-index-test.sh` and `tests/skills-test.sh` to confirm sentence multiset balance and mutation coverage.\n- **Effort**: Quick (<1h).\n- **Confidence**: High.\n\n---\n\n### Expanded\n\n- **Why this approach**:\n  1. **Strict default invariance**: Because Terraform core treats a direct argument set to `null` as unset, callers omitting the variable or passing `null` get bitwise identical plan behavior across revisions.\n  2. **Syntactically bounded**: Restricting head and anchor expressions strictly to bare `var.<name>` references eliminates expression side effects (such as non-null fallbacks in `coalesce` or ternaries) that could violate null equivalence.\n  3. **Decidable and fail-closed**: Conditions rely solely on base/head AST diffs and explicit base descriptions; any violation defaults directly to the existing CRITICAL/HIGH bands.\n  4. **Minimal blast radius**: Reuses the existing rule structure and severity hierarchy without altering claim rules (`compat.claim-contradicts-analysis`) or ladder evaluation logic.\n\n- **Risks**:\n  1. **Plan differences on non-null inputs**: Callers passing an explicit non-null value may see plan changes (such as in-place updates or data source query shifts); mitigated by requiring a release note prompt and detailing the affected address in the finding summary.\n  2. **Deferred data source reads**: Passing an unknown value shifts data source reads to the apply phase; mitigated by explicitly enumerating deferred reads in the rule summary template.\n  3. **Sentence record drift**: Punctuation or whitespace mismatches between `check-g-behaviour.md` and `tests/reviewer-index-sentences.txt` will break tests; mitigated by extracting sentences directly from the rendered markdown.\n\n---\n\n### Edge cases\n\n- **Escalation triggers**:\n  1. If contributors request supporting wrapped expressions (e.g., `coalesce(var.x, default)`), escalate to a separate migration band rather than loosening the bare-reference constraint of this LOW band.\n  2. If propagation across child module calls is requested, escalate to inter-module dataflow analysis.\n- **Alternative sketch**:\n  Full inter-procedural dataflow modeling that traces variable expressions through child module boundaries and dynamic blocks, requiring dedicated engine parser changes rather than markdown rule refinement.\n\n<SUMMARY>\nBottom line: The Option A ignored-input LOW band for compat.expression-behaviour-changed is architecturally sound, preserving default invariance while preventing false CRITICAL blocks on input propagation.\nEffort: Quick (<1h).\nConfidence: high.\nTop risk: Callers explicitly passing non-null values will observe plan differences (including potential resource recreation or deferred data source reads), which is mitigated by requiring explicit release notes and summary disclosure.\n</SUMMARY>\n\nVERDICT: APPROVE",
+          "ms": 179526
+        },
+        {
+          "source": "grok",
+          "provider": "grok",
+          "model": "grok-4.7",
+          "reasoningEffort": "medium",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r5-grok-1",
+              "category": "correctness",
+              "text": "Condition 1's \"same count or for_each\" is a disjunction and does not define equality: a for_each change still passes when count is absent at both, and a block that uses neither meta-argument may fail the band. Require both to be unchanged between base and head, each absent in both revisions or the same source text in both with no whitespace folding, and treat both-absent as a pass."
+            },
+            {
+              "id": "r5-grok-2",
+              "category": "correctness",
+              "text": "Condition 4 does not require the anchor assignment to be a direct argument, so a nested-block argument or a module input can anchor the band. Require a direct argument on another resource or data block of this module, with the same nested-block and module-input exclusion as the changed argument."
+            },
+            {
+              "id": "r5-grok-3",
+              "category": "correctness",
+              "text": "The claim that non-null callers get the effect the base already gave on the anchor, or the effect the description promised, is not established by condition 4: the anchor need not be instantiated for those calls, be the same type, or use the argument with the same meaning. State only the checked fact, and do not claim the plan effect is the same."
+            },
+            {
+              "id": "r5-grok-4",
+              "category": "ambiguity",
+              "text": "The summary rule always requires mention of a data-source read that an unknown value moves to apply, but the worked example omits it and the clause is wrong for a resource argument. Require that sentence only when the changed block is a data source, and include it in the example summary."
+            }
+          ],
+          "summary": null,
+          "text": "The ignored-input band is still the right call, but the rule text can under-rate or cannot be applied as written. Condition 1 does not actually require both expansion meta-arguments to be unchanged, and condition 4 does not constrain the anchor to a direct argument. The effect sentence also asserts more than those checks show.\n\n1. Rewrite condition 1 so `count` and `for_each` must each be absent at both revisions or identical in source text (no whitespace folding). Both absent passes. Any change in either one fails the band.\n2. In condition 4, require the anchor to be a direct argument of another resource or data block in this module, not a nested block and not a module input.\n3. Replace the effect sentence with the checked fact only: a non-null caller now passes the variable into this argument, which the base already passed with a bare reference on the anchor, or which the base description promised for this block. Do not claim the plan effect is the same.\n4. Require the deferred plan-to-apply read only when the changed block is a data source, and use that wording in the eventbridge example summary.\n5. Keep the band before CRITICAL, the null-is-unset reason, the release-note ask, and the sentence-multiset pins.\n\nEffort: Short. Confidence: high.\n\nVERDICT: REQUEST_CHANGES\n- [correctness] Condition 1's \"same count or for_each\" is a disjunction and does not define equality: a for_each change still passes when count is absent at both, and a block that uses neither meta-argument may fail the band. Require both to be unchanged between base and head, each absent in both revisions or the same source text in both with no whitespace folding, and treat both-absent as a pass.\n- [correctness] Condition 4 does not require the anchor assignment to be a direct argument, so a nested-block argument or a module input can anchor the band. Require a direct argument on another resource or data block of this module, with the same nested-block and module-input exclusion as the changed argument.\n- [correctness] The claim that non-null callers get the effect the base already gave on the anchor, or the effect the description promised, is not established by condition 4: the anchor need not be instantiated for those calls, be the same type, or use the argument with the same meaning. State only the checked fact, and do not claim the plan effect is the same.\n- [ambiguity] The summary rule always requires mention of a data-source read that an unknown value moves to apply, but the worked example omits it and the clause is wrong for a resource argument. Require that sentence only when the changed block is a data source, and include it in the example summary.",
+          "ms": 436963
+        },
+        {
+          "source": "openrouter:glm-5-3-flashx",
+          "provider": "openrouter",
+          "model": "z-ai/glm-5.3-flashx",
+          "reasoningEffort": "medium",
+          "verdict": "APPROVE",
+          "criticalIssues": [],
+          "summary": null,
+          "text": "Review of round 5 plan:\n\n**Correctness of the guarantee**: The four conditions now close the known holes. Condition 1 (block exists at base, same count/for_each), condition 2 (variable block untouched, default null), condition 3 (base absent/null → head bare reference), condition 4 (base anchor with the bare reference on another block, or description promising module-wide applicability) together establish: a call leaving the variable unset/null plans identically at both revisions for this argument (null-is-unset is a Terraform language rule for direct arguments, not a provider fact); a call setting the variable to non-null gives the argument the value the anchor already had at base. The narrowing to non-null callers resolves the explicit-unknown concern from round 2, and the bare-reference rule removes all expression-comparison judgment from the check — everything is textual and diff-readable.\n\n**Scope**: Same-module anchors only, direct arguments only, band rates one argument with other changes judged under their own rules, no ladder/claim changes. Correctly contained.\n\n**Regression guard**: Sentence-multiset update named, mutation test for the default-null clause. Adequate.\n\n**Security**: All inputs come from base/head code and base description; nothing from PR text. Private-repo hygiene unaffected.\n\n**Residual minor (non-blocking)**: The summary wording \"as the module's resources already did\" could be stale if the anchor block is itself removed in the diff — but the band's per-argument claim stays true, and the removal is separately judged. Not worth another cycle; a one-line \"or the anchor's current state at head\" softener is optional.\n\n**Performance**: Textual conditions only, no extra plan data required.\n\nThe band decidable, conditions checkable from code, worked example grounds it, negative test mutation guards the weakest clause.\n\nVERDICT: APPROVE\n\nOptional (non-critical): consider wording the summary so it does not assert the anchor block still exists at head, in case the diff removes it — its removal is already judged under its own rule.",
+          "ms": 15795
+        }
+      ],
+      "roundMs": 437797,
+      "slowest": "grok",
+      "adjudication": [
+        {
+          "issueId": null,
+          "source": "codex",
+          "category": "correctness",
+          "description": "Null-as-unset proves value equivalence, not dependency-graph equivalence; a new cycle can form",
+          "decision": "defer",
+          "reason": "A new cycle fails terraform validate or plan, which the verify and plan passes report as their own findings; the band text will say it rates the value change only and a cycle or plan error is judged on its own."
+        },
+        {
+          "issueId": null,
+          "source": "codex",
+          "category": "ambiguity",
+          "description": "Description arm must be an affirmative promise, not a mention of the address",
+          "decision": "accept",
+          "reason": "Description must say the variable sets this argument on this block, or on every resource and data source; a mention or an exclusion does not count."
+        },
+        {
+          "issueId": null,
+          "source": "grok",
+          "category": "correctness",
+          "description": "'Same count or for_each' is a disjunction; require both unchanged",
+          "decision": "accept",
+          "reason": "count and for_each each unchanged, absent in both or the same text."
+        },
+        {
+          "issueId": null,
+          "source": "grok",
+          "category": "correctness",
+          "description": "Anchor must be a direct argument too",
+          "decision": "accept",
+          "reason": "Anchor is a direct argument of another resource or data block, same exclusions."
+        },
+        {
+          "issueId": null,
+          "source": "grok",
+          "category": "correctness",
+          "description": "Do not claim the plan effect equals the anchor's",
+          "decision": "accept",
+          "reason": "State only the checked fact: the variable now reaches this argument as it already reached the anchor or as the description says."
+        },
+        {
+          "issueId": null,
+          "source": "grok",
+          "category": "ambiguity",
+          "description": "Deferred data read sentence only for data sources, and in the example",
+          "decision": "accept",
+          "reason": "Clause applies when the block is a data source; example summary includes it."
+        }
+      ],
+      "hostVerdict": "REQUEST_CHANGES",
+      "revision": "Decision: Option A, a LOW \"ignored input\" band for compat.expression-behaviour-changed. Options B and C rejected.\n\nRule text, decided BEFORE the CRITICAL band:\n\n\"LOW, the ignored-input band, when all four hold for one direct argument of one resource or data block (not a nested block, not a module input), each read from the code of the base and head revisions and from the base revision's variable description, never from the pull request text:\n1. The block exists at the base with the same address, and its count and its for_each are each unchanged: absent in both revisions, or the same text in both.\n2. The diff changes nothing in the variable's block, and its default is null.\n3. At the base the argument is absent or set to the literal null; at the head it is set to the bare reference var.<name>.\n4. At the base the same variable already set the same argument name, as the bare reference var.<name>, as a direct argument of another resource or data block of this module, expanded by count or for_each or not; or the base description of the variable says that it sets this argument on this block, named by its full address, or on every resource and data source of the module. A block of a child module, a module call, a nested block, another variable with a matching name, or a description that only mentions the variable, the block or its type, or excludes it, is not enough.\nAn argument set to null is unset (a Terraform language rule for a direct argument of a resource or data block, not a provider fact), so a module call that leaves the variable unset or sets it to null plans the same value for this argument at both revisions. Only module calls that set the variable to a value other than null plan a different value, and the variable now reaches this argument as it already reached the anchor argument, or as its base description says. The finding's summary names the variable, the block's address and that such calls now pass the value to this argument, and, when the block is a data source, that an unknown value moves its read to apply; it asks for a line in the release notes, and the change needs no major release. The band rates this value change only: a cycle, a validate or plan error, and every other change in the diff are judged under their own rules. When any condition fails, the other bands apply as written.\"\n\nWorked example (\"A Region Now Passed to a Data Source\"): eventbridge#212. data.aws_cloudwatch_event_bus.this exists at the base with the same count and no for_each; nothing in var.region's block changes and its default is null; the data source set no region at the base and sets region = var.region at the head; at the base the module's resources already set region = var.region as a direct argument. All four hold: LOW at the data source line, summary \"module calls that set region now pass it to data.aws_cloudwatch_event_bus.this, as the module's resources already did, so it reads the existing bus in that region; an unknown region moves that read to apply; say so in the release notes\". Had var.region defaulted to a fixed region, condition 2 fails and the finding is CRITICAL unless the change declares the break.\n\nRegression guard: reviewer-index-test.sh checks the band's conditions with a mutation dropping the default-null clause caught; every new sentence gets a \"+\" line in tests/reviewer-index-sentences.txt.\n\nOut of scope: claim rules and the ladder.",
+      "revisionSummary": "count and for_each each unchanged; anchor a direct argument; description must affirmatively promise the argument; effect claim limited to the checked fact; data-source clause only for data blocks and in the example; cycles and plan errors judged on their own.",
+      "convergence": {
+        "converged": false,
+        "reason": "codex and grok voted REQUEST_CHANGES; gemini and openrouter:glm-5-3-flashx approved. The host accepted 5 issues and deferred 1, but round 5 was the cap, so the loop ended unresolved with a revision that no reviewer saw."
+      }
+    }
+  ],
+  "outcome": {
+    "verdict": "REQUEST_CHANGES",
+    "converged": false,
+    "rounds": 5,
+    "confidence": "none",
+    "finalReportHeadline": "UNRESOLVED after 5 round(s)",
+    "openDissent": [
+      {
+        "source": "codex",
+        "issue": "Null-as-unset proves argument-value equivalence, not dependency-graph equivalence. A null-valued module output depending on the target can form a new cycle when forwarded to it. Narrow the guarantee and keep dependency-cycle failures outside this automatic LOW band."
+      },
+      {
+        "source": "codex",
+        "issue": "Condition 4 accepts descriptions that merely name the full address, including explicit exclusions. Require an affirmative promise that this variable controls this argument on that block, preserving any stated qualifications."
+      },
+      {
+        "source": "grok",
+        "issue": "Condition 1's \"same count or for_each\" is a disjunction and does not define equality: a for_each change still passes when count is absent at both, and a block that uses neither meta-argument may fail the band. Require both to be unchanged between base and head, each absent in both revisions or the same source text in both with no whitespace folding, and treat both-absent as a pass."
+      },
+      {
+        "source": "grok",
+        "issue": "Condition 4 does not require the anchor assignment to be a direct argument, so a nested-block argument or a module input can anchor the band. Require a direct argument on another resource or data block of this module, with the same nested-block and module-input exclusion as the changed argument."
+      },
+      {
+        "source": "grok",
+        "issue": "The claim that non-null callers get the effect the base already gave on the anchor, or the effect the description promised, is not established by condition 4: the anchor need not be instantiated for those calls, be the same type, or use the argument with the same meaning. State only the checked fact, and do not claim the plan effect is the same."
+      },
+      {
+        "source": "grok",
+        "issue": "The summary rule always requires mention of a data-source read that an unknown value moves to apply, but the worked example omits it and the clause is wrong for a resource argument. Require that sentence only when the changed block is a data source, and include it in the example summary."
+      }
+    ],
+    "nonBlockingThemes": [
+      {
+        "theme": "Null-as-unset proves value equivalence, not dependency-graph equivalence; a new cycle can form",
+        "raisedBy": [
+          "codex"
+        ]
+      }
+    ]
+  },
+  "notes": [
+    "Recovered after the fact, not recorded for this page: the run predates Deliberation's run journals. Sources: the Claude Code transcript of the session that drove the loop (every consensus-step call the host made and the engine's JSON reply to it) and the session record the engine persisted at the end of the run.",
+    "deliberationVersion is inferred, not recorded: the driving session started on 2026-10-30, after 4.0.0 was installed (2026-10-27) and before 4.1.1 (2026-11-04), and the v4.0.0 engine's adjudication schema matches the recorded calls.",
+    "planUnderReview is the init prompt verbatim. hostBlindVerdict.text is the record_blind text verbatim; its verdict, summary (the bottom-line line) and criticalIssues were parsed from that text during recovery.",
+    "Peer verdicts, models, reasoningEffort, ms and critical issues are verbatim from the engine's dispatch_peers replies. Issue text is the engine's one-line description of each issue; the ids (r<n>-<source>-<k>, in reply order) were assigned during recovery. gemini's reasoningEffort is null as the engine reported it; the model id carries the effort.",
+    "Peer text and summary are null in every round but the last: dispatch_peers replied with verdicts and issue lines only, and the engine persisted full replies for the final round alone. Final-round text is verbatim from the session record, and its summary is copied from the reply's <SUMMARY> block or Summary line, or null when it has neither. Model replies may contain non-ASCII punctuation; it is kept as returned.",
+    "This engine version took rulings by source, category and description rather than by issue id. Each adjudication entry therefore has issueId null and keeps the host's source, category, description and reason verbatim, with decision set from the engine's action field. Sources are as the host wrote them: 'claude' is the host itself, 'glm' is openrouter:glm-5-3-flashx, and a comma list means the host merged the same issue from several voices.",
+    "roundMs is the wall time between the host's dispatch_peers call and the engine's reply, from transcript timestamps; slowest is the voice with the largest ms. recordedAt is the time of the engine's final reply.",
+    "Trimmed as boilerplate: per-call provenance, the full loop and session ids, and the engine finalReport body, which repeats the last revision. outcome.finalReportHeadline is its Outcome line.",
+    "question is the first paragraph of the init prompt. subject.title, convergence.reason, outcome.openDissent and outcome.nonBlockingThemes were written during recovery from the recorded votes and rulings only; the engine returns converged, verdict and confidence.",
+    "No redactions were needed in this run.",
+    "The review subject is a severity rule of a Terraform module pull-request reviewer, decided on a real public pull request, terraform-aws-modules/terraform-aws-eventbridge#212. outcome.verdict is the host's last adjudicated verdict; outcome.openDissent lists the round 5 critical issues of the two voices still voting REQUEST_CHANGES, verbatim."
+  ]
+}

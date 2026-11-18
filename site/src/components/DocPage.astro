@@ -1,0 +1,97 @@
+---
+// One mapped doc page: section list, breadcrumb, rendered Markdown, sub-page list,
+// source link. A named slot `lead` sits between the title and the Markdown.
+import { getCollection, render, type CollectionEntry } from 'astro:content'
+import Prose from './Prose.astro'
+import { site } from '../pages.config.ts'
+import { routeOf } from '../lib/seo.ts'
+
+interface Props {
+  entry: CollectionEntry<'docs'>
+}
+const { entry } = Astro.props
+const { Content, headings } = await render(entry)
+const { slug, title, parent, children, source } = entry.data
+// Pages sliced out of a longer file start at an H2, so they get their title here.
+const needsTitle = !headings.some((h) => h.depth === 1)
+const repeatsTitle = needsTitle && headings[0]?.depth === 2 && headings[0].text.trim() === title
+
+// "On this page": the two heading levels under the page title, for pages long enough
+// to need it. From 980px it sits in the sticky left column under the section list and
+// src/scripts/scrollspy.js marks the section being read. Below that the column is a
+// one-line strip, so the same list is printed once more above the text as plain links.
+const TOC_MIN = 4
+const below = headings.slice(repeatsTitle ? 1 : 0).filter((h) => h.depth > 1)
+const tocTop = Math.min(...below.map((h) => h.depth))
+const subs = below.filter((h) => h.depth === tocTop + 1)
+// Sub-heads that repeat (a changelog's "Features", "Bug Fixes") say nothing in a list.
+const keepSubs = new Set(subs.map((h) => h.text)).size === subs.length
+const toc = below.filter((h) => h.depth === tocTop || (keepSubs && h.depth === tocTop + 1)).map((h) => ({ ...h, sub: h.depth > tocTop }))
+const hasToc = toc.length >= TOC_MIN
+
+const docs = (await getCollection('docs')).sort((a, b) => a.data.order - b.data.order)
+const tops = docs.filter((d) => d.data.slug && !d.data.parent)
+const section = parent?.slug ?? slug
+---
+<div class="doc split">
+  <div class="side" data-pagefind-ignore>
+    <nav aria-label="Documentation">
+    <h2>Documentation</h2>
+    <ul>
+      {tops.map((d) => (
+        <li>
+          <a href={routeOf(d.data.slug)} aria-current={d.data.slug === slug ? 'page' : undefined}>{d.data.nav ?? d.data.title}</a>
+          {d.data.slug === section && d.data.children.length > 0 && (
+            <ul class="kids">
+              {d.data.children.map((c) => (
+                <li><a href={routeOf(c.slug)} aria-current={c.slug === slug ? 'page' : undefined}>{c.title}</a></li>
+              ))}
+            </ul>
+          )}
+        </li>
+      ))}
+    </ul>
+    </nav>
+    {hasToc && (
+      <nav class="side-toc" aria-label="On this page" data-spy>
+        <h2>On this page</h2>
+        <ol>
+          {toc.map((h) => <li class:list={{ deep: h.sub }}><a href={`#${h.slug}`}>{h.text.trim()}</a></li>)}
+        </ol>
+      </nav>
+    )}
+  </div>
+  <article>
+    <nav class="crumbs" aria-label="Breadcrumb" data-pagefind-ignore>
+      <ol>
+        <li><a href={routeOf('')}>Home</a></li>
+        {parent && <li><a href={routeOf(parent.slug)}>{parent.title}</a></li>}
+        <li aria-current="page">{title}</li>
+      </ol>
+    </nav>
+    {needsTitle && <h1>{title}</h1>}
+    <slot name="lead" />
+    {hasToc && (
+      <nav class="toc" aria-label="On this page" data-pagefind-ignore>
+        <h2>On this page</h2>
+        <ol>
+          {toc.map((h) => <li class:list={{ deep: h.sub }}><a href={`#${h.slug}`}>{h.text.trim()}</a></li>)}
+        </ol>
+      </nav>
+    )}
+    <Prose titled={repeatsTitle}>
+      <Content />
+    </Prose>
+    {children.length > 0 && (
+      <nav class="kids-nav" aria-label="In this section" data-pagefind-ignore>
+        <h2>In this section</h2>
+        <ul>
+          {children.map((c) => <li><a href={routeOf(c.slug)}>{c.title}</a></li>)}
+        </ul>
+      </nav>
+    )}
+    {source && (
+      <p class="meta source" data-pagefind-ignore>Rendered from <a href={`https://github.com/${site.repo}/blob/${site.branch}/${source}`}>{source}</a> in the repository.</p>
+    )}
+  </article>
+</div>

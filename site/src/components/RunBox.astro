@@ -1,0 +1,127 @@
+---
+// One recorded run drawn the way the dashboard draws it: the readout strip, one lane per
+// voice, the same answers as a list for narrow screens, and the inspector. The home page
+// prerenders the default run with this; every other run is emitted as an HTML fragment
+// (src/pages/runs/[id].html.ts) that the run selector fetches when it is picked.
+import Inspector from './Inspector.astro'
+import Verdict from './Verdict.astro'
+import { routeOf } from '../lib/seo.ts'
+import { type Run, closing, day, describe, dur, failNote, failed, panelId, plural, promptId, rulingsText, segments, state, tone, unrecorded, voices, windows, blindState } from '../lib/run-model.ts'
+
+interface Props {
+  run: Run
+}
+const { run } = Astro.props
+const pct = (n: number): string => `${n.toFixed(2)}cqw`
+const d = describe(run)
+const vs = voices(run)
+const wins = windows(run)
+---
+<div class="cap-box" data-run={run.id}>
+  <dl class="readout">
+    <div><dt>Subject</dt><dd>{d.kind}</dd></div>
+    <div><dt>Expert</dt><dd>{run.expert}</dd></div>
+    <div><dt>Status</dt><dd><b class={`mk${run.outcome.converged ? '' : ' open'}`}>{run.outcome.converged ? 'CONVERGED' : 'UNRESOLVED'}</b></dd></div>
+    <div><dt>Round</dt><dd>{run.rounds.length}/{run.limits.maxRounds}</dd></div>
+    <div><dt>Panel</dt><dd>{d.panel}</dd></div>
+    <div><dt>Recorded</dt><dd>{day(run)}</dd></div>
+    <div><dt>Version</dt><dd>{run.deliberationVersion}</dd></div>
+    {run.planUnderReview && (
+      <div class="ro-prompt js-only">
+        <button type="button" class="key" disabled data-panel={promptId(run)} aria-controls={promptId(run)} aria-expanded="false"
+          aria-label="Show prompt: the question and the full prompt sent to the panel">Show prompt</button>
+      </div>
+    )}
+  </dl>
+
+  <div class="scope">
+    <div class="grat" aria-hidden="true">
+      {wins.map((w) => <i style={`left:${pct(w.left)};width:${pct(w.width)}`}></i>)}
+    </div>
+    <div class="s-row">
+      <span class="s-legend" aria-hidden="true">ROUNDS</span>
+      <div class="track t-rounds" aria-hidden="true">
+        {wins.map((w, wi) => (
+          <>
+            <span class={`rb${w.final ? ' on' : ''}`} style={`left:${pct(w.left)};width:${pct(w.width)}`}>R{w.round.n} {dur(w.round.roundMs)}<b></b></span>
+            {!w.final && w.round.revision && <span class="brk" style={`left:${pct(w.left + w.width)};width:${pct(wins[wi + 1].left - w.left - w.width)}`}>v{w.round.n + 1}</span>}
+          </>
+        ))}
+      </div>
+    </div>
+    <div class="s-row">
+      <span class="s-legend" aria-hidden="true">TRIG</span>
+      <div class="track t-trig">
+        {wins.map((w) => {
+          const end = closing(w)
+          return (
+            <>
+              <span class="tg" aria-hidden="true" style={`left:calc(${pct(w.left)} - 5px)`}>{w.px >= 150 && 'blind, peers'}</span>
+              <button type="button" class="tg end" disabled data-panel={panelId(run, w.round, 'ruling')} aria-controls={panelId(run, w.round, 'ruling')} aria-expanded="false"
+                aria-label={`Round ${w.round.n}: ${end.long}. Show the rulings`} style={`right:calc(100cqw - ${pct(w.left + w.width)} - 5px)`}>
+                <span>{end.text}</span>
+              </button>
+            </>
+          )
+        })}
+      </div>
+    </div>
+    {vs.map((v, vi) => (
+      <div class={`s-row lane i${v.ink}`}>
+        <div class="lane-key"><i class="swatch"></i><b>{v.label}</b><small>{v.model}</small></div>
+        <div class="track">
+          {segments(run, v.source, wins).map((s, si) => {
+            const id = panelId(run, s.round, s.kind === 'peer' ? v.source : s.kind)
+            const label = s.mode === 'bare' ? '' : s.mode === 'time' ? s.note : s.text
+            return (
+              <button type="button" class={`seg ${s.kind} ${s.mode} ${tone(s.verdict)}${vi === 1 && si === 0 ? ' hint' : ''}`} disabled data-panel={id} aria-controls={id} aria-expanded="false"
+                aria-label={`${v.label}, round ${s.round.n}, ${s.say}. Show the text`}
+                style={`--x:${s.left};--sw:${s.width}`}>
+                <span class="pulse"></span><span class="dec"></span>{label && <span class="dt">{label}</span>}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    ))}
+  </div>
+
+  <div class="cap-list">
+    {run.rounds.map((r) => (
+      <>
+        <h3>Round {r.n}<span>{dur(r.roundMs)}</span></h3>
+        <ul>
+          <li>
+            <button type="button" class="cl ih" disabled data-panel={panelId(run, r, 'blind')} aria-controls={panelId(run, r, 'blind')} aria-expanded="false">
+              <i class="swatch"></i><b>host agent</b><Verdict v={blindState(r)} />
+              <small>{r.hostBlindVerdict ? 'blind verdict, sealed before the panel answered' : 'blind verdict, not kept for this round'}</small>
+            </button>
+          </li>
+          {r.peers.map((p) => {
+            const v = vs.find((x) => x.source === p.source) ?? vs[0]
+            return (
+              <li>
+                <button type="button" class={`cl i${v.ink}`} disabled data-panel={panelId(run, r, p.source)} aria-controls={panelId(run, r, p.source)} aria-expanded="false">
+                  <i class="swatch"></i><b>{v.label}</b><Verdict v={state(p)} />
+                  <small>{p.model}, {failed(p) ? `${failNote(p)}, no answer` : unrecorded(p) ? `${dur(p.ms)}, verdict not kept` : `${dur(p.ms)}, ${plural(p.criticalIssues.length, 'issue')}`}</small>
+                </button>
+              </li>
+            )
+          })}
+          <li>
+            <button type="button" class="cl ih" disabled data-panel={panelId(run, r, 'ruling')} aria-controls={panelId(run, r, 'ruling')} aria-expanded="false">
+              <i class="swatch"></i><b>adjudication</b><Verdict v={r.hostVerdict} />
+              <small>{rulingsText(r)}, {r.convergence.converged ? 'converged' : r.revision ? 'plan revised' : 'not converged'}</small>
+            </button>
+          </li>
+        </ul>
+      </>
+    ))}
+  </div>
+
+  <Inspector run={run} />
+  <p class="cap-foot">
+    {run.provenance === 'recovered' ? 'Recovered from the logs of a run on' : 'Recorded'} {day(run)} on Deliberation {run.deliberationVersion}{run.runId && `, run ${run.runId}`}. Reviewer text is verbatim.{' '}
+    <a href={`${routeOf('sample-runs')}${run.id}/`}>Read this run round by round</a>
+  </p>
+</div>

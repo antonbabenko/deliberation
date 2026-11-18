@@ -50,6 +50,7 @@ deliberation/
 ├── config/                 # Config schema + defaults
 ├── scripts/                # sync-hosts.js (generates per-host files) and helpers
 ├── docs/                   # Tool guide, per-host docs, developer docs (docs/dev/)
+├── site/                   # Website (Astro), built from the Markdown above; not released
 ├── .claude-plugin/         # Claude Code plugin manifest
 ├── AGENTS.md               # Instructions for coding agents working on this repo
 └── README.md               # User-facing docs
@@ -65,7 +66,11 @@ Details: [docs/dev/architecture.md](docs/dev/architecture.md).
 
 1. **Test your changes** - `npm run check`, then try the change through a real MCP host
 2. **Update docs** - If you change behavior, update relevant docs
-3. **Keep commits atomic** - One logical change per commit
+3. **Check the website** - If you add or change a feature, host, provider, command, install
+   step or config key, update the site's hand-written pages too. Doc pages are generated
+   from the Markdown, but the home page, the features page and the install steps are not
+   (list in [AGENTS.md](AGENTS.md#keep-the-sites-hand-written-pages-current))
+4. **Keep commits atomic** - One logical change per commit
 
 ### PR Guidelines
 
@@ -122,6 +127,21 @@ You never bump versions by hand.
 `serverInfo.version` literal in `server/mcp/index.js` are kept in sync by CI
 (`.github/release/pre-commit.js`). Do not edit those version fields by hand - the `validate`
 check fails if they drift.
+
+### The website is not released
+
+The website in `site/` is built from this repo's Markdown and deployed to GitHub Pages by
+`.github/workflows/site.yml`. It never cuts a release:
+
+- A push to `master` that changes only `site/**` or `.github/workflows/site.yml` does not run
+  the release workflow (`paths-ignore` in `automated-release.yml`).
+- Site work uses a type that does not release: `docs(site):`, `chore(site):` or `ci(site):`.
+  These types add nothing to the changelog, so a site commit merged next to a `feat:` or
+  `fix:` does not change the version bump or the release notes. Never use `feat`, `fix`,
+  `perf`, `revert` or a `!` for site work. Because PRs are squash-merged, this applies to
+  the PR title.
+- Doc pages the site renders (README.md, SETUP.md, docs/...) keep their usual commit types.
+  The site rebuilds on any change to them.
 
 ### Fresh-machine check
 

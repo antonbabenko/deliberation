@@ -1,0 +1,17 @@
+---
+// One HTML fragment per recorded run, at /runs/<id>/. The home page prerenders only the
+// default run; its run selector fetches these same-origin files when another run is
+// picked. A fragment has no head and is kept out of the sitemap and out of crawls.
+import RunBox from '../../components/RunBox.astro'
+import { runs } from '../../lib/runs.ts'
+import type { Run } from '../../lib/run-model.ts'
+
+export const partial = true
+export const getStaticPaths = () => runs.map((run) => ({ params: { id: run.id }, props: { run } }))
+
+interface Props {
+  run: Run
+}
+const { run } = Astro.props
+---
+<RunBox run={run} />

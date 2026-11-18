@@ -1,0 +1,91 @@
+---
+// Top bar navigation: the designed pages, two disclosure menus (comparison pages and
+// recorded runs), the docs entry point and the repository with its star count. The count
+// is fetched at build time (lib/github.ts) and left out when that fails; the page itself
+// never calls GitHub. Without script each menu is a plain link to its index page.
+// The Search key opens the dialog in Search.astro; it needs script, so it is hidden without.
+import { getCollection } from 'astro:content'
+import { site } from '../pages.config.ts'
+import { routeOf } from '../lib/seo.ts'
+import { starCount } from '../lib/github.ts'
+import { runs } from '../lib/runs.ts'
+import { describe } from '../lib/run-model.ts'
+
+interface Item {
+  href: string
+  label: string
+  note?: string
+}
+interface Entry extends Item {
+  id?: string
+  all?: string
+  kids?: Item[]
+}
+
+const compare = (await getCollection('docs'))
+  .filter((d) => d.data.parent?.slug === 'compare')
+  .sort((a, b) => a.data.order - b.data.order)
+  .map((d) => ({ href: routeOf(d.data.slug), label: d.data.title }))
+const recorded = runs.map((run) => {
+  const d = describe(run)
+  return { href: routeOf(`sample-runs/${run.id}`), label: d.short, note: d.outcome }
+})
+
+const items: Entry[] = [
+  { href: routeOf('install'), label: 'Install' },
+  { href: routeOf('features'), label: 'Features' },
+  { href: routeOf('sample-runs'), label: 'Sample runs', id: 'menu-runs', all: 'All sample runs', kids: recorded },
+  { href: routeOf('compare'), label: 'Compare', id: 'menu-compare', all: 'All comparisons', kids: compare },
+  { href: routeOf('talks'), label: 'Talks' },
+  { href: routeOf('quickstart'), label: 'Docs' },
+]
+const path = Astro.url.pathname
+const docs = routeOf('quickstart')
+const under = (href: string): boolean => path === href || path.startsWith(href)
+// Every page that no other key claims is a doc page, so "Docs" is current there.
+const claimed = path === routeOf('') || items.some((i) => i.href !== docs && under(i.href))
+const current = (i: Entry): boolean => (i.href === docs ? !claimed : i.kids ? under(i.href) : path === i.href)
+const stars = await starCount(site.repo)
+---
+<nav class="nav" aria-label="Main">
+  <ul>
+    {items.map((i) =>
+      i.kids && i.kids.length > 0 ? (
+        <li class="menu">
+          <a class="no-js" href={i.href} aria-current={current(i) ? 'page' : undefined}>{i.label}</a>
+          <button type="button" class="js-only" aria-expanded="false" aria-controls={i.id} aria-current={current(i) ? 'true' : undefined}>
+            {i.label}<svg class="caret" viewBox="0 0 10 6" aria-hidden="true"><path d="M1 1l4 4 4-4" /></svg>
+          </button>
+          <ul id={i.id} class="menu-list" hidden>
+            <li><a class="menu-all" href={i.href} aria-current={path === i.href ? 'page' : undefined}>{i.all}</a></li>
+            {i.kids.map((k) => (
+              <li>
+                <a href={k.href} aria-current={path === k.href ? 'page' : undefined}>
+                  {k.label}{k.note && <span>{k.note}</span>}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </li>
+      ) : (
+        <li><a href={i.href} aria-current={current(i) ? 'page' : undefined}>{i.label}</a></li>
+      ),
+    )}
+    <li>
+      <a href={`https://github.com/${site.repo}`}>
+        GitHub
+        {stars && (
+          <span class="stars">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 .9l2.2 4.5 5 .7-3.6 3.5.9 4.9L8 12.2l-4.5 2.3.9-4.9L.8 6.1l5-.7z" /></svg>
+            <span class="sr">stars: </span>{stars}
+          </span>
+        )}
+      </a>
+    </li>
+    <li class="js-only">
+      <button type="button" class="search-key" data-search-open aria-haspopup="dialog" aria-keyshortcuts="/ Control+K Meta+K">
+        Search<kbd aria-hidden="true">/</kbd>
+      </button>
+    </li>
+  </ul>
+</nav>

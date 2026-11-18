@@ -24,3 +24,12 @@ cache/
 .claude/skills/explore-codebase
 .claude/skills/refactor-safely
 .claude/skills/review-changes
+
+# Website (site/): Astro build output and the images copied in at build time
+site/node_modules/
+site/dist/
+site/.astro/
+site/public/assets/
+
+# Design exploration mockups and screenshots (kept local, too large for the repo)
+site/.impeccable/directions/

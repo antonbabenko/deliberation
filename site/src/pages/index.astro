@@ -1,0 +1,86 @@
+---
+// Home: what it is, the install line, one recorded run you can open, how the loop
+// works, the experts, and a short feature list that links out.
+import Layout from '../layouts/Layout.astro'
+import Capture from '../components/Capture.astro'
+import HostSwitch from '../components/HostSwitch.astro'
+import { site } from '../pages.config.ts'
+import { routeOf, softwareApplication } from '../lib/seo.ts'
+import { loadExperts } from '../lib/experts.ts'
+import { REPO_ROOT } from '../lib/repo.ts'
+import { featureSections } from '../data/features.ts'
+import { LIMITS, STEPS, TAGLINE, WHAT } from '../data/site-copy.ts'
+
+const experts = loadExperts(REPO_ROOT)
+const features = featureSections()
+const promptUrl = (key: string): string => `https://github.com/${site.repo}/blob/${site.branch}/prompts/${key}.md`
+const COUNT = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten']
+const count = COUNT[experts.length] ?? String(experts.length)
+---
+<Layout title="Deliberation - a second opinion from other models before you ship" description={site.summary} jsonLd={[softwareApplication()]}>
+  <section class="hero">
+    <div>
+      <h1>{TAGLINE[0]} <span>{TAGLINE[1]}</span></h1>
+      <p class="sub">{WHAT}</p>
+    </div>
+    <div class="install">
+      <h2 id="install-h">Install</h2>
+      <HostSwitch />
+    </div>
+  </section>
+
+  <Capture />
+
+  <section class="band" aria-labelledby="how-h">
+    <h2 id="how-h">How it works</h2>
+    <p class="lede">Five steps. The same loop runs in every host.</p>
+    <ol class="flow">
+      {STEPS.map((s) => (
+        <li>
+          <h3>{s.name}</h3>
+          <p>{s.text}</p>
+          <code>{s.act}</code>
+        </li>
+      ))}
+    </ol>
+  </section>
+
+  <div class="experts">
+    <section class="band" aria-labelledby="exp-h">
+      <h2 id="exp-h">{count} experts, one for each kind of question</h2>
+      <p class="lede">An expert is a prompt that gives every reviewer on the panel the same role. A plan, a diff, a crash and a launch post need different questions, so each has its own. The role lines below are the first lines of the prompt files.</p>
+      <ul class="xlist">
+        {experts.map((x) => (
+          <li>
+            <div>
+              <h3>{x.name}</h3>
+              <span class="when">{x.when}</span>
+            </div>
+            <div>
+              <p class="role">{x.role}</p>
+              <a class="src" href={promptUrl(x.key)}>prompts/{x.key}.md</a>
+            </div>
+            <ul class="asks" aria-label={`Ask the ${x.name}`}>
+              {x.asks.map((a) => <li>"{a}"</li>)}
+            </ul>
+          </li>
+        ))}
+      </ul>
+      <p class="after">Your agent picks the expert from your request, or you name one. In a consensus run the whole panel takes the same role.</p>
+    </section>
+  </div>
+
+  <section class="band" aria-labelledby="feat-h">
+    <h2 id="feat-h">Features</h2>
+    <ul class="brief">
+      {features.map((f) => (
+        <li><a href={`${routeOf('features')}#${f.id}`}>{f.title}</a><span>{f.brief}</span></li>
+      ))}
+    </ul>
+    <p>
+      <a class="go" href={routeOf('features')}>Features and configuration</a>
+      <a class="go alt" href={routeOf('install')}>Install for your host</a>
+    </p>
+    <p class="limits">{LIMITS}</p>
+  </section>
+</Layout>

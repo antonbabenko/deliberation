@@ -1,0 +1,135 @@
+name: Site
+
+# Builds the website in site/ (Astro) from the repo's own Markdown and deploys it to
+# GitHub Pages. Pull requests build only. Deploy runs on master only.
+#
+# REQUIRES (one-time manual setup): Settings > Pages > Source: "GitHub Actions".
+#
+# The site is not part of a release: automated-release.yml ignores site-only pushes,
+# and site commits use docs(site): / chore(site): / ci(site): (see CONTRIBUTING.md).
+
+on:
+  push:
+    branches:
+      - master
+    # Keep in sync with pull_request.paths below and with site/src/pages.config.ts.
+    paths:
+      - 'site/**'
+      - '.github/workflows/site.yml'
+      # Markdown the site renders (site/src/pages.config.ts) and the images it serves.
+      - 'README.md'
+      - 'SETUP.md'
+      - 'TECHNICAL.md'
+      - 'PRIVACY.md'
+      - 'CONTRIBUTING.md'
+      - 'CHANGELOG.md'
+      - 'version.json'
+      - 'docs/tool-guide.md'
+      - 'docs/compare/**'
+      - 'docs/hosts/**'
+      - 'assets/**'
+      # Read at build time by the home and features pages.
+      - 'prompts/**'
+      - 'config/config.default.json'
+  pull_request:
+    paths:
+      - 'site/**'
+      - '.github/workflows/site.yml'
+      # Markdown the site renders (site/src/pages.config.ts) and the images it serves.
+      - 'README.md'
+      - 'SETUP.md'
+      - 'TECHNICAL.md'
+      - 'PRIVACY.md'
+      - 'CONTRIBUTING.md'
+      - 'CHANGELOG.md'
+      - 'version.json'
+      - 'docs/tool-guide.md'
+      - 'docs/compare/**'
+      - 'docs/hosts/**'
+      - 'assets/**'
+      # Read at build time by the home and features pages.
+      - 'prompts/**'
+      - 'config/config.default.json'
+  # The changelog page lists GitHub Releases. A release is published by
+  # tag-release.yml after the release commit lands, so rebuild once it finishes.
+  # workflow_run runs on master, which the github-pages environment allows.
+  workflow_run:
+    workflows: ['Tag and Publish Release']
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# workflow_run runs get their own group per triggering run, so the many that skip
+# (tag-release.yml runs on every master push) never displace a queued build.
+concurrency:
+  group: site-${{ github.event_name }}-${{ github.event.pull_request.number || github.event.workflow_run.id || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    # A release commit builds once tag-release.yml has published the release (the
+    # workflow_run below), not on its push. tag-release.yml runs on every master push;
+    # only a publish counts: the release commit, or a manual re-publish dispatch.
+    if: >-
+      ${{ (github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'chore(release):')) ||
+          github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' ||
+          (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' &&
+           (github.event.workflow_run.event == 'workflow_dispatch' ||
+            startsWith(github.event.workflow_run.head_commit.message, 'chore(release):'))) }}
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # Astro needs Node >=22.23.4 (site/package.json engines). The Node 18 floor of
+      # core/ and server/ does not apply to the site.
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '26.13.0'
+          cache: 'npm'
+          cache-dependency-path: site/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
+      # GITHUB_TOKEN lifts the Releases API rate limit. Without network or on any API
+      # error the changelog page falls back to CHANGELOG.md; the build does not fail.
+      - name: Build
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: npm run build
+
+      - name: Upload Pages artifact
+        if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/master' }}
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: site/dist
+
+  deploy:
+    name: deploy
+    needs: build
+    if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/master' }}
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

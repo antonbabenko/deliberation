@@ -1,0 +1,538 @@
+{
+  "id": "scope-replay-export",
+  "recordedAt": "2026-11-18T19:14:47.116Z",
+  "deliberationVersion": "4.6.1",
+  "runId": "3ec276bd",
+  "tool": "consensus-step",
+  "expert": "scope-analyst",
+  "question": "What would a command that exports a recorded run as a website replay transcript really have to cover, what is ambiguous, and what must be answered before anyone plans it?",
+  "subject": {
+    "type": "question",
+    "related": "https://github.com/antonbabenko/deliberation/blob/4bf190b/site/src/data/replay/README.md",
+    "title": "Scope a request: export a recorded run as a replay transcript for the website",
+    "short": "Replay export command"
+  },
+  "planUnderReview": "Scope this request before anyone plans it: \"Add a command that exports a recorded Deliberation run as a replay transcript for the website, so new runs can go on the home page without hand work.\"\n\nContext (Deliberation repo, v4.6.1; file-blind reviewers get the relevant facts here):\n\n- The project website lives in `site/` (a standalone Astro project, not released, its own package.json). Its home page replays real consensus runs round by round from JSON files in `site/src/data/replay/`. Each file follows a documented shape (`site/src/data/replay/README.md`): run metadata (recordedAt, deliberationVersion, short runId, expert, question, subject), `planUnderReview`, `panel[]`, `notOnPanel[]`, `limits`, `steps[]`, `rounds[]` (the host's blind verdict, each peer's verdict, critical issues, summary, full text and ms, the host's per-issue adjudication with reasons, the revision sent to the next round), an `outcome` and `notes[]` that say what is verbatim, what the host wrote and what was trimmed.\n- Today these files are written by hand from three sources: the dashboard run journal (`<cache>/deliberation/runs/<runId>.jsonl`, append-only events; prompt and reply text only when `dashboard.capture` is `content`), the persisted session record (`sessions.persist`, last round's opinions only), and the host's own transcript. Several fields have no machine source: subject title and URL, the one-line question, convergence reasons, non-blocking themes, open dissent, provenance notes.\n- The repo is public. AGENTS.md: everything committed is public, including commit messages; private names, paths and tracker ids never go in; prose writes the product name as Deliberation; runtime code in `core/` and `server/` must run on Node 18 with no runtime dependencies; every user-visible behavior ships with docs on every surface (README, TECHNICAL, SETUP, tool-guide, schema, commands). The site's Node version is separate from that floor.\n- The journal records the local project root path, process ids and config ids per run, and the host's adjudication decisions with their reasons. Secrets are scrubbed at write time; PII is redacted only when the dashboard serves data, not on disk.\n\nThe request as given, nothing more: \"a command\", \"exports a recorded run\", \"for the website\", \"without hand work\".\n\nProduce the scope analysis: what kind of work this is, what it would really have to cover, what is ambiguous, what must be answered before planning, and the risks.\n",
+  "panel": [
+    {
+      "provider": "openrouter",
+      "source": "openrouter:kimi-k3-1-pro",
+      "model": "moonshotai/kimi-k3.1-pro",
+      "reasoningEffort": "medium",
+      "role": "peer"
+    },
+    {
+      "provider": "openrouter",
+      "source": "openrouter:gpt-6-1-sol",
+      "model": "openai/gpt-6.1-sol",
+      "reasoningEffort": "medium",
+      "role": "peer"
+    }
+  ],
+  "notOnPanel": [
+    {
+      "provider": "codex",
+      "reason": "providers.codex.enabled: false in the recording machine's config"
+    },
+    {
+      "provider": "gemini",
+      "reason": "providers.gemini.enabled: false in the recording machine's config"
+    },
+    {
+      "provider": "grok",
+      "reason": "left off this run's panel (providers.grok.enabled: false in the recording config) for a two-peer panel"
+    }
+  ],
+  "arbiter": {
+    "kind": "host"
+  },
+  "limits": {
+    "maxRounds": 3
+  },
+  "steps": [
+    {
+      "action": "init",
+      "status": "await_blind",
+      "round": 1
+    },
+    {
+      "action": "record_blind",
+      "status": "await_peers",
+      "round": 1
+    },
+    {
+      "action": "dispatch_peers",
+      "status": "await_adjudication",
+      "round": 1
+    },
+    {
+      "action": "submit_adjudication",
+      "status": "await_revision",
+      "round": 1
+    },
+    {
+      "action": "submit_revision",
+      "status": "await_blind",
+      "round": 2
+    },
+    {
+      "action": "record_blind",
+      "status": "await_peers",
+      "round": 2
+    },
+    {
+      "action": "dispatch_peers",
+      "status": "await_adjudication",
+      "round": 2
+    },
+    {
+      "action": "submit_adjudication",
+      "status": "await_revision",
+      "round": 2
+    },
+    {
+      "action": "submit_revision",
+      "status": "await_blind",
+      "round": 3
+    },
+    {
+      "action": "record_blind",
+      "status": "await_peers",
+      "round": 3
+    },
+    {
+      "action": "dispatch_peers",
+      "status": "await_adjudication",
+      "round": 3
+    },
+    {
+      "action": "submit_adjudication",
+      "status": "await_revision",
+      "round": 3
+    },
+    {
+      "action": "submit_revision",
+      "status": "unresolved",
+      "round": 3
+    }
+  ],
+  "rounds": [
+    {
+      "n": 1,
+      "hostBlindVerdict": {
+        "verdict": "REQUEST_CHANGES",
+        "summary": "The request is a maintainer convenience that, read literally, becomes a shipped export feature with a privacy boundary and an unfillable promise, so it needs its audience, home and publication rules fixed before anyone plans it.",
+        "criticalIssues": [
+          {
+            "id": "r1-host-1",
+            "category": "scope",
+            "text": "\"Without hand work\" cannot hold: subject title and URL, the one-line question, convergence reasons, themes, open dissent and provenance notes have no machine source. The request must say whether the command emits a draft with marked gaps for a person to fill, or takes a metadata file the person writes; either way it is assisted, not hands-free."
+          },
+          {
+            "id": "r1-host-2",
+            "category": "security",
+            "text": "The export goes into a public repo, but the journal carries the local project root, pids and config ids, and with `capture: content` every prompt and reply, from whatever repo the run was about. Nothing in the request says who decides a run is public, how paths and ids are dropped, or what scan runs before the file is written. Without that, one export can publish private code."
+          },
+          {
+            "id": "r1-host-3",
+            "category": "ambiguity",
+            "text": "Where the command lives changes the size of the work by an order: a `deliberation-mcp` subcommand ships to every user (Node 18, no dependencies, docs on every surface, a stable output contract), while a script under `site/` or `scripts/` serves only this repo's maintainer. The request does not say which."
+          }
+        ],
+        "text": "**Verdict**: REQUEST CHANGES\n**Critical issues** (must-fix; empty = none):\n  - `[scope]` \"Without hand work\" cannot hold: subject title and URL, the one-line question, convergence reasons, themes, open dissent and provenance notes have no machine source. The request must say whether the command emits a draft with marked gaps for a person to fill, or takes a metadata file the person writes; either way it is assisted, not hands-free.\n  - `[security]` The export goes into a public repo, but the journal carries the local project root, pids and config ids, and with `capture: content` every prompt and reply, from whatever repo the run was about. Nothing in the request says who decides a run is public, how paths and ids are dropped, or what scan runs before the file is written. Without that, one export can publish private code.\n  - `[ambiguity]` Where the command lives changes the size of the work by an order: a `deliberation-mcp` subcommand ships to every user (Node 18, no dependencies, docs on every surface, a stable output contract), while a script under `site/` or `scripts/` serves only this repo's maintainer. The request does not say which.\n**One-line bottom line**: The request is a maintainer convenience that, read literally, becomes a shipped export feature with a privacy boundary and an unfillable promise, so it needs its audience, home and publication rules fixed before anyone plans it.\n\nNon-blocking notes:\n- The replay shape lives in a site README, not a schema; an exporter would freeze it, so the shape needs a version field first.\n- Runs recorded with `capture: metadata` have no text at all; the command must refuse or say what it cannot fill."
+      },
+      "peers": [
+        {
+          "source": "openrouter:kimi-k3-1-pro",
+          "provider": "openrouter",
+          "model": "moonshotai/kimi-k3.1-pro",
+          "reasoningEffort": "medium",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r1-kimi-k3-1-pro-1",
+              "category": "security",
+              "text": "Exporting PII-retaining local journals into a public website requires an explicit publication boundary, allowlisted output, recursive redaction, and automated private-sentinel tests."
+            },
+            {
+              "id": "r1-kimi-k3-1-pro-2",
+              "category": "ambiguity",
+              "text": "“Without hand work” conflicts with fields that have no machine source; required metadata input versus incomplete-draft output must be chosen."
+            },
+            {
+              "id": "r1-kimi-k3-1-pro-3",
+              "category": "correctness",
+              "text": "The exporter must not infer missing verdicts, adjudication, or convergence reasons, and must define fail-closed behavior for incomplete or uncorrelated sources."
+            },
+            {
+              "id": "r1-kimi-k3-1-pro-4",
+              "category": "scope",
+              "text": "The command form, supported capture mode, host-transcript requirement, and whether home-page selection is included remain undefined."
+            },
+            {
+              "id": "r1-kimi-k3-1-pro-5",
+              "category": "ops",
+              "text": "The plan needs deterministic output, atomic overwrite behavior, size limits, and concrete root and site verification commands."
+            }
+          ],
+          "summary": "Build-from-scratch export workflow; clarify before planning. The critical decision is whether missing narrative metadata becomes required input or a deliberately incomplete draft. Equally blocking: export crosses from PII-retaining local journals into a public repository, so it needs a deny-by-default schema and fail-closed privacy gate. Also settle command form, minimum recording requirements, and whether home-page selection is included.",
+          "text": "**Intent Classification**: Build from Scratch - this introduces a new export workflow spanning recorded-run data, privacy controls, website replay generation, and documentation. Confidence High\n\n**Pre-Analysis Findings**:\n- “Without hand work” is not achievable for every replay field from the stated sources. Subject title/URL, concise question, convergence reasons, non-blocking themes, open dissent, and provenance notes require new recorded inputs, explicit command arguments, or generated/empty values that the website contract permits.\n- A faithful export generally needs journal content capture (`dashboard.capture=content`) plus the host transcript for blind verdicts and adjudication. `sessions.persist` cannot reconstruct earlier rounds. The command must detect incomplete provenance rather than silently inventing or mislabelling content.\n- The primary security boundary is **private local records to a public repository**. Disk journals retain local project paths, process/config IDs, and PII; existing dashboard-time redaction is insufficient. Export needs a deny-by-default public schema, path/ID removal, explicit redaction, and a final sensitive-data check before writing into `site/`.\n- “Exports a recorded run” needs a defined run selector and completeness rules. It should not silently select the latest run, merge sessions, export an active run, or accept a partial run as complete.\n- The output must conform exactly to `site/src/data/replay/README.md`, including short `runId`, round ordering, verbatim-versus-host-written provenance, trimming disclosure, and deterministic serialization. The exporter must not broaden the replay contract merely to accommodate raw journal fields.\n- The implementation must follow existing repository command/script patterns. Runtime placement matters: `core/` and `server/` require Node 18 and no runtime dependencies; a development-only export script or site tooling has different constraints. No new provider calls or host-agent dependency should be introduced without an explicit decision.\n- “New runs can go on the home page” may mean only generating a replay JSON file or also updating home-page selection/ordering. Those are separate deliverables.\n- Must NOT have: raw journal/session copying, automatic publication or committing, provider/model-generated adjudication or summaries, changes to recording defaults, support for runs without required evidence unless explicitly chosen, or unrelated website redesign.\n- Documentation and tests are part of scope. If runtime/config/command surfaces change, all applicable docs, schemas, generated files, and sync checks must be updated; site tests/build are separate from root `npm run check`.\n\n**Questions for Requester** (bounded choices, most critical first):\n1. Should export refuse any run whose destination data may contain private information until the caller supplies an explicit public-output approval, or should it always write only to a quarantined path outside `site/` for separate review?\n2. For fields with no machine source, should the command require explicit metadata arguments and fail when they are absent, or emit a deliberately incomplete draft that still requires editing?\n3. Should the first version support only complete runs recorded with `dashboard.capture=content` plus an available host transcript, or also support degraded journal-only exports with clearly marked omissions?\n4. Is “a command” a repository CLI such as an npm/script command, or a host-facing slash/MCP command?\n5. Should success mean writing one validated JSON replay under `site/src/data/replay/`, or also changing the home page to feature that replay automatically?\n6. Should adjudication and convergence text come only from the supplied host transcript, or may the command accept a separately authored annotations file while preserving provenance?\n7. Should the command overwrite an existing replay for the same run deterministically, or refuse unless an explicit overwrite option is supplied?\n\n**Executable acceptance criteria (for the planner)**:\n- `node --test test/replay-export.test.js` exits `0`, using checked-in synthetic fixtures containing multiple rounds, Unicode, missing optional fields, out-of-order journal events, a local absolute path, process/config IDs, PII-like strings, and sentinel secrets. Assertions verify exact round/issue mapping, provenance, deterministic bytes, and absence of every private sentinel from stdout, stderr, output JSON, and temporary artifacts.\n- The failure suite exits non-zero and verifies that no destination file is created or modified for: unknown run ID, active/incomplete run, absent required content capture, missing host adjudication, missing required metadata, malformed input, and an existing destination without overwrite approval.\n- Running the exporter twice against identical inputs produces byte-identical JSON; the resulting file parses as JSON and satisfies the replay-shape tests documented by `site/src/data/replay/README.md`, with no raw journal-only keys.\n- The privacy test verifies allowlisted output fields and recursive rejection/removal of local paths, process IDs, config IDs, and unapproved provenance. It also verifies that redaction is applied to nested issue text, summaries, revisions, notes, and metadata—not only top-level fields.\n- A failed export leaves an existing destination byte-for-byte unchanged; a successful replacement is atomic and never follows an unexpected output path outside the selected replay directory.\n- `npm run check` and `npm run sync:check` both exit `0`.\n- `cd site && npm ci && npm test && npm run build` exits `0`, and the built home page includes the exported fixture only if home-page selection is explicitly in scope.\n- Planner must convert the chosen command form into an exact invocation in tests and documentation; it must not rely on manual inspection as the privacy or correctness gate.\n\n**Identified Risks**:\n- **Public disclosure**: Raw journals can expose PII, private paths, project names, adjudication reasoning, or tracker identifiers. Mitigation: public-field allowlist, recursive sanitization, sentinel-based tests, safe temporary files, and an explicit publication gate.\n- **Fabricated or misleading replay**: Missing sources could be filled with inferred verdicts or reasons. Mitigation: evidence requirements, explicit provenance, fail-closed validation, and no model-generated reconstruction.\n- **Incorrect round correlation**: Journal events, persisted opinions, and host transcript entries may be incomplete or ordered differently. Mitigation: stable run/round/expert identifiers, duplicate detection, and mismatch failures rather than positional guessing.\n- **Scope creep into recording and publishing**: Supporting all fields could turn into dashboard schema changes, host integrations, and automatic deployment. Mitigation: define the minimum supported recording mode and stop at deterministic file generation unless home-page selection is approved.\n- **Large or malicious input**: Unbounded text can consume memory or produce huge website artifacts. Mitigation: streaming or bounded reads where practical, explicit size limits, clear errors, and output-size tests.\n- **Operational inconsistency**: Generated artifacts, schemas, or docs may drift. Mitigation: exact test/sync/build gates and documentation of capture prerequisites, trust boundary, overwrite behavior, and failure recovery.\n\n**Recommendation**: Clarify First\n\n<SUMMARY>Build-from-scratch export workflow; clarify before planning. The critical decision is whether missing narrative metadata becomes required input or a deliberately incomplete draft. Equally blocking: export crosses from PII-retaining local journals into a public repository, so it needs a deny-by-default schema and fail-closed privacy gate. Also settle command form, minimum recording requirements, and whether home-page selection is included.</SUMMARY>\n\nVERDICT: REQUEST_CHANGES\n- [security] Exporting PII-retaining local journals into a public website requires an explicit publication boundary, allowlisted output, recursive redaction, and automated private-sentinel tests.\n- [ambiguity] “Without hand work” conflicts with fields that have no machine source; required metadata input versus incomplete-draft output must be chosen.\n- [correctness] The exporter must not infer missing verdicts, adjudication, or convergence reasons, and must define fail-closed behavior for incomplete or uncorrelated sources.\n- [scope] The command form, supported capture mode, host-transcript requirement, and whether home-page selection is included remain undefined.\n- [ops] The plan needs deterministic output, atomic overwrite behavior, size limits, and concrete root and site verification commands.",
+          "ms": 20456
+        },
+        {
+          "source": "openrouter:gpt-6-1-sol",
+          "provider": "openrouter",
+          "model": "openai/gpt-6.1-sol",
+          "reasoningEffort": "medium",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r1-gpt-6-1-sol-1",
+              "category": "security",
+              "text": "Direct journal export bypasses dashboard-time PII redaction; public-release authorization and treatment of sensitive free text are undefined."
+            },
+            {
+              "id": "r1-gpt-6-1-sol-2",
+              "category": "correctness",
+              "text": "Existing sources do not establish all required replay fields or complete round history; missing-data and provenance rules must be specified."
+            },
+            {
+              "id": "r1-gpt-6-1-sol-3",
+              "category": "scope",
+              "text": "Repository-local export versus distributed command, recording changes, and automatic homepage integration are unresolved deliverables."
+            },
+            {
+              "id": "r1-gpt-6-1-sol-4",
+              "category": "ambiguity",
+              "text": "“Without hand work” does not distinguish eliminating transcription from eliminating editorial input and publication review."
+            }
+          ],
+          "summary": "Mid-sized Task; Clarify First. The request hides two separate problems: reconstructing a faithful replay from incomplete records and deciding whether private local evidence is safe to publish. The critical question is whether the command creates a review-required draft or directly produces a publishable website artifact. Resolve that alongside eligible input recordings; otherwise the implementation risks leaking confidential material or fabricating missing run history.",
+          "text": "**Intent Classification**: **Mid-sized Task** — This appears to be a bounded export feature, but unresolved data-completeness and publication requirements could expand it into changes to run recording and host integration. **Confidence: Medium.**\n\n**Pre-Analysis Findings**:\n- **This is not simply JSON conversion.** The replay format combines recorded evidence, host-authored interpretation, editorial metadata, and publication disclosures. The supplied facts do not establish a complete machine source for that format.\n- **“Without hand work” is not currently achievable for arbitrary existing runs.** Missing prompt/reply capture cannot be recovered from the journal; session persistence contains only the last round; the host transcript is a separate source. Subject information, convergence explanations, dissent, and provenance also need an explicit source or omission policy. An exporter must not invent them.\n- **The publication boundary is the primary security concern.** On-disk journals contain information that dashboard serving normally redacts. Reading the journal directly bypasses that protection. Write-time secret scrubbing is not a public-release guarantee, particularly for arbitrary prompt, reply, and adjudication text.\n- **The exact existing contract remains unverified.** Only the supplied description—not the replay README, fixtures, renderer, recorder, or redaction implementation—is available here. The planner must inspect those before specifying field mappings or asserting compatibility.\n- **Planner directives:** MUST state exact deliverables and explicit exclusions; MUST NOT exceed that scope. A provisional boundary is one chosen command interface, source validation, deterministic conversion, publication controls, tests, and affected documentation. Capture redesign, historical backfilling, automatic homepage selection, deployment, and model-written editorial content should remain excluded unless explicitly selected.\n- **Repository placement matters.** A site-only utility and a distributed MCP/slash command have different runtime, packaging, documentation, and release implications. Do not assume every documentation surface needs editing if unaffected; do update every surface that actually describes the behavior.\n\n**Questions for Requester** *(bounded choices, most critical first)*:\n1. **Publication:** Should the command produce a review-required draft, or write a publishable replay directly into `site/src/data/replay/`?\n2. **Eligible recordings:** Should it export only runs already containing all required evidence, or must this feature also extend recording for future runs to capture missing evidence?\n3. **Editorial fields:** Should subject metadata and host-authored explanations come from an explicit metadata input, or should the replay contract change to permit their omission? Neither choice can reconstruct unavailable facts.\n4. **Host transcript:** Should the exporter accept only structured Deliberation records, or also support one explicitly defined host-transcript format?\n5. **Command surface:** Is this a repository-local command for website maintainers, or a distributed Deliberation command available to installed users?\n6. **Homepage integration:** Does “without hand work” end at producing a valid replay file, or also include registering/selecting that replay on the home page?\n7. **Privacy:** Must published content be explicitly approved for public use, or is automatic redaction alone intended to authorize publication? The latter cannot reliably detect all private names, proprietary content, or tracker references.\n8. **Incomplete runs:** Should aborted, failed, or non-converged runs be supported when faithfully representable, or should the first version accept only completed runs?\n\n**Executable acceptance criteria (for the planner)**:\n\nThe final plan must specify the chosen command syntax, exact fixture paths, output paths, and test assertions after inspecting the repository. Do not leave those decisions to implementation or describe success as “looks right.”\n\nRequired verification coverage:\n\n- **Baseline and regression:** `npm run check` and `npm run sync:check` exit `0` before changes and after implementation. Record any pre-existing failures separately.\n- **Website compatibility:** If website data or code changes, run `cd site && npm ci && npm test && npm run build`; all exit `0`. Add an automated assertion that the exported fixture is consumed through the actual replay-loading/rendering path.\n- **Complete recording:** Export a synthetic, fully evidenced two-round run. Assert the exact schema fields, round order, panel identities, verdicts, adjudication reasons, revisions, timing, outcome, and provenance against a checked-in expected fixture. Do not silently invent missing host contributions.\n- **Missing evidence:** Test capture-disabled input, missing intermediate-round evidence, and unavailable required editorial fields. Assert the selected contract: either a clearly identified draft outside publishable data, or nonzero exit with a specific diagnostic and no output file.\n- **Public-data boundary:** Seed fixtures with a private project path, process/config identifiers, an email address, a secret sentinel, a private tracker sentinel, and private text embedded inside a reply and an adjudication reason. Assert that public output either excludes the prohibited values under the selected policy or is blocked from publication. Do not interpret a finite sentinel test as proof of comprehensive redaction.\n- **Input safety and integrity:** Test an unknown run, malformed journal event, unsupported format version, truncated final record, and malicious run ID such as `../../outside`. Assert defined diagnostics, no reads/writes outside authorized roots, no source mutation, and no partial output.\n- **Repeatability and rollback:** Export the same immutable fixture twice and assert byte-identical output. Verify the selected collision policy and that a failed replacement leaves the existing replay unchanged.\n- **Resource behavior:** Define the maximum supported input size and test that boundary plus an over-limit input. Assert bounded behavior and a clear failure rather than truncating evidence silently.\n- **Documentation and generation:** Update affected source documentation, regenerate rather than hand-edit generated surfaces, and pass `npm run sync:check`. If adding a mapped website documentation source, update the site workflow path filters.\n- **Pre-PR operations:** After checks pass, perform the repository-required consensus review. Keep planning notes, private source recordings, and private identifiers out of committed artifacts.\n\n**Identified Risks**:\n- **Public disclosure through free text:** Redacting paths or identifiers does not sanitize confidential prose. **Mitigation:** explicit publication policy, public-safe fixtures, fail-closed publication gates, and no sensitive content in diagnostics.\n- **Fabricated fidelity:** Filling missing fields with plausible explanations would misrepresent a “real run.” **Mitigation:** field-level provenance and explicit distinctions between recorded, supplied, derived, omitted, and trimmed content.\n- **Unbounded feature expansion:** Recovering host reasoning may require new recording protocols rather than an exporter. **Mitigation:** decide eligible source data first; separate capture work if needed.\n- **Inconsistent snapshots:** An append-only journal may still be actively written. **Mitigation:** define completed-run eligibility or a stable snapshot policy; never combine incompatible journal/session states.\n- **Format drift:** Recorder and website schemas may evolve independently. **Mitigation:** inspect versioning, validate supported shapes, and reject unsupported formats rather than guessing.\n- **Operational damage:** A mistaken export could overwrite curated material or publish data immediately. **Mitigation:** atomic writes, explicit collision handling, a non-publishing draft location where applicable, and rollback by removing/reverting only generated public artifacts.\n- **Release/runtime mismatch:** A site utility need not become a released runtime feature. **Mitigation:** choose placement explicitly; preserve Node 18 compatibility for any `core/` or `server/` code and follow the site-only commit rules when applicable.\n\n**Recommendation**: **Clarify First.** Establish the publication boundary and eligible evidence before estimating or planning implementation.\n\n<SUMMARY>\nMid-sized Task; Clarify First. The request hides two separate problems: reconstructing a faithful replay from incomplete records and deciding whether private local evidence is safe to publish. The critical question is whether the command creates a review-required draft or directly produces a publishable website artifact. Resolve that alongside eligible input recordings; otherwise the implementation risks leaking confidential material or fabricating missing run history.\n</SUMMARY>\n\nVERDICT: REQUEST_CHANGES\n- [security] Direct journal export bypasses dashboard-time PII redaction; public-release authorization and treatment of sensitive free text are undefined.\n- [correctness] Existing sources do not establish all required replay fields or complete round history; missing-data and provenance rules must be specified.\n- [scope] Repository-local export versus distributed command, recording changes, and automatic homepage integration are unresolved deliverables.\n- [ambiguity] “Without hand work” does not distinguish eliminating transcription from eliminating editorial input and publication review.",
+          "ms": 51081
+        }
+      ],
+      "roundMs": 51081,
+      "slowest": "openrouter:gpt-6-1-sol",
+      "adjudication": [
+        {
+          "issueId": "r1-host-1",
+          "source": "host",
+          "decision": "accept",
+          "reason": "kimi and gpt-6-1-sol raise the same; v2 takes a metadata file the person writes and fails on any missing field."
+        },
+        {
+          "issueId": "r1-host-2",
+          "source": "host",
+          "decision": "accept",
+          "reason": "Both peers raise it; v2 adds an output allowlist, a publish flag the person sets, and a scan that fails the export."
+        },
+        {
+          "issueId": "r1-host-3",
+          "source": "host",
+          "decision": "accept",
+          "reason": "gpt-6-1-sol raises the same; v2 makes it a maintainer script under site/, not shipped."
+        },
+        {
+          "issueId": "r1-kimi-k3-1-pro-1",
+          "source": "openrouter:kimi-k3-1-pro",
+          "decision": "accept",
+          "reason": "Same as the host security issue; adopted with sentinel tests."
+        },
+        {
+          "issueId": "r1-kimi-k3-1-pro-2",
+          "source": "openrouter:kimi-k3-1-pro",
+          "decision": "accept",
+          "reason": "Same as the host scope issue; v2 chooses required metadata input."
+        },
+        {
+          "issueId": "r1-kimi-k3-1-pro-3",
+          "source": "openrouter:kimi-k3-1-pro",
+          "decision": "accept",
+          "reason": "v2 copies only what the journal holds and refuses a run with a missing round, decision or reply."
+        },
+        {
+          "issueId": "r1-kimi-k3-1-pro-4",
+          "source": "openrouter:kimi-k3-1-pro",
+          "decision": "accept",
+          "reason": "v2 defines each: a node script, capture content only, no host transcript (the journal holds the arbiter text), selection out of scope."
+        },
+        {
+          "issueId": "r1-kimi-k3-1-pro-5",
+          "source": "openrouter:kimi-k3-1-pro",
+          "decision": "accept",
+          "reason": "v2 adds stable key order, write-then-rename with --force to overwrite, a size cap and the site test and build commands."
+        },
+        {
+          "issueId": "r1-gpt-6-1-sol-1",
+          "source": "openrouter:gpt-6-1-sol",
+          "decision": "accept",
+          "reason": "Same as the host security issue; v2 applies core/redact.js to every copied string and requires the publish flag."
+        },
+        {
+          "issueId": "r1-gpt-6-1-sol-2",
+          "source": "openrouter:gpt-6-1-sol",
+          "decision": "accept",
+          "reason": "Same as the kimi fail-closed issue; v2 also generates the provenance note lines from what it copied."
+        },
+        {
+          "issueId": "r1-gpt-6-1-sol-3",
+          "source": "openrouter:gpt-6-1-sol",
+          "decision": "accept",
+          "reason": "Same as the host ambiguity; v2 is repo-local, changes no recording code and leaves selection out."
+        },
+        {
+          "issueId": "r1-gpt-6-1-sol-4",
+          "source": "openrouter:gpt-6-1-sol",
+          "decision": "accept",
+          "reason": "v2 states the goal as removing transcription only; the person writes the editorial fields and reviews the diff."
+        }
+      ],
+      "hostVerdict": "REQUEST_CHANGES",
+      "revision": "Scope this request before anyone plans it: \"Add a command that exports a recorded Deliberation run as a replay transcript for the website, so new runs can go on the home page without hand work.\"\n\nContext (Deliberation repo, v4.6.1; file-blind reviewers get the relevant facts here):\n\n- The project website lives in `site/` (a standalone Astro project, not released, its own package.json). Its home page replays real consensus runs round by round from JSON files in `site/src/data/replay/`. Each file follows a documented shape (`site/src/data/replay/README.md`): run metadata (recordedAt, deliberationVersion, short runId, expert, question, subject), `planUnderReview`, `panel[]`, `notOnPanel[]`, `limits`, `steps[]`, `rounds[]` (the host's blind verdict, each peer's verdict, critical issues, summary, full text and ms, the host's per-issue adjudication with reasons, the revision sent to the next round), an `outcome` and `notes[]` that say what is verbatim, what the host wrote and what was trimmed.\n- Today these files are written by hand from three sources: the dashboard run journal (`<cache>/deliberation/runs/<runId>.jsonl`, append-only events; prompt and reply text only when `dashboard.capture` is `content`), the persisted session record (`sessions.persist`, last round's opinions only), and the host's own transcript. Several fields have no machine source: subject title and URL, the one-line question, convergence reasons, non-blocking themes, open dissent, provenance notes.\n- The repo is public. AGENTS.md: everything committed is public, including commit messages; private names, paths and tracker ids never go in; prose writes the product name as Deliberation; runtime code in `core/` and `server/` must run on Node 18 with no runtime dependencies; every user-visible behavior ships with docs on every surface (README, TECHNICAL, SETUP, tool-guide, schema, commands). The site's Node version is separate from that floor.\n- The journal records the local project root path, process ids and config ids per run, and the host's adjudication decisions with their reasons. Secrets are scrubbed at write time; PII is redacted only when the dashboard serves data, not on disk.\n\nThe request as given was: \"a command\", \"exports a recorded run\", \"for the website\", \"without hand work\". Round 1 turned it into this scoped brief; scope it again, as a request to plan.\n\nScoped brief (v2):\n\n1. Goal: remove transcription, not editorial work. A person still writes the fields no machine source holds and reviews the result before it is committed.\n2. Home and audience: a maintainer script, `site/scripts/replay-export.mjs`, run with the site's Node. It is not a `deliberation-mcp` subcommand, ships in no package, and changes no recording code in `core/` or `server/`.\n3. Inputs: `--journal <runs/<runId>.jsonl>` and `--meta <file.json>`. The meta file holds subject (type, URL, commit or related link, title), the one-line question, convergence reasons per round, revision summaries, non-blocking themes, open dissent, and `publish: true`. The script refuses to run without `publish: true`, and refuses any meta field it does not know.\n4. Copied, never inferred: blind verdict text, peer replies, verdicts, critical issues, models, effort and ms, adjudication decisions and reasons, revisions, and the run outcome come only from the journal. A run recorded with `capture: metadata`, a round with no peer reply or no adjudication, or a decision count that does not match the issue pool fails the export with the reason; nothing is filled in.\n5. Publication boundary: the output is built from an allowlist of fields; nothing outside it (project root, pid, config, activation and runtime ids, the config snapshot) is copied. Every copied string passes `core/redact.js` and the secret scrubber. A scan then fails the export on an absolute path, a home-directory path, an email address, or any string from a deny list the maintainer keeps outside the repo (`--deny <file>`). Tests seed a journal with sentinel paths, ids and deny-list strings and assert none reach the output.\n6. Output: `site/src/data/replay/<id>.json` in the documented shape with stable key order, written to a temp file and renamed; an existing file is overwritten only with `--force`; output over 512 KB fails. Provenance notes the script can know (what was copied verbatim, what was trimmed) are generated; the meta file adds its own.\n7. Verification: `cd site && npm test && npm run build`; the site test suite gains a shape check over every file in `site/src/data/replay/`.\n8. Out of scope: choosing which runs the home page shows, recording runs, editing peer text, any change to the journal format.\n",
+      "revisionSummary": "Scoped brief: maintainer script under site/, required meta file with a publish flag, journal-only copies that fail closed, allowlist plus redaction and a deny-list scan with sentinel tests, deterministic guarded output, site verification; home-page selection out of scope.",
+      "convergence": {
+        "converged": false,
+        "reason": "Both peers voted REQUEST_CHANGES and named the same gaps as the host's blind verdict: \"without hand work\" cannot hold, a public export needs a publication boundary, and a shipped command differs from a repo script. The host accepted all 12 issues and rewrote the request as a scoped brief."
+      }
+    },
+    {
+      "n": 2,
+      "hostBlindVerdict": {
+        "verdict": "APPROVE",
+        "summary": "The brief now names its audience, home, inputs, failure rules and publication boundary, and keeps the editorial fields with a person, so it is ready to plan.",
+        "criticalIssues": [],
+        "text": "**Verdict**: APPROVE\n**Critical issues** (must-fix; empty = none):\n  (none)\n**One-line bottom line**: The brief now names its audience, home, inputs, failure rules and publication boundary, and keeps the editorial fields with a person, so it is ready to plan.\n\nNon-blocking notes:\n- \"Fails on an absolute path\" will trip on peer replies that quote routes or temp paths (`/api/runs`, `/tmp`); the scan should target home-directory and drive-letter paths, with the deny list for the rest.\n- `core/redact.js` is CommonJS and the script is ESM; `createRequire` covers it, but the plan should name it so nobody copies the redactor into `site/`."
+      },
+      "peers": [
+        {
+          "source": "openrouter:kimi-k3-1-pro",
+          "provider": "openrouter",
+          "model": "moonshotai/kimi-k3.1-pro",
+          "reasoningEffort": "medium",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r2-kimi-k3-1-pro-1",
+              "category": "ops",
+              "text": "The brief omits the documentation updates required by AGENTS.md for a new command, its flags, defaults, and metadata format. Require `site/src/data/replay/README.md` and other applicable surfaces to document invocation, the meta schema and `publish: true` gate, `--deny` handling, fail-closed conditions, `--force`, and the 512 KB limit."
+            }
+          ],
+          "summary": null,
+          "text": "VERDICT: REQUEST_CHANGES\n- [ops] The brief omits the documentation updates required by AGENTS.md for a new command, its flags, defaults, and metadata format. Require `site/src/data/replay/README.md` and other applicable surfaces to document invocation, the meta schema and `publish: true` gate, `--deny` handling, fail-closed conditions, `--force`, and the 512 KB limit.",
+          "ms": 26877
+        },
+        {
+          "source": "openrouter:gpt-6-1-sol",
+          "provider": "openrouter",
+          "model": "openai/gpt-6.1-sol",
+          "reasoningEffort": "medium",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r2-gpt-6-1-sol-1",
+              "category": "correctness",
+              "text": "Establish a complete journal/metadata-to-replay field mapping before planning; required journal-only fields are not demonstrated to exist."
+            },
+            {
+              "id": "r2-gpt-6-1-sol-2",
+              "category": "correctness",
+              "text": "Replace decision-count equality with unique issue coverage, and define valid zero-issue rounds and incomplete-run rejection."
+            },
+            {
+              "id": "r2-gpt-6-1-sol-3",
+              "category": "security",
+              "text": "Explicitly validate and scan the entire final output, including metadata and generated content; resolve whether the external deny list is mandatory."
+            },
+            {
+              "id": "r2-gpt-6-1-sol-4",
+              "category": "security",
+              "text": "Define safe output-ID validation, fixed-directory containment, and symlink/overwrite handling so journal or metadata values cannot redirect writes."
+            }
+          ],
+          "summary": "Mid-sized Task; Clarify First. V2 is appropriately bounded, but source completeness, adjudication semantics, and publication/output boundaries remain unresolved. The most critical question is whether every required replay field actually exists in the journal; if not, must the exporter reject that run, or may narrowly specified metadata supply the missing host-authored fields?",
+          "text": "**Intent Classification**: Mid-sized Task — A bounded maintainer utility with security-sensitive publication and an existing output contract. Confidence: High.\n\n**Pre-Analysis Findings**:\n- V2 substantially improves scope: editorial work remains explicit, recording changes are excluded, and home-page selection stays separate.\n- **Journal sufficiency is still unverified.** The replay requires more than replies and adjudication. There is no demonstrated source mapping for `planUnderReview`, the host’s blind verdict, panel membership, limits, steps, and other required fields. The supplied context does not establish that the journal records them all.\n- “No adjudication” is not necessarily incomplete: a round with zero issues may validly have zero decisions. Conversely, matching decision counts does not establish that every issue was adjudicated exactly once.\n- Publication controls need an explicit end-to-end boundary. Metadata includes human-authored strings and URLs; protecting only journal-derived strings leaves another publication channel.\n- The planner **must state exact deliverables and exclusions** and must not expand into recording changes, a released CLI, or home-page selection. No repository files were inspected beyond the supplied material.\n\n**Questions for Requester**:\n1. If a required replay field has no journal source, should export fail as unsupported, or may explicitly identified host-authored fields also come from metadata?\n2. Should a completed zero-issue round accept an empty adjudication, or should such runs be ineligible?\n3. Is `--deny` mandatory for every export, or intentionally optional with a documented weaker publication guarantee?\n4. Should output IDs be restricted to a safe basename written only under the replay directory, or may maintainers select arbitrary output paths?\n\n**Executable acceptance criteria (for the planner)**:\n- Produce a field-by-field mapping from the documented replay shape to journal events, metadata, or deterministic derivation. Every required field must have a source; missing source data must cause a specific failure, not an invented value.\n- Add exporter tests runnable with `node --test site/scripts/replay-export.test.mjs`; expected exit status: `0`. Fixtures must cover:\n  - A complete run producing JSON that passes the actual replay contract.\n  - A valid zero-issue round, according to the resolved policy.\n  - Duplicate, missing, and unknown issue adjudications—even when counts match.\n  - Metadata-only capture, incomplete runs, missing required fields, and unknown nested metadata keys.\n  - Sensitive sentinels placed separately in journal text and metadata. Scan the final serialized document, including generated notes, keys where applicable, and decoded string values.\n  - Traversal and absolute output IDs, existing output without `--force`, and symlink destinations: rejected without modifying another file.\n  - Identical inputs producing byte-identical output; output exceeding 524,288 UTF-8 bytes rejected without changing an existing destination.\n- Validate source journal structure and supported event versions before mapping; do not silently ignore malformed records.\n- Run `cd site && npm test && npm run build`, plus repository-required `npm run check` and `npm run sync:check`; all must exit `0`.\n- Document the actual site-only command and publication limitations on affected surfaces; do not add runtime configuration keys merely to satisfy a generic documentation checklist.\n\n**Identified Risks**:\n- **False provenance**: Redaction means copied text is not necessarily verbatim. Generate notes distinguishing unchanged, redacted, and omitted content.\n- **False-positive scanning**: Path detection can reject legitimate subject URLs or code examples. Specify supported POSIX/Windows path forms and URL handling, with fixtures.\n- **Resource exhaustion**: The output limit does not bound input parsing. Establish journal/metadata size limits and fail before unbounded allocation.\n- **Publication irreversibility**: Deleting a committed export does not remove public history. Keep explicit human review as a release gate; automated scans are not a confidentiality guarantee.\n\n**Recommendation**: Clarify First.\n\n<SUMMARY>\nMid-sized Task; Clarify First. V2 is appropriately bounded, but source completeness, adjudication semantics, and publication/output boundaries remain unresolved. The most critical question is whether every required replay field actually exists in the journal; if not, must the exporter reject that run, or may narrowly specified metadata supply the missing host-authored fields?\n</SUMMARY>\n\nVERDICT: REQUEST_CHANGES\n- [correctness] Establish a complete journal/metadata-to-replay field mapping before planning; required journal-only fields are not demonstrated to exist.\n- [correctness] Replace decision-count equality with unique issue coverage, and define valid zero-issue rounds and incomplete-run rejection.\n- [security] Explicitly validate and scan the entire final output, including metadata and generated content; resolve whether the external deny list is mandatory.\n- [security] Define safe output-ID validation, fixed-directory containment, and symlink/overwrite handling so journal or metadata values cannot redirect writes.",
+          "ms": 34170
+        }
+      ],
+      "roundMs": 34170,
+      "slowest": "openrouter:gpt-6-1-sol",
+      "adjudication": [
+        {
+          "issueId": "r2-kimi-k3-1-pro-1",
+          "source": "openrouter:kimi-k3-1-pro",
+          "decision": "accept",
+          "reason": "AGENTS.md requires docs in the same change; v3 names site/src/data/replay/README.md as the home for invocation, meta schema, gates and limits."
+        },
+        {
+          "issueId": "r2-gpt-6-1-sol-1",
+          "source": "openrouter:gpt-6-1-sol",
+          "decision": "accept",
+          "reason": "The journal fields exist (run_start, arbiter, call_start, call_end, state and run_end events carry them), but the brief did not show it; v3 adds the mapping."
+        },
+        {
+          "issueId": "r2-gpt-6-1-sol-2",
+          "source": "openrouter:gpt-6-1-sol",
+          "decision": "accept",
+          "reason": "A count can match while one issue is ruled twice and another not at all; v3 requires exactly one decision per issue id and allows a round with no issues and no decisions."
+        },
+        {
+          "issueId": "r2-gpt-6-1-sol-3",
+          "source": "openrouter:gpt-6-1-sol",
+          "decision": "accept",
+          "reason": "Meta text is typed by a person and can leak as easily as journal text; v3 scans the final serialized output and makes --deny mandatory."
+        },
+        {
+          "issueId": "r2-gpt-6-1-sol-4",
+          "source": "openrouter:gpt-6-1-sol",
+          "decision": "accept",
+          "reason": "The id comes from the meta file and names the output path; v3 restricts it to a slug, resolves the target inside the replay dir and refuses a symlinked target."
+        }
+      ],
+      "hostVerdict": "REQUEST_CHANGES",
+      "revision": "Scope this request before anyone plans it: \"Add a command that exports a recorded Deliberation run as a replay transcript for the website, so new runs can go on the home page without hand work.\"\n\nContext (Deliberation repo, v4.6.1; file-blind reviewers get the relevant facts here):\n\n- The project website lives in `site/` (a standalone Astro project, not released, its own package.json). Its home page replays real consensus runs round by round from JSON files in `site/src/data/replay/`. Each file follows a documented shape (`site/src/data/replay/README.md`): run metadata (recordedAt, deliberationVersion, short runId, expert, question, subject), `planUnderReview`, `panel[]`, `notOnPanel[]`, `limits`, `steps[]`, `rounds[]` (the host's blind verdict, each peer's verdict, critical issues, summary, full text and ms, the host's per-issue adjudication with reasons, the revision sent to the next round), an `outcome` and `notes[]` that say what is verbatim, what the host wrote and what was trimmed.\n- Today these files are written by hand from three sources: the dashboard run journal (`<cache>/deliberation/runs/<runId>.jsonl`, append-only events; prompt and reply text only when `dashboard.capture` is `content`), the persisted session record (`sessions.persist`, last round's opinions only), and the host's own transcript. Several fields have no machine source: subject title and URL, the one-line question, convergence reasons, non-blocking themes, open dissent, provenance notes.\n- The repo is public. AGENTS.md: everything committed is public, including commit messages; private names, paths and tracker ids never go in; prose writes the product name as Deliberation; runtime code in `core/` and `server/` must run on Node 18 with no runtime dependencies; every user-visible behavior ships with docs on every surface (README, TECHNICAL, SETUP, tool-guide, schema, commands). The site's Node version is separate from that floor.\n- The journal records the local project root path, process ids and config ids per run, and the host's adjudication decisions with their reasons. Secrets are scrubbed at write time; PII is redacted only when the dashboard serves data, not on disk.\n\nThe request as given was: \"a command\", \"exports a recorded run\", \"for the website\", \"without hand work\". Rounds 1 and 2 turned it into this scoped brief; scope it again, as a request to plan.\n\nScoped brief (v3):\n\n1. Goal: remove transcription, not editorial work. A person still writes the fields no machine source holds and reviews the result before it is committed.\n2. Home and audience: a maintainer script, `site/scripts/replay-export.mjs`, run with the site's Node. It is not a `deliberation-mcp` subcommand, ships in no package, and changes no recording code in `core/` or `server/`.\n3. Inputs: `--journal <runs/<runId>.jsonl>` and `--meta <file.json>`. The meta file holds subject (type, URL, commit or related link, title), the one-line question, convergence reasons per round, revision summaries, non-blocking themes, open dissent, and `publish: true`. The script refuses to run without `publish: true`, and refuses any meta field it does not know.\n4. Field mapping. From the journal: `run_start` (expert, question text as planUnderReview, panel names, recordedAt via `run_end.at`); `arbiter` events (`record_blind` text and verdict per round, `submit_adjudication` verdict and decisions with reasons, `submit_revision` text); `call_start` (provider, model, reasoningEffort, round, role) joined by `callId` to `call_end` (reply text, isError, ms); `state` events with `verdicts` (each peer's parsed verdict and issue categories per round); `run_end` (status, rounds, finalReport headline). Issue texts come from the decisions' descriptions, matched to the peer by source and order. From the meta file: id, subject, question, convergence reasons, revision summaries, themes, open dissent, extra notes. Nothing else is read.\n5. Copied, never inferred: blind verdict text, peer replies, verdicts, critical issues, models, effort and ms, adjudication decisions and reasons, revisions, and the run outcome come only from the journal. A run recorded with `capture: metadata`, a round with no peer reply or no adjudication, or an issue pool where any issue id has no decision or more than one fails the export with the reason; a round with no issues and no decisions is valid. Nothing is filled in.\n6. Publication boundary: the output is built from an allowlist of fields; nothing outside it (project root, pid, config, activation and runtime ids, the config snapshot) is copied. Every copied string passes `core/redact.js` and the secret scrubber. A scan of the final serialized output, meta-file text included, then fails the export on a home-directory or drive-letter path, an email address, or any string from the deny list the maintainer keeps outside the repo (`--deny <file>`, mandatory). The redactor is loaded from `core/` with `createRequire`, not copied. Tests seed a journal with sentinel paths, ids and deny-list strings and assert none reach the output.\n7. Output: `site/src/data/replay/<id>.json`, where id must match `^[a-z0-9]+(-[a-z0-9]+)*$`; the resolved target must sit inside that directory and must not be a symlink; in the documented shape with stable key order, written to a temp file and renamed; an existing file is overwritten only with `--force`; output over 512 KB fails. Provenance notes the script can know (what was copied verbatim, what was trimmed) are generated; the meta file adds its own.\n8. Docs and verification: site/src/data/replay/README.md documents the invocation, the meta schema, the publish and deny gates, the fail-closed conditions, --force and the size limit. `cd site && npm test && npm run build`; the site test suite gains a shape check over every file in `site/src/data/replay/`.\n9. Out of scope: choosing which runs the home page shows, recording runs, editing peer text, any change to the journal format.\n",
+      "revisionSummary": "Journal and meta field mapping; exactly one decision per issue id, zero-issue rounds valid; whole-output scan with a mandatory deny list; slug id, contained non-symlink target; README docs for the script.",
+      "convergence": {
+        "converged": false,
+        "reason": "Both peers voted REQUEST_CHANGES on the brief: it showed no field mapping, counted decisions instead of covering each issue, scanned only journal text, and did not contain the output path or name its docs. The host accepted all 5 issues."
+      }
+    },
+    {
+      "n": 3,
+      "hostBlindVerdict": {
+        "verdict": "APPROVE",
+        "summary": "With the field mapping, per-issue coverage, a whole-output scan and a contained output path, the brief answers every open scoping question and can go to planning.",
+        "criticalIssues": [],
+        "text": "**Verdict**: APPROVE\n**Critical issues** (must-fix; empty = none):\n  (none)\n**One-line bottom line**: With the field mapping, per-issue coverage, a whole-output scan and a contained output path, the brief answers every open scoping question and can go to planning.\n\nNon-blocking notes:\n- Issue texts taken from the decisions' descriptions are the host's paraphrase when the host shortened them; the peer's own bullet text is in the reply and in the parsed issues, and the plan should say which one the replay shows.\n- A mandatory deny list makes the script unusable for a contributor without one; an empty file should be accepted with a printed warning."
+      },
+      "peers": [
+        {
+          "source": "openrouter:kimi-k3-1-pro",
+          "provider": "openrouter",
+          "model": "moonshotai/kimi-k3.1-pro",
+          "reasoningEffort": "medium",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r3-kimi-k3-1-pro-1",
+              "category": "correctness",
+              "text": "The field mapping does not cover the entire documented replay shape: `deliberationVersion`, `limits`, `notOnPanel[]`, and peer summaries have no stated journal or meta source. Since values cannot be inferred or filled in, valid output cannot be guaranteed. Add a complete output-field-to-source table and require export to fail without writing output when any required value is unavailable."
+            }
+          ],
+          "summary": "Build from Scratch; clarify first. The security and operational boundaries are sound, but the exporter still lacks a complete mapping for every required replay field. Most critical: define whether fields including deliberationVersion, limits, notOnPanel, and peer summaries come from named journal events or required meta fields, and fail closed when absent.",
+          "text": "**Intent Classification**: Build from Scratch - a new maintainer-only export script with strict publication and safety boundaries. Confidence High\n\n**Pre-Analysis Findings**:\n- The fail-closed validation, publication gates, contained output, sentinel tests, and explicit exclusions are well scoped.\n- The journal-to-output mapping remains incomplete for required replay fields.\n\n**Questions for Requester**:\n1. Should unmapped fields such as `deliberationVersion`, `limits`, `notOnPanel[]`, and peer summaries come from specifically named journal events, or become required meta fields?\n\n**Executable acceptance criteria (for the planner)**:\n- A golden journal and complete meta file produce output passing the site-wide replay shape check, with every required field traceable to a defined source.\n- Removing any required source value makes the exporter exit nonzero without creating or replacing output.\n- Existing tests must also verify zero-issue rounds, duplicate or missing issue decisions, missing replies/adjudication, sentinel leakage, symlink rejection, overwrite protection, and the 512 KB limit.\n\n**Identified Risks**:\n- Incomplete mapping: Either export fails on valid runs or implementers invent values, violating the no-inference rule. Mitigation: specify a complete output-field/source table and missing-field failure behavior.\n\n**Recommendation**: Clarify First\n\n<SUMMARY>Build from Scratch; clarify first. The security and operational boundaries are sound, but the exporter still lacks a complete mapping for every required replay field. Most critical: define whether fields including deliberationVersion, limits, notOnPanel, and peer summaries come from named journal events or required meta fields, and fail closed when absent.</SUMMARY>\n\nVERDICT: REQUEST_CHANGES\n- [correctness] The field mapping does not cover the entire documented replay shape: `deliberationVersion`, `limits`, `notOnPanel[]`, and peer summaries have no stated journal or meta source. Since values cannot be inferred or filled in, valid output cannot be guaranteed. Add a complete output-field-to-source table and require export to fail without writing output when any required value is unavailable.",
+          "ms": 27585
+        },
+        {
+          "source": "openrouter:gpt-6-1-sol",
+          "provider": "openrouter",
+          "model": "openai/gpt-6.1-sol",
+          "reasoningEffort": "medium",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r3-gpt-6-1-sol-1",
+              "category": "correctness",
+              "text": "Complete the mapping for deliberationVersion, short runId, notOnPanel, limits, and steps[]; the current sources do not explain how the required replay shape can be produced without invented values."
+            },
+            {
+              "id": "r3-gpt-6-1-sol-2",
+              "category": "correctness",
+              "text": "Require an authoritative or uniquely validated peer-to-issue association; source-and-order matching alone can misattribute issue descriptions despite correct decision-ID coverage."
+            },
+            {
+              "id": "r3-gpt-6-1-sol-3",
+              "category": "security",
+              "text": "Define containment using canonical filesystem paths and handle symlinked parent directories; checking only the resolved filename and final-component symlink does not prevent writes outside the replay directory."
+            }
+          ],
+          "summary": "Mid-sized Task; Clarify First. The scope is otherwise appropriately bounded. The most critical question is whether currently unmapped required replay fields have authoritative journal sources or require explicit metadata additions. Resolve that mapping, peer-issue attribution, and filesystem containment before planning.",
+          "text": "**Intent Classification**: Mid-sized Task — a bounded maintainer exporter with publication safeguards, not a recording or website-selection feature. Confidence: High.\n\n**Pre-Analysis Findings**:\n- The revised scope appropriately separates automated transcription from editorial approval and excludes runtime, journal-format, and home-page selection changes.\n- The field mapping remains incomplete for the stated replay shape: `deliberationVersion`, short `runId`, `notOnPanel`, `limits`, and `steps[]` have no explicit source or construction rule. Required fields cannot be silently defaulted under the “nothing is filled in” rule.\n- Matching issue descriptions to peers “by source and order” needs an explicit uniqueness condition. Correct decision coverage by issue ID does not establish that each description is attributed to the correct peer.\n- Output containment needs a filesystem-level definition. A lexical containment check and rejecting a symlink at the final filename do not reject symlinked parent directories.\n- These findings are based only on the supplied brief; the actual journal schema, replay schema, and redaction exports have not been inspected.\n\n**Questions for Requester**:\n1. Should the currently unmapped replay fields come from explicitly identified journal events, or should the metadata schema be extended to supply fields the journal lacks?\n2. Does the journal preserve an authoritative peer-to-issue-ID association, or must export fail whenever source-and-order matching cannot be proven unique?\n3. Should export reject symlinked output-directory ancestors, or allow them only when their real paths remain inside the canonical replay directory?\n\n**Executable acceptance criteria (for the planner)**:\n- MUST define exact deliverables: the site-only exporter, exporter tests, replay-shape validation, and README documentation. MUST NOT change recording, journal format, runtime behavior, or home-page selection.\n- Before implementation, complete a field-by-field mapping covering every required replay property, including the omitted fields above. Every property must have an identified journal source, approved metadata source, or explicit deterministic construction rule.\n- Add automated tests asserting:\n  - A complete journal and approved metadata produce the exact expected replay object; repeated exports produce identical bytes.\n  - Missing required source data fails with a field-specific diagnostic and leaves no published output.\n  - Two peers with multiple issues retain the correct issue IDs, text, source, and adjudication; ambiguous associations fail rather than use a guessed order.\n  - Zero-issue rounds succeed; duplicate or missing decisions fail.\n  - Symlinked targets and escaping parent-directory symlinks fail without writing outside the permitted directory.\n  - Missing publication approval, missing deny list, sensitive sentinels, oversized output, and existing output without `--force` fail without modifying an existing replay.\n- Verification commands: `npm run check`, `npm run sync:check`, and `cd site && npm test && npm run build`; each must exit `0`.\n\n**Identified Risks**:\n- **Incorrect provenance or attribution**: Require complete mappings and uniquely validated issue associations.\n- **Writes outside the intended directory**: Validate canonical directory containment and define symlink handling before creating temporary files.\n- **Public disclosure despite automated checks**: Keep human publication review mandatory; describe redaction and deny-list scanning as safeguards, not proof of confidentiality.\n\n**Recommendation**: Clarify First.\n\n<SUMMARY>\nMid-sized Task; Clarify First. The scope is otherwise appropriately bounded. The most critical question is whether currently unmapped required replay fields have authoritative journal sources or require explicit metadata additions. Resolve that mapping, peer-issue attribution, and filesystem containment before planning.\n</SUMMARY>\n\nVERDICT: REQUEST_CHANGES\n- [correctness] Complete the mapping for deliberationVersion, short runId, notOnPanel, limits, and steps[]; the current sources do not explain how the required replay shape can be produced without invented values.\n- [correctness] Require an authoritative or uniquely validated peer-to-issue association; source-and-order matching alone can misattribute issue descriptions despite correct decision-ID coverage.\n- [security] Define containment using canonical filesystem paths and handle symlinked parent directories; checking only the resolved filename and final-component symlink does not prevent writes outside the replay directory.",
+          "ms": 35309
+        }
+      ],
+      "roundMs": 35309,
+      "slowest": "openrouter:gpt-6-1-sol",
+      "adjudication": [
+        {
+          "issueId": "r3-kimi-k3-1-pro-1",
+          "source": "openrouter:kimi-k3-1-pro",
+          "decision": "accept",
+          "reason": "gpt-6-1-sol raises the same gaps; v4 adds a full output-field-to-source table and fails without writing when a required value is missing."
+        },
+        {
+          "issueId": "r3-gpt-6-1-sol-1",
+          "source": "openrouter:gpt-6-1-sol",
+          "decision": "accept",
+          "reason": "Same as the kimi mapping issue; steps[] come from the state events, deliberationVersion and limits from the run_start config snapshot, notOnPanel from the meta file."
+        },
+        {
+          "issueId": "r3-gpt-6-1-sol-2",
+          "source": "openrouter:gpt-6-1-sol",
+          "decision": "accept",
+          "reason": "The journal's call_end reply is the authority: v4 re-parses each peer's issues from its own reply with the engine's parseReview, keyed by callId, and checks them against the decisions."
+        },
+        {
+          "issueId": "r3-gpt-6-1-sol-3",
+          "source": "openrouter:gpt-6-1-sol",
+          "decision": "accept",
+          "reason": "Checking only the last component lets a symlinked parent redirect the write; v4 realpaths the replay directory and the temp file's directory and refuses if either differs from the expected canonical path."
+        }
+      ],
+      "hostVerdict": "REQUEST_CHANGES",
+      "revision": "Scope this request before anyone plans it: \"Add a command that exports a recorded Deliberation run as a replay transcript for the website, so new runs can go on the home page without hand work.\"\n\nContext (Deliberation repo, v4.6.1; file-blind reviewers get the relevant facts here):\n\n- The project website lives in `site/` (a standalone Astro project, not released, its own package.json). Its home page replays real consensus runs round by round from JSON files in `site/src/data/replay/`. Each file follows a documented shape (`site/src/data/replay/README.md`): run metadata (recordedAt, deliberationVersion, short runId, expert, question, subject), `planUnderReview`, `panel[]`, `notOnPanel[]`, `limits`, `steps[]`, `rounds[]` (the host's blind verdict, each peer's verdict, critical issues, summary, full text and ms, the host's per-issue adjudication with reasons, the revision sent to the next round), an `outcome` and `notes[]` that say what is verbatim, what the host wrote and what was trimmed.\n- Today these files are written by hand from three sources: the dashboard run journal (`<cache>/deliberation/runs/<runId>.jsonl`, append-only events; prompt and reply text only when `dashboard.capture` is `content`), the persisted session record (`sessions.persist`, last round's opinions only), and the host's own transcript. Several fields have no machine source: subject title and URL, the one-line question, convergence reasons, non-blocking themes, open dissent, provenance notes.\n- The repo is public. AGENTS.md: everything committed is public, including commit messages; private names, paths and tracker ids never go in; prose writes the product name as Deliberation; runtime code in `core/` and `server/` must run on Node 18 with no runtime dependencies; every user-visible behavior ships with docs on every surface (README, TECHNICAL, SETUP, tool-guide, schema, commands). The site's Node version is separate from that floor.\n- The journal records the local project root path, process ids and config ids per run, and the host's adjudication decisions with their reasons. Secrets are scrubbed at write time; PII is redacted only when the dashboard serves data, not on disk.\n\nThe request as given was: \"a command\", \"exports a recorded run\", \"for the website\", \"without hand work\". Rounds 1 to 3 turned it into this scoped brief; scope it again, as a request to plan.\n\nScoped brief (v4):\n\n1. Goal: remove transcription, not editorial work. A person still writes the fields no machine source holds and reviews the result before it is committed.\n2. Home and audience: a maintainer script, `site/scripts/replay-export.mjs`, run with the site's Node. It is not a `deliberation-mcp` subcommand, ships in no package, and changes no recording code in `core/` or `server/`.\n3. Inputs: `--journal <runs/<runId>.jsonl>` and `--meta <file.json>`. The meta file holds subject (type, URL, commit or related link, title), the one-line question, convergence reasons per round, revision summaries, non-blocking themes, open dissent, and `publish: true`. The script refuses to run without `publish: true`, and refuses any meta field it does not know.\n4. Field mapping. From the journal: `run_start` (expert, question text as planUnderReview, panel names, recordedAt via `run_end.at`); `arbiter` events (`record_blind` text and verdict per round, `submit_adjudication` verdict and decisions with reasons, `submit_revision` text); `call_start` (provider, model, reasoningEffort, round, role) joined by `callId` to `call_end` (reply text, isError, ms); `state` events with `verdicts` (each peer's parsed verdict and issue categories per round); `run_end` (status, rounds, finalReport headline). Issue texts come from the decisions' descriptions, matched to the peer by source and order. From the meta file: id, subject, question, convergence reasons, revision summaries, themes, open dissent, extra notes. Nothing else is read.\n5. Copied, never inferred: blind verdict text, peer replies, verdicts, critical issues, models, effort and ms, adjudication decisions and reasons, revisions, and the run outcome come only from the journal. A run recorded with `capture: metadata`, a round with no peer reply or no adjudication, or an issue pool where any issue id has no decision or more than one fails the export with the reason; a round with no issues and no decisions is valid. Nothing is filled in.\n6. Publication boundary: the output is built from an allowlist of fields; nothing outside it (project root, pid, config, activation and runtime ids, the config snapshot) is copied. Every copied string passes `core/redact.js` and the secret scrubber. A scan of the final serialized output, meta-file text included, then fails the export on a home-directory or drive-letter path, an email address, or any string from the deny list the maintainer keeps outside the repo (`--deny <file>`, mandatory). The redactor is loaded from `core/` with `createRequire`, not copied. Tests seed a journal with sentinel paths, ids and deny-list strings and assert none reach the output.\n7. Output: `site/src/data/replay/<id>.json`, where id must match `^[a-z0-9]+(-[a-z0-9]+)*$`; the resolved target must sit inside that directory and must not be a symlink; in the documented shape with stable key order, written to a temp file and renamed; an existing file is overwritten only with `--force`; output over 512 KB fails. Provenance notes the script can know (what was copied verbatim, what was trimmed) are generated; the meta file adds its own.\n8. Docs and verification: site/src/data/replay/README.md documents the invocation, the meta schema, the publish and deny gates, the fail-closed conditions, --force and the size limit. `cd site && npm test && npm run build`; the site test suite gains a shape check over every file in `site/src/data/replay/`.\n9. Field-to-source table (additions after round 3): deliberationVersion and limits.maxRounds from the run_start config snapshot; runId as the first 8 characters of the journal's runId; steps[] from the state events in order; notOnPanel from the meta file; peer summaries extracted from the reply by fixed rules (SUMMARY block, then a Summary line), else null with a generated note. Each peer's critical issues are re-parsed from its own call_end reply with the engine's parseReview, keyed by callId, and must match the decisions' sources; source-and-order matching is not used. Any required value that is unavailable fails the export before anything is written.\n10. Containment: the replay directory and the temp file's directory are canonicalized with realpath and must equal the expected canonical path, so a symlinked parent cannot redirect the write.\n11. Out of scope: choosing which runs the home page shows, recording runs, editing peer text, any change to the journal format.\n",
+      "revisionSummary": "Full field-to-source table; issues re-parsed per peer from its own reply by callId; canonical-path containment for symlinked parents.",
+      "convergence": {
+        "converged": false,
+        "reason": "Both peers voted REQUEST_CHANGES again: the mapping still missed deliberationVersion, limits, notOnPanel, steps and summaries, issue attribution by source and order was unsafe, and containment ignored symlinked parents. The host accepted all 4, but round 3 was the cap, so the loop ended unresolved with a brief no reviewer saw."
+      }
+    }
+  ],
+  "outcome": {
+    "verdict": "REQUEST_CHANGES",
+    "converged": false,
+    "rounds": 3,
+    "confidence": "none",
+    "finalReportHeadline": "UNRESOLVED after 3 round(s)",
+    "openDissent": [
+      {
+        "source": "openrouter:kimi-k3-1-pro",
+        "issue": "The v3 mapping leaves deliberationVersion, limits, notOnPanel and peer summaries without a source, so valid output cannot be guaranteed."
+      },
+      {
+        "source": "openrouter:gpt-6-1-sol",
+        "issue": "The v3 mapping is incomplete, issue attribution by source and order can misattribute, and containment ignores symlinked parent directories."
+      }
+    ],
+    "nonBlockingThemes": [
+      {
+        "theme": "The replay shape lives in a site README, not a schema; an exporter would freeze it, so the shape needs a version field first.",
+        "raisedBy": [
+          "host (blind)"
+        ]
+      },
+      {
+        "theme": "A whole-output scan for absolute paths will trip on replies that quote routes or temp paths; target home-directory and drive-letter paths and leave the rest to the deny list.",
+        "raisedBy": [
+          "host (blind)"
+        ]
+      },
+      {
+        "theme": "A mandatory deny list blocks a contributor who has none; an empty file could be accepted with a warning.",
+        "raisedBy": [
+          "host (blind)"
+        ]
+      }
+    ]
+  },
+  "notes": [
+    "Recorded live with the consensus-step tool of this repo's MCP server (server/mcp/index.js at v4.6.1), driven over stdio by the host acting as arbiter per commands/consensus.md. The recording config set a two-peer panel and consensus.maxRounds to 3; codex and gemini were disabled on the recording machine and grok was left off on purpose.",
+    "The request is real: it is the step that produced this file by hand. The host wrote the request and its context from site/src/data/replay/README.md and AGENTS.md, and wrote each scoped brief from the accepted issues; nothing in them is implemented. No reviewer was asked to agree or disagree.",
+    "With two peers the default quorum floor of 2 means both must answer and both must approve for the loop to converge.",
+    "Peer text, verdicts, critical issues, models, reasoning effort and ms are verbatim from the run journal (dashboard.capture: content). Model replies may contain non-ASCII punctuation; it is kept as returned.",
+    "Each peer summary is copied verbatim from the reply's <SUMMARY> block or its **Summary** line; a reply with neither has a null summary.",
+    "The final revision (rounds[2].revision) was submitted after the round cap, so the engine recorded it and ended the loop; no reviewer saw it.",
+    "Trimmed as boilerplate: per-call provenance (runtime, activation, attempt and config ids, the config snapshot), the full loop and session ids, and the engine finalReport body, which repeats the final plan word for word.",
+    "subject.title, revisionSummary, convergence.reason, outcome.openDissent and outcome.nonBlockingThemes are written by the host; the engine returns converged, verdict and confidence only. outcome.verdict is the host's last adjudicated verdict."
+  ]
+}

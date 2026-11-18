@@ -1,0 +1,693 @@
+{
+  "id": "tf-description-severity",
+  "recordedAt": "2026-11-01T07:29:04.671Z",
+  "deliberationVersion": "4.0.0",
+  "runId": "e6d7dbbe",
+  "provenance": "recovered",
+  "tool": "consensus-step",
+  "expert": "architect",
+  "question": "DECISION UNDER REVIEW: the severity of rule `compat.claim-contradicts-analysis` when the code break it names is only LOW, and whether it should block a pull request.",
+  "subject": {
+    "type": "question",
+    "related": "https://github.com/terraform-aws-modules/terraform-aws-rds-aurora/pull/556",
+    "title": "How severe is a wrong PR description when the Terraform change it describes breaks only invalid inputs?",
+    "short": "Terraform PR description severity"
+  },
+  "planUnderReview": "DECISION UNDER REVIEW: the severity of rule `compat.claim-contradicts-analysis` when the code break it names is only LOW, and whether it should block a pull request.\n\nBACKGROUND. A private tool reviews GitHub pull requests on Terraform modules and posts one comment under a maintainer's name. Its rule `compat.claim-contradicts-analysis` (owned by Check A, compatibility) fires \"when a compatibility claim in the title or the body contradicts Check A's own conclusion\". Today it is ALWAYS HIGH, \"never CRITICAL\", and is emitted every time next to the code finding (they are \"two defects in one change: the code breaks callers, and the prose tells a maintainer it does not ... a maintainer who reads only the description merges it\"). In the verdict ladder (first match wins) a HIGH finding blocks merge at rule 2 (\"changes requested\"); a MEDIUM blocks at rule 6; LOW findings are optional nits; unknowns (checks that could not run) give \"inconclusive\" at rule 4.\n\nTHE CASE. terraform-aws-modules/terraform-aws-rds-aurora#556, a +1/-1 change: `vpc_security_group_ids = compact(concat(aws_security_group.this[*].id, var.vpc_security_group_ids))` becomes `concat(...)`. The PR body (its \"Breaking Changes\" section) says \"the only behaviour removed is the silent filtering of empty-string entries\". The review found: besides empty strings, null elements of the caller's `var.vpc_security_group_ids` (type list(string)) are no longer dropped either, and a null element makes the plan fail at the head (observed with the real aws provider in a plan fixture). So the description is incomplete (it names empty strings only, and says nothing of nulls), the code break is rated LOW (compat.expression-behaviour-changed: nulls/empty strings are not valid security group ids; the variable description says security group ids), and the contradicts-analysis finding was rated HIGH, which turned the whole review into 'changes requested before merge' for a documentation sentence. Earlier runs with the same evidence produced 'inconclusive' with two LOW findings; the HIGH appeared only in one reviewer run, from the rule text. The owner's complaint: reviews of tiny changes are far too heavy and not practical; a block over a missing sentence in a PR description feels disproportionate.\n\nOPTIONS (weigh at least these): (A) keep HIGH always (a wrong description makes a maintainer merge a break); (B) severity follows the break: the contradicts-analysis finding is exactly one band below the code finding it pairs with, never above (code break CRITICAL -> HIGH, HIGH -> MEDIUM, MEDIUM -> LOW, LOW -> LOW), still always emitted with the code finding and still rendered; (C) it never blocks: fixed LOW (an 'edit the description' nit) unless the code break is CRITICAL/HIGH; (D) split the finding in two kinds: 'the description claims safety that the analysis refutes' (claim false: HIGH) versus 'the description omits a behaviour' (incomplete, not contradicted: MEDIUM or LOW, rule `compat.description-incomplete`); (E) something better. Constraints: the verdict stays a deterministic function of the reviewer's findings (severity is chosen by the reviewer under fixed rule text), the rule must remain testable with one reviewer instruction, and a reader must not be misled into merging a real break because of an optimistic description. Give a recommendation with the exact new rule text (one paragraph) and the effect on the PR 556 verdict.",
+  "panel": [
+    {
+      "provider": "codex",
+      "source": "codex",
+      "model": "gpt-6.1-sol",
+      "reasoningEffort": "high",
+      "role": "peer"
+    },
+    {
+      "provider": "gemini",
+      "source": "gemini",
+      "model": "gemini-3.8-flash-high",
+      "reasoningEffort": null,
+      "role": "peer"
+    },
+    {
+      "provider": "grok",
+      "source": "grok",
+      "model": "grok-4.7",
+      "reasoningEffort": "medium",
+      "role": "peer"
+    },
+    {
+      "provider": "openrouter",
+      "source": "openrouter:glm-5-3-flashx",
+      "model": "z-ai/glm-5.3-flashx",
+      "reasoningEffort": "medium",
+      "role": "peer"
+    }
+  ],
+  "arbiter": {
+    "kind": "host"
+  },
+  "limits": {
+    "maxRounds": 5
+  },
+  "steps": [
+    {
+      "action": "init",
+      "status": "await_blind",
+      "round": 1
+    },
+    {
+      "action": "record_blind",
+      "status": "await_peers",
+      "round": 1
+    },
+    {
+      "action": "dispatch_peers",
+      "status": "await_adjudication",
+      "round": 1
+    },
+    {
+      "action": "submit_adjudication",
+      "status": "await_revision",
+      "round": 1
+    },
+    {
+      "action": "submit_revision",
+      "status": "await_blind",
+      "round": 2
+    },
+    {
+      "action": "record_blind",
+      "status": "await_peers",
+      "round": 2
+    },
+    {
+      "action": "dispatch_peers",
+      "status": "await_adjudication",
+      "round": 2
+    },
+    {
+      "action": "submit_adjudication",
+      "status": "await_revision",
+      "round": 2
+    },
+    {
+      "action": "submit_revision",
+      "status": "await_blind",
+      "round": 3
+    },
+    {
+      "action": "record_blind",
+      "status": "await_peers",
+      "round": 3
+    },
+    {
+      "action": "dispatch_peers",
+      "status": "await_adjudication",
+      "round": 3
+    },
+    {
+      "action": "submit_adjudication",
+      "status": "await_revision",
+      "round": 3
+    },
+    {
+      "action": "submit_revision",
+      "status": "await_blind",
+      "round": 4
+    },
+    {
+      "action": "record_blind",
+      "status": "await_peers",
+      "round": 4
+    },
+    {
+      "action": "dispatch_peers",
+      "status": "await_adjudication",
+      "round": 4
+    },
+    {
+      "action": "submit_adjudication",
+      "status": "converged",
+      "round": 4
+    }
+  ],
+  "rounds": [
+    {
+      "n": 1,
+      "hostBlindVerdict": {
+        "verdict": "REQUEST_CHANGES",
+        "summary": "Follow the break one band lower; treat omission as at most LOW.",
+        "criticalIssues": [
+          {
+            "id": "r1-host-1",
+            "category": "correctness",
+            "text": "Always-HIGH makes the block independent of the break's risk; a LOW break plus a missing sentence blocks a tiny PR."
+          },
+          {
+            "id": "r1-host-2",
+            "category": "ambiguity",
+            "text": "Option B alone leaves contradicts vs omits unseparated; PR 556's description does not claim nulls are safe, it is silent. Prefer B plus the D distinction: severity one band below the paired break, and a pure omission is at most LOW."
+          }
+        ],
+        "text": "**Verdict**: REQUEST CHANGES\n**Critical issues**:\n  - `correctness` Always-HIGH makes the block independent of the break's risk; a LOW break plus a missing sentence blocks a tiny PR.\n  - `ambiguity` Option B alone leaves contradicts vs omits unseparated; PR 556's description does not claim nulls are safe, it is silent. Prefer B plus the D distinction: severity one band below the paired break, and a pure omission is at most LOW.\n**One-line bottom line**: Follow the break one band lower; treat omission as at most LOW."
+      },
+      "peers": [
+        {
+          "source": "codex",
+          "provider": "codex",
+          "model": "gpt-6.1-sol",
+          "reasoningEffort": "high",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r1-codex-1",
+              "category": "correctness",
+              "text": "The current always-HIGH rule turns a LOW compatibility consequence into a merge blocker solely through contradictory prose; replace it with the explicit severity mapping above."
+            }
+          ],
+          "summary": null,
+          "text": null,
+          "ms": 83950
+        },
+        {
+          "source": "gemini",
+          "provider": "gemini",
+          "model": "gemini-3.8-flash-high",
+          "reasoningEffort": null,
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r1-gemini-1",
+              "category": "correctness",
+              "text": "The current rule assigns an unconditional HIGH severity to PR description discrepancies even when the underlying technical break is rated LOW, inverting defect risk hierarchy."
+            },
+            {
+              "id": "r1-gemini-2",
+              "category": "ops",
+              "text": "Hard-blocking PRs on documentation omissions for trivial changes causes maintainer fatigue and erodes trust in automated reviews."
+            },
+            {
+              "id": "r1-gemini-3",
+              "category": "ambiguity",
+              "text": "Enforcing a binary HIGH finding for any claim mismatch causes inconsistent review outcomes between full contradictions and minor omissions across LLM runs."
+            }
+          ],
+          "summary": null,
+          "text": null,
+          "ms": 118366
+        },
+        {
+          "source": "grok",
+          "provider": "grok",
+          "model": "grok-4.7",
+          "reasoningEffort": "medium",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r1-grok-1",
+              "category": "correctness",
+              "text": "Always-HIGH turns a LOW invalid-input behaviour change into changes-requested, so a description sentence outranks the break the ladder already marked non-blocking."
+            },
+            {
+              "id": "r1-grok-2",
+              "category": "ambiguity",
+              "text": "The rule does not define affirmative contradiction versus an incomplete note, and this case was described as both, which matches one run emitting HIGH and others not firing it."
+            },
+            {
+              "id": "r1-grok-3",
+              "category": "ops",
+              "text": "On the same 556 evidence the verdict already moved between inconclusive and changes-requested, so severity is not in practice a deterministic function of the findings."
+            },
+            {
+              "id": "r1-grok-4",
+              "category": "scope",
+              "text": "The prose rule blocks merge even when that block does not decide whether a MEDIUM-or-higher break can merge, which is past the goal of stopping an optimistic description from hiding a blocking break."
+            },
+            {
+              "id": "r1-grok-5",
+              "category": "security",
+              "text": "A never-block reading of option C would drop the gate if the code finding were missed on a real break in security-group wiring; prose severity must not be able to exceed or replace the paired code finding."
+            }
+          ],
+          "summary": null,
+          "text": null,
+          "ms": 241893
+        },
+        {
+          "source": "openrouter:glm-5-3-flashx",
+          "provider": "openrouter",
+          "model": "z-ai/glm-5.3-flashx",
+          "reasoningEffort": "medium",
+          "verdict": "APPROVE",
+          "criticalIssues": [
+            {
+              "id": "r1-openrouter:glm-5-3-flashx-1",
+              "category": "ambiguity",
+              "text": "The refuted-vs-omitted boundary in option D depends on quantifier wording (\"only\"); the rule text must enumerate such words or reviewers will diverge again."
+            },
+            {
+              "id": "r1-openrouter:glm-5-3-flashx-2",
+              "category": "correctness",
+              "text": "Option D alone does not fix PR 556, since the body's \"only\" makes it a refutation, not an omission; banding is required, so the plan's option D as written is insufficient."
+            },
+            {
+              "id": "r1-openrouter:glm-5-3-flashx-3",
+              "category": "ops",
+              "text": "The observed HIGH-vs-inconclusive divergence across runs indicates severity was previously non-deterministic; after the change, add or verify a regression test pinning PR 556's evidence to the LOW/LOW outcome."
+            }
+          ],
+          "summary": null,
+          "text": null,
+          "ms": 16269
+        }
+      ],
+      "roundMs": 242953,
+      "slowest": "grok",
+      "adjudication": [
+        {
+          "issueId": null,
+          "source": "codex,gemini,grok,claude",
+          "category": "correctness",
+          "description": "Always-HIGH makes a LOW break block through prose alone",
+          "decision": "accept",
+          "reason": "Five voices agree. Adopt banding: the description finding is one band below the paired code finding."
+        },
+        {
+          "issueId": null,
+          "source": "gemini,grok,glm",
+          "category": "ambiguity",
+          "description": "Contradiction versus omission is undefined; wording like 'only' decides it",
+          "decision": "accept",
+          "reason": "Rule text must define it: a claim is contradicted when it asserts something the analysis refutes (including a closed set such as 'only'); an omission is a behaviour the description never mentions. Under banding the definition no longer decides blocking, only the wording of the fix, so divergence stops mattering for the verdict."
+        },
+        {
+          "issueId": null,
+          "source": "glm",
+          "category": "correctness",
+          "description": "Option D alone would not fix PR 556 because of the word 'only'",
+          "decision": "accept",
+          "reason": "Right, so banding (B) is the mechanism; D is dropped as a separate rule to keep one rule and one reviewer instruction."
+        },
+        {
+          "issueId": null,
+          "source": "grok",
+          "category": "security",
+          "description": "Prose severity must not exceed or replace the paired code finding",
+          "decision": "accept",
+          "reason": "Banding gives that: the description finding is never above the code finding minus one band, and it is still always emitted with it, so a missed code finding is still a Check A failure, not a prose one."
+        },
+        {
+          "issueId": null,
+          "source": "grok,glm",
+          "category": "ops",
+          "description": "Severity was non-deterministic across runs; add a regression test",
+          "decision": "accept",
+          "reason": "Add the PR 556 evidence as a reviewer-level fixture: expected LOW description finding (or none above LOW), verdict not rule 2."
+        },
+        {
+          "issueId": null,
+          "source": "grok",
+          "category": "scope",
+          "description": "Blocking on prose goes beyond stopping an optimistic description from hiding a blocking break",
+          "decision": "accept",
+          "reason": "Banding keeps the gate exactly where the code break is: with a LOW break the description finding is LOW."
+        }
+      ],
+      "hostVerdict": "REQUEST_CHANGES",
+      "revision": "DECISION (revised): adopt option B. `compat.claim-contradicts-analysis` keeps its owner (Check A), its trigger and its always-emitted pairing with the code finding, but its severity is chosen by the code finding it pairs with: one band below it, never above. Code finding CRITICAL -> HIGH; HIGH -> MEDIUM; MEDIUM -> LOW; LOW -> LOW. When the description contradicts a break reported under several rules, use the highest paired code finding. The rule is not a gate on its own: it can never be more severe than the break it names, so a prose sentence cannot block a pull request whose code finding does not block it (a LOW break gives a LOW, optional description nit), and a real blocking break still carries a blocking description finding (CRITICAL break gives a HIGH description finding), so a maintainer who reads only the description is still warned.\n\nEXACT RULE TEXT (replaces the 'HIGH, never CRITICAL' paragraph in quoted-claims.md and the HIGH row in check-a-compatibility.md and rule-facts.md severity column to 'banded'): \"compat.claim-contradicts-analysis, banded. Check A owns it, and it fires when a compatibility claim in the title or the body contradicts Check A's own conclusion: the body asserts something the analysis refutes, which includes a closed statement such as 'the only change is X' when the analysis finds Y as well. A description that merely never mentions a behaviour is not a contradiction and gets no finding of its own; the code finding carries it. Severity is one band below the highest compat.* code finding it pairs with, never above it: CRITICAL -> HIGH, HIGH -> MEDIUM, MEDIUM -> LOW, LOW -> LOW. The pair is still carved out of the Final Step dedup clause and both findings are emitted every time. The Fix is a corrected sentence for the title or body, stating what the analysis concluded.\"\n\nEFFECT ON PR 556: body says 'the only behaviour removed is the filtering of empty-string entries'; analysis finds nulls are kept too: code finding `compat.expression-behaviour-changed` LOW, so the description finding is LOW. Findings: LOW, LOW, LOW; the verdict is then decided by the unknowns (rule 4, inconclusive: 3 examples not planned, 1 trigger not verified) exactly as in runs 3 to 6, not by a block at rule 2.\n\nIMPLEMENTATION: rule-facts.md severity column and any registry rows/tests that pin HIGH for this rule; check-a-compatibility.md and quoted-claims.md text; findings-schema.md note; the facts side if the rule appears in its registry tests (it is an llm rule: no facts code); add a reviewer-level documentation fixture for PR 556's evidence (expected: LOW) in the places the repo keeps worked examples; comment-format.md worked examples that show a HIGH for this rule stay valid when the paired code finding is CRITICAL, check them.",
+      "revisionSummary": "Option B (banding, one band below the paired code finding, never above, still always emitted) with a contradiction/omission definition that only changes the fix wording; fixture for PR 556.",
+      "convergence": {
+        "converged": false,
+        "reason": "codex, gemini and grok voted REQUEST_CHANGES and openrouter:glm-5-3-flashx voted APPROVE, with the host also at REQUEST_CHANGES. The host accepted all 6 merged issues and revised the rule to option B (banding)."
+      }
+    },
+    {
+      "n": 2,
+      "hostBlindVerdict": {
+        "verdict": "APPROVE",
+        "summary": "Banding by the paired code finding is deterministic, keeps both findings, and removes the disproportionate block; implementation list is complete.",
+        "criticalIssues": [],
+        "text": "**Verdict**: APPROVE\n**Critical issues**: none\n**One-line bottom line**: Banding by the paired code finding is deterministic, keeps both findings, and removes the disproportionate block; implementation list is complete."
+      },
+      "peers": [
+        {
+          "source": "codex",
+          "provider": "codex",
+          "model": "gpt-6.1-sol",
+          "reasoningEffort": "high",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r2-codex-1",
+              "category": "correctness",
+              "text": "banded` is invalid in the registry’s `severities` column: both `tests/skills-test.sh:598` and `facts/internal/registry/registry.go:193` require enumerated severities. Use `HIGH, MEDIUM, LOW` and synchronize registry fixtures; leaving a HIGH-only registry causes `facts/internal/merge/merge.go:224` to raise LOW back to HIGH."
+            },
+            {
+              "id": "r2-codex-2",
+              "category": "ops",
+              "text": "The implementation omits regeneration of `terraform-module-reviewer/references/judgment/prefix.md`, whose line 225 independently instructs fixed HIGH. Run its `assemble.sh` after updating the sources and verify the committed output matches; otherwise the judgment variant retains conflicting instructions and the generated-prefix check fails."
+            }
+          ],
+          "summary": null,
+          "text": null,
+          "ms": 84584
+        },
+        {
+          "source": "gemini",
+          "provider": "gemini",
+          "model": "gemini-3.8-flash-high",
+          "reasoningEffort": null,
+          "verdict": "APPROVE",
+          "criticalIssues": [],
+          "summary": null,
+          "text": null,
+          "ms": 125330
+        },
+        {
+          "source": "grok",
+          "provider": "grok",
+          "model": "grok-4.7",
+          "reasoningEffort": "medium",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r2-grok-1",
+              "category": "ambiguity",
+              "text": "\"Both findings are emitted every time\" conflicts with \"omission gets no finding\"; bind emission and the dedup carve-out to the contradiction trigger only."
+            },
+            {
+              "id": "r2-grok-2",
+              "category": "correctness",
+              "text": "Severity is undefined when a claim is refuted but no compat.* code finding is paired; forbid a HIGH default so prose cannot block with no code finding."
+            },
+            {
+              "id": "r2-grok-3",
+              "category": "correctness",
+              "text": "\"A blocking break still carries a blocking description finding\" is false for HIGH to MEDIUM and MEDIUM to LOW; state the rule-2 threshold and drop that guarantee."
+            },
+            {
+              "id": "r2-grok-4",
+              "category": "ops",
+              "text": "Do not put the token \"banded\" in a severity enum; pin the PR 556 fixture to LOW description, no rule-2 block, and rule-4 inconclusive, and correct HIGH examples that lack a CRITICAL pair."
+            }
+          ],
+          "summary": null,
+          "text": null,
+          "ms": 177311
+        },
+        {
+          "source": "openrouter:glm-5-3-flashx",
+          "provider": "openrouter",
+          "model": "z-ai/glm-5.3-flashx",
+          "reasoningEffort": "medium",
+          "verdict": "APPROVE",
+          "criticalIssues": [
+            {
+              "id": "r2-openrouter:glm-5-3-flashx-1",
+              "category": "ambiguity",
+              "text": "Rule text does not explicitly state the finding is emitted only when a paired compat.* code finding exists; add one clause if that invariant is not already guaranteed by Check A's construction."
+            }
+          ],
+          "summary": null,
+          "text": null,
+          "ms": 7414
+        }
+      ],
+      "roundMs": 178266,
+      "slowest": "grok",
+      "adjudication": [
+        {
+          "issueId": null,
+          "source": "codex",
+          "category": "correctness",
+          "description": "'banded' is not a valid severities column value; registry and merge enforce enumerated severities and would raise LOW back to HIGH",
+          "decision": "accept",
+          "reason": "Verified need: the registry column lists HIGH, MEDIUM, LOW for this rule and the facts merge floor (merge.go) must not raise it back; the implementation includes the facts registry sync."
+        },
+        {
+          "issueId": null,
+          "source": "codex",
+          "category": "ops",
+          "description": "prefix.md line 225 independently instructs fixed HIGH; regenerate it",
+          "decision": "accept",
+          "reason": "Yes: edit the source reference and run assemble.sh; skills-test checks it."
+        },
+        {
+          "issueId": null,
+          "source": "grok",
+          "category": "ambiguity",
+          "description": "'Both emitted every time' conflicts with 'omission gets no finding'",
+          "decision": "accept",
+          "reason": "Bind: when the contradiction trigger fires, both findings are emitted; an omission fires nothing."
+        },
+        {
+          "issueId": null,
+          "source": "grok",
+          "category": "correctness",
+          "description": "Severity undefined when a claim is refuted but no compat.* code finding is paired",
+          "decision": "accept",
+          "reason": "The finding exists only paired with a code finding; with none, it is LOW and cannot block."
+        },
+        {
+          "issueId": null,
+          "source": "grok",
+          "category": "correctness",
+          "description": "'A blocking break still carries a blocking description finding' is false for HIGH -> MEDIUM and MEDIUM -> LOW",
+          "decision": "accept",
+          "reason": "Drop the guarantee; only CRITICAL -> HIGH keeps rule 2. The code finding itself is what blocks."
+        },
+        {
+          "issueId": null,
+          "source": "grok,glm",
+          "category": "ops",
+          "description": "Pin the PR 556 fixture; drop the 'banded' token",
+          "decision": "accept",
+          "reason": "Registry value is the enum HIGH, MEDIUM, LOW; the rule text carries the banding. Fixture: LOW description finding, no rule-2 block, rule-4 inconclusive."
+        }
+      ],
+      "hostVerdict": "REQUEST_CHANGES",
+      "revision": "FINAL DECISION: adopt option B (banding) with these exact terms.\n\nRULE TEXT (replaces the fixed-HIGH paragraph): \"compat.claim-contradicts-analysis. Check A owns it. It fires only when a compatibility claim in the title or the body contradicts Check A's own conclusion: the body asserts something the analysis refutes, including a closed statement such as 'the only change is X' when the analysis finds Y as well. A description that never mentions a behaviour is not a contradiction and fires nothing; the code finding carries it. It is emitted only together with a compat.* code finding, and every time that finding is emitted for the contradicted claim; the pair stays carved out of the Final Step dedup clause. Its severity is one band below the highest compat.* code finding it pairs with and never above it: CRITICAL gives HIGH, HIGH gives MEDIUM, MEDIUM gives LOW, LOW gives LOW. With no paired code finding it is LOW. Only the CRITICAL pair keeps the description finding at a blocking severity (rule 2); below that the code finding is what blocks, and a description finding follows it. The Fix is a corrected sentence for the title or body, stating what the analysis concluded.\"\n\nREGISTRY: rule-facts.md severities column for this rule becomes the enumerated list \"HIGH, MEDIUM, LOW\" (not the word banded); tests/skills-test.sh and facts internal/registry accept it; facts internal/merge must not raise a LOW or MEDIUM instance of this rule back to HIGH (adjust the floor/ceiling logic and add a test with the PR 556 case); the facts CI pins SKILLS_COMMIT and REGISTRY_SHA256 so the registry change goes through the usual two-step (public first, then facts bump).\n\nDOCS: quoted-claims.md section, check-a-compatibility.md (severity bullet and the Suggested fix table row text unchanged), the Final Step carve-out text in rule-facts.md, reviewer SKILL.md mentions, comment-format.md and render tests that show this rule at HIGH (valid only with a CRITICAL pair: fix or re-pair the examples), prefix.md regenerated with assemble.sh (line 225 text) and kept <= 92160 bytes.\n\nFIXTURE: PR 556 evidence as a worked example in the reviewer docs and a render golden: code finding compat.expression-behaviour-changed LOW, description finding LOW, no rule-2 block, verdict from the unknowns (rule 4 inconclusive).",
+      "revisionSummary": "Enum severities in registry (HIGH, MEDIUM, LOW) with banding in rule text; emitted only with a paired code finding; no pairing -> LOW; blocking guarantee only for CRITICAL->HIGH; prefix regenerated; facts merge floor synced; PR 556 fixture pinned.",
+      "convergence": {
+        "converged": false,
+        "reason": "codex and grok voted REQUEST_CHANGES on the banded rule; gemini and openrouter:glm-5-3-flashx approved. The host accepted all 6 issues and revised the rule again."
+      }
+    },
+    {
+      "n": 3,
+      "hostBlindVerdict": {
+        "verdict": "APPROVE",
+        "summary": "The banded rule with an enum registry value, a pairing requirement and a pinned PR 556 fixture is consistent and implementable.",
+        "criticalIssues": [],
+        "text": "**Verdict**: APPROVE\n**Critical issues**: none\n**One-line bottom line**: The banded rule with an enum registry value, a pairing requirement and a pinned PR 556 fixture is consistent and implementable."
+      },
+      "peers": [
+        {
+          "source": "codex",
+          "provider": "codex",
+          "model": "gpt-6.1-sol",
+          "reasoningEffort": "high",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r3-codex-1",
+              "category": "correctness",
+              "text": "The plan explicitly leaves the severity bullet unchanged, but [check-a-compatibility.md:25]([redacted: local path]/.agents/skills/terraform-module-reviewer/references/check-a-compatibility.md:25) mandates HIGH for this rule. Replace that clause with banding, preserving the unrelated migration rule. Also update the fixed-HIGH explanation in [verdict.md:59]([redacted: local path]/.agents/skills/terraform-module-pr-review/references/verdict.md:59), currently omitted from the plan."
+            }
+          ],
+          "summary": null,
+          "text": null,
+          "ms": 110643
+        },
+        {
+          "source": "gemini",
+          "provider": "gemini",
+          "model": "gemini-3.8-flash-high",
+          "reasoningEffort": null,
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r3-gemini-1",
+              "category": "correctness",
+              "text": "check-a-compatibility.md severity bullet cannot remain unchanged; leaving it as fixed HIGH contradicts the banded registry entry and risks assemble.sh regenerating stale fixed-HIGH instructions into prefix.md line 225."
+            },
+            {
+              "id": "r3-gemini-2",
+              "category": "ambiguity",
+              "text": "Rule text contradicts itself by stating it is \"emitted only together with a compat.* code finding\" while also specifying \"With no paired code finding it is LOW\"; clarify whether standalone emission is prohibited or whether the LOW clause is strictly a defensive parser/ingestion fallback."
+            },
+            {
+              "id": "r3-gemini-3",
+              "category": "ambiguity",
+              "text": "Claim-to-finding multiplicity is unspecified when multiple compat.* code findings contradict a single claim; specify that exactly one description finding is emitted per contradicted claim (banded to the highest severity code finding) so the dedup carve-out does not leak duplicate description findings."
+            }
+          ],
+          "summary": null,
+          "text": null,
+          "ms": 190322
+        },
+        {
+          "source": "grok",
+          "provider": "grok",
+          "model": "grok-4.7",
+          "reasoningEffort": "medium",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r3-grok-1",
+              "category": "ambiguity",
+              "text": "\"Emitted only together with a compat.* code finding\" contradicts \"With no paired code finding it is LOW\"; an overclaim the analysis does not find has no code finding, so the text both emits LOW and emits nothing. Delete one."
+            },
+            {
+              "id": "r3-grok-2",
+              "category": "correctness",
+              "text": "\"Every time that finding is emitted\" conflicts with \"one band below the highest,\" and pairing is not limited to findings that refute that claim. Emit one description finding per contradicted claim, banded only from those refuting findings, so an unrelated compat.* finding cannot raise it."
+            },
+            {
+              "id": "r3-grok-3",
+              "category": "correctness",
+              "text": "Leaving the check-a-compatibility.md severity bullet unchanged preserves fixed HIGH next to the banded rule unless that bullet already states no fixed severity. Update it or quote it to prove it does not."
+            }
+          ],
+          "summary": null,
+          "text": null,
+          "ms": 116330
+        },
+        {
+          "source": "openrouter:glm-5-3-flashx",
+          "provider": "openrouter",
+          "model": "z-ai/glm-5.3-flashx",
+          "reasoningEffort": "medium",
+          "verdict": "APPROVE",
+          "criticalIssues": [],
+          "summary": null,
+          "text": null,
+          "ms": 10374
+        }
+      ],
+      "roundMs": 193479,
+      "slowest": "gemini",
+      "adjudication": [
+        {
+          "issueId": null,
+          "source": "codex,gemini,grok",
+          "category": "correctness",
+          "description": "check-a-compatibility.md severity bullet (line 25) and verdict.md (line 59) still state fixed HIGH; the plan said they stay",
+          "decision": "accept",
+          "reason": "Three voices, verifiable. Both are listed for edit, preserving the unrelated migration-path rule in line 25."
+        },
+        {
+          "issueId": null,
+          "source": "gemini,grok",
+          "category": "ambiguity",
+          "description": "'Emitted only together with a code finding' contradicts 'with no paired code finding it is LOW'",
+          "decision": "accept",
+          "reason": "Delete the LOW fallback: a contradiction is by definition a claim the analysis refutes, so a refuting compat.* code finding always exists; with none, the rule does not fire."
+        },
+        {
+          "issueId": null,
+          "source": "gemini,grok",
+          "category": "correctness",
+          "description": "Multiplicity: one description finding per contradicted claim, banded from the code findings that refute that claim only",
+          "decision": "accept",
+          "reason": "Adopt exactly: one finding per contradicted claim; severity from the highest compat.* code finding that refutes that claim; unrelated compat.* findings never raise it."
+        }
+      ],
+      "hostVerdict": "REQUEST_CHANGES",
+      "revision": "FINAL DECISION (round 4): option B (banding).\n\nRULE TEXT: \"compat.claim-contradicts-analysis. Check A owns it. It fires once per compatibility claim in the title or the body that Check A's own conclusion refutes: the body asserts something the analysis contradicts, including a closed statement such as 'the only change is X' when the analysis finds Y as well. A refuted claim always has at least one compat.* code finding that refutes it; with none, the rule does not fire. A description that never mentions a behaviour is not a contradiction and fires nothing; the code finding carries it. The severity is one band below the highest compat.* code finding that refutes that claim and never above it: CRITICAL gives HIGH, HIGH gives MEDIUM, MEDIUM gives LOW, LOW gives LOW. A compat.* finding that does not refute the claim never raises it. Only a CRITICAL code finding gives a description finding at a blocking severity at rule 2; below that the code finding is what blocks and the description finding follows it. The description finding and the code finding are both emitted (the pair stays carved out of the Final Step dedup clause). The Fix is a corrected sentence for the title or body, stating what the analysis concluded.\"\n\nEDITS: check-a-compatibility.md line 25 (replace the fixed-HIGH clause for this rule with the banding, keep the unrelated HIGH-when-breaking-and-declared-without-migration-path bullet intact), quoted-claims.md section heading and body, verdict.md line 59 explanation of the fixed-HIGH, rule-facts.md severities column \"HIGH, MEDIUM, LOW\" and the Final Step carve-out text, the facts registry sync (rule severities and the merge floor so a LOW or MEDIUM instance is not raised back to HIGH; test with the PR 556 case; two-step pin bump of SKILLS_COMMIT and REGISTRY_SHA256), reviewer SKILL.md mentions, comment-format.md and render tests that show this rule at HIGH re-paired with a CRITICAL code finding or re-rated, prefix.md regenerated with assemble.sh and <= 92160 bytes. FIXTURE: PR 556: code finding compat.expression-behaviour-changed LOW, description finding LOW, no rule-2 block, rule-4 inconclusive.",
+      "revisionSummary": "One description finding per contradicted claim, banded only from the code findings that refute it; no LOW fallback (no refuting code finding = rule does not fire); check-a line 25 and verdict.md line 59 edited.",
+      "convergence": {
+        "converged": false,
+        "reason": "codex, gemini and grok voted REQUEST_CHANGES; only openrouter:glm-5-3-flashx approved. The host accepted all 3 issues and revised the rule a third time."
+      }
+    },
+    {
+      "n": 4,
+      "hostBlindVerdict": {
+        "verdict": "APPROVE",
+        "summary": "Rule text is now self-consistent (one finding per refuted claim, banded from refuting code findings, no fallback), and the edit list covers check-a, quoted-claims, verdict.md, registry, facts merge, prefix and fixtures.",
+        "criticalIssues": [],
+        "text": "**Verdict**: APPROVE\n**Critical issues**: none\n**One-line bottom line**: Rule text is now self-consistent (one finding per refuted claim, banded from refuting code findings, no fallback), and the edit list covers check-a, quoted-claims, verdict.md, registry, facts merge, prefix and fixtures."
+      },
+      "peers": [
+        {
+          "source": "codex",
+          "provider": "codex",
+          "model": "gpt-6.1-sol",
+          "reasoningEffort": "high",
+          "verdict": "APPROVE",
+          "criticalIssues": [],
+          "summary": "Approve option B as specified. Effort: Short. Confidence: high. Top risk: an unsynchronized registry pin or stale fixed-HIGH instruction could restore unwanted escalation; the planned sync and regression checks address it.",
+          "text": "Approve. The plan resolves the earlier pairing, multiplicity, severity, and synchronization gaps. No critical security, correctness, scope, ambiguity, performance, or operational issue remains.\n\n1. Apply the listed source edits, regenerate `prefix.md`, and run the skills checks.\n2. Verify all four severity mappings, no finding without refuting code, and no escalation from unrelated findings.\n3. Confirm merge preserves LOW/MEDIUM and PR 556 remains inconclusive at rule 4. Preserve existing ladder precedence: a CRITICAL/HIGH pair may reach rule 0 before rule 2.\n\n**Effort:** Short (1–4h).  \n**Confidence:** High, based on the inspected rules, severity clamp, and render fixtures.\n\n<SUMMARY>\nApprove option B as specified. Effort: Short. Confidence: high. Top risk: an unsynchronized registry pin or stale fixed-HIGH instruction could restore unwanted escalation; the planned sync and regression checks address it.\n</SUMMARY>\n\nVERDICT: APPROVE",
+          "ms": 102443
+        },
+        {
+          "source": "gemini",
+          "provider": "gemini",
+          "model": "gemini-3.8-flash-high",
+          "reasoningEffort": null,
+          "verdict": "APPROVE",
+          "criticalIssues": [],
+          "summary": "The Round 4 plan thoroughly resolves previous banding, registry schema, and refutation trigger gaps for compat.claim-contradicts-analysis. Effort: Short (1-4h). Confidence: high. Top risk: prefix.md exceeding the 92,160-byte limit after regeneration via assemble.sh, mitigated by checking byte count immediately post-assembly.",
+          "text": "### Essential\n\n- **Bottom line**: The Round 4 plan resolves all outstanding blockers from prior rounds, establishing a sound banding model, strict refutation semantics, and comprehensive test and registry synchronization. The rule logic cleanly couples claim findings to refuting code findings while preventing severity inflation in the merge and registry layers. The plan is complete, well-bounded, and ready for execution.\n- **Action plan**:\n  1. Update [check-a-compatibility.md](file:///check-a-compatibility.md#L25), [quoted-claims.md](file:///quoted-claims.md), and [verdict.md](file:///verdict.md#L59) to replace fixed-HIGH text with the banding specification while preserving unrelated migration rules.\n  2. Update [rule-facts.md](file:///rule-facts.md) to set the severities column to \"HIGH, MEDIUM, LOW\" and document the Final Step deduplication carve-out.\n  3. Synchronize the facts registry and merge floor to support LOW and MEDIUM instances without upward promotion.\n  4. Update [comment-format.md](file:///comment-format.md) and associated render tests to reflect re-rated or CRITICAL-paired findings.\n  5. Regenerate [prefix.md](file:///prefix.md) with `assemble.sh` and verify file size remains within the 92,160-byte limit.\n  6. Execute fixture verification for PR 556 to confirm code and description findings both emit at LOW with no rule-2 block and an inconclusive rule-4 verdict.\n  7. Finalize the two-step pin bump for `SKILLS_COMMIT` and `REGISTRY_SHA256`.\n- **Effort**: Short (1-4h).\n- **Confidence**: high.\n\n### Expanded\n\n- **Why this approach**:\n  1. Eliminates false-positive blocking by ensuring description findings never exceed the severity of their refuting code finding (only CRITICAL code refutations yield a blocking HIGH finding).\n  2. Resolves the omission versus contradiction ambiguity by requiring at least one refuting code finding before the rule can fire.\n  3. Maintains registry schema and merge consistency by explicitly enumerating valid severities (\"HIGH, MEDIUM, LOW\") and clamping the merge floor.\n  4. Preserves architectural dedup semantics through an explicit Final Step carve-out so paired findings are not collapsed.\n- **Risks**:\n  1. *Prefix size expansion*: Assembling updated rule text into [prefix.md](file:///prefix.md) could breach the 92,160-byte threshold. *Mitigation*: Run a post-assembly size check in CI; trim surrounding commentary in [quoted-claims.md](file:///quoted-claims.md) if budget headroom is tight.\n  2. *Merge floor regression*: Multi-rule PR evaluations could inadvertently promote LOW/MEDIUM description findings if registry sync logic is incomplete. *Mitigation*: Run the PR 556 fixture test across full multi-rule merge passes before finalizing pin bumps.\n\n<SUMMARY>\nThe Round 4 plan thoroughly resolves previous banding, registry schema, and refutation trigger gaps for compat.claim-contradicts-analysis. Effort: Short (1-4h). Confidence: high. Top risk: prefix.md exceeding the 92,160-byte limit after regeneration via assemble.sh, mitigated by checking byte count immediately post-assembly.\n</SUMMARY>\n\nVERDICT: APPROVE",
+          "ms": 83602
+        },
+        {
+          "source": "grok",
+          "provider": "grok",
+          "model": "grok-4.7",
+          "reasoningEffort": "medium",
+          "verdict": "APPROVE",
+          "criticalIssues": [],
+          "summary": "Approve round 4. Banding (CRITICAL→HIGH, HIGH→MEDIUM, MEDIUM→LOW, LOW→LOW), one description finding per refuted claim, no fire without a refuting compat.* code finding, both emitted with a Final Step carve-out, and blocking description severity only for CRITICAL→HIGH. Registry floor, fixed-HIGH doc edits, prefix assemble, two-step pins, and the PR 556 LOW/LOW fixture are specified. Effort: Short. Confidence: high. Top risk: implementers reading “one band below” as “do not emit” for LOW — follow the map and fixture instead.",
+          "text": "The round-4 plan matches the settled model and is safe to implement as written.\n\n**Bottom line**: Banding, per-claim firing, and the no-refuter no-fire rule are consistent with rounds 1–3. Enumerated severities, the merge floor, the fixed-HIGH doc edits, prefix regeneration, and the PR 556 pin are all specified. The explicit map is normative, including LOW→LOW.\n\n**Action plan**:\n1. Treat the severity map as the spec: CRITICAL→HIGH, HIGH→MEDIUM, MEDIUM→LOW, LOW→LOW, never above the highest compat.* finding that refutes that claim.\n2. Fire once per refuted title or body claim; do not fire on omission or when no compat.* finding refutes that claim; emit the pair and keep the Final Step carve-out.\n3. Replace only this rule’s fixed-HIGH text in check-a line 25 and verdict.md line 59; leave the migration-path HIGH bullet unchanged.\n4. Set registry severities to HIGH, MEDIUM, LOW and set this rule’s merge floor so LOW/MEDIUM are not raised; confirm with PR 556 (LOW code, LOW description, no rule-2 block, rule-4 inconclusive).\n5. Update quoted-claims, SKILL.md severity mentions, and comment-format/render fixtures (pair a HIGH description with CRITICAL, or re-rate by the map).\n6. Regenerate prefix.md with assemble.sh and keep it ≤ 92160 bytes; two-step pin SKILLS_COMMIT and REGISTRY_SHA256.\n\n**Effort**: Short.\n**Confidence**: high — behavior is fully determined by the rule text plus the pinned fixture.\n\n**Why this approach**: The LOW fallback contradiction is gone. Multiplicity and banding are per contradicted claim, so unrelated compat.* findings cannot raise severity. Only CRITICAL→HIGH is a rule-2 blocking description finding. Doc, registry, and generated prefix stay on one severity story.\n\n**Risks**: “One band below” is false for LOW, but the map and PR 556 pin clamp to LOW — do not invent a fourth severity. “reviewer SKILL.md mentions” is vague; change severity language only, do not add new rules.\n\n<SUMMARY>\nApprove round 4. Banding (CRITICAL→HIGH, HIGH→MEDIUM, MEDIUM→LOW, LOW→LOW), one description finding per refuted claim, no fire without a refuting compat.* code finding, both emitted with a Final Step carve-out, and blocking description severity only for CRITICAL→HIGH. Registry floor, fixed-HIGH doc edits, prefix assemble, two-step pins, and the PR 556 LOW/LOW fixture are specified. Effort: Short. Confidence: high. Top risk: implementers reading “one band below” as “do not emit” for LOW — follow the map and fixture instead.\n</SUMMARY>\n\nVERDICT: APPROVE",
+          "ms": 156713
+        },
+        {
+          "source": "openrouter:glm-5-3-flashx",
+          "provider": "openrouter",
+          "model": "z-ai/glm-5.3-flashx",
+          "reasoningEffort": "medium",
+          "verdict": "APPROVE",
+          "criticalIssues": [],
+          "summary": null,
+          "text": "The plan is internally consistent and resolves every issue raised in rounds 1-3: no LOW fallback (rule does not fire without a refuting code finding), enumerated severities in the registry match the banding outputs (HIGH, MEDIUM, LOW), multiplicity is one finding per contradicted claim banded only from findings that refute that claim, the three textual voices (check-a line 25, verdict.md line 59, prefix.md via assemble.sh) are all listed for edit, the dedup carve-out and rule-2 blocking condition are stated, and the PR 556 fixture (LOW code finding → LOW description finding, no block) exercises the banded path end to end. The pin bump and facts merge floor are covered.\n\nMinor non-blocking notes: the \"Fix is a corrected sentence\" wording is slightly odd when the claim sits in the title rather than the body, but it is interpretive, not ambiguous enough to block; and \"highest\" among multiple refuting findings is clear enough given the explicit \"never above\" bound.\n\nVERDICT: APPROVE\n\nNo critical issues.",
+          "ms": 7271
+        }
+      ],
+      "roundMs": 160473,
+      "slowest": "grok",
+      "adjudication": [],
+      "hostVerdict": "APPROVE",
+      "revision": null,
+      "revisionSummary": null,
+      "convergence": {
+        "converged": true,
+        "reason": "All four voices and the host voted APPROVE with no critical issues, so the loop converged in round 4."
+      }
+    }
+  ],
+  "outcome": {
+    "verdict": "APPROVE",
+    "converged": true,
+    "rounds": 4,
+    "confidence": "low",
+    "finalReportHeadline": "CONVERGED in 4 round(s) (confidence: low)",
+    "openDissent": [],
+    "nonBlockingThemes": []
+  },
+  "notes": [
+    "Recovered after the fact, not recorded for this page: the run predates Deliberation's run journals. Sources: the Claude Code transcript of the session that drove the loop (every consensus-step call the host made and the engine's JSON reply to it) and the session record the engine persisted at the end of the run.",
+    "deliberationVersion is inferred, not recorded: the driving session started on 2026-10-30, after 4.0.0 was installed (2026-10-27) and before 4.1.1 (2026-11-04), and the v4.0.0 engine's adjudication schema matches the recorded calls.",
+    "planUnderReview is the init prompt verbatim. hostBlindVerdict.text is the record_blind text verbatim; its verdict, summary (the bottom-line line) and criticalIssues were parsed from that text during recovery.",
+    "Peer verdicts, models, reasoningEffort, ms and critical issues are verbatim from the engine's dispatch_peers replies. Issue text is the engine's one-line description of each issue; the ids (r<n>-<source>-<k>, in reply order) were assigned during recovery. gemini's reasoningEffort is null as the engine reported it; the model id carries the effort.",
+    "Peer text and summary are null in every round but the last: dispatch_peers replied with verdicts and issue lines only, and the engine persisted full replies for the final round alone. Final-round text is verbatim from the session record, and its summary is copied from the reply's <SUMMARY> block or Summary line, or null when it has neither. Model replies may contain non-ASCII punctuation; it is kept as returned.",
+    "This engine version took rulings by source, category and description rather than by issue id. Each adjudication entry therefore has issueId null and keeps the host's source, category, description and reason verbatim, with decision set from the engine's action field. Sources are as the host wrote them: 'claude' is the host itself, 'glm' is openrouter:glm-5-3-flashx, and a comma list means the host merged the same issue from several voices.",
+    "roundMs is the wall time between the host's dispatch_peers call and the engine's reply, from transcript timestamps; slowest is the voice with the largest ms. recordedAt is the time of the engine's final reply.",
+    "Trimmed as boilerplate: per-call provenance, the full loop and session ids, and the engine finalReport body, which repeats the last revision. outcome.finalReportHeadline is its Outcome line.",
+    "question is the first paragraph of the init prompt. subject.title, convergence.reason, outcome.openDissent and outcome.nonBlockingThemes were written during recovery from the recorded votes and rulings only; the engine returns converged, verdict and confidence.",
+    "Redacted inside peer text: two local file paths in codex's round 3 critical issue were replaced with [redacted: local path]; the repository-relative part of each path, which exists in the public modulestf/modulestf repository, is kept.",
+    "The review subject is a severity rule of a Terraform module pull-request reviewer, decided on a real public pull request, terraform-aws-modules/terraform-aws-rds-aurora#556."
+  ]
+}
