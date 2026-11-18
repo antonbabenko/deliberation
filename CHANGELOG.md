@@ -1,3 +1,10 @@
+## [4.5.0](https://github.com/antonbabenko/deliberation/compare/v4.4.0...v4.5.0) (2026-11-18)
+
+
+### Features
+
+* **gemini:** default to an AI Studio API key, keep agy as opt-in ([#278](https://github.com/antonbabenko/deliberation/issues/278)) ([995c34c](https://github.com/antonbabenko/deliberation/commit/995c34c80e4d09ed63448f190fcfb80580108847))
+
 ## [4.4.0](https://github.com/antonbabenko/deliberation/compare/v4.3.0...v4.4.0) (2026-11-18)
 
 
@@ -31,11 +38,4 @@
 ### Bug Fixes
 
 * **writing-editor:** locked-text precedence and step reference after review of [#257](https://github.com/antonbabenko/deliberation/issues/257) ([#259](https://github.com/antonbabenko/deliberation/issues/259)) ([7e83a6b](https://github.com/antonbabenko/deliberation/commit/7e83a6bc147a222296275f892702d9fdd1ea59dc))
-
-## [4.1.0](https://github.com/antonbabenko/deliberation/compare/v4.0.0...v4.1.0) (2026-11-04)
-
-
-### Features
-
-* **writing-editor:** reader test, locked-text author decisions, landing-copy routing ([#257](https://github.com/antonbabenko/deliberation/issues/257)) ([185b8be](https://github.com/antonbabenko/deliberation/commit/185b8be6b7d6d950e0ad5aaa02e6906c91b740fb))
 
