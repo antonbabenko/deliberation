@@ -8,10 +8,19 @@
 const LINE = 168 // px from the top: just below where a followed #link puts its heading
 const ABOVE = 1e6 // px: how far above the window the root reaches
 
+// A heading id with a literal % is not valid percent-encoding; use it as written.
+const idOf = (hash) => {
+  try {
+    return decodeURIComponent(hash)
+  } catch {
+    return hash
+  }
+}
+
 for (const nav of document.querySelectorAll('[data-spy]')) {
   if (!('IntersectionObserver' in window)) break
   const pairs = [...nav.querySelectorAll('a[href^="#"]')]
-    .map((link) => ({ link, target: document.getElementById(decodeURIComponent(link.hash.slice(1))) }))
+    .map((link) => ({ link, target: document.getElementById(idOf(link.hash.slice(1))) }))
     .filter((p) => p.target)
   if (pairs.length === 0) continue
   const calm = matchMedia('(prefers-reduced-motion: reduce)').matches

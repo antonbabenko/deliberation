@@ -1,5 +1,6 @@
 ---
-// Plausible analytics (cookieless). Production builds only, so local dev and preview send nothing.
+// Plausible analytics (cookieless). Production builds only, so `astro dev` sends nothing. A
+// production build served locally (astro preview) does load it; Plausible ignores localhost.
 // Disclosed in PRIVACY.md under "This website".
 const enabled = import.meta.env.PROD
 ---

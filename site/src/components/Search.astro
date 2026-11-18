@@ -5,7 +5,7 @@
 // on Escape. The index does not exist under `astro dev`; the dialog then says so.
 import { BASE } from '../lib/seo.ts'
 ---
-<dialog class="search" aria-labelledby="search-h" data-search data-index={`${BASE}pagefind/pagefind.js`}>
+<dialog class="search" aria-labelledby="search-h" data-search data-index={`${BASE}pagefind/pagefind.js`} data-base={BASE}>
   <form class="search-bar" role="search">
     <h2 id="search-h"><label for="search-q">Search</label></h2>
     <input id="search-q" type="search" name="q" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search"

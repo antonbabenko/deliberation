@@ -10,17 +10,20 @@ if (dialog && typeof dialog.showModal === 'function') {
   let opener = null
 
   const load = () => {
-    engine ??= import(/* @vite-ignore */ dialog.dataset.index).then((pagefind) => {
+    engine ??= import(/* @vite-ignore */ dialog.dataset.index).then(async (pagefind) => {
+      // The index is built from dist/ without the base path; result URLs need it back.
+      await pagefind.options({ baseUrl: dialog.dataset.base || '/' })
       pagefind.init()
       return pagefind
     })
     return engine
   }
   const say = (text) => (status.textContent = text)
-  const el = (tag, className, html) => {
+  const el = (tag, className, text, html) => {
     const node = document.createElement(tag)
     if (className) node.className = className
-    // Pagefind excerpts are HTML-escaped page text with <mark> around the matches.
+    if (text) node.textContent = text
+    // Only Pagefind excerpts go in as HTML: escaped page text with <mark> around the matches.
     if (html) node.innerHTML = html
     return node
   }
@@ -28,7 +31,7 @@ if (dialog && typeof dialog.showModal === 'function') {
     const item = el('li')
     const link = el('a')
     link.href = page.url
-    link.append(el('b', '', page.meta.title || page.url), el('span', 'search-ex', page.excerpt))
+    link.append(el('b', '', page.meta.title || page.url), el('span', 'search-ex', '', page.excerpt))
     item.append(link)
     // Sections of the page that match, each a link to its heading.
     const parts = (page.sub_results || []).filter((s) => s.url !== page.url).slice(0, 3)
@@ -37,7 +40,7 @@ if (dialog && typeof dialog.showModal === 'function') {
       for (const s of parts) {
         const a = el('a')
         a.href = s.url
-        a.append(el('b', '', s.title), el('span', 'search-ex', s.excerpt))
+        a.append(el('b', '', s.title), el('span', 'search-ex', '', s.excerpt))
         const li = el('li')
         li.append(a)
         sub.append(li)
@@ -63,7 +66,14 @@ if (dialog && typeof dialog.showModal === 'function') {
     }
     // null: a newer keystroke replaced this search.
     if (found === null || query !== input.value.trim()) return
-    const pages = await Promise.all(found.results.slice(0, MAX).map((r) => r.data()))
+    let pages
+    try {
+      pages = await Promise.all(found.results.slice(0, MAX).map((r) => r.data()))
+    } catch {
+      if (query !== input.value.trim()) return
+      list.replaceChildren()
+      return say('Search results could not be loaded. Try again.')
+    }
     if (query !== input.value.trim()) return
     list.replaceChildren(...pages.map(row))
     const total = found.results.length
@@ -83,8 +93,9 @@ if (dialog && typeof dialog.showModal === 'function') {
   })
   input.addEventListener('input', run)
   // A click on the backdrop lands on the dialog itself.
+  // A result on the current page only moves the hash, so close the dialog on any result.
   dialog.addEventListener('click', (e) => {
-    if (e.target === dialog || e.target.closest('[data-search-close]')) dialog.close()
+    if (e.target === dialog || e.target.closest('[data-search-close]') || e.target.closest('.search-results a')) dialog.close()
   })
   dialog.querySelector('form').addEventListener('submit', (e) => {
     // Enter in the field opens the first result.

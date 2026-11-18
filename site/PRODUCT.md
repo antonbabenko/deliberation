@@ -4,8 +4,8 @@
 
 This record covers the public website in `site/`. It is scoped to the site the same way
 `server/dashboard/PRODUCT.md` is scoped to the dashboard; there is no repo-root PRODUCT.md.
-The owner was not interviewed for this record. Facts come from the repository. Every line
-marked (assumption) is an inferred answer the owner can overrule.
+Facts come from the repository and the owner's decisions. A line marked (assumption) is an
+inferred answer the owner has not overruled.
 
 ## Platform
 
@@ -13,10 +13,10 @@ web
 
 ## Stack
 
-Undecided. (assumption) A static site built from the repository's own markdown and assets,
-with no server and one third-party runtime request: Plausible Analytics (owner decision). (assumption) `site/` is its own package,
-outside the root package, so `npm run check` and the Node 18 runtime rule for `core/` and
-`server/` stay untouched. The generator and the hosting target are owner decisions.
+Astro, static output, in its own package under `site/` (own `package.json` and lockfile), so
+`npm run check` and the Node 18 runtime rule for `core/` and `server/` stay untouched. Pages
+render the repository's own Markdown at build time. Hosted on GitHub Pages at
+https://usedeliberation.com. One third-party runtime request: Plausible Analytics.
 
 ## Users
 
@@ -103,9 +103,8 @@ advises and shows the dissent; the final call stays with a human.
   font CDN or tracker.
 - Terms the site uses with one meaning each: host, panel, reviewer, blind verdict, arbiter,
   adjudication, quorum, round, converged, unresolved.
-- Decided: Astro static output, GitHub Pages at https://usedeliberation.com, Plausible analytics.
-- Undecided: which recorded run the home page
-  replays, whether expert prompts are published in full, how far back the changelog goes.
+- Decided: Astro static output, GitHub Pages at https://usedeliberation.com, Plausible analytics,
+  recorded runs replayed from `site/src/data/replay/` with a run selector on the home page.
 
 ## Brand Commitments
 

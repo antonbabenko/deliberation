@@ -29,9 +29,11 @@ document.addEventListener('click', (e) => {
   if (!key) return
   const text = key.parentNode.querySelector('code').textContent
   const done = (word) => {
-    const was = key.textContent
+    // Keep the original label, so a second click inside the 1.6 s does not store "Copied".
+    key.dataset.label ??= key.textContent
     key.textContent = word
-    setTimeout(() => (key.textContent = was), 1600)
+    clearTimeout(Number(key.dataset.timer))
+    key.dataset.timer = String(setTimeout(() => (key.textContent = key.dataset.label), 1600))
   }
   if (!navigator.clipboard) return done('Select and copy')
   navigator.clipboard.writeText(text).then(
