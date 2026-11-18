@@ -9,12 +9,12 @@ author: "Anton Babenko"
 
 # Deliberation
 
-Host-neutral guidance for any AI coding agent connected to the deliberation MCP
+Host-neutral guidance for any AI coding agent connected to the Deliberation MCP
 server (Claude Code, Cursor, Codex, Kiro, Antigravity, Windsurf, Zed, and
 others): what the tools do and when to delegate. The per-host skills and Powers
 are generated from this file by `scripts/sync-hosts.js`.
 
-## What deliberation is
+## What Deliberation is
 
 A single MCP server that exposes GPT (via the Codex CLI), Gemini (via a Google
 AI Studio API key, `GEMINI_API_KEY`; the Antigravity CLI `agy` is an opt-in
@@ -282,17 +282,17 @@ find ~/.npm/_npx -type d -path '*/@antonbabenko/deliberation-mcp' -prune -exec r
 On Windows, `dashboard --stop` is not supported: close the dashboard process first, then
 delete the `@antonbabenko\deliberation-mcp` folders under `%LocalAppData%\npm-cache\_npx`.
 
-Then restart the deliberation MCP server in your host, or restart the host. The
+Then restart the Deliberation MCP server in your host, or restart the host. The
 `reload-mcp` skill or command (Codex, Antigravity, OpenCode) gives the same steps.
-In a clone of the deliberation repository, `bash scripts/commands/reload-mcp.sh` clears the cached package, restarts the dashboard
-and audits the running deliberation processes.
+In a clone of the Deliberation repository, `bash scripts/commands/reload-mcp.sh` clears the cached package, restarts the dashboard
+and audits the running Deliberation processes.
 
 If you use the dashboard, start it again on the new version with
 `npx -y @antonbabenko/deliberation-mcp dashboard`.
 
 ## License and support
 
-deliberation is licensed MIT (`MIT`).
+Deliberation is licensed MIT (`MIT`).
 
 - [Privacy policy](https://github.com/antonbabenko/deliberation/blob/master/PRIVACY.md): each delegation goes only to the providers you configure, under their own privacy policies. deliberation sends no telemetry, and its local session store, debug log and dashboard journal are off by default.
 - [Support](https://github.com/antonbabenko/deliberation/issues)

@@ -1,13 +1,13 @@
 # Coming from Zen or PAL
 
 This guide is for people who use [PAL MCP server](https://github.com/BeehiveInnovations/pal-mcp-server)
-(formerly Zen MCP) and want to try deliberation. It maps PAL tools to deliberation tools and
-commands, translates PAL's `.env` settings into deliberation's `config.json`, and lists what
-deliberation does differently or does not do.
+(formerly Zen MCP) and want to try Deliberation. It maps PAL tools to Deliberation tools and
+commands, translates PAL's `.env` settings into Deliberation's `config.json`, and lists what
+Deliberation does differently or does not do.
 
 Both are MCP servers registered under different server names, so you can register both in the
-same host and try deliberation next to PAL. For a side-by-side view of the two
-projects, see [deliberation and PAL](pal.md).
+same host and try Deliberation next to PAL. For a side-by-side view of the two
+projects, see [Deliberation and PAL](pal.md).
 
 Facts about PAL on this page come from its README, `.env.example` and tool docs as of
 2026-11-17.
@@ -44,37 +44,37 @@ which providers are ready.
 
 ## Tools and concepts
 
-PAL tools are on the left. On the right are the deliberation tool (any MCP host) and the Claude
+PAL tools are on the left. On the right are the Deliberation tool (any MCP host) and the Claude
 Code command, where one exists.
 
-| PAL | deliberation | Notes |
+| PAL | Deliberation | Notes |
 |-----|--------------|-------|
 | `chat` | `ask-gpt`, `ask-gemini`, `ask-grok`, `ask-openrouter`, `ask-one`; `/deliberation:ask-gpt` and the other `ask-*` commands | One question to one provider. To call one model record, pass its panel name to `ask-one` as `provider`, for example `openrouter:<id>` or `ollama:<id>`; `panel` lists the names. |
 | `consensus` | `ask-all` or `consensus` / `consensus-step`; `/deliberation:ask-all`, `/deliberation:consensus` | `ask-all` sends one prompt to the panel in parallel and keeps the answers separate. `/consensus` runs a multi-round review loop until the panel agrees or a round cap is hit. There is no per-model stance (for, against, neutral): every model gets the same prompt. |
 | `thinkdeep` | `architect` expert, or any `ask-*` with a higher reasoning effort | Set effort per provider (`providers.codex.reasoningEffort`, `providers.grok.reasoningEffort`) or per model record (`reasoningEffort`). |
-| `planner` | `plan-reviewer` and `scope-analyst` experts | deliberation does not write plans. Your agent writes the plan; these experts check it. |
+| `planner` | `plan-reviewer` and `scope-analyst` experts | Deliberation does not write plans. Your agent writes the plan; these experts check it. |
 | `codereview` | `code-reviewer` expert | Pass the diff or file paths in the prompt. |
 | `precommit` | no dedicated tool | Ask the `code-reviewer` expert, or run `/deliberation:consensus`, on `git diff` output. |
 | `debug` | `debugger` expert | Returns ranked hypotheses and the smallest fix. |
 | `secaudit` | `security-analyst` expert | |
 | `apilookup` | `researcher` expert | Grok and OpenRouter models have no retrieval tools here; they answer from model knowledge and mark claims `[unverified]`. |
-| `analyze` (code analysis) | `architect` or `code-reviewer` expert | deliberation also has a tool named `analyze`, but it does something else: it reports latency, tokens and verdict agreement from your own past runs. |
+| `analyze` (code analysis) | `architect` or `code-reviewer` expert | Deliberation also has a tool named `analyze`, but it does something else: it reports latency, tokens and verdict agreement from your own past runs. |
 | `refactor`, `testgen`, `docgen`, `tracer` | no equivalent | |
 | `challenge` | no dedicated tool | `/consensus` has rules against an agent approving its own plan (see below), which covers a related problem. |
-| `clink` | no equivalent | deliberation calls `codex exec` and `agy` for one answer each, not interactive CLI subagents. For a Codex subagent in Claude Code, see [the Codex plugin page](codex-plugin.md). |
+| `clink` | no equivalent | Deliberation calls `codex exec` and `agy` for one answer each, not interactive CLI subagents. For a Codex subagent in Claude Code, see [the Codex plugin page](codex-plugin.md). |
 | `listmodels` | `panel` tool, `/deliberation:doctor` | `panel` lists the providers a fan-out would call and the ones that cannot answer right now. |
 | `continuation_id` threads | `threadId` on the `gemini-reply`, `grok-reply` and `openrouter-reply` tools (Claude Code plugin) | GPT calls are single-shot. Threads live in memory and are lost when the server restarts. |
 | Context revival ("continue with O3") | no equivalent | |
-| Vision (images) | no equivalent | deliberation sends text only. |
+| Vision (images) | no equivalent | Deliberation sends text only. |
 
-deliberation adds eight expert personas that apply to any provider: Architect, Plan Reviewer,
+Deliberation adds eight expert personas that apply to any provider: Architect, Plan Reviewer,
 Scope Analyst, Code Reviewer, Security Analyst, Researcher, Debugger and Writing Editor. Call an
 expert as a tool (`code-reviewer`), or pass `expert` to `ask-all` and `consensus` to apply one
 persona to every model on the panel.
 
 ## Configuration
 
-PAL reads provider keys and options from `.env` or the `env` block of its MCP entry. deliberation
+PAL reads provider keys and options from `.env` or the `env` block of its MCP entry. Deliberation
 reads provider keys from the environment, and its own settings from
 `~/.config/deliberation/config.json` (Windows: `%APPDATA%\deliberation\config.json`; override the
 path with `DELIBERATION_CONFIG`). To write a starter file:
@@ -87,7 +87,7 @@ It never overwrites an existing file. In Claude Code, run `/deliberation:setup` 
 
 ### Providers and keys
 
-| PAL setting | deliberation |
+| PAL setting | Deliberation |
 |-------------|--------------|
 | `OPENAI_API_KEY` | Not read. GPT runs through the Codex CLI: `npm install -g @openai/codex`, then `codex login` (a ChatGPT subscription). A ChatGPT Business or Enterprise workspace can set `CODEX_ACCESS_TOKEN` instead. With neither a login nor that token, Codex uses `CODEX_API_KEY`. |
 | `GEMINI_API_KEY` | Not read. Gemini runs through the Antigravity CLI (`agy`) and its own login. See [Getting Started with Antigravity CLI](https://antigravity.google/docs/cli-getting-started). |
@@ -106,7 +106,7 @@ It never overwrites an existing file. In Claude Code, run `/deliberation:setup` 
 ### Model aliases
 
 PAL lists models and their aliases in `conf/openrouter_models.json` and `conf/custom_models.json`.
-In deliberation, each model is a named record in the `models` map. The record id is the name you
+In Deliberation, each model is a named record in the `models` map. The record id is the name you
 use: `<provider>:<id>` in `ask-one` (for example `openrouter:deepseek`), or, for an OpenRouter
 record, the alias argument of `/deliberation:ask-openrouter`. Record ids use lowercase letters,
 digits and hyphens.
@@ -158,21 +158,21 @@ through each section.
 ### Restarts
 
 PAL's README asks you to restart your session after you change its configuration. In
-deliberation, changes to `models`, `routing` and
+Deliberation, changes to `models`, `routing` and
 the `providers.openrouter` block take effect without a restart. Changing `apiBase` for Ollama or
 LM Studio needs a server restart. Turning a built-in provider (Codex, Gemini, Grok) on or off in
 Claude Code goes through `/deliberation:setup`.
 
 ## What works differently
 
-- **Writes.** PAL providers can return code for your agent to apply. In deliberation every
+- **Writes.** PAL providers can return code for your agent to apply. In Deliberation every
   provider advises. Only Gemini, through the Claude Code plugin's Gemini bridge, can also edit
   files (`workspace-write`). The standalone MCP server is advisory only.
-- **Login instead of API keys for GPT and Gemini.** deliberation shells out to the `codex` and
+- **Login instead of API keys for GPT and Gemini.** Deliberation shells out to the `codex` and
   `agy` CLIs, so these calls use your existing CLI logins and plans. PAL calls the OpenAI and
   Gemini APIs with keys.
 - **Consensus.** PAL's `consensus` gives each model a stance and your agent combines the
-  answers. deliberation's `/consensus` has your agent record its own verdict before it sees the
+  answers. Deliberation's `/consensus` has your agent record its own verdict before it sees the
   panel. A round converges only when at least `consensus.quorumFloor` models answer (default 2),
   every one of them approves, no accepted critical issue is left, and the agent approves too. The
   agent cannot approve a plan on its own vote. For every issue the agent dismisses, the
@@ -186,14 +186,14 @@ Claude Code goes through `/deliberation:setup`.
   (`debug.enabled`), saved runs (`sessions.persist`), and a local read-only dashboard
   (`dashboard.enabled`).
 
-## What deliberation does not have
+## What Deliberation does not have
 
 - Vision input.
 - Azure OpenAI and DIAL providers.
 - Automatic model selection.
 - CLI-to-CLI subagents (`clink`) and context revival.
 - `precommit`, `refactor`, `testgen`, `docgen`, `tracer` and `challenge` as separate tools.
-- A way to work around the MCP prompt size limit; deliberation relies on each provider's
+- A way to work around the MCP prompt size limit; Deliberation relies on each provider's
   context window.
 - Implementation mode for any provider other than Gemini.
 

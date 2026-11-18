@@ -1,4 +1,4 @@
-# Kiro steering rule for deliberation
+# Kiro steering rule for Deliberation
 
 Kiro reads steering files from `.kiro/steering/*.md`. Save the block below as
 `.kiro/steering/deliberation.md`. The frontmatter `inclusion: always` keeps it
@@ -11,7 +11,7 @@ inclusion: always
 
 # Deliberation MCP experts
 
-The deliberation MCP server provides GPT, Gemini, Grok, and OpenRouter as expert
+The Deliberation MCP server provides GPT, Gemini, Grok, and OpenRouter as expert
 subagents. Call its tools when a task warrants outside input:
 
 - Plan or architecture review: call `consensus`, `architect`, or

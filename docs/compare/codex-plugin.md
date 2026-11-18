@@ -1,8 +1,8 @@
-# Using deliberation with the Codex plugin
+# Using Deliberation with the Codex plugin
 
 This page is for Claude Code users who use, or are considering, OpenAI's Codex plugin.
 [openai/codex-plugin-cc](https://github.com/openai/codex-plugin-cc) runs Codex reviews from
-Claude Code and hands tasks to Codex. deliberation asks several model families for a second
+Claude Code and hands tasks to Codex. Deliberation asks several model families for a second
 opinion and runs a review loop across them. The two plugins do different jobs and install side
 by side.
 
@@ -11,19 +11,19 @@ Apache-2.0, latest release v1.0.6 (published 2026-07-08).
 
 ## What each one does
 
-| | Codex plugin | deliberation |
+| | Codex plugin | Deliberation |
 |-|--------------|--------------|
 | Models | Codex (OpenAI) | GPT through the Codex CLI, Gemini through the Antigravity CLI, Grok, OpenRouter models, local Ollama and LM Studio models |
 | Review | `/codex:review` (read-only, current changes or `--base <ref>`), `/codex:adversarial-review` (takes focus text) | `/deliberation:ask-all` (parallel answers from the panel), `/deliberation:consensus` (multi-round review until the panel agrees), eight expert personas |
-| Hand off work | `/codex:rescue` lets Codex investigate and fix, `/codex:transfer` moves the session into Codex | GPT is advisory only. Only Gemini can edit files, through deliberation's Gemini bridge (Claude Code plugin) |
+| Hand off work | `/codex:rescue` lets Codex investigate and fix, `/codex:transfer` moves the session into Codex | GPT is advisory only. Only Gemini can edit files, through Deliberation's Gemini bridge (Claude Code plugin) |
 | Background jobs | `--background`, `/codex:status`, `/codex:result`, `/codex:cancel` | Calls run in the foreground. `panel` plus parallel `ask-one` calls show per-provider progress |
-| Review gate | Optional `Stop` hook (`/codex:setup --enable-review-gate`) that blocks Claude from stopping until a Codex review passes | None. deliberation is advisory and never blocks |
+| Review gate | Optional `Stop` hook (`/codex:setup --enable-review-gate`) that blocks Claude from stopping until a Codex review passes | None. Deliberation is advisory and never blocks |
 | Hosts | Claude Code | Claude Code plugin, plus an MCP server for any MCP host and native plugins for Codex, Cursor, Kiro, Antigravity, Gemini CLI and OpenCode |
 
 ## Where the Codex plugin fits better
 
 - You want Codex to make the change, not only comment on it. `/codex:rescue` writes code; GPT
-  calls in deliberation are read-only.
+  calls in Deliberation are read-only.
 - You want to keep working in Codex afterwards. `/codex:transfer` and `codex resume` continue the
   same thread in the Codex app or TUI.
 - You want to run long reviews in the background and check on them later.
@@ -32,7 +32,7 @@ Apache-2.0, latest release v1.0.6 (published 2026-07-08).
   run long.
 - You only use OpenAI models and do not need other model families.
 
-## What deliberation adds
+## What Deliberation adds
 
 - Reviewers from other model families: Gemini, Grok, and any OpenRouter or local model. Different
   families tend to flag different problems.
@@ -47,14 +47,14 @@ Apache-2.0, latest release v1.0.6 (published 2026-07-08).
 ## They share one Codex login
 
 Both plugins run your local `codex` CLI with its current login. If `codex login` works for one,
-it works for the other. The Codex plugin talks to the Codex app server; deliberation runs
+it works for the other. The Codex plugin talks to the Codex app server; Deliberation runs
 `codex exec --sandbox read-only` for each GPT call.
 
 Model settings are separate. The Codex plugin reads `~/.codex/config.toml` and a trusted
-project's `.codex/config.toml`. deliberation reads the same `~/.codex/config.toml` unless you pin
+project's `.codex/config.toml`. Deliberation reads the same `~/.codex/config.toml` unless you pin
 `providers.codex.model` and `providers.codex.reasoningEffort` in
-`~/.config/deliberation/config.json`. The pinned values then apply to deliberation's calls only.
-Pin them when, for example, you want a cheaper model for deliberation's quick second opinions and a stronger
+`~/.config/deliberation/config.json`. The pinned values then apply to Deliberation's calls only.
+Pin them when, for example, you want a cheaper model for Deliberation's quick second opinions and a stronger
 one for Codex tasks.
 
 Calls from both plugins count against the same Codex usage limits.

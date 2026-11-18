@@ -2,13 +2,13 @@
 
 Last updated: 2026-11-17
 
-deliberation is an open-source MCP server and plugin that runs on your own machine. It
+Deliberation is an open-source MCP server and plugin that runs on your own machine. It
 asks AI providers that you configure for a second opinion. This page lists what it sends,
 where it sends it, and what it keeps on your disk.
 
-## What deliberation sends, and where
+## What Deliberation sends, and where
 
-When you ask for a review, deliberation sends your prompt, any files you attach, and any
+When you ask for a review, Deliberation sends your prompt, any files you attach, and any
 repo files added by the orientation bundle only to the providers you have enabled in your
 config:
 
@@ -21,11 +21,11 @@ config:
 - **OpenRouter**, through the OpenRouter API. OpenRouter passes each request on to the
   vendor that serves the model you picked.
 - **Ollama or LM Studio**, through their local API (`http://localhost:11434/v1` and
-  `http://localhost:1234/v1` by default). With the default address, deliberation sends
+  `http://localhost:1234/v1` by default). With the default address, Deliberation sends
   the request to a service on your machine; that service's own settings decide whether
   anything leaves it. If you point `apiBase` at another host, the request goes there.
 
-Orientation bundle: by default, deliberation adds repo files from the current directory to
+Orientation bundle: by default, Deliberation adds repo files from the current directory to
 requests for Grok and OpenRouter: one of `AGENTS.md` or `CLAUDE.md`, any of `package.json`,
 `pyproject.toml`, `Cargo.toml`, `go.mod`, `tsconfig.json` and `main.tf`, and `README.md`.
 The default limits are 6 files and 16000 bytes. Set `orientation.enabled` to `false` to
@@ -39,16 +39,16 @@ Each vendor's own terms and privacy policy apply to what it receives:
 - xAI: <https://x.ai/legal/privacy-policy>
 - OpenRouter: <https://openrouter.ai/privacy>, plus the policy of the vendor it routes to
 
-The `codex` and `agy` CLIs are separate programs. deliberation does not control what
+The `codex` and `agy` CLIs are separate programs. Deliberation does not control what
 they store on your machine; see their own documentation.
 
 ## No telemetry
 
-deliberation sends nothing to its author. There is no telemetry, analytics, crash
+Deliberation sends nothing to its author. There is no telemetry, analytics, crash
 reporting or update check. Its only network connections go to the providers listed
 above, and to the local dashboard on `127.0.0.1` when you start it. If your host starts
-deliberation with `npx`, npm downloads the package from the npm registry; that is npm's
-connection, not deliberation's.
+Deliberation with `npx`, npm downloads the package from the npm registry; that is npm's
+connection, not Deliberation's.
 
 ## What it stores on your machine
 
@@ -72,7 +72,7 @@ What each one holds:
 - **Session store**: the question, the paths of attached files, each provider's verdict,
   the synthesis and the critical issues of a consensus or ask-all run. With
   `sessions.captureText: true` it also keeps each provider's response text. Before
-  writing, deliberation removes text that looks like a secret (common API key formats,
+  writing, Deliberation removes text that looks like a secret (common API key formats,
   private keys, JWTs, `key=value` secrets), and from response text also likely personal
   data. Both are best effort.
   Records are kept for 30 days and at most 200 records by default (`sessions.maxAgeDays`,
@@ -93,7 +93,7 @@ What each one holds:
   holding a short hash of your API key, the API address, the file name, its size, the
   xAI file id, and the upload and expiry times. It holds no file content.
 
-deliberation creates the session store, run journal, config history, dashboard state and
+Deliberation creates the session store, run journal, config history, dashboard state and
 Grok cache files with mode `0600`.
 
 ## The local dashboard
@@ -107,11 +107,11 @@ sites.
 
 When you attach a file to a Grok request, it is uploaded to the xAI Files API by default
 (`mode: "upload"`). Files sent with `mode: "inline"` are part of the request and are not
-stored as files. An uploaded file stays on xAI until it expires or you delete it. deliberation
+stored as files. An uploaded file stays on xAI until it expires or you delete it. Deliberation
 asks xAI to expire it after 7 days by default (`GROK_FILE_TTL_SECONDS`, from 1 hour to 30
 days). To delete uploads sooner, run
 `/deliberation:grok-files prune --older-than 1h --yes`. This deletes files uploaded more
-than 1 hour ago whose names start with `deliberation-` (the prefix deliberation gives its
+than 1 hour ago whose names start with `deliberation-` (the prefix Deliberation gives its
 uploads) from the xAI account of your current `XAI_API_KEY`. Without `--yes` it only lists
 them. `/deliberation:grok-files gc` removes local cache rows for files that no longer exist
 on xAI.
@@ -133,7 +133,7 @@ If you set any of these, delete the files or directories they point to as well:
 `DELIBERATION_CONFIG`, `DELIBERATION_SESSIONS`, `DELIBERATION_DEBUG_LOG`, `debug.path` and
 `DELIBERATION_CACHE`. If you set `DELIBERATION_RUNS`, delete that directory and the
 `history` directory next to it. If one of them points into a directory you share with
-other tools, delete only the deliberation files there.
+other tools, delete only the Deliberation files there.
 
 ## Contact
 

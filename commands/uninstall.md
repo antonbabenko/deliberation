@@ -1,13 +1,13 @@
 ---
 name: uninstall
-description: Uninstall deliberation (remove MCP config and rules)
+description: Uninstall Deliberation (remove MCP config and rules)
 allowed-tools: Bash, Read, AskUserQuestion
 timeout: 30000
 ---
 
 # Uninstall
 
-Remove deliberation from Claude Code: MCP registrations, installed rules, the local Grok cache,
+Remove Deliberation from Claude Code: MCP registrations, installed rules, the local Grok cache,
 and any short command aliases that `/setup` copied.
 
 This runs as one confirmation turn, then ONE main Bash call. Do not batch the Bash call with the
@@ -15,7 +15,7 @@ AskUserQuestion.
 
 ## Step 1: Confirm
 
-Ask with `AskUserQuestion` (this turn has NO Bash call): "Remove deliberation MCP servers, rules,
+Ask with `AskUserQuestion` (this turn has NO Bash call): "Remove Deliberation MCP servers, rules,
 Grok cache, and short command aliases?" Options: "Yes, uninstall" / "No, cancel".
 
 If cancelled, stop here.

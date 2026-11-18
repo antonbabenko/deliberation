@@ -1,6 +1,6 @@
-# Installing deliberation in Cursor
+# Installing Deliberation in Cursor
 
-[Cursor](https://cursor.com) connects to the deliberation MCP server and reads a
+[Cursor](https://cursor.com) connects to the Deliberation MCP server and reads a
 project **rule** that tells the agent when to delegate. Both pieces are below.
 
 ## 1. Add the MCP server

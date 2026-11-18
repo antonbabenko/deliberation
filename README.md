@@ -3,13 +3,13 @@
   <img src="assets/logo.svg" alt="Deliberation" width="322" height="64">
 </picture>
 
-# deliberation - second opinion for coding agents
+# Deliberation - second opinion for coding agents
 
 [![npm](https://img.shields.io/npm/v/@antonbabenko/deliberation-mcp)](https://www.npmjs.com/package/@antonbabenko/deliberation-mcp) [![Validate](https://github.com/antonbabenko/deliberation/actions/workflows/validate.yml/badge.svg?branch=master)](https://github.com/antonbabenko/deliberation/actions/workflows/validate.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 A second opinion from other models before you ship. Any host, any vendor, one verdict, and the disagreement stays visible.
 
-deliberation is an MCP server and Claude Code plugin. In `/consensus`, your agent records its own verdict before it sees the panel. GPT, Gemini, Grok, local, and OpenRouter models then review the same plan independently. The agent cannot approve a round on its own vote, and every issue it dismisses keeps a written reason in the report. Consensus can be wrong, so the dissent stays in the report and the final call stays with a human. You need at least one provider: a logged-in `codex` or `agy` CLI, an xAI or OpenRouter key, or a local Ollama or LM Studio model.
+Deliberation is an MCP server and Claude Code plugin. In `/consensus`, your agent records its own verdict before it sees the panel. GPT, Gemini, Grok, local, and OpenRouter models then review the same plan independently. The agent cannot approve a round on its own vote, and every issue it dismisses keeps a written reason in the report. Consensus can be wrong, so the dissent stays in the report and the final call stays with a human. You need at least one provider: a logged-in `codex` or `agy` CLI, an xAI or OpenRouter key, or a local Ollama or LM Studio model.
 
 Quickstart in Claude Code:
 
@@ -67,9 +67,9 @@ The `CAPTURE` and `PII` badges show what was recorded. The default capture is me
 
 </details>
 
-## What is deliberation?
+## What is Deliberation?
 
-Before you ship a plan, a diff, or a design, deliberation sends the same work to models from
+Before you ship a plan, a diff, or a design, Deliberation sends the same work to models from
 other vendors and returns one verdict. It adds four things that one vendor's models cannot offer
 on their own:
 
@@ -86,10 +86,10 @@ on their own:
   It reports per-model latency, tokens, and verdict agreement, and flags the models that agree
   more than they add as drop candidates.
 
-Consensus can be wrong: several models can share one blind spot. deliberation advises and shows
+Consensus can be wrong: several models can share one blind spot. Deliberation advises and shows
 the dissent; the final call stays with a human.
 
-deliberation handles the wiring for each provider, so you write only the prompt. Eight domain
+Deliberation handles the wiring for each provider, so you write only the prompt. Eight domain
 experts (Architect, Code Reviewer, Security Analyst, and five more) review your plans, find bugs,
 and debate edge cases. Each expert has a distinct specialty. Every provider advises; only Gemini
 can also implement.
@@ -120,7 +120,7 @@ One install string per host. Where a host has more than one way, its guide lists
 | Host | Install |
 |------|---------|
 | Claude Code | `/plugin marketplace add antonbabenko/agent-plugins`, then `/plugin install deliberation@antonbabenko` ([details](#claude-code-plugin-recommended)) |
-| Codex CLI | `codex plugin marketplace add antonbabenko/deliberation`, then install **deliberation** from `/plugins` ([guide](docs/hosts/codex.md)) |
+| Codex CLI | `codex plugin marketplace add antonbabenko/deliberation`, then install **Deliberation** from `/plugins` ([guide](docs/hosts/codex.md)) |
 | Gemini CLI | `gemini extensions install https://github.com/antonbabenko/deliberation` ([guide](docs/hosts/gemini-cli.md)) |
 | Kiro | "Add power from GitHub" with `https://github.com/antonbabenko/deliberation` ([guide](docs/hosts/kiro.md)) |
 | Cursor | the "Install in Cursor" button below, then copy `.cursor/rules/deliberation.mdc` ([guide](docs/hosts/cursor.md)) |
@@ -239,14 +239,14 @@ Gemini (with `GEMINI_API_KEY`), Grok and OpenRouter work from the keys alone. GP
 
 ### Native plugins per host (Antigravity / Gemini CLI / Cursor / Codex / Kiro / OpenCode)
 
-Beyond the raw MCP config above, deliberation ships **native plugin artifacts** for six hosts so the experience matches the Claude Code plugin (persona-bearing experts + when-to-delegate guidance, not just bare tools). All of these are **generated from the canonical sources** by `node scripts/sync-hosts.js` and committed, so they never drift (a CI drift test enforces it). Each host scans the repo for its own files:
+Beyond the raw MCP config above, Deliberation ships **native plugin artifacts** for six hosts so the experience matches the Claude Code plugin (persona-bearing experts + when-to-delegate guidance, not just bare tools). All of these are **generated from the canonical sources** by `node scripts/sync-hosts.js` and committed, so they never drift (a CI drift test enforces it). Each host scans the repo for its own files:
 
 | Host | Native artifacts (in this repo) | Install |
 |------|----------------------------------|---------|
 | **Antigravity & Gemini** | `.agents/skills/`, `.gemini/skills/`, and `.agents/mcp.json` | Copy `.agents/skills/` and `.agents/mcp.json` into your project's `.agents/`. Other ways (Gemini Code Assist, working in this repo): [guide](docs/hosts/antigravity.md#other-ways-to-install). |
 | **Gemini CLI** | `gemini-extension.json` (a Gemini CLI extension) | `gemini extensions install https://github.com/antonbabenko/deliberation` |
 | **Cursor** | `.cursor/rules/deliberation.mdc` | The "Install in Cursor" button above, then copy the `.mdc` into your project's `.cursor/rules/`. |
-| **Codex CLI** | `plugins/deliberation/` (`.codex-plugin/plugin.json` + `.mcp.json` + `skills/`) and a repo-scoped `.agents/plugins/marketplace.json` | `codex plugin marketplace add antonbabenko/deliberation`, then install **deliberation** from `/plugins`. |
+| **Codex CLI** | `plugins/deliberation/` (`.codex-plugin/plugin.json` + `.mcp.json` + `skills/`) and a repo-scoped `.agents/plugins/marketplace.json` | `codex plugin marketplace add antonbabenko/deliberation`, then install **Deliberation** from `/plugins`. |
 | **Kiro** | `POWER.md` + `mcp.json` + `steering/` (a "Kiro Power") | In Kiro, "Add power from GitHub" -> this repo URL. |
 | **OpenCode** | `.opencode/commands/*.md` + `.opencode/agents/*.md` | Add the MCP server to `opencode.json` (`mcp` key, `type: "local"`, `command: ["npx","-y","@antonbabenko/deliberation-mcp"]`), then copy `.opencode/commands/` and `.opencode/agents/` into your project. |
 
@@ -262,20 +262,20 @@ You need at least one provider:
 
 - **Codex CLI** (GPT): `npm install -g @openai/codex`, then `codex login` (ChatGPT subscription; `codex login --device-auth` on a remote machine, one login per machine). A ChatGPT Business/Enterprise workspace can set `CODEX_ACCESS_TOKEN` instead. With neither, codex uses `CODEX_API_KEY`; `OPENAI_API_KEY` is never used.
 - **Gemini (API key, the default)**: no CLI to install. Set `GEMINI_API_KEY` to a Google AI Studio key (get one at https://aistudio.google.com/apikey). Advisory calls go to the Gemini API, model `providers.gemini.apiModel` (default `gemini-flash-latest`).
-- **Antigravity CLI (`agy`, opt-in)**: needed only for Gemini implementation (`workspace-write`) calls, or if you set `providers.gemini.transport` to `"agy"`; with no key set, Gemini also falls back to it. [Getting Started with Antigravity CLI](https://antigravity.google/docs/cli-getting-started), then run `agy` and log in. Read the [Antigravity terms](https://antigravity.google/terms) first: section 6 lists "Using third party software, tools, or services to access the Service (e.g. using OpenClaw with Antigravity OAuth)" as a breach that "may be grounds for suspension or termination of your Antigravity and/or Gemini CLI accounts". deliberation drives `agy` as third-party software.
+- **Antigravity CLI (`agy`, opt-in)**: needed only for Gemini implementation (`workspace-write`) calls, or if you set `providers.gemini.transport` to `"agy"`; with no key set, Gemini also falls back to it. [Getting Started with Antigravity CLI](https://antigravity.google/docs/cli-getting-started), then run `agy` and log in. Read the [Antigravity terms](https://antigravity.google/terms) first: section 6 lists "Using third party software, tools, or services to access the Service (e.g. using OpenClaw with Antigravity OAuth)" as a breach that "may be grounds for suspension or termination of your Antigravity and/or Gemini CLI accounts". Deliberation drives `agy` as third-party software.
 - **Grok (xAI)**: no CLI to install; the bridge ships with the plugin (needs Node 18+). Set `XAI_API_KEY` (get a key at https://console.x.ai).
 - **OpenRouter**: no CLI; the bridge ships with the plugin (needs Node 18+). Set `OPENROUTER_API_KEY` (get a key at https://openrouter.ai/keys). With no OpenRouter model records, a built-in panel of `z-ai/glm-5.3-flashx` (default), `openai/gpt-6.1-sol` and `google/gemini-3.8-flash` joins `ask-all` and `consensus`. To pick your own models, declare them in `~/.config/deliberation/config.json` (Windows: `%APPDATA%\deliberation\config.json`; override with `DELIBERATION_CONFIG`); they replace the built-in panel. `providers.openrouter.enabled: false` turns OpenRouter off. Works with other OpenAI-compatible endpoints (vLLM, HuggingFace Inference) through `providers.openrouter.apiBase` - auth is skipped automatically when the key env var is empty. Supports custom OpenRouter presets (e.g. `cheapest-first`) to optimize inference cost and provider routing.
 - **Ollama and LM Studio**: keyless by default (set `apiKeyEnv` if your server needs a key). Each has its own provider block, `providers.ollama` (default `http://localhost:11434/v1`) and `providers.lmstudio` (default `http://localhost:1234/v1`); declare models with `provider: "ollama"` or `provider: "lmstudio"`. See [SETUP.md](SETUP.md#local-providers-ollama--lm-studio).
 
 **Windows note (CLI providers).** `npm install -g` on Windows installs a `codex.cmd` shim, not an
 executable, and Node cannot launch a `.cmd` directly - so GPT calls used to fail with nothing but a
-spawn error. deliberation now resolves the CLI itself (PATHEXT, falling back to the package's own
+spawn error. Deliberation now resolves the CLI itself (PATHEXT, falling back to the package's own
 entry point) and keeps it out of a shell. If resolution ever misses on your machine, point
 `CODEX_BIN` (GPT) or `AGY_BIN` (Gemini) at the real executable. Grok and OpenRouter are unaffected -
 they are HTTP bridges and spawn nothing.
 
 **Claude Code on the web note.** The web host caps every MCP tool call at 60s
-(`MCP_TOOL_TIMEOUT=60000`). The plugin manifest overrides that per server: each deliberation
+(`MCP_TOOL_TIMEOUT=60000`). The plugin manifest overrides that per server: each Deliberation
 server declares `"timeout": 1800000` (30 min, which Claude Code applies ahead of
 `MCP_TOOL_TIMEOUT`) and mirrors it into the server's env so the plugin's own clamp tracks
 the real cap. Nothing to set in the environment. A `timeout` result whose message still names
@@ -296,7 +296,7 @@ Bundled with the Claude Code plugin (available once installed; OpenCode gets the
 | Command | Purpose |
 |---------|---------|
 | `/deliberation:setup` | Configure Codex/Gemini/Grok/OpenRouter MCP servers + orchestration rules |
-| `/deliberation:help` | How to use deliberation on your host, with paste-ready example prompts |
+| `/deliberation:help` | How to use Deliberation on your host, with paste-ready example prompts |
 | `/deliberation:doctor` | Health check (config, provider CLIs, sessions/debug, path drift) with fixes; read-only. Other hosts call the `doctor` MCP tool |
 | `/deliberation:dashboard` | Start the local read-only dashboard (runs as live state graphs, history, config, health, stats, analyzer) and print its URL; `restart` stops it and prints a fresh URL. Needs `dashboard.enabled` and a browser on the same machine |
 | `/deliberation:codex-login` | Log GPT (Codex) in on this machine with a ChatGPT device login - shows a link + code; for web and headless sessions |
@@ -503,4 +503,4 @@ Contributions welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow, 
 
 [MIT](LICENSE)
 
-Privacy: see [PRIVACY.md](PRIVACY.md) for what deliberation sends and stores.
+Privacy: see [PRIVACY.md](PRIVACY.md) for what Deliberation sends and stores.

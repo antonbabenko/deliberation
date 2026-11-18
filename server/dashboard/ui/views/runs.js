@@ -147,7 +147,7 @@ export function create(ctx) {
     if (error) {
       put(list, h("li", { class: "empty" }, `Could not filter runs: ${error}. Clear the filters or reload the page.`));
     } else if (!items.length) {
-      put(list, h("li", { class: "empty" }, active() ? "No run matches these filters. Clear one to widen the index." : "No runs recorded yet. Runs appear here once dashboard.enabled is true and a deliberation tool runs."));
+      put(list, h("li", { class: "empty" }, active() ? "No run matches these filters. Clear one to widen the index." : "No runs recorded yet. Runs appear here once dashboard.enabled is true and a Deliberation tool runs."));
     } else {
       put(list, ...items.map((s) => {
         const bar = h("span", { class: `dur-fill st-${s.status}` });

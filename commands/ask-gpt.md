@@ -72,7 +72,7 @@ User question or topic: $ARGUMENTS
    wants it without a question.)
 
 7. **Login link (fallback).** If the result is `errorKind: "auth"` and its `message` carries a link
-   and a one-time code, GPT has no ChatGPT login on this machine yet and deliberation has
+   and a one-time code, GPT has no ChatGPT login on this machine yet and Deliberation has
    started `codex login --device-auth`. Show that message to the user as-is (it is the
    user's action, not an expert answer), say GPT answers after they approve, and stop.
    Re-run the command once they confirm. A host that supports MCP elicitation shows the

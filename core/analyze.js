@@ -527,7 +527,7 @@ function excludeReason(provider, levers, model) {
 /**
  * Advisory tuning suggestions. NEVER writes; each suggestion names the exact
  * config key (for deliberation-owned levers) or points at the external tool
- * (Codex/Gemini reasoning, which live outside deliberation's config). Combines
+ * (Codex/Gemini reasoning, which live outside Deliberation's config). Combines
  * the slow outliers (Lens A) with the agreement signal (Lens B), reported as a
  * candidate, not a joined fact.
  * @param {ModelStat[]} stats
@@ -587,7 +587,7 @@ function recommend(stats, agreement, config) {
     } else if (lever.kind === "codex") {
       out.push({ target: "deliberation", subject: o.provider, configKey: "providers.codex.reasoningEffort", action: "lower providers.codex.reasoningEffort (or model_reasoning_effort in ~/.codex/config.toml when unset)", rationale: `Slowest in the panel (${o.detail}).${valueNote}` });
     } else if (lever.kind === "external") {
-      out.push({ target: "external", subject: o.provider, configKey: null, action: "lower the Gemini/agy reasoning setting", rationale: `Slowest in the panel (${o.detail}); its reasoning lever is outside deliberation's config.${valueNote}` });
+      out.push({ target: "external", subject: o.provider, configKey: null, action: "lower the Gemini/agy reasoning setting", rationale: `Slowest in the panel (${o.detail}); its reasoning lever is outside Deliberation's config.${valueNote}` });
     } else {
       out.push({ target: "deliberation", subject: o.provider, configKey: null, action: `consider whether ${o.provider} earns its latency in the panel`, rationale: `${o.detail}.${valueNote}` });
     }

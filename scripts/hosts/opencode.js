@@ -68,7 +68,7 @@ function build(ctx) {
   // Reload MCP helper command
   out[".opencode/commands/reload-mcp.md"] = S.frontmatterDoc({
     name: "reload-mcp",
-    description: "After a deliberation update: clear the npx cache, stop the dashboard, and restart the MCP server.",
+    description: "After a Deliberation update: clear the npx cache, stop the dashboard, and restart the MCP server.",
     body: S.RELOAD_BODY,
   });
 

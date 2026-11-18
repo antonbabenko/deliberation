@@ -1,6 +1,6 @@
 ---
 name: reload-mcp
-description: Gracefully cycle dashboard and audit MCP processes after deliberation is updated.
+description: Gracefully cycle dashboard and audit MCP processes after Deliberation is updated.
 allowed-tools: Bash
 timeout: 60000
 ---

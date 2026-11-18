@@ -195,7 +195,7 @@ async function runInit(argv, deps) {
     out("usage: deliberation-mcp init [--yes] [--no-demo | --demo]");
     out("  --yes      apply config changes without asking (non-interactive)");
     out("  --no-demo  skip the demo consensus");
-    out("  --demo     run the demo even when deliberation was used here before");
+    out("  --demo     run the demo even when Deliberation was used here before");
     return args.error ? 2 : 0;
   }
 

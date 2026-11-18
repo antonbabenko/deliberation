@@ -527,7 +527,7 @@ function loginMessage(prompt) {
     "",
     `The code expires in ${minutes} min. Re-run your question after you approve; a confirmation dialog was also ` +
     "sent, if your host shows one. The code signs this machine's codex into your ChatGPT account: only continue " +
-    "if you are using GPT through deliberation in this session. It is a login of its own - never copy auth.json " +
+    "if you are using GPT through Deliberation in this session. It is a login of its own - never copy auth.json " +
     "from another machine.",
   ].join("\n");
 }
