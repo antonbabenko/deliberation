@@ -13,7 +13,7 @@ install instructions per host:
 - [Gemini CLI](gemini-cli.md) - `gemini-extension.json` at the repo root, installed via `gemini extensions install https://github.com/antonbabenko/deliberation`.
 - [Cursor](cursor.md) - `.cursor/rules/deliberation.mdc` + the one-click MCP deeplink.
 - [OpenAI Codex CLI](codex.md) - native plugin at `plugins/deliberation/`, installed via `codex plugin marketplace add antonbabenko/deliberation`.
-- [Kiro](kiro.md) - a Kiro Power (`POWER.md` + `mcp.json` + `steering/`), installed via "Add power from GitHub".
+- [Kiro](kiro.md) - a Kiro Power (`plugin.json` + `mcp.json`, plus the legacy `POWER.md` + `steering/`), installed via "Add power from GitHub".
 - [OpenCode](opencode.md) - `.opencode/commands/` + `.opencode/agents/` + an `opencode.json` MCP snippet.
 
 All route the same MCP tools (`ask-all`, `consensus`, `ask-gpt` / `ask-gemini`

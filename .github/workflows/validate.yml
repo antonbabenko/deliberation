@@ -102,6 +102,7 @@ jobs:
             ['package.json', readJSON('package.json').version],
             ['plugins/deliberation/.codex-plugin/plugin.json', readJSON('plugins/deliberation/.codex-plugin/plugin.json').version],
             ['gemini-extension.json', readJSON('gemini-extension.json').version],
+            ['plugin.json', readJSON('plugin.json').version],
             ['server/mcp/package.json', readJSON('server/mcp/package.json').version],
             ['server.json', readJSON('server.json').version],
             ['server.json packages[0]', (readJSON('server.json').packages || [])[0]?.version],

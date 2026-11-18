@@ -196,6 +196,21 @@ test("MHC-M3: Kiro specification (POWER.md) and MCP configuration (mcp.json) val
   assert.ok(cfg.mcpServers && cfg.mcpServers.deliberation, "missing deliberation server in mcp.json");
   assert.strictEqual(cfg.mcpServers.deliberation.command, "npx");
   assert.ok(Array.isArray(cfg.mcpServers.deliberation.args), "args must be an array");
+  assert.strictEqual(cfg.$schema, "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json");
+  assert.strictEqual(cfg.mcpServers.deliberation.type, "stdio");
+
+  // Agent Plugins manifest: the fields the Kiro registry form checks, and nothing the schema forbids.
+  const plugin = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, "plugin.json"), "utf8"));
+  assert.strictEqual(plugin.$schema, "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json");
+  assert.match(plugin.name, /^(?!.*(?:--|\.\.))[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/);
+  assert.strictEqual(plugin.name, "deliberation");
+  const version = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, "version.json"), "utf8")).version;
+  assert.strictEqual(plugin.version, version);
+  assert.ok(plugin.description && plugin.author && plugin.author.name && plugin.license);
+  assert.ok(Array.isArray(plugin.keywords) && plugin.keywords.length > 0);
+  const allowed = ["$schema", "name", "version", "description", "author", "homepage", "repository", "license", "keywords", "extensions"];
+  for (const k of Object.keys(plugin)) assert.ok(allowed.includes(k), `plugin.json field not in the Agent Plugins schema: ${k}`);
+  for (const k of Object.keys(plugin.author)) assert.ok(["name", "email", "url"].includes(k), `plugin.json author.${k} not allowed`);
 
   const powerPath = path.join(REPO_ROOT, "POWER.md");
   assert.ok(fs.existsSync(powerPath), "POWER.md missing");
