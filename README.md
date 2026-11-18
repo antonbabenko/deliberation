@@ -74,8 +74,8 @@ on their own:
 - Cross-vendor arbitration. GPT, Gemini, Grok, local models (Ollama, LM Studio), and any
   OpenAI-compatible model through OpenRouter (400+ more, including Qwen, Kimi, and DeepSeek)
   review the same input. The arbiter is your host agent or any configured provider. For either
-  arbiter, a round converges only when at least one external reviewer answered and every
-  external reviewer that answered approves.
+  arbiter, a round converges only when at least `consensus.quorumFloor` external reviewers
+  answered (default 2, or the whole panel if it is smaller) and every one that answered approves.
 - A blind first verdict. In `/consensus` your agent records its own verdict before it sees the
   panel, so it cannot reshape its opinion to match the others.
 - Disagreement that stays visible. Every dismissed issue keeps a written reason in the report,
@@ -428,7 +428,7 @@ This section uses the Claude Code command names, and "Claude" means the host age
 
 `/consensus` is the heavy one. Same parallel dispatch, but with a peer-review round and a multi-round loop that stops only when the models agree. The cost: the orchestrator (Claude) writes the review prompt, casts a vote, decides which objections are real, and runs the loop. Left alone, that setup can quietly rubber-stamp its own plan. Four guards stop that.
 
-![/consensus 3-stage flow](assets/consensus-flow-simple.png)
+![/consensus flow: blind verdict, panel review, adjudication, converge or revise](assets/consensus-flow-simple.png)
 
 [See the detailed diagram with bias guards and per-model flow](assets/consensus-flow.png)
 
@@ -436,7 +436,7 @@ The four guards:
 
 - **Blind verdict.** Claude posts its own verdict (APPROVE / REQUEST CHANGES / REJECT) in a message sent *before* the one that calls the panel. The pre-commitment sits in the transcript, so Claude cannot reshape its opinion after seeing the others. The engine enforces this: the panel is not revealed until the blind verdict is recorded.
 - **Peer review.** Each external model reviews the plan independently and returns a verdict plus categorized critical issues; Claude weighs them as the arbiter. The models vote, Claude adjudicates.
-- **No self-approval.** A round converges only when every responding external approves and at least one external actually answered. Claude's own approval never carries a round by itself. A provider that errors (an unconfigured Grok returning `missing-auth`, for example) drops out of the count instead of jamming the loop.
+- **No self-approval.** A round converges only when every responding external approves and at least `consensus.quorumFloor` externals actually answered (default 2; a panel smaller than that needs every member to answer). Claude's own approval never carries a round by itself. A provider that errors (an unconfigured Grok returning `missing-auth`, for example) drops out of the count instead of jamming the loop.
 - **No silent dismissal.** Every critical issue that gets dismissed or deferred ships with a one-line reason in the final report, including the times Claude walks back one of its own blind objections. The engine rejects an adjudication that dismisses an issue without a reason.
 
 The `/ask-*` commands carry a lighter version of the same rule. The external model only advises: Claude reads the output, applies its own judgment, and owns the synthesized answer. When the models agree, that is input, not a verdict.
@@ -452,7 +452,7 @@ Every delegate prompt also carries today's UTC date and a rule against calling a
 2. **Panel review.** GPT, Gemini, Grok (and any configured OpenRouter delegates) review the plan in parallel and emit APPROVE / REQUEST CHANGES / REJECT plus categorized critical issues. The server parses each verdict.
 3. **Arbiter adjudication + revision.** Claude reconciles the panel verdicts and its own blind verdict; for each critical issue it picks accept, dismiss (reason required), or defer, then revises the plan for the next round.
 
-The loop converges when at least one responding external approves, none reject, zero critical issues remain accepted, and Claude adjudicates APPROVE - so Claude cannot self-approve. It otherwise stops at `consensus.maxRounds` (default 5, configurable) as `unresolved`. The confidence label reflects how fast it settled (round 1 = high, 2-3 = medium, 4-5 = low).
+The loop converges when at least `consensus.quorumFloor` externals respond (default 2, capped at the panel size), every one of them approves, none reject, zero critical issues remain accepted, and Claude adjudicates APPROVE - so Claude cannot self-approve. It otherwise stops at `consensus.maxRounds` (default 5, configurable) as `unresolved`. The confidence label reflects how fast it settled (round 1 = high, 2-3 = medium, 4-5 = low).
 
 A round only pays for voices that can still answer: a peer that fails 2 rounds running is dropped from the panel (reported once as `droppedProviders`, then never dispatched again), and the whole loop stops at `consensus.maxWallMs` (default 30 min) rather than starting another round. Both apply on every driver. See [TECHNICAL.md](TECHNICAL.md#circuit-breaker).
 

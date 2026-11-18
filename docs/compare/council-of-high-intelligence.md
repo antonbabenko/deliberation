@@ -66,7 +66,7 @@ stars, MIT, latest release v1.2.0 (published 2026-07-04), last push 2026-11-16.
 | Shape | Skill and commands per host | MCP server, Claude Code plugin, native host plugins |
 | Hosts | Claude Code, Codex, Gemini CLI, OpenCode | Any MCP host; native plugins for Claude Code, Codex, Cursor, Kiro, Antigravity, Gemini CLI, OpenCode |
 | Personas | 18 analytical lenses | Eight engineering and writing experts |
-| Runs on | Native host subagents, `codex`, `gemini`, Ollama, NVIDIA NIM, Cursor's agent CLI | `codex`, `agy` (Gemini), Grok, OpenRouter, Ollama, LM Studio |
+| Runs on | Native host subagents, `codex`, `gemini`, Ollama, NVIDIA NIM, Cursor's agent CLI | `codex`, Gemini (API key, or `agy` opt-in), Grok, OpenRouter, Ollama, LM Studio |
 | Independence | Blind first positions, then cross-examination | Independent answers; no debate round |
 | Ending | Verdict with dissent, kill criteria, next step; split votes returned as split | Converged verdict or `unresolved` at the round cap; dismissals carry reasons |
 | Best for | High-stakes decisions | Plans, diffs, security and prose review |
