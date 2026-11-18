@@ -37,6 +37,14 @@ const BUILTIN_ARBITERS = new Set(["codex", "gemini", "grok"]);
 // The only provider a `models` entry may target in v1. codex/gemini/grok are
 // CLI-managed or singleton built-ins and are out of scope for named model records.
 const MODEL_PROVIDER = "openrouter";
+// Built-in OpenRouter panel: three vendors, used only when the API key is set and the
+// config defines no OpenRouter model record (user records replace it, never merge).
+// The first entry is the bare ask-openrouter default.
+const BUILTIN_OPENROUTER_MODELS = Object.freeze([
+  Object.freeze({ alias: "glm-5-3-flashx", model: "z-ai/glm-5.3-flashx" }),
+  Object.freeze({ alias: "gpt-6-1-sol", model: "openai/gpt-6.1-sol" }),
+  Object.freeze({ alias: "gemini-3-8-flash", model: "google/gemini-3.8-flash" }),
+]);
 
 function isObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -78,7 +86,13 @@ function resolveOrientation(block) {
   };
 }
 
-function validateConfig(raw) {
+/**
+ * @param {unknown} raw parsed config object
+ * @param {Record<string, string|undefined>} [env] environment used only to see whether the
+ *   OpenRouter key is set (built-in panel). Defaults to {} so validation stays pure; the
+ *   config reader passes process.env.
+ */
+function validateConfig(raw, env = {}) {
   if (!isObject(raw)) return fail("config root must be a JSON object");
 
   const version = raw.version === undefined ? 1 : raw.version;
@@ -103,10 +117,13 @@ function validateConfig(raw) {
 
   const timeoutPolicy=routingRaw.timeoutPolicy??'longest-peer';
   if(!['longest-peer','per-provider'].includes(timeoutPolicy))return fail('routing.timeoutPolicy must be longest-peer or per-provider');
-  // Resolve the connection layer for openrouter. When the openrouter provider block
-  // is absent OR enabled:false, openrouter is disabled (no fan-out, no arbiter pin).
-  const enabled = !!orProviderRaw && orProviderRaw.enabled !== false; // present + not disabled
+  // Resolve the connection layer for openrouter. enabled:false always disables it (no
+  // fan-out, no arbiter pin). An absent provider block means enabled only when the API
+  // key is set, so OPENROUTER_API_KEY alone turns OpenRouter on.
   const apiKeyEnv = (orProviderRaw && orProviderRaw.apiKeyEnv) || DEFAULT_API_KEY_ENV;
+  const keyValue = env && env[apiKeyEnv];
+  const keySet = typeof keyValue === "string" && keyValue.trim() !== "";
+  const enabled = orProviderRaw ? orProviderRaw.enabled !== false : keySet;
   const apiBase = (orProviderRaw && orProviderRaw.apiBase) || DEFAULT_API_BASE;
   const allowRawModel = !!orProviderRaw && orProviderRaw.allowRawModel === true;
   const { defaults, warnings: defaultsWarnings } = resolveDefaults(orProviderRaw && orProviderRaw.defaults, sharedDefaultsRaw);
@@ -134,7 +151,15 @@ function validateConfig(raw) {
     const pBlock = providersRaw[prov];
     return !pBlock || pBlock.enabled !== false;
   };
-  const models = parsed.models.filter(isModelEnabled);
+  const userModels = parsed.models.filter(isModelEnabled);
+  const hasUserOpenRouterRecord = parsed.models.some((m) => (m.provider || MODEL_PROVIDER) === MODEL_PROVIDER);
+  const builtinActive = enabled && keySet && !hasUserOpenRouterRecord;
+  const builtinModels = builtinActive ? BUILTIN_OPENROUTER_MODELS.map((b) => ({
+    alias: b.alias, provider: MODEL_PROVIDER, model: b.model, preset: undefined, experts: null,
+    askAll: true, consensus: true, default: false, builtin: true,
+    reasoning_effort: undefined, consensus_reasoning_effort: undefined, timeout: undefined,
+    temperature: undefined, apiBase: undefined, apiKeyEnv: undefined,
+  })) : [];
   const invalidModels = parsed.invalidModels;
 
   const modelsWarnings = [];
@@ -144,7 +169,7 @@ function validateConfig(raw) {
     }
   }
 
-  const defaultEntries = models.filter((m) => m.default);
+  const defaultEntries = userModels.filter((m) => m.default);
   const defaultWarnings = [];
   if (defaultEntries.length > 1) {
     defaultWarnings.push(
@@ -154,7 +179,12 @@ function validateConfig(raw) {
   const defaultModelFromRecord = defaultEntries.length > 0 ? defaultEntries[0].alias : null;
   const defaultModelFromProvider = orProviderRaw && typeof (orProviderRaw.model || orProviderRaw.defaultModel) === "string" && (orProviderRaw.model || orProviderRaw.defaultModel).trim()
     ? (orProviderRaw.model || orProviderRaw.defaultModel).trim() : null;
-  const defaultModel = defaultModelFromRecord || defaultModelFromProvider;
+  // A configured default (record or provider block) wins over the built-in one.
+  const defaultModel = defaultModelFromRecord || defaultModelFromProvider || (builtinActive ? builtinModels[0].alias : null);
+  const models = [
+    ...userModels,
+    ...builtinModels.map((m) => (m.alias === defaultModel ? { ...m, default: true } : m)),
+  ];
 
   const { consensus, warnings } = resolveConsensus(raw.consensus, models);
   const { sessions, warnings: sessionsWarnings } = resolveSessions(raw.sessions);
@@ -676,20 +706,14 @@ function resolveConsensus(rawConsensus, models) {
   return wrap(DEFAULT_ARBITER, false);
 }
 
-function disabledOpenRouter() {
-  return {
-    enabled: false, apiKeyEnv: DEFAULT_API_KEY_ENV, apiBase: DEFAULT_API_BASE,
-    allowRawModel: false, maxFanout: DEFAULT_MAX_FANOUT, defaultModel: null, preset: null, defaults: {}, models: [], invalidModels: [],
-  };
-}
-
 function fail(message) {
   return { ok: false, resolved: null, error: message };
 }
 
 // Stat-gated reader: re-reads + re-validates only when the file mtime changes.
-// Never throws. Missing file => ok:true, disabled openrouter. Bad JSON => ok:false parse error.
-function makeConfigReader(filePath) {
+// Never throws. Missing file => ok:true, openrouter off unless the key is set (then the
+// built-in panel). Bad JSON => ok:false parse error.
+function makeConfigReader(filePath, env = process.env) {
   let cachedMtimeMs = null;
   let cachedResult = null;
   function read() {
@@ -705,7 +729,7 @@ function makeConfigReader(filePath) {
             configLoadState: "missing",
             version: 1,
             providers: {},
-            openrouter: disabledOpenRouter(),
+            openrouter: validateConfig({}, env).resolved.openrouter,
             consensus: { arbiter: DEFAULT_ARBITER, arbiterDefaulted: true, blindVote: false, maxWallMs: DEFAULT_CONSENSUS_MAX_WALL_MS, quorumFloor: DEFAULT_CONSENSUS_QUORUM_FLOOR },
             orientation: resolveOrientation(undefined),
             sessions: { persist: false, maxRecords: DEFAULT_SESSIONS_MAX_RECORDS, maxAgeDays: DEFAULT_SESSIONS_MAX_AGE_DAYS, captureText: false },
@@ -722,7 +746,7 @@ function makeConfigReader(filePath) {
     } catch (err) {
       return fail(`JSON parse failed: ${err && /** @type {any} */ (err).message ? /** @type {any} */ (err).message : String(err)}`);
     }
-    return validateConfig(parsed);
+    return validateConfig(parsed, env);
   }
   return {
     get() {
@@ -739,5 +763,5 @@ function makeConfigReader(filePath) {
 
 module.exports = {
   validateConfig, makeConfigReader, resolveSessions, resolveDashboard, EXPERT_KEYS, RESERVED_ALIAS,
-  DEFAULT_API_BASE, DEFAULT_API_KEY_ENV,
+  DEFAULT_API_BASE, DEFAULT_API_KEY_ENV, BUILTIN_OPENROUTER_MODELS,
 };

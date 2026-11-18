@@ -323,6 +323,7 @@ const handlers = {
       // Shape a resolved model into the wire form (matches `delegates` entries below).
       const shape = (m) => ({
         alias: m.alias, model: m.model, experts: m.experts, askAll: m.askAll, consensus: m.consensus, default: m.default === true,
+        builtin: m.builtin === true,
         preset: pick(undefined, m.preset, (or.defaults && or.defaults.preset) || or.preset) ?? null,
         // Resolved effort the bridge would use absent a per-call override: per-model > defaults > null.
         reasoning_effort: pick(undefined, m.reasoning_effort, or.defaults.reasoning_effort) ?? null,
