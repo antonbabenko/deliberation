@@ -182,17 +182,17 @@ test("detection with a fake env and PATH (real runtime, child process)", { skip:
     encoding: "utf8", timeout: 60000,
     env: {
       HOME: home, PATH: `${bin}:/usr/bin:/bin`, CODEX_HOME: path.join(home, ".codex"),
-      GEMINI_API_KEY: "gem-secret-value", DELIBERATION_DISABLE_OS_SANDBOX: "1", GEMINI_MIN_ANSWER_CHARS: "0",
+      GOOGLE_API_KEY: "gem-secret-value", DELIBERATION_DISABLE_OS_SANDBOX: "1", GEMINI_MIN_ANSWER_CHARS: "0",
       CDG_ARGV_LOG: path.join(home, "argv.log"),
     },
   });
   const out = r.stdout;
   assert.equal(r.status, 0, out + r.stderr);
-  assert.match(out, /found: Gemini \(agy\)/);
+  assert.match(out, /found: Gemini/);
   assert.match(out, /GPT \(codex\): installed, not logged in/);
   assert.match(out, /XAI_API_KEY not set/);
-  assert.match(out, /GEMINI_API_KEY is set/);
-  assert.match(out, /ping Gemini \(agy\): OK/);
+  assert.match(out, /GOOGLE_API_KEY is set/);
+  assert.match(out, /ping Gemini: OK/);
   assert.ok(!out.includes("gem-secret-value"));
   const cfg = JSON.parse(fs.readFileSync(path.join(home, ".config", "deliberation", "config.json"), "utf8"));
   assert.deepEqual(cfg.providers, { gemini: { enabled: true } });

@@ -1,12 +1,12 @@
 # AGENTS.md
 
 Instructions for any coding agent (Claude Code, Codex, Cursor, Gemini, Kiro, OpenCode, ...)
-working on this repository. For how to USE deliberation as an MCP server, read
+working on this repository. For how to USE Deliberation as an MCP server, read
 [docs/tool-guide.md](docs/tool-guide.md) instead.
 
 ## What this repo is
 
-deliberation gives a host agent GPT (Codex CLI), Gemini 3 (Antigravity CLI `agy`), Grok
+Deliberation gives a host agent GPT (Codex CLI), Gemini 3 (Antigravity CLI `agy`), Grok
 (xAI API) and OpenRouter models as expert reviewers over MCP. It ships as a Claude Code
 plugin, as native plugins/skills for other hosts, and as one standalone MCP server
 (`@antonbabenko/deliberation-mcp`). Eight expert personas live in `prompts/`. Every provider
@@ -48,6 +48,10 @@ user-visible behavior is not done until every surface it touches is current:
 - `config/config.schema.json` AND `config/config.default.json` - every new key needs both
   (state any threat model in the schema description); the `validate` check fails on drift
 - `commands/` and skill prose, when the behavior they describe changed
+
+**Product name.** Prose writes the product as Deliberation, with a capital D, in sentences,
+headings and user-visible messages. Identifiers stay lowercase: the npm package, MCP server
+and tool names, slash commands, paths, env vars, log tags and anything in a code span.
 
 **Generated files.** `npm run sync` writes three kinds of output. Edit the source, regenerate,
 and commit both:

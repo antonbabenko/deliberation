@@ -14,10 +14,10 @@ fi
 
 # shellcheck source=scripts/commands/lib.sh
 . "$(dirname "$0")/lib.sh"
-root=$(resolve_plugin_root) || { echo "deliberation plugin root not found; set CLAUDE_PLUGIN_ROOT"; exit 1; }
+root=$(resolve_plugin_root) || { echo "Deliberation plugin root not found; set CLAUDE_PLUGIN_ROOT"; exit 1; }
 if [ ! -f "$root/server/dashboard/stop.js" ]; then
   ver=$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' "$root/.claude-plugin/plugin.json" 2>/dev/null | head -n 1)
-  echo "deliberation ${ver:-(unknown version)} at $root cannot restart the dashboard; update it: /plugin marketplace update antonbabenko, then /reload-plugins"
+  echo "Deliberation ${ver:-(unknown version)} at $root cannot restart the dashboard; update it: /plugin marketplace update antonbabenko, then /reload-plugins"
   exit 1
 fi
 

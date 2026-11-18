@@ -67,7 +67,7 @@ const GENERATED_NOTE =
 const LICENSE_AND_SUPPORT_FOOTER = [
   "## License and support",
   "",
-  "deliberation is licensed MIT (`MIT`).",
+  "Deliberation is licensed MIT (`MIT`).",
   "",
   `- [Privacy policy](${S.REPO_URL}/blob/master/PRIVACY.md): each delegation goes only to` +
     " the providers you configure, under their own privacy policies. deliberation sends" +
@@ -100,7 +100,7 @@ function expertsSteering() {
   return [
     "# Deliberation: when to delegate",
     "",
-    "The deliberation MCP server exposes GPT (Codex), Gemini, Grok, and OpenRouter",
+    "The Deliberation MCP server exposes GPT (Codex), Gemini, Grok, and OpenRouter",
     "as expert subagents. Stay the primary agent; call a tool when a task benefits",
     "from a second opinion or cross-model review, then apply your own judgment.",
     "",
@@ -189,7 +189,7 @@ function build(ctx) {
   });
 
   // MCP server config at the Power root. Provider keys come from the host env
-  // (Codex auth, GEMINI_API_KEY, XAI_API_KEY, OPENROUTER_API_KEY).
+  // (Codex auth, GEMINI_API_KEY, XAI_API_KEY, OPENROUTER_API_KEY; agy is an opt-in Gemini fallback).
   out["mcp.json"] = S.json({
     $schema: "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
     mcpServers: {

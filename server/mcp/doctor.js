@@ -94,7 +94,7 @@ function checkConfig(configPath, out) {
 function checkHostCap(env) {
   const v = env.MCP_TOOL_TIMEOUT;
   if (!v) return { check: "host-cap", status: "ok", message: "no host tool-call cap (MCP_TOOL_TIMEOUT unset)" };
-  if (!/^\d+$/.test(v)) return { check: "host-cap", status: "warn", message: `MCP_TOOL_TIMEOUT=${v} is not a number; deliberation ignores it (no host cap assumed)` };
+  if (!/^\d+$/.test(v)) return { check: "host-cap", status: "warn", message: `MCP_TOOL_TIMEOUT=${v} is not a number; Deliberation ignores it (no host cap assumed)` };
   if (Number(v) < PROVIDER_CEILING_MS) {
     return { check: "host-cap", status: "warn", message: `MCP_TOOL_TIMEOUT=${v} ms is below the provider ceilings (codex 600000, gemini 300000, grok/openrouter 180000); calls are trimmed to fit`, fix: "raise the host's per-server tool timeout (Claude Code plugin: update the plugin, its manifest sets 1800000)" };
   }

@@ -1,4 +1,4 @@
-# Contributing to deliberation
+# Contributing to Deliberation
 
 Contributions welcome. This document covers how to contribute effectively.
 
@@ -164,8 +164,10 @@ trust with it. Record fields: `config/config.schema.json` (`modelRecord`) and
 
 Use this when the provider needs its own CLI, protocol, or file handling. Codex
 (`core/providers/codex.js`, spawns a CLI), Grok (`core/providers/grok.js` +
-`server/grok/`, HTTP bridge) and Gemini (`core/providers/antigravity.js` + `server/gemini/`)
-are the working examples. Read [docs/dev/architecture.md](docs/dev/architecture.md) first,
+`server/grok/`, HTTP bridge) and Gemini (`core/providers/gemini.js`, which picks the API key
+path on the shared OpenAI-compatible client or the opt-in `agy` CLI in
+`core/providers/antigravity.js` + `server/gemini/`) are the working examples. None of the
+tests need a real `agy` or a Gemini key: they use fixture CLIs and local mock servers. Read [docs/dev/architecture.md](docs/dev/architecture.md) first,
 and the matching entries in [docs/dev/design-decisions.md](docs/dev/design-decisions.md)
 (timeouts, retries, stub answers, CLI resolution).
 

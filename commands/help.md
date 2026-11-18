@@ -1,6 +1,6 @@
 ---
 name: help
-description: Show how to use deliberation here - what each command does, when to reach for it, and real prompts you can paste right now. Read-only.
+description: Show how to use Deliberation here - what each command does, when to reach for it, and real prompts you can paste right now. Read-only.
 allowed-tools: Bash
 timeout: 15000
 ---
@@ -37,7 +37,7 @@ Render the sections below. Keep it tight - this is a cheat sheet, not a manual.
 | `/deliberation:doctor` | Something looks broken - commands missing, providers failing, empty analyze. |
 | `/deliberation:dashboard` | You want to watch runs live in a browser as state graphs, with history, config, health and stats. Local machine only; turn on `dashboard.enabled` first. |
 | `/deliberation:codex-login` | GPT has no login on this machine (e.g. a Claude Code web session): get a ChatGPT link + code. |
-| `/deliberation:reload-mcp` | You updated deliberation and want to cycle the dashboard daemon and audit MCP workers. |
+| `/deliberation:reload-mcp` | You updated Deliberation and want to cycle the dashboard daemon and audit MCP workers. |
 | `/deliberation:setup` | First install, or to repair the install. |
 
 ### Prompts you can paste right now

@@ -12,7 +12,7 @@ set -u
 
 # --- resolve plugin root: env var -> marketplace cache (highest semver) -> current checkout ---
 # A candidate is valid only if it contains server/mcp/index.js.
-PLUGIN_ROOT="$(resolve_plugin_root)" || { echo "Error: cannot locate the deliberation plugin root. Install via /plugin, run from the plugin checkout, or set CLAUDE_PLUGIN_ROOT."; exit 1; }
+PLUGIN_ROOT="$(resolve_plugin_root)" || { echo "Error: cannot locate the Deliberation plugin root. Install via /plugin, run from the plugin checkout, or set CLAUDE_PLUGIN_ROOT."; exit 1; }
 
 # --- config path: env override > canonical XDG ---
 # Mirrors core/paths.js: DELIBERATION_CONFIG wins; else the canonical
@@ -103,7 +103,11 @@ if command -v codex >/dev/null 2>&1; then
 else
   CODEX_STATUS="MISSING (npm i -g @openai/codex)"
 fi
-command -v agy   >/dev/null 2>&1 && AGY_STATUS="installed" || AGY_STATUS="MISSING (https://antigravity.google)"
+command -v agy   >/dev/null 2>&1 && AGY_STATUS="installed (opt-in; only needed for Gemini workspace-write or with no API key)" || AGY_STATUS="not installed (optional; only needed for Gemini workspace-write)"
+# Gemini's default path is an AI Studio API key; the value is never printed.
+if [ -n "${GEMINI_API_KEY:-}" ]; then GEMINI_KEY_STATUS="set (GEMINI_API_KEY)"
+elif [ -n "${GOOGLE_API_KEY:-}" ]; then GEMINI_KEY_STATUS="only GOOGLE_API_KEY (read only with providers.gemini.transport \"api\"; export GEMINI_API_KEY to use it by default)"
+else GEMINI_KEY_STATUS="MISSING (export GEMINI_API_KEY=...; key from https://aistudio.google.com/apikey)"; fi
 
 # --- keep the plugin manifest as the only MCP registration ---
 # The manifest (inline mcpServers in .claude-plugin/plugin.json) registers the servers with
@@ -134,10 +138,17 @@ USERSCOPE_LEFT="$(stale_userscope)"
 
 # --- status ---
 echo
-echo "deliberation setup"
+echo "Deliberation setup"
 echo "--------------------------------------------------"
 echo "Codex CLI:       $CODEX_STATUS"
+echo "Gemini API key:  $GEMINI_KEY_STATUS"
 echo "Antigravity CLI: $AGY_STATUS"
+if command -v agy >/dev/null 2>&1; then
+  echo "                 Terms note: https://antigravity.google/terms section 6 lists \"Using third party software,"
+  echo "                 tools, or services to access the Service (e.g. using OpenClaw with Antigravity OAuth)\" as a"
+  echo "                 breach that \"may be grounds for suspension or termination of your Antigravity and/or"
+  echo "                 Gemini CLI accounts\". deliberation drives agy as third-party software; use it at your own risk."
+fi
 echo "Config file:     $CFG"
 [ "$CONFIG_CREATED" = "1" ] && echo "                 (created from default - codex/gemini/grok on, OpenRouter off, 2 example models off)"
 echo "                 Edit it to enable OpenRouter and the example models, then re-run /deliberation:setup."

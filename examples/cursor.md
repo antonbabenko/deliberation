@@ -1,4 +1,4 @@
-# Cursor rule for deliberation
+# Cursor rule for Deliberation
 
 Cursor reads project rules from `.cursor/rules/*.mdc` (newer) or a single
 `.cursorrules` file (legacy). Save the block below as
@@ -7,11 +7,11 @@ Cursor reads project rules from `.cursor/rules/*.mdc` (newer) or a single
 
 ```mdc
 ---
-description: Use deliberation MCP experts for review and second opinions
+description: Use Deliberation MCP experts for review and second opinions
 alwaysApply: true
 ---
 
-The deliberation MCP server gives you GPT, Gemini, Grok, and OpenRouter as
+The Deliberation MCP server gives you GPT, Gemini, Grok, and OpenRouter as
 expert subagents. Call its tools when a task warrants outside input:
 
 - Plan or architecture review: call `consensus` or the `architect` /

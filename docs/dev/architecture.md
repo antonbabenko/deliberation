@@ -15,7 +15,9 @@ How the repo is put together. Read before changing `core/`, `server/`, or the co
   confidence label); `loop-store.js` (ephemeral sliding-TTL + LRU `Map` holding `LoopState` across the
   stateless `consensus-step` calls; independent of `sessions.persist`); `providers/*.js`
   adapters (`codex.js` spawns the Codex CLI; `antigravity.js` / `grok.js` /
-  `openai-compatible.js` wrap their bridge via an injectable `opts.bridge`); `paths.js`
+  `openai-compatible.js` wrap their bridge via an injectable `opts.bridge`; `gemini.js` is the
+  one `gemini` provider, routing advisory calls to an API key leg built on `openai-compatible.js`
+  or to the `antigravity.js` leg - see design decision 23); `paths.js`
   (config + cache path resolver, `DELIBERATION_CONFIG` override); `sse.js`
   (provider-agnostic SSE framing - CRLF/CR/LF tolerant, returns `{event, data}` - shared
   so a second streaming bridge needs no second parser).
@@ -24,8 +26,9 @@ How the repo is put together. Read before changing `core/`, `server/`, or the co
   into a self-contained `dist/index.js` (build-time devDep only; `dist/` gitignored). `server.json`
   at the repo root is the Official MCP Registry manifest. `server/mcp/doctor.js` holds the
   health checks behind the read-only `doctor` tool; `/deliberation:doctor` renders its
-  findings (see Key Design Decision #20).
-- **`server/{gemini,grok,openrouter}/`** - the provider bridges (gemini wraps the `agy` CLI;
+  findings (see Key Design Decision #22).
+- **`server/{gemini,grok,openrouter}/`** - the provider bridges (gemini answers advisory calls over a Gemini API key
+  through the openrouter HTTP client and wraps the opt-in `agy` CLI otherwise;
   grok = xAI HTTP; openrouter = any OpenAI-compatible HTTP) plus openrouter `config.js`
   (`validateConfig` / `makeConfigReader`, the config SSOT). Registered (with the unified
   `server/mcp` server) inline in `.claude-plugin/plugin.json` under the `mcpServers` key

@@ -1,6 +1,6 @@
 ---
 name: setup
-description: Configure deliberation with Codex (GPT), Gemini, Grok, and OpenRouter MCP servers
+description: Configure Deliberation with Codex (GPT), Gemini, Grok, and OpenRouter MCP servers
 allowed-tools: Bash, Read, AskUserQuestion
 timeout: 60000
 ---
@@ -112,7 +112,15 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/commands/setup-overwrite-commands.sh" <colli
 Print only the reminders relevant to what the Step-1 status showed as missing:
 
 - Codex: `codex login` (`codex login --device-auth` on a remote or headless machine; never copy `~/.codex/auth.json` between machines), or `CODEX_ACCESS_TOKEN` for a ChatGPT Business/Enterprise workspace
-- Gemini: run `agy` once and complete sign-in (or set the model in `~/.gemini/settings.json`)
+- Gemini (default): `export GEMINI_API_KEY=...` with a Google AI Studio key
+  (https://aistudio.google.com/apikey) in your shell profile, then restart. Advisory Gemini calls (ask-gemini, the expert tools, ask-all, consensus) then use the
+  Gemini API and need no agy login.
+- Gemini via agy (opt-in): only for `workspace-write` (implementation) calls, or if you choose
+  `providers.gemini.transport: "agy"`. `transport: "api"` never runs agy. Run `agy` once and complete sign-in. Show the user this
+  warning before they opt in: the Antigravity terms (https://antigravity.google/terms, section 6)
+  list "Using third party software, tools, or services to access the Service (e.g. using OpenClaw
+  with Antigravity OAuth)" as a breach that "may be grounds for suspension or termination of your
+  Antigravity and/or Gemini CLI accounts". Deliberation drives agy as third-party software.
 - Grok: `export XAI_API_KEY=xai-...` (https://console.x.ai) in your shell profile, then restart
 - OpenRouter: export the key named by `apiKeyEnv` (default `OPENROUTER_API_KEY`)
 
@@ -123,7 +131,7 @@ Analyst, Researcher, Debugger, Writing Editor.
 
 ## Step 4: Ask about starring
 
-Ask with `AskUserQuestion` (own turn): would the user like to star the deliberation repo to support
+Ask with `AskUserQuestion` (own turn): would the user like to star the Deliberation repo to support
 the project? Options: "Yes, star the repo" / "No thanks".
 
 **If yes**, run as ONE isolated Bash call:

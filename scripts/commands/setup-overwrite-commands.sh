@@ -17,7 +17,7 @@ if [ "$#" -eq 0 ]; then
 fi
 
 PLUGIN_ROOT="$(resolve_plugin_root)" || {
-  echo "Error: cannot locate the deliberation plugin root."
+  echo "Error: cannot locate the Deliberation plugin root."
   exit 1
 }
 

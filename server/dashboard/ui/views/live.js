@@ -24,7 +24,7 @@ export function create(ctx) {
       put(list, h("div", { class: "empty" },
         h("p", {}, "No runs recorded yet."),
         h("p", {}, "Start a /consensus or /ask-all in Claude Code. Each model becomes a channel on the scope below, its calls draw as pulses, and verdicts decode under them."),
-        h("p", {}, "Runs are journaled only while dashboard.enabled is true in the deliberation config.")));
+        h("p", {}, "Runs are journaled only while dashboard.enabled is true in the Deliberation config.")));
       captures.clear();
       return;
     }

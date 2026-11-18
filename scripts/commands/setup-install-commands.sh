@@ -9,7 +9,7 @@ set -u
 
 # shellcheck source=scripts/commands/lib.sh
 . "$(dirname "$0")/lib.sh"
-PLUGIN_ROOT="$(resolve_plugin_root)" || { echo "Error: cannot locate the deliberation plugin root."; exit 1; }
+PLUGIN_ROOT="$(resolve_plugin_root)" || { echo "Error: cannot locate the Deliberation plugin root."; exit 1; }
 mkdir -p "$HOME/.claude/commands"
 collisions=""
 for c in ask-gpt ask-gemini ask-grok ask-openrouter ask-all consensus; do

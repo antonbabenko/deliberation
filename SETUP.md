@@ -1,6 +1,6 @@
 # Setup & Configuration
 
-How to configure deliberation: the two expert modes, the `config.json` schema and its
+How to configure Deliberation: the two expert modes, the `config.json` schema and its
 sections, OpenRouter model records, and opt-in session persistence. For provider
 internals, environment variables, and manual MCP setup, see [TECHNICAL.md](TECHNICAL.md).
 
@@ -35,7 +35,7 @@ In order, it:
    voices that answered. `--no-demo` skips it.
 5. Prints the install line for your host, or a short table when it cannot tell the host.
 
-Run it again any time: a second run changes nothing and says so. When deliberation was used
+Run it again any time: a second run changes nothing and says so. When Deliberation was used
 here before (a config file or saved sessions exist), the output is shorter and the demo is
 skipped unless you pass `--demo`.
 
@@ -57,7 +57,7 @@ export OPENROUTER_API_KEY=sk-or-v1-...
 ```
 
 With the key set and no OpenRouter record in `models` (or no `config.json` at all),
-deliberation uses a built-in panel of three models from three vendors:
+Deliberation uses a built-in panel of three models from three vendors:
 `z-ai/glm-5.3-flashx` (the default for a bare `ask-openrouter` call),
 `openai/gpt-6.1-sol` and `google/gemini-3.8-flash`. All three take part in `ask-all` and
 `consensus`. `openrouter-list` marks them `builtin: true`.
@@ -91,7 +91,7 @@ Minimal example:
   "providers": {
     "defaults": { "timeout": 600000 },
     "codex":  { "enabled": true },
-    "gemini": { "enabled": true, "model": "auto-gemini-3" },
+    "gemini": { "enabled": true, "transport": "auto", "apiModel": "gemini-flash-latest", "model": "auto-gemini-3" },
     "grok":   { "enabled": true, "apiKeyEnv": "XAI_API_KEY", "model": "grok-4.6", "reasoningEffort": "high" },
     "openrouter": {
       "enabled": true,
@@ -150,7 +150,7 @@ via their OpenAI-compatible HTTP APIs:
 Both local providers default to keyless (no `Authorization` header). If
 your local or remote instance requires authentication, set `apiKeyEnv` on
 the provider block. Note that `apiBase` for both providers is read once
-at server startup; changing it requires restarting deliberation.
+at server startup; changing it requires restarting Deliberation.
 
 Declare models in `models` targeting `provider: "ollama"` or
 `provider: "lmstudio"`:
@@ -176,7 +176,7 @@ Declare models in `models` targeting `provider: "ollama"` or
 > their key. Keyless proxies leave it unset.
 >
 > Note: Per-record `apiBase` and `apiKeyEnv` are honored ONLY by the standalone
-> OpenRouter bridge (e.g. `/ask-openrouter`); the unified deliberation server
+> OpenRouter bridge (e.g. `/ask-openrouter`); the unified Deliberation server
 > ignores them.
 
 
@@ -220,7 +220,52 @@ Browse model slugs at [openrouter.ai/models](https://openrouter.ai/models?input_
 the `model` field takes any slug listed there. Each record's `provider` must be
 `"openrouter"` in v1 (codex / gemini / grok are managed by their own CLI / API).
 
-`providers.gemini.model` and `providers.grok.model` pin those two providers without
+### Gemini: API key (default) or agy (opt-in)
+
+Gemini's default path is a Google AI Studio API key. Get one at
+https://aistudio.google.com/apikey and export it before you start your host:
+
+```bash
+export GEMINI_API_KEY=...
+```
+
+With a key set, every advisory Gemini call (`/ask-gemini`, the expert tools, `/ask-all`,
+`/consensus`) goes to the Gemini API over Google's OpenAI-compatible endpoint
+(`https://generativelanguage.googleapis.com/v1beta/openai/`). No `agy` install or login is
+needed for those calls, and the key is never passed to `agy`.
+
+```json
+"gemini": { "enabled": true, "transport": "auto", "apiModel": "gemini-flash-latest" }
+```
+
+- `apiModel` is a Gemini API model id, not an agy id. The default `gemini-flash-latest` is
+  Google's documented alias for the latest Flash release (Google emails two weeks before it
+  moves); pin a fixed id such as `gemini-3.8-flash` to stop it moving. List the ids your key
+  can use:
+  `curl -s "https://generativelanguage.googleapis.com/v1beta/models" -H "x-goog-api-key: $GEMINI_API_KEY"`.
+- `transport` picks the path: `auto` (default) uses the API when `GEMINI_API_KEY` is set and
+  `agy` otherwise; `api` always uses the API and never runs `agy`, not even for
+  `workspace-write` (Gemini shows as unavailable without a key); `agy` always uses the
+  Antigravity CLI.
+- `GOOGLE_API_KEY` is read only with `transport: "api"`. It does not switch `auto`, because it
+  is often a key for another Google API, and an agy setup that happens to export one keeps
+  working. `GEMINI_API_KEY` wins when both are set.
+- Implementation (`workspace-write`) calls run on `agy` under `auto` and `agy`, since only a
+  local CLI can edit your files.
+- On the API path Gemini cannot read your workspace, so `/ask-all` and `/consensus` attach the
+  orientation bundle to it, as they do for Grok and OpenRouter.
+- Reasoning effort on the API path is sent as `reasoning_effort` from `providers.defaults.reasoningEffort`. Google accepts `minimal` / `low` / `medium` / `high`;
+  thinking cannot be turned off on Gemini 3 and later models.
+
+**agy is opt-in.** You need it only for implementation calls, or when you choose
+`transport: "agy"`. With no key set, Gemini also falls back to it so an existing agy setup keeps
+working. Before you use it, read the [Antigravity terms](https://antigravity.google/terms).
+Section 6 lists "Using third party software, tools, or services to access the Service (e.g.
+using OpenClaw with Antigravity OAuth)" as a breach that "may be grounds for suspension or
+termination of your Antigravity and/or Gemini CLI accounts". Deliberation drives `agy` as
+third-party software.
+
+`providers.gemini.model` (the agy path) and `providers.grok.model` pin those two providers without
 touching their own config files. Precedence for both: per-call `model` argument, then
 this key, then the env var (`GEMINI_DEFAULT_MODEL` / `GROK_DEFAULT_MODEL`), then the
 built-in default. Both are read once at MCP start, so changing them needs a restart.
@@ -229,11 +274,11 @@ built-in default. Both are read once at MCP start, so changing them needs a rest
 reasons, on the same ladder: per-call `reasoning_effort`, then this key, then
 `GROK_REASONING_EFFORT`, then `high`. `none` omits the field entirely so the model uses
 its own default. Unlike the model pin this one is read per call, so it picks up an edit
-without a restart. You can also decouple reasoning effort between standalone questions and consensus debates: `consensusReasoningEffort` (`low` / `medium` / `high` / `none`) can be configured under `providers.grok.consensusReasoningEffort` (as well as `providers.codex.consensusReasoningEffort`, `providers.defaults.consensusReasoningEffort`, and `providers.openrouter.defaults.consensusReasoningEffort`). During `/consensus` and `consensus-step`, consensus reasoning effort is used; during `/ask-all` and standalone ask tools, standard `reasoningEffort` applies. Gemini has no equivalent key - agy fuses reasoning effort into the
+without a restart. You can also decouple reasoning effort between standalone questions and consensus debates: `consensusReasoningEffort` (`low` / `medium` / `high` / `none`) can be configured under `providers.grok.consensusReasoningEffort` (as well as `providers.codex.consensusReasoningEffort`, `providers.defaults.consensusReasoningEffort`, and `providers.openrouter.defaults.consensusReasoningEffort`). During `/consensus` and `consensus-step`, consensus reasoning effort is used; during `/ask-all` and standalone ask tools, standard `reasoningEffort` applies. On the agy path Gemini has no equivalent key - agy fuses reasoning effort into the
 model id itself (`gemini-3.6-flash-high` vs `gemini-3.6-flash-low`), so you change it by
 changing `providers.gemini.model`.
 
-For Gemini, run `agy models` to see the catalog on your machine - ids fuse family and
+For Gemini on the agy path, run `agy models` to see the catalog on your machine - ids fuse family and
 reasoning effort (`gemini-3.6-flash-high`); a bare family is rejected with `requires
 --effort`. The shipped default is the portable `auto-gemini-3` router alias, because a
 concrete id that does not exist locally fails every call. On agy 1.1.x that alias is
@@ -260,11 +305,11 @@ startup; reasoning effort can also be overridden per call or tuned for debates v
 
 ### Windows: the CLI providers
 
-GPT and Gemini launch a real CLI (`codex`, `agy`); Grok and OpenRouter are HTTP bridges and
-launch nothing, so they need none of this.
+GPT and Gemini on the agy path launch a real CLI (`codex`, `agy`); Gemini with an API key, Grok
+and OpenRouter are HTTP calls and launch nothing, so they need none of this.
 
 `npm install -g` on Windows installs `codex.cmd`, a shell shim rather than an executable, and
-Node cannot launch one directly. deliberation resolves the CLI before spawning it - preferring a
+Node cannot launch one directly. Deliberation resolves the CLI before spawning it - preferring a
 real `.exe` on PATH, otherwise running the package's own entry point with Node - so a standard
 npm install works with no setup.
 
@@ -288,9 +333,9 @@ Three things differ in a web container, and the plugin now handles each:
 - **The host caps every tool call.** Claude Code on the web exports `MCP_TOOL_TIMEOUT=60000`,
   which kills any MCP call after 60s - far below the provider ceilings below. Claude Code
   applies a per-server `timeout` ahead of that variable, so the plugin manifest declares
-  `"timeout": 1800000` (30 min) on every deliberation server and mirrors it into the server's
+  `"timeout": 1800000` (30 min) on every Deliberation server and mirrors it into the server's
   env as `MCP_TOOL_TIMEOUT` (the process inherits the host's 60000 otherwise, and
-  deliberation's own clamp would cancel the override). Nothing to configure. If a `timeout`
+  Deliberation's own clamp would cancel the override). Nothing to configure. If a `timeout`
   result still names `MCP_TOOL_TIMEOUT=60000`, the install is older than this manifest:
   `claude plugin update deliberation@antonbabenko` and start a new session. Installing by hand
   through `.mcp.json` on a capped host: add the same `"timeout": 1800000` and
@@ -332,9 +377,9 @@ Three things differ in a web container, and the plugin now handles each:
 
   When a login can no longer refresh (a copied `auth.json`), the same thing happens: the
   first GPT call starts a fresh device login, shows its code, and retries once you approve.
-- **No `agy`.** The standalone Gemini bridge refuses to start (`CONNECTION_CLOSED` in the
-  host's server list); the unified server lists gemini under `panel.unavailable` and the
-  panel runs without it.
+- **No `agy`.** Set `GEMINI_API_KEY` and advisory Gemini calls need no `agy` at all. Without a
+  key, the standalone Gemini bridge refuses to start (`CONNECTION_CLOSED` in the host's server
+  list); the unified server lists gemini under `panel.unavailable` and the panel runs without it.
 
 ### Timeouts
 
@@ -430,7 +475,7 @@ and `session-annotate` (append a note to the audit trail). Full details:
 
 ## Dashboard
 
-A local, read-only browser view of deliberation runs: each `/consensus`, `/ask-all`, and
+A local, read-only browser view of Deliberation runs: each `/consensus`, `/ask-all`, and
 `/ask-*` run drawn as a state graph while it runs (which state is active, what each
 provider was sent and returned, timing, tokens), plus run history, the effective config,
 provider health, usage stats, and an Analyzer (which models agree more than they add,

@@ -1,6 +1,6 @@
 # Per-host rule snippets
 
-Copy-pasteable rule blocks that tell each host's model to use the deliberation
+Copy-pasteable rule blocks that tell each host's model to use the Deliberation
 MCP tools. Install the server first (see the project README), then drop the
 matching block into your host's rule file.
 

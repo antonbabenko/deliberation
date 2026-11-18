@@ -90,7 +90,7 @@ export function create() {
       h("section", { class: "panel" }, h("h2", {}, "Latency and measured tokens per model"),
         stats.length ? [h("p", { class: "hint" }, "p50 tick and p95 bar share one scale, successful calls only. Slowest p95 first."), latencyTable(stats)]
           : h("p", { class: "empty" }, meta.debugEnabled === false
-            ? "No timing data: the debug log is off. Set debug.enabled to true in the deliberation config; calls are measured from then on."
+            ? "No timing data: the debug log is off. Set debug.enabled to true in the Deliberation config; calls are measured from then on."
             : "No calls in the debug log yet. Run /ask-all or /consensus and come back.")),
       h("section", { class: "panel" }, h("h2", {}, "Verdict agreement"),
         agreement.length ? h("div", { class: "table-wrap" }, h("table", { class: "grid-table" },

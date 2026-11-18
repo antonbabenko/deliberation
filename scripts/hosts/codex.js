@@ -55,7 +55,7 @@ function build(ctx) {
   });
 
   // MCP server config at the plugin root. Provider keys come from the host env
-  // (OPENAI/Codex auth, XAI_API_KEY, OPENROUTER_API_KEY, Gemini via the agy CLI).
+  // (OPENAI/Codex auth, GEMINI_API_KEY, XAI_API_KEY, OPENROUTER_API_KEY; agy is an opt-in Gemini fallback).
   out[`${PLUGIN_DIR}/.mcp.json`] = S.json({
     mcpServers: {
       deliberation: { command: "npx", args: ["-y", S.MCP_PACKAGE], type: "stdio" },
@@ -82,7 +82,7 @@ function build(ctx) {
   out[`${PLUGIN_DIR}/skills/deliberation/SKILL.md`] = S.frontmatterDoc({
     name: "deliberation",
     description:
-      "When and how to delegate to GPT, Gemini, Grok, and OpenRouter expert subagents via the deliberation MCP tools.",
+      "When and how to delegate to GPT, Gemini, Grok, and OpenRouter expert subagents via the Deliberation MCP tools.",
     body: agents,
   });
 
@@ -98,7 +98,7 @@ function build(ctx) {
   // Reload MCP skill for cycle & process audits after updates
   out[`${PLUGIN_DIR}/skills/reload-mcp/SKILL.md`] = S.frontmatterDoc({
     name: "reload-mcp",
-    description: "After a deliberation update: clear the npx cache, stop the dashboard, and restart the MCP server.",
+    description: "After a Deliberation update: clear the npx cache, stop the dashboard, and restart the MCP server.",
     body: "# Reload Deliberation MCP\n\n" + S.RELOAD_BODY,
   });
 

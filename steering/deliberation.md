@@ -5,7 +5,7 @@ inclusion: always
 
 # Deliberation: when to delegate
 
-The deliberation MCP server exposes GPT (Codex), Gemini, Grok, and OpenRouter
+The Deliberation MCP server exposes GPT (Codex), Gemini, Grok, and OpenRouter
 as expert subagents. Stay the primary agent; call a tool when a task benefits
 from a second opinion or cross-model review, then apply your own judgment.
 

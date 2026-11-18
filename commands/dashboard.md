@@ -1,6 +1,6 @@
 ---
 name: dashboard
-description: Start (or `restart`) the local read-only dashboard (live and past deliberation runs as state graphs, config, health, stats, analyzer) and print its URL. Needs a browser on the same machine.
+description: Start (or `restart`) the local read-only dashboard (live and past Deliberation runs as state graphs, config, health, stats, analyzer) and print its URL. Needs a browser on the same machine.
 argument-hint: "[restart] [--port N]"
 allowed-tools: Bash
 timeout: 30000
@@ -12,7 +12,7 @@ Starts the local dashboard: a read-only web page on `127.0.0.1` that draws each
 `/consensus`, `/ask-all` and `/ask-*` run as a state graph while it runs, plus run
 history, the effective config, provider health, usage stats, and an analyzer (which models
 agree more than they add, per-project failures and latency, request size vs timeouts). It
-never changes deliberation state. Nothing is recorded until `dashboard.enabled` is `true` in the config.
+never changes Deliberation state. Nothing is recorded until `dashboard.enabled` is `true` in the config.
 
 ## Step 1: Start it (ONE Bash call, sandbox DISABLED)
 

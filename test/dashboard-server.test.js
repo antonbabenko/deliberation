@@ -491,7 +491,7 @@ test("S-sh: dashboard.sh names an install that predates the dashboard instead of
       env: { ...process.env, CLAUDE_PLUGIN_ROOT: old, CLAUDE_CODE_REMOTE: "" }, encoding: "utf8",
     });
     assert.equal(r.status, 1);
-    assert.match(r.stdout, /deliberation 3\.18\.0 at .* has no dashboard; update it/);
+    assert.match(r.stdout, /Deliberation 3\.18\.0 at .* has no dashboard; update it/);
   } finally {
     fs.rmSync(old, { recursive: true, force: true });
   }

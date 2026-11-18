@@ -5,7 +5,7 @@ A second opinion from other models before you ship. Any host, any vendor, one ve
 Each guide gives one install string for its host. Where a host has more than one way, the guide
 lists the rest under "Other ways to install".
 
-deliberation ships native plugin artifacts for non-Claude hosts, generated from
+Deliberation ships native plugin artifacts for non-Claude hosts, generated from
 the canonical sources by `scripts/sync-hosts.js` (drift-guarded in CI). Full
 install instructions per host:
 

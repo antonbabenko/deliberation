@@ -1,6 +1,6 @@
-# Installing deliberation in Cursor
+# Installing Deliberation in Cursor
 
-[Cursor](https://cursor.com) connects to the deliberation MCP server and reads a
+[Cursor](https://cursor.com) connects to the Deliberation MCP server and reads a
 project **rule** that tells the agent when to delegate. Both pieces are below.
 
 ## 1. Add the MCP server
@@ -49,9 +49,15 @@ you use:
 | Provider | How it authenticates |
 |----------|----------------------|
 | GPT (Codex) | Codex CLI auth (`codex login`, e.g. ChatGPT - `codex login --device-auth` on a remote machine; or `CODEX_ACCESS_TOKEN`; else `CODEX_API_KEY`) |
-| Gemini | The Antigravity CLI (`agy`) - sign in once with the CLI |
+| Gemini | `GEMINI_API_KEY` (Google AI Studio key). Opt-in fallback: the Antigravity CLI (`agy`) - see the terms note below |
 | Grok (xAI) | `XAI_API_KEY` |
 | OpenRouter | `OPENROUTER_API_KEY` (advisory-only; declare models in `~/.config/deliberation/config.json`) |
+
+Gemini note: with no key, Gemini falls back to the Antigravity CLI (`agy`). Read the
+[Antigravity terms](https://antigravity.google/terms) first. Section 6 lists "Using third
+party software, tools, or services to access the Service (e.g. using OpenClaw with
+Antigravity OAuth)" as a breach that "may be grounds for suspension or termination of your
+Antigravity and/or Gemini CLI accounts". Deliberation drives `agy` as third-party software.
 
 Missing keys just disable that one provider.
 
@@ -78,9 +84,9 @@ find ~/.npm/_npx -type d -path '*/@antonbabenko/deliberation-mcp' -prune -exec r
 On Windows, `dashboard --stop` is not supported: close the dashboard process first, then
 delete the `@antonbabenko\deliberation-mcp` folders under `%LocalAppData%\npm-cache\_npx`.
 
-Then restart the deliberation server in Cursor's MCP settings, or reload the window. In a
+Then restart the Deliberation server in Cursor's MCP settings, or reload the window. In a
 clone of this repository, `bash scripts/commands/reload-mcp.sh` clears the cached package, restarts the dashboard
-and audits the running deliberation processes.
+and audits the running Deliberation processes.
 
 If you use the dashboard, start it again on the new version with
 `npx -y @antonbabenko/deliberation-mcp dashboard`.

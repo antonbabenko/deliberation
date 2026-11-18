@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/antonbabenko/deliberation/master/config/config.schema.json",
-  "title": "deliberation config",
-  "description": "User config for the deliberation MCP server. providers = transport/connection; models = named model records; routing = fan-out policy; consensus.arbiter = who synthesizes the verdict.",
+  "title": "Deliberation config",
+  "description": "User config for the Deliberation MCP server. providers = transport/connection; models = named model records; routing = fan-out policy; consensus.arbiter = who synthesizes the verdict.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -381,7 +381,7 @@
     },
     "geminiProvider": {
       "type": "object",
-      "description": "Gemini (Antigravity CLI, agy) config. Connection is handled by agy; the model can be pinned here.",
+      "description": "Gemini config. Advisory calls use a Google AI Studio API key (GEMINI_API_KEY) over Google's OpenAI-compatible endpoint when one is set. The Antigravity CLI (agy) is the opt-in path: it runs workspace-write (implementation) calls under transport auto, advisory calls when no key is set, and every call when transport is \"agy\"; transport \"api\" never runs it. The Antigravity terms (https://antigravity.google/terms, section 6) list using third-party software to access the service as a breach that may suspend Antigravity and Gemini CLI accounts.",
       "additionalProperties": false,
       "properties": {
         "enabled": {
@@ -389,9 +389,28 @@
           "default": true,
           "description": "Whether this provider participates."
         },
+        "transport": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "api",
+            "agy"
+          ],
+          "default": "auto",
+          "description": "Which path advisory Gemini calls take. auto: the API when GEMINI_API_KEY is set, else agy; workspace-write uses agy. api: always the API key (GEMINI_API_KEY, else GOOGLE_API_KEY; Gemini is reported unavailable without one) and agy never runs, so workspace-write is refused. agy: always the Antigravity CLI, even with a key set (read the terms first). GOOGLE_API_KEY alone does not switch auto, since it is often a key for another Google API. The key is never passed to agy. Read per call by the standalone bridge; the MCP server reads it once at startup."
+        },
+        "apiModel": {
+          "type": "string",
+          "default": "gemini-flash-latest",
+          "examples": [
+            "gemini-flash-latest",
+            "gemini-3.8-flash"
+          ],
+          "description": "Gemini API model id for the API key path (not an agy id: agy ids such as \"gemini-3.6-flash-high\" fuse an effort the API does not take). The built-in \"gemini-flash-latest\" is Google's documented alias for the latest Flash release (Google gives two weeks' notice before it moves); pin a fixed id such as \"gemini-3.8-flash\" to stop it moving. List the ids your key can use with GET https://generativelanguage.googleapis.com/v1beta/models. A per-call model argument is ignored on this path (it is an agy id)."
+        },
         "model": {
           "type": "string",
-          "description": "agy model id, passed through to agy's --model so it wins over ~/.gemini/settings.json. Ids fuse family and reasoning effort (e.g. \"gemini-3.6-flash-high\"); a bare family is rejected with \"requires --effort\". Run `agy models` for the catalog on THIS machine - ids differ per install, which is why the built-in default is the portable \"auto-gemini-3\" router alias. Prefer a concrete pin: the alias routes server-side and agy's catalog also carries Claude and GPT-OSS entries, so a routed call can seat a non-Gemini model in the Gemini slot and silently collapse cross-vendor independence in ask-all/consensus. Precedence: per-call model > this key > GEMINI_DEFAULT_MODEL > built-in."
+          "description": "agy path only. agy model id, passed through to agy's --model so it wins over ~/.gemini/settings.json. Ids fuse family and reasoning effort (e.g. \"gemini-3.6-flash-high\"); a bare family is rejected with \"requires --effort\". Run `agy models` for the catalog on THIS machine - ids differ per install, which is why the built-in default is the portable \"auto-gemini-3\" router alias. Prefer a concrete pin: the alias routes server-side and agy's catalog also carries Claude and GPT-OSS entries, so a routed call can seat a non-Gemini model in the Gemini slot and silently collapse cross-vendor independence in ask-all/consensus. Precedence: per-call model > this key > GEMINI_DEFAULT_MODEL > built-in."
         },
         "timeout": {
           "type": "integer",
@@ -694,11 +713,11 @@
         },
         "apiBase": {
           "type": "string",
-          "description": "Override the provider apiBase for this record only. Honored ONLY by the standalone openrouter bridge (e.g. /ask-openrouter); ignored by the unified deliberation server. Threat model: prompts and files go to this host, so point it only at endpoints you trust. The provider key is sent only when this value equals the provider apiBase after trailing slashes are stripped (exact string match); any other base gets no key unless the record sets apiKeyEnv."
+          "description": "Override the provider apiBase for this record only. Honored ONLY by the standalone openrouter bridge (e.g. /ask-openrouter); ignored by the unified Deliberation server. Threat model: prompts and files go to this host, so point it only at endpoints you trust. The provider key is sent only when this value equals the provider apiBase after trailing slashes are stripped (exact string match); any other base gets no key unless the record sets apiKeyEnv."
         },
         "apiKeyEnv": {
           "type": "string",
-          "description": "Override the provider apiKeyEnv for this record only. Honored ONLY by the standalone openrouter bridge; ignored by the unified deliberation server. Threat model: the named env var is sent as a bearer token to this record's apiBase; if the var is unset or empty the request is keyless, never the provider key."
+          "description": "Override the provider apiKeyEnv for this record only. Honored ONLY by the standalone openrouter bridge; ignored by the unified Deliberation server. Threat model: the named env var is sent as a bearer token to this record's apiBase; if the var is unset or empty the request is keyless, never the provider key."
         },
         "default": {
           "type": "boolean",
