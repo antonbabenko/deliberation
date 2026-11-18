@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
+  <img src="assets/logo.svg" alt="Deliberation" width="322" height="64">
+</picture>
+
 # deliberation - second opinion for coding agents
 
 [![npm](https://img.shields.io/npm/v/@antonbabenko/deliberation-mcp)](https://www.npmjs.com/package/@antonbabenko/deliberation-mcp) [![Validate](https://github.com/antonbabenko/deliberation/actions/workflows/validate.yml/badge.svg?branch=master)](https://github.com/antonbabenko/deliberation/actions/workflows/validate.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
