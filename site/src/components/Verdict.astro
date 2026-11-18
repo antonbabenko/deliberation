@@ -1,0 +1,11 @@
+---
+// A verdict as a word in a stroked box: solid APPROVE, dashed REQUEST CHANGES, heavy REJECT.
+// A failed call gets its own word and mark: TIMEOUT behind a dashed run, FAULT behind a hatch.
+import { tone, word } from '../lib/run-model.ts'
+
+interface Props {
+  v: string
+}
+const { v } = Astro.props
+---
+<b class={`vd ${tone(v)}`}>{word(v)}</b>

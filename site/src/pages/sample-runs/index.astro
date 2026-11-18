@@ -1,0 +1,30 @@
+---
+// Index of every recorded run: one line each, linking to its own page at
+// /sample-runs/<id>/. Generated from src/data/replay/*.json.
+import Layout from '../../layouts/Layout.astro'
+import { runs } from '../../lib/runs.ts'
+import { routeOf, breadcrumbList } from '../../lib/seo.ts'
+import { subjectKind } from '../../lib/run-model.ts'
+import { outcomeWord, runSlug } from '../../lib/run-pages.ts'
+
+const description = 'Recorded Deliberation consensus runs. Each one has its own page: the exact prompt, every reviewer\'s answer verbatim, the host agent\'s rulings with their reasons, and the outcome.'
+---
+<Layout title="Sample runs" description={description} jsonLd={[breadcrumbList([{ name: 'Home', slug: '' }, { name: 'Sample runs', slug: 'sample-runs' }])]}>
+  <div class="doc runs-doc">
+    <nav class="crumbs" aria-label="Breadcrumb" data-pagefind-ignore>
+      <ol><li><a href={routeOf('')}>Home</a></li><li aria-current="page">Sample runs</li></ol>
+    </nav>
+    <h1>Sample runs</h1>
+    <p class="lede">Real consensus runs. Open one for the exact prompt, every reviewer's answer verbatim, the rulings and the outcome. Some were recovered from the logs of older engines; where a verdict or a ruling was not kept, the page says so.</p>
+    <ul class="run-list">
+      {runs.map((run) => (
+        <li id={run.id}>
+          <a href={routeOf(runSlug(run))}>{run.subject.title}</a>
+          <span class="meta">{subjectKind(run)}, <code>{run.expert}</code></span>
+          <span class={`word ${outcomeWord(run) === 'converged' ? 'ok' : 'open'}`}>{outcomeWord(run)}</span>
+        </li>
+      ))}
+    </ul>
+    <nav class="pager" aria-label="Pages" data-pagefind-ignore><a href={routeOf('features')}>Features</a><a href={routeOf('install')}>Install</a></nav>
+  </div>
+</Layout>

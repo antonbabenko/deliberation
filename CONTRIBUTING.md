@@ -50,6 +50,7 @@ deliberation/
 ├── config/                 # Config schema + defaults
 ├── scripts/                # sync-hosts.js (generates per-host files) and helpers
 ├── docs/                   # Tool guide, per-host docs, developer docs (docs/dev/)
+├── site/                   # Website (Astro), built from the Markdown above; not released
 ├── .claude-plugin/         # Claude Code plugin manifest
 ├── AGENTS.md               # Instructions for coding agents working on this repo
 └── README.md               # User-facing docs
@@ -122,6 +123,21 @@ You never bump versions by hand.
 `serverInfo.version` literal in `server/mcp/index.js` are kept in sync by CI
 (`.github/release/pre-commit.js`). Do not edit those version fields by hand - the `validate`
 check fails if they drift.
+
+### The website is not released
+
+The website in `site/` is built from this repo's Markdown and deployed to GitHub Pages by
+`.github/workflows/site.yml`. It never cuts a release:
+
+- A push to `master` that changes only `site/**` or `.github/workflows/site.yml` does not run
+  the release workflow (`paths-ignore` in `automated-release.yml`).
+- Site work uses a type that does not release: `docs(site):`, `chore(site):` or `ci(site):`.
+  These types add nothing to the changelog, so a site commit merged next to a `feat:` or
+  `fix:` does not change the version bump or the release notes. Never use `feat`, `fix`,
+  `perf`, `revert` or a `!` for site work. Because PRs are squash-merged, this applies to
+  the PR title.
+- Doc pages the site renders (README.md, SETUP.md, docs/...) keep their usual commit types.
+  The site rebuilds on any change to them.
 
 ### Fresh-machine check
 

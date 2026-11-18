@@ -1,0 +1,47 @@
+---
+// Install switcher: radio tabs, so it works with no script. The layout script only
+// remembers the choice across pages and honours a #host-<id> link.
+// `detail` shows every install step and a link to the host's own page (install page).
+// The steps live only here; /hosts/<id>/ links back to them.
+import Cmd from './Cmd.astro'
+import { HOSTS } from '../data/site-copy.ts'
+import { routeOf } from '../lib/seo.ts'
+
+interface Props {
+  name?: string
+  detail?: boolean
+}
+const { name = 'host', detail = false } = Astro.props
+---
+<fieldset class="hosts">
+  <legend class="sr">Your host</legend>
+  {HOSTS.map((h, i) => (
+    <>
+      <input class="sr" type="radio" name={name} id={`${name}-${h.id}`} value={h.id} checked={i === 0} />
+      <label for={`${name}-${h.id}`}>{h.name}</label>
+    </>
+  ))}
+  <div class="panels">
+    {HOSTS.map((h) => (
+      <div class="panel">
+        {detail ? (
+          <ol class="steps">
+            {h.steps.map((s) => (
+              <li>
+                <h3>{s.title}</h3>
+                {s.cmd && <Cmd text={s.cmd} />}
+                {s.text && <p set:html={s.text} />}
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <>
+            {h.cmd && <Cmd text={h.cmd} />}
+            {h.note && <p class="host-note" set:html={h.note} />}
+          </>
+        )}
+        {detail && h.guide && <p class="host-doc"><a href={routeOf(h.guide)}>More for {h.name}: other ways to install, provider keys, updating</a></p>}
+      </div>
+    ))}
+  </div>
+</fieldset>

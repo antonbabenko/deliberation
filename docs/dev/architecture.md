@@ -42,6 +42,12 @@ How the repo is put together. Read before changing `core/`, `server/`, or the co
   routes/guards/SSE, `runs.js` run index, `tail.js` byte-offset tailer, `ui/` static page),
   reached as `node server/mcp/index.js dashboard`. It reads the run journal that `core/journal.js`
   writes; `core/redact.js` masks PII on serve. See Key Design Decision #17.
+- **`site/`** - the website: a standalone Astro project (own `package.json`, Node >=22.23.4)
+  that renders the repo's own Markdown at build time. `site/src/pages.config.ts` maps routes to
+  source files; `site/src/lib/docs-loader.ts` renders each file whole with Astro's Markdown
+  processor and slices it at H2s, rewriting links to site routes or GitHub. Deployed to GitHub
+  Pages by `.github/workflows/site.yml`; excluded from releases. Not covered by the root
+  `npm run check`.
 - **Typecheck gate** - `tsconfig.json` strict `checkJs` over `core/**` + `server/mcp/**/*.js`
   (excludes `server/mcp/dist`). `npm run check` = `typecheck` + `node --test test/*.test.js`,
   enforced in CI by `.github/workflows/validate.yml`.

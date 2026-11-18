@@ -1,0 +1,171 @@
+---
+// One recorded run, read out round by round: the exact prompt, the round history, every
+// reviewer's answer, the host's rulings and the outcome. Generated from
+// src/data/replay/<id>.json; nothing on this page is written per run.
+import Layout from '../../layouts/Layout.astro'
+import Verdict from '../../components/Verdict.astro'
+import { runs } from '../../lib/runs.ts'
+import { routeOf, breadcrumbList } from '../../lib/seo.ts'
+import { type Run, blindState, rulingsLost, unrecorded, word, day, dur, failNote, failed, firstSentence, plural, raisedBy, rulingIssue, short, state, subjectKind, subjectUrl, tally, voices } from '../../lib/run-model.ts'
+import { isLong, neighbours, outcomeWord, panelNames, runMeta, runSlug } from '../../lib/run-pages.ts'
+
+export const getStaticPaths = () => runs.map((run) => ({ params: { id: run.id }, props: { run } }))
+
+interface Props {
+  run: Run
+}
+const { run } = Astro.props
+const meta = runMeta(run)
+const vs = voices(run)
+const voiceOf = (source: string) => vs.find((v) => v.source === source) ?? vs[0]
+const url = subjectUrl(run)
+const themes = run.outcome.nonBlockingThemes ?? []
+const plan = run.planUnderReview ?? ''
+const { prev, next } = neighbours(runs, run.id)
+---
+<Layout title={meta.title} description={meta.description} jsonLd={[breadcrumbList([{ name: 'Home', slug: '' }, { name: 'Sample runs', slug: 'sample-runs' }, { name: run.subject.title, slug: runSlug(run) }])]}>
+  <div class="doc runs-doc">
+    <nav class="crumbs" aria-label="Breadcrumb" data-pagefind-ignore>
+      <ol><li><a href={routeOf('')}>Home</a></li><li><a href={routeOf('sample-runs')}>Sample runs</a></li><li aria-current="page">{run.subject.title}</li></ol>
+    </nav>
+    <h1>{run.subject.title}</h1>
+    <p class="lede">
+      {subjectKind(run)}, reviewed by the <code>{run.expert}</code> expert on {panelNames(run)}.
+      {url && <> {run.subject.type === 'pull-request' ? 'The change is ' : 'It follows up '}<a href={url}>{url.replace('https://github.com/', '')}</a>.</>}
+    </p>
+    <p class={`result${run.outcome.converged ? '' : ' open'}`}><b>{outcomeWord(run)}</b> after {plural(run.rounds.length, 'round')}</p>
+    <p class="stamp">{run.provenance === 'recovered' ? 'Recovered from the logs of a run on' : 'Recorded'} {day(run)} on Deliberation {run.deliberationVersion}{run.runId && `, run ${run.runId}`}, tool {run.tool}. Reviewer text is verbatim, so it can disagree with itself and with the verdict line the engine read.</p>
+
+    <h2 id="prompt">The prompt</h2>
+    <h3>Question</h3>
+    <pre class="payload" tabindex="0">{run.question}</pre>
+    {plan && (
+      <>
+        <h3>Sent to every reviewer</h3>
+        <details open={!isLong(plan)}>
+          <summary class="meta">Full text, verbatim ({plan.length.toLocaleString('en-US')} characters)</summary>
+          <pre class="payload" tabindex="0">{plan}</pre>
+        </details>
+      </>
+    )}
+
+    <h2 id="history">Round history</h2>
+    <div class="tw">
+      <table class="t">
+        <caption class="sr">Round history</caption>
+        <thead><tr><th scope="col">Round</th><th scope="col">Blind verdict</th><th scope="col">Reviewers</th><th scope="col">After adjudication</th><th scope="col">Outcome</th></tr></thead>
+        <tbody>
+          {run.rounds.map((r) => (
+            <tr>
+              <th scope="row" data-label="Round"><a href={`#round-${r.n}`} class="rnd">Round {r.n}</a> <span class="n">{dur(r.roundMs)}</span></th>
+              <td data-label="Blind verdict"><Verdict v={blindState(r)} /></td>
+              <td data-label="Reviewers">
+                {r.peers.map((p) => (
+                  <span class="op"><span class={`v i${voiceOf(p.source).ink}`}>{short(p.source)}</span> <Verdict v={state(p)} />{p.criticalIssues.length > 0 && <span class="n">[{p.criticalIssues.length}]</span>}</span>
+                ))}
+              </td>
+              <td data-label="After adjudication"><Verdict v={r.hostVerdict} />{rulingsLost(r) && r.acceptedIssues != null && <span class="n"> {r.acceptedIssues} accepted</span>}{r.revision && <span class="n"> revised</span>}</td>
+              <td data-label="Outcome">{r.convergence.converged ? `Converged, ${tally(r)}` : `Not converged, ${tally(r)}`}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+
+    {run.rounds.map((r) => (
+      <section aria-labelledby={`round-${r.n}`}>
+        <h2 id={`round-${r.n}`}>Round {r.n}</h2>
+        {r.hostBlindVerdict ? (
+          <p>
+            <b>Blind verdict.</b> Before any reviewer answered, the host agent recorded <Verdict v={r.hostBlindVerdict.verdict} />
+            {r.hostBlindVerdict.criticalIssues.length > 0 && <> with {plural(r.hostBlindVerdict.criticalIssues.length, 'issue')} of its own</>}: {r.hostBlindVerdict.summary}
+          </p>
+        ) : (
+          <p><b>Blind verdict.</b> <Verdict v={blindState(r)} /> The host agent's blind verdict for this round was not kept.</p>
+        )}
+        <ul class="quotes">
+          {r.peers.map((p) => (
+            <li>
+              <p class="who">
+                <span class={`v i${voiceOf(p.source).ink}`}>{short(p.source)}</span> <Verdict v={state(p)} />
+                <span class="meta">{p.model}, {failed(p) ? failNote(p) : unrecorded(p) && p.criticalIssues.length === 0 ? dur(p.ms) : `${plural(p.criticalIssues.length, 'issue')}, ${dur(p.ms)}`}</span>
+              </p>
+              {failed(p) ? (
+                <p class="lost">No answer{p.message && <>: <code>{p.message}</code></>}. A failed call is not a vote and does not count toward convergence.</p>
+              ) : unrecorded(p) && !p.text ? (
+                <p class="lost">Verdict not recorded. The call returned without an error, but neither its verdict nor its text was kept; only the timing is known. It is not counted as a vote.</p>
+              ) : (
+                <>
+                  {unrecorded(p) && <p class="lost">Verdict not recorded: the engine read no verdict from this reply, so it is not counted as a vote.</p>}
+                  {p.summary ? (
+                    <blockquote>{p.summary}</blockquote>
+                  ) : p.text ? (
+                    <p class="lost">This reply has no summary line. The full response is below.</p>
+                  ) : (
+                    <p class="lost">The recording holds no summary or response text for this answer.</p>
+                  )}
+                </>
+              )}
+              {p.text && (
+                <details>
+                  <summary>Full response, verbatim</summary>
+                  <pre class="payload" tabindex="0">{p.text}</pre>
+                </details>
+              )}
+            </li>
+          ))}
+        </ul>
+        {r.adjudication.length > 0 ? (
+          <div class="tw">
+            <table class="t">
+              <caption>Round {r.n} rulings: every issue, with the reason the host agent wrote</caption>
+              <thead><tr><th scope="col">Issue</th><th scope="col">Raised by</th><th scope="col">Ruling</th><th scope="col">Reason</th></tr></thead>
+              <tbody>
+                {r.adjudication.map((a) => {
+                  const issue = rulingIssue(r, a)
+                  const by = raisedBy(vs, a.source)
+                  return (
+                    <tr>
+                      <th scope="row" data-label="Issue">{issue && <><span class="cat">{issue.category}</span> {firstSentence(issue.text)}</>}</th>
+                      <td data-label="Raised by"><span class={`v i${by.ink}`}>{by.label}</span></td>
+                      <td data-label="Ruling"><b class={`rul ${a.decision}`}>{a.decision}</b></td>
+                      <td data-label="Reason">{a.reason}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : rulingsLost(r) ? (
+          <p class="lost">
+            <b>Rulings not recorded.</b> The host agent ruled on this round, but its individual rulings and reasons were not kept. What survives is its verdict, {word(r.hostVerdict)}
+            {r.acceptedIssues != null && <>, and the count of critical issues it accepted, {r.acceptedIssues}</>}.
+          </p>
+        ) : (
+          <p>No reviewer listed a critical issue, so there was nothing to rule on.</p>
+        )}
+        <p><b>Why the round closed this way.</b> {r.convergence.reason}</p>
+        {r.revisionSummary && <p class="rev"><span class="cat">revision</span> {r.revisionSummary}</p>}
+      </section>
+    ))}
+
+    <h2 id="outcome">Outcome</h2>
+    <p class={`result${run.outcome.converged ? '' : ' open'}`}><b>{run.outcome.finalReportHeadline}</b></p>
+    {themes.length > 0 && (
+      <>
+        <h3>Still in the report</h3>
+        <p>What the run did not fix stays listed.</p>
+        <ul class="themes">
+          {themes.map((t) => <li>{t.theme} <span class="meta">Raised by {t.raisedBy.join(', ')}.</span></li>)}
+        </ul>
+      </>
+    )}
+    {run.notOnPanel && run.notOnPanel.length > 0 && (
+      <p class="meta">Not on the panel: {run.notOnPanel.map((n) => `${n.provider} (${n.reason})`).join('; ')}.</p>
+    )}
+    <nav class="pager" aria-label="Runs" data-pagefind-ignore>
+      {prev ? <a href={routeOf(runSlug(prev))} rel="prev">Previous: {prev.subject.title}</a> : <a href={routeOf('sample-runs')}>All sample runs</a>}
+      {next ? <a href={routeOf(runSlug(next))} rel="next">Next: {next.subject.title}</a> : <a href={routeOf('sample-runs')}>All sample runs</a>}
+    </nav>
+  </div>
+</Layout>

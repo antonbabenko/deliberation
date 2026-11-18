@@ -1,0 +1,472 @@
+{
+  "id": "tf-cloudfront-apigw-root-brief",
+  "recordedAt": "2026-09-05T11:40:42.343Z",
+  "deliberationVersion": "3.14.5",
+  "runId": null,
+  "provenance": "recovered",
+  "tool": "consensus-step",
+  "expert": "plan-reviewer",
+  "question": "Review a Terraform root against the brief it was written for. Answer one question: does the root satisfy EVERY requirement in the brief?",
+  "subject": {
+    "type": "plan",
+    "title": "Does a CloudFront and API Gateway Terraform root meet the brief it was written for?",
+    "short": "CloudFront + API Gateway brief"
+  },
+  "planUnderReview": "Review a Terraform root against the brief it was written for. Answer one question: does the root satisfy EVERY requirement in the brief?\n\nReview it through three lenses and say which lens each finding comes from:\n- Architect: is the intended topology actually enforced by the resources, or only described?\n- Security Analyst: what is reachable by an attacker that the brief says must not be?\n- Plan Reviewer: requirement-by-requirement conformance, including the ones that look satisfied.\n\nYou are file-blind. Everything you need is inlined below. Do not assume resources exist that are not listed.\n\n=== THE BRIEF (demo/briefs/case1.md) ===\nBrief - public order lookup API\nWe are exposing the order lookup endpoint to our mobile app.\n\nRequirements:\n1. No public access to the API itself. Everything reaches it through CloudFront.\n2. CloudFront must have a WAF attached with a rate limit.\n3. Requests must be authenticated (IAM auth is fine for now).\n4. Access logs retained for a year, encrypted with a customer-managed key.\n5. Serve only to our launch markets: PL, NO, SE, DK, DE.\n\nOut of scope: custom domain and ACM certificate - we ship on the default CloudFront certificate for this milestone.\n\n=== THE ROOT (demo/case1-cloudfront/, complete resource inventory) ===\n\nAPI layer:\n- aws_api_gateway_rest_api.this - REST API, edge-agnostic, NO aws_api_gateway_rest_api_policy resource exists anywhere in the root.\n- aws_api_gateway_resource.orders (path_part \"orders\"), aws_api_gateway_method.get_orders with authorization = \"AWS_IAM\", request_validator attached.\n- aws_api_gateway_integration.get_orders - type MOCK, returns 200.\n- aws_api_gateway_deployment.this, aws_api_gateway_stage.prod - stage_name \"prod\", xray_tracing_enabled, cache_cluster_enabled with cache_data_encrypted = true, client_certificate_id set.\n- aws_api_gateway_stage.prod access_log_settings -> aws_cloudwatch_log_group.api.\n- aws_cloudwatch_log_group.api - retention_in_days = 365, kms_key_id = aws_kms_key.logs.arn.\n- aws_kms_key.logs - CMK, enable_key_rotation = true, deletion_window 30. aws_kms_key_policy.logs allows only account root kms:*.\n\nEdge layer:\n- aws_wafv2_web_acl.edge - scope CLOUDFRONT, default_action allow, rule 0 = AWSManagedRulesKnownBadInputsRuleSet (count/none override), rule 1 = rate_based_statement limit 2000 aggregate_key_type IP with block action.\n- aws_cloudfront_distribution.this - web_acl_id = aws_wafv2_web_acl.edge.arn, price_class PriceClass_100.\n  - origin.domain_name = \"${aws_api_gateway_rest_api.this.id}.execute-api.${var.region}.amazonaws.com\", origin_id \"apigw\", origin_path \"/prod\", custom_origin_config https-only TLSv1.2.\n  - The origin block sets NO custom_header. No secret header is injected.\n  - default_cache_behavior: Managed-SecurityHeadersPolicy, viewer_protocol_policy redirect-to-https, allowed_methods and cached_methods [\"GET\",\"HEAD\"], forwarded_values query_string true, cookies forward none.\n  - logging_config -> aws_s3_bucket.logs, prefix \"cloudfront/\", include_cookies false.\n  - restrictions.geo_restriction: whitelist [\"PL\",\"NO\",\"SE\",\"DK\",\"DE\"].\n  - viewer_certificate: cloudfront_default_certificate = true, minimum_protocol_version TLSv1.2_2021.\n\nRegional WAF (added because Checkov CKV2_AWS_29 asked for it):\n- aws_wafv2_web_acl.api - scope REGIONAL, default_action allow, ONE rule: AWSManagedRulesKnownBadInputsRuleSet. It has NO rate limit rule, NO geo rule, and NO rule that inspects any header.\n- aws_wafv2_web_acl_association.api - resource_arn = aws_api_gateway_stage.prod.arn, so this REGIONAL ACL IS genuinely associated with the stage.\n- aws_wafv2_web_acl_logging_configuration for both ACLs -> log groups with retention 365 and the CMK.\n\nCloudFront log sink:\n- aws_s3_bucket.logs (bucket_prefix), ownership_controls BucketOwnerEnforced, SSE aws:kms with aws_kms_key.logs.arn, versioning Enabled, bucket logging to itself, full public_access_block.\n- aws_s3_bucket_lifecycle_configuration.logs - rule \"expire\", status Enabled, filter {}, expiration.days = 90, abort_incomplete_multipart_upload 7 days.\n\nOutputs: cloudfront_url (the distribution domain + /orders) and execute_api_url (the raw https://<rest-api-id>.execute-api.<region>.amazonaws.com/prod/orders).\n\nScanner status, verified: this root is GREEN on terraform validate, tflint, tfsec, and Checkov. No scanner flags it. Do not defer to the scanners; they were never given the brief.\n\n=== WHAT TO PRODUCE ===\nA verdict (APPROVE / REQUEST_CHANGES / REJECT) plus a list of critical issues, each tagged with a category from: security, correctness, scope, ambiguity, performance, ops. Walk requirements 1-5 explicitly and state PASS or FAIL for each with the resource evidence. If a requirement looks satisfied by a resource that does not actually enforce it, say so.",
+  "panel": [
+    {
+      "provider": "codex",
+      "source": "codex",
+      "model": "default",
+      "reasoningEffort": null,
+      "role": "peer"
+    },
+    {
+      "provider": "gemini",
+      "source": "gemini",
+      "model": "gemini-3.7-flash-high",
+      "reasoningEffort": null,
+      "role": "peer"
+    },
+    {
+      "provider": "grok",
+      "source": "grok",
+      "model": "grok-4.6",
+      "reasoningEffort": "high",
+      "role": "peer"
+    },
+    {
+      "provider": "openrouter",
+      "source": "openrouter:kimi-k3",
+      "model": "moonshotai/kimi-k3",
+      "reasoningEffort": "high",
+      "role": "peer"
+    },
+    {
+      "provider": "openrouter",
+      "source": "openrouter:glm-5-3",
+      "model": "z-ai/glm-5.3",
+      "reasoningEffort": "high",
+      "role": "peer"
+    }
+  ],
+  "arbiter": {
+    "kind": "host"
+  },
+  "limits": {
+    "maxRounds": 5
+  },
+  "steps": [
+    {
+      "action": "init",
+      "status": "await_blind",
+      "round": 1
+    },
+    {
+      "action": "record_blind",
+      "status": "await_peers",
+      "round": 1
+    },
+    {
+      "action": "dispatch_peers",
+      "status": "await_adjudication",
+      "round": 1
+    },
+    {
+      "action": "submit_adjudication",
+      "status": "await_revision",
+      "round": 1
+    },
+    {
+      "action": "submit_revision",
+      "status": "await_blind",
+      "round": 2
+    },
+    {
+      "action": "record_blind",
+      "status": "await_peers",
+      "round": 2
+    },
+    {
+      "action": "dispatch_peers",
+      "status": "await_adjudication",
+      "round": 2
+    },
+    {
+      "action": "submit_adjudication",
+      "status": "await_revision",
+      "round": 2
+    },
+    {
+      "action": "submit_revision",
+      "status": "await_blind",
+      "round": 3
+    },
+    {
+      "action": "record_blind",
+      "status": "await_peers",
+      "round": 3
+    },
+    {
+      "action": "dispatch_peers",
+      "status": "await_adjudication",
+      "round": 3
+    },
+    {
+      "action": "submit_adjudication",
+      "status": "await_revision",
+      "round": 3
+    },
+    {
+      "action": "submit_revision",
+      "status": "await_blind",
+      "round": 4
+    },
+    {
+      "action": "record_blind",
+      "status": "await_peers",
+      "round": 4
+    },
+    {
+      "action": "dispatch_peers",
+      "status": "unresolved",
+      "round": 4
+    }
+  ],
+  "rounds": [
+    {
+      "n": 1,
+      "hostBlindVerdict": null,
+      "peers": [
+        {
+          "source": "codex",
+          "provider": "codex",
+          "model": "default",
+          "reasoningEffort": null,
+          "verdict": null,
+          "criticalIssues": [],
+          "summary": "REJECT. The technical review has sufficient evidence and explicit acceptance criteria, but its exact output contract is impossible to satisfy literally. Resolve whether the VERDICT line comes before the critical issues or must be the final line. Confidence: high.",
+          "text": "**[REJECT]**\n\n**Justification**: The substantive review is fully executable from the inlined inventory, but the mandatory output instructions contradict each other.\n\n**Blocking issues**\n\n1. In `WHAT TO PRODUCE`, “End with a line … `VERDICT:`” conflicts with “Then list any critical issues.” The verdict cannot simultaneously be the final line and precede the issue list. Specify one required ordering.\n\n<SUMMARY>REJECT. The technical review has sufficient evidence and explicit acceptance criteria, but its exact output contract is impossible to satisfy literally. Resolve whether the VERDICT line comes before the critical issues or must be the final line. Confidence: high.</SUMMARY>",
+          "ms": 24060
+        },
+        {
+          "source": "gemini",
+          "provider": "gemini",
+          "model": "gemini-3.7-flash-high",
+          "reasoningEffort": null,
+          "verdict": null,
+          "criticalIssues": [],
+          "summary": null,
+          "text": null,
+          "ms": 24054
+        },
+        {
+          "source": "grok",
+          "provider": "grok",
+          "model": "grok-4.6",
+          "reasoningEffort": "high",
+          "verdict": null,
+          "criticalIssues": [],
+          "summary": null,
+          "text": null,
+          "ms": 157314
+        },
+        {
+          "source": "openrouter:kimi-k3",
+          "provider": "openrouter",
+          "model": "moonshotai/kimi-k3",
+          "reasoningEffort": "high",
+          "verdict": null,
+          "criticalIssues": [],
+          "summary": null,
+          "text": null,
+          "ms": 155059
+        },
+        {
+          "source": "openrouter:glm-5-3",
+          "provider": "openrouter",
+          "model": "z-ai/glm-5.3",
+          "reasoningEffort": "high",
+          "verdict": null,
+          "criticalIssues": [],
+          "summary": null,
+          "text": null,
+          "ms": 27441
+        }
+      ],
+      "roundMs": 157614,
+      "slowest": "grok",
+      "adjudication": [],
+      "adjudicationRecovered": false,
+      "acceptedIssues": 19,
+      "hostVerdict": "REJECT",
+      "revision": "Revised Terraform root for demo/case1-cloudfront/, reviewed against the same brief. Same three lenses: Architect (is the topology enforced or only described), Security Analyst (what is reachable that the brief forbids), Plan Reviewer (requirement-by-requirement).\n\nThe brief is unchanged:\n1. No public access to the API itself. Everything reaches it through CloudFront.\n2. CloudFront must have a WAF attached with a rate limit.\n3. Requests must be authenticated (IAM auth is fine for now).\n4. Access logs retained for a year, encrypted with a customer-managed key.\n5. Serve only to launch markets PL, NO, SE, DK, DE.\nOut of scope: custom domain and ACM certificate.\n\n=== WHAT CHANGED FROM ROUND 1 ===\n\nCHANGE 1 - the origin is now bound to CloudFront (req 1, and transitively 2 and 5).\n- New variable: var.origin_secret, type string, sensitive = true, no default.\n- aws_cloudfront_distribution.this origin block gains:\n    custom_header { name = \"X-Origin-Verify\", value = var.origin_secret }\n- aws_wafv2_web_acl.api (REGIONAL, already associated with aws_api_gateway_stage.prod) gains a new rule at priority 0:\n    action = block\n    statement = not_statement { byte_match_statement {\n      search_string = var.origin_secret\n      positional_constraint = \"EXACTLY\"\n      field_to_match { single_header { name = \"x-origin-verify\" } }\n      text_transformation { priority = 0, type = \"NONE\" } } }\n  Anything arriving at the stage without the matching header value is blocked.\n  Sending the header is not the control. Checking it is. The block rule is the fix; the custom_header alone would leave execute-api usable on its own.\n- This also answers the round-1 scope finding that the REGIONAL ACL existed only to satisfy Checkov CKV2_AWS_29. It now enforces a requirement from the brief.\n\nCHANGE 2 - the front door actually authenticates (req 3).\nRound 1 set authorization = \"AWS_IAM\" on the method, but the distribution used legacy forwarded_values with no header whitelist, so CloudFront never forwarded Authorization and every SigV4 request through the intended front door returned 403. IAM auth was gating only the direct path the brief wanted closed.\n- default_cache_behavior drops forwarded_values and instead uses:\n    cache_policy_id = managed CachingDisabled\n    origin_request_policy_id = managed AllViewerExceptHostHeader\n  This forwards Authorization (and the query string) to the origin while letting CloudFront set Host to the execute-api domain.\n- Load-bearing operational detail, stated because it is the part that silently breaks: the mobile app must compute its SigV4 signature against the execute-api origin hostname, not against the CloudFront distribution hostname, because CloudFront rewrites Host on the origin request and the signature covers Host. This belongs in the client integration notes, not only in the Terraform.\n- CachingDisabled is deliberate: an authenticated per-user order lookup must not be shared from an edge cache. The stage keeps cache_cluster_enabled for its own reasons, which is a separate decision from edge caching.\n\nCHANGE 3 - log retention is a year everywhere (req 4).\n- aws_s3_bucket_lifecycle_configuration.logs: expiration.days = 90 becomes 365, matching aws_cloudwatch_log_group.api, which was already 365. Round 1 satisfied the requirement on the CloudWatch half and contradicted it on the S3 half.\n\nCHANGE 4 - the CMK can actually be used by the services that write the logs (req 4).\nRound 1's aws_kms_key_policy.logs granted only the account root kms:*, which is not sufficient for service-side encryption. Log group creation with kms_key_id fails without an explicit grant.\n- The key policy gains statements for:\n  - logs.${var.region}.amazonaws.com with kms:Encrypt, kms:Decrypt, kms:ReEncrypt*, kms:GenerateDataKey*, kms:Describe*, scoped by an ArnLike condition on kms:EncryptionContext:aws:logs:arn for this account and region. This covers the API access log group and both WAF logging log groups.\n  - delivery.logs.amazonaws.com with kms:GenerateDataKey* and kms:Decrypt for the CloudFront log delivery path.\n- The account-root administrative statement stays.\n\nCHANGE 5 - CloudFront logging that survives SSE-KMS and BucketOwnerEnforced (req 4).\nRound 1 combined legacy CloudFront standard logging with an SSE-KMS bucket under BucketOwnerEnforced ownership. Legacy standard logging does not support SSE-KMS destinations and writes via ACLs, which BucketOwnerEnforced disables, so those logs would not have been delivered at all. The requirement looked satisfied by resources that do not deliver.\n- The logging_config block is removed from aws_cloudfront_distribution.this.\n- CloudFront access logs move to standard logging v2: aws_cloudwatch_log_delivery_source on the distribution, aws_cloudwatch_log_delivery_destination targeting the S3 bucket, and aws_cloudwatch_log_delivery joining them.\n- The bucket keeps SSE-KMS with the CMK, keeps BucketOwnerEnforced, keeps versioning and the full public access block. v2 delivery works with both, so the customer-managed-key half of req 4 is preserved rather than traded away.\n\nCHANGE 6 - stop publishing the bypass path.\n- output \"execute_api_url\" is removed. It handed out the direct endpoint. With CHANGE 1 that endpoint is blocked rather than open, but an output whose stated purpose is the bypass has no reason to survive the fix.\n- output \"cloudfront_url\" stays.\n\n=== UNCHANGED, DELIBERATELY ===\n- aws_wafv2_web_acl.edge keeps the rate_based_statement at limit 2000 aggregate_key_type IP and the KnownBadInputs managed group. With CHANGE 1 the direct path is blocked, so the edge rate limit is now the only way in and req 2 is enforced rather than merely attached.\n- geo_restriction whitelist PL, NO, SE, DK, DE stays CloudFront-only. That is now sufficient: the direct path is blocked at the REGIONAL ACL, so there is no route that skips the geo check. No duplicate regional geo rule is added.\n- client_certificate_id stays on the stage. It is not origin verification and does nothing useful against a MOCK integration, but it breaks nothing. Flagged as a misleading signal for a reader, not a defect.\n- The MOCK integration stays. This root is about the edge topology, not the backend.\n\n=== KNOWN RESIDUAL, NOT FIXED IN THIS REVISION ===\n- var.origin_secret is a static shared secret. It lives in Terraform state and in the CloudFront distribution configuration, and nothing in this plan rotates it. A rotation path (a second accepted header value during overlap, or moving the check to a rotating source) is not modelled here. This is the one item a reviewer may reasonably still hold out on.\n- aws_s3_bucket_logging.logs still targets its own bucket, so access logs about the log bucket accumulate inside it. Deferred: low severity, unrelated to the brief, and a cleanup pass rather than a correctness fix.\n\n=== REQUIREMENT WALK AFTER REVISION ===\n1. PASS. custom_header plus the REGIONAL block rule; execute-api is no longer usable on its own.\n2. PASS. Edge WAF with rate limit 2000/IP, and it is now unavoidable.\n3. PASS. AWS_IAM on the method, and Authorization now reaches the origin through the front door.\n4. PASS. 365 days on both the CloudWatch group and the S3 lifecycle, CMK with usable service grants, and a delivery mechanism that works with SSE-KMS.\n5. PASS. Geo whitelist on the only reachable path.",
+      "revisionSummary": "Bind the origin to CloudFront with a WAF-enforced secret header, forward Authorization so the front door actually authenticates, fix log retention to 365, grant the CMK to log-delivery principals, and move CloudFront logging to v2 delivery so SSE-KMS and BucketOwnerEnforced both hold.",
+      "convergence": {
+        "converged": false,
+        "reason": "no reviewer verdict survives; the verdicts of codex, gemini, grok, openrouter:kimi-k3, openrouter:glm-5-3 were not recovered. The host ruled REJECT and accepted 19 critical issues (engine debug log); the individual rulings were not recovered. The host revised the plan for the next round."
+      }
+    },
+    {
+      "n": 2,
+      "hostBlindVerdict": null,
+      "peers": [
+        {
+          "source": "codex",
+          "provider": "codex",
+          "model": "default",
+          "reasoningEffort": null,
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r2-codex-1",
+              "category": "correctness",
+              "text": "Place CloudFront WAF, edge logging, and all logging-v2 control-plane resources in us-east-1 with region-appropriate KMS resources."
+            },
+            {
+              "id": "r2-codex-2",
+              "category": "ops",
+              "text": "Replace the legacy-style KMS grant with the complete logging-v2 key policy and guarantee the required S3 bucket policy."
+            },
+            {
+              "id": "r2-codex-3",
+              "category": "security",
+              "text": "Redact the origin header from WAF logs and protect or disable sampled requests so the bypass secret is not disclosed."
+            }
+          ],
+          "summary": "REJECT. The plan needs explicit us-east-1 placement for global WAF and CloudFront logging-v2 resources, the full logging-v2 KMS/S3 delivery permissions, and protection of the origin secret from WAF logs and sampled requests. Confidence: high.",
+          "text": "**[REJECT]**\n\n**Justification**: The topology is directionally correct, but the plan still has deployment and credential-exposure blockers.\n\n**Blocking issues**\n\n1. **Global resources lack `us-east-1` placement.** The root has only the `var.region` provider, defaulting to `eu-north-1` ([versions.tf]([redacted: local path]/demo/case1-cloudfront/versions.tf:11)). The CloudFront-scope ACL ([main.tf]([redacted: local path]/demo/case1-cloudfront/main.tf:106)), its logging resources, and all three CloudFront logging-v2 resources must use `us-east-1`. Add an aliased provider and a separate `us-east-1` log group/CMK for edge WAF logging. AWS fixes CloudFront WAF and v2 CloudWatch API operations to that region. [AWS WAF guidance](https://docs.aws.amazon.com/waf/latest/developerguide/web-acl-creating.html), [CloudFront logging guidance](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/standard-logging.html).\n\n2. **The proposed v2 KMS grant is incomplete.** `kms:GenerateDataKey*` and `kms:Decrypt` are the legacy-style permissions. Logging v2 requires `Encrypt`, `Decrypt`, `ReEncrypt*`, `GenerateDataKey*`, and `DescribeKey`, scoped with `aws:SourceAccount` and a `us-east-1` delivery-source ARN. The plan must also explicitly manage the S3 delivery bucket policy or state that the deployer needs `s3:GetBucketPolicy` and `s3:PutBucketPolicy` so AWS can create it. [CloudWatch Logs permissions](https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/AWS-logs-infrastructure-V2-S3.html).\n\n3. **The bypass credential will be exposed by WAF telemetry.** The regional ACL currently enables request sampling ([main.tf]([redacted: local path]/demo/case1-cloudfront/main.tf:309)) and full WAF logging ([main.tf]([redacted: local path]/demo/case1-cloudfront/main.tf:321)). Add `X-Origin-Verify` redaction and either disable sampling or configure web-ACL data protection; logging redaction alone does not protect sampled requests. Otherwise log readers can recover the credential and bypass CloudFront. [AWS WAF data handling](https://docs.aws.amazon.com/waf/latest/developerguide/logging-management.html).\n\n<SUMMARY>REJECT. The plan needs explicit us-east-1 placement for global WAF and CloudFront logging-v2 resources, the full logging-v2 KMS/S3 delivery permissions, and protection of the origin secret from WAF logs and sampled requests. Confidence: high.</SUMMARY>\n\nVERDICT: REQUEST_CHANGES\n- [correctness] Place CloudFront WAF, edge logging, and all logging-v2 control-plane resources in us-east-1 with region-appropriate KMS resources.\n- [ops] Replace the legacy-style KMS grant with the complete logging-v2 key policy and guarantee the required S3 bucket policy.\n- [security] Redact the origin header from WAF logs and protect or disable sampled requests so the bypass secret is not disclosed.",
+          "ms": 231251
+        },
+        {
+          "source": "gemini",
+          "provider": "gemini",
+          "model": "gemini-3.7-flash-high",
+          "reasoningEffort": null,
+          "verdict": null,
+          "criticalIssues": [],
+          "summary": null,
+          "text": null,
+          "ms": 17075
+        },
+        {
+          "source": "grok",
+          "provider": "grok",
+          "model": "grok-4.6",
+          "reasoningEffort": "high",
+          "verdict": null,
+          "criticalIssues": [],
+          "summary": null,
+          "text": null,
+          "ms": 172278
+        },
+        {
+          "source": "openrouter:kimi-k3",
+          "provider": "openrouter",
+          "model": "moonshotai/kimi-k3",
+          "reasoningEffort": "high",
+          "verdict": null,
+          "criticalIssues": [],
+          "summary": null,
+          "text": null,
+          "ms": 67775
+        },
+        {
+          "source": "openrouter:glm-5-3",
+          "provider": "openrouter",
+          "model": "z-ai/glm-5.3",
+          "reasoningEffort": "high",
+          "verdict": null,
+          "criticalIssues": [],
+          "summary": null,
+          "text": null,
+          "ms": 37151
+        }
+      ],
+      "roundMs": 231252,
+      "slowest": "codex",
+      "adjudication": [],
+      "adjudicationRecovered": false,
+      "acceptedIssues": 13,
+      "hostVerdict": "REQUEST_CHANGES",
+      "revision": "Revised Terraform root for demo/case1-cloudfront/, round 3. Lenses unchanged: Architect (is the topology enforced or only described), Security Analyst (what is reachable that the brief forbids), Plan Reviewer (requirement-by-requirement).\n\nBrief, unchanged:\n1. No public access to the API itself. Everything reaches it through CloudFront.\n2. CloudFront must have a WAF attached with a rate limit.\n3. Requests must be authenticated (IAM auth is fine for now).\n4. Access logs retained for a year, encrypted with a customer-managed key.\n5. Serve only to launch markets PL, NO, SE, DK, DE.\nOut of scope: custom domain and ACM certificate.\n\n=== NAMED RESOURCE INVENTORY (so this plan stands alone) ===\nRegional, in var.region (default eu-north-1):\n  aws_api_gateway_rest_api.this, aws_api_gateway_resource.orders, aws_api_gateway_method.get_orders,\n  aws_api_gateway_integration.get_orders (MOCK), aws_api_gateway_deployment.this, aws_api_gateway_stage.prod,\n  aws_cloudwatch_log_group.api, aws_cloudwatch_log_group.waf_api,\n  aws_kms_key.logs + aws_kms_key_policy.logs,\n  aws_wafv2_web_acl.api (scope REGIONAL) + aws_wafv2_web_acl_association.api + aws_wafv2_web_acl_logging_configuration.api,\n  aws_s3_bucket.logs and its ownership/encryption/versioning/public-access-block/lifecycle resources.\nIn us-east-1 (see CHANGE 7):\n  aws_wafv2_web_acl.edge (scope CLOUDFRONT) + aws_wafv2_web_acl_logging_configuration.edge,\n  aws_cloudwatch_log_group.waf_edge,\n  aws_kms_key.logs_edge + aws_kms_key_policy.logs_edge.\nGlobal:\n  aws_cloudfront_distribution.this.\n\"Both WAF logging log groups\" in round 2 meant aws_cloudwatch_log_group.waf_api and aws_cloudwatch_log_group.waf_edge. They are now named everywhere they are referenced.\n\n=== CARRIED FORWARD FROM ROUND 2 (unchanged, still the substance of the fix) ===\n- CHANGE 1: origin bound to CloudFront. aws_cloudfront_distribution.this origin block sets custom_header X-Origin-Verify = var.origin_secret; aws_wafv2_web_acl.api gains a priority-0 block rule whose statement is not_statement { byte_match_statement { field_to_match { single_header { name = \"x-origin-verify\" } } } }. Checking the header is the control; sending it is not.\n- CHANGE 2: default_cache_behavior uses the managed CachingDisabled cache policy and the managed AllViewerExceptHostHeader origin request policy, so Authorization reaches the origin. The client signs SigV4 against the execute-api origin hostname, not the distribution hostname.\n- CHANGE 3: aws_s3_bucket_lifecycle_configuration.logs expiration.days = 365.\n- CHANGE 4: aws_kms_key_policy.logs grants logs.${var.region}.amazonaws.com the encrypt/decrypt/GenerateDataKey set, scoped by ArnLike on kms:EncryptionContext:aws:logs:arn.\n- CHANGE 5: CloudFront access logs use standard logging v2 rather than the legacy logging_config block.\n- CHANGE 6: the raw bypass output is gone (but see CHANGE 11).\n\n=== NEW IN ROUND 3 ===\n\nCHANGE 7 - the CLOUDFRONT-scope resources move to us-east-1 (correctness; the root could not apply).\nRound 2 kept aws_wafv2_web_acl.edge with scope = \"CLOUDFRONT\" under the default provider at var.region. WAFv2 CLOUDFRONT-scope ACLs exist only in us-east-1, so terraform apply fails on create. Every static scanner passed this root because none of them evaluate provider region against resource scope.\n- Add provider \"aws\" { alias = \"us_east_1\", region = \"us-east-1\" } and required_providers configuration_aliases accordingly.\n- aws_wafv2_web_acl.edge, aws_wafv2_web_acl_logging_configuration.edge and aws_cloudwatch_log_group.waf_edge all take provider = aws.us_east_1.\n- A CMK is regional and cannot encrypt a log group in another region, so add aws_kms_key.logs_edge and aws_kms_key_policy.logs_edge in us-east-1, granting logs.us-east-1.amazonaws.com. aws_cloudwatch_log_group.waf_edge uses that key. The brief's customer-managed-key requirement is satisfied per region rather than by one key pretending to span both.\n- aws_cloudfront_distribution.this keeps web_acl_id = aws_wafv2_web_acl.edge.arn; the distribution itself is global and needs no alias.\n\nCHANGE 8 - the log delivery path is actually authorised (ops; this was the round-2 gap four voices found).\nRound 2 asserted that v2 delivery works with SSE-KMS and BucketOwnerEnforced without granting anything the permission to write.\n- aws_s3_bucket_policy.logs grants delivery.logs.amazonaws.com s3:PutObject on the delivery prefix, conditioned on aws:SourceAccount equal to the caller account and aws:SourceArn matching the delivery ARNs. Without it, v2 delivery fails silently, which is the same looks-satisfied-does-not-deliver defect CHANGE 5 existed to close.\n- aws_cloudwatch_log_delivery_destination.cloudfront carries an explicit delivery_destination_policy granting delivery.logs.amazonaws.com, scoped by SourceAccount.\n- aws_kms_key_policy.logs gains a SEPARATE statement for delivery.logs.amazonaws.com with kms:GenerateDataKey* and kms:Decrypt. It does NOT reuse the kms:EncryptionContext:aws:logs:arn condition from the CloudWatch Logs statement; that context key is not present on the delivery path and the condition would deny every call.\n- The delivery destination writes under a named prefix, cloudfront-v2/. aws_s3_bucket_lifecycle_configuration.logs keeps filter {} so the 365-day expiry covers the whole bucket including that prefix. The legacy cloudfront/ prefix from round 1 holds no new objects and ages out under the same rule. Retention is now claimed for a location the plan names.\n\nCHANGE 9 - the control stops logging its own secret (security).\nThe priority-0 rule matches on the secret value, so WAF logging and request sampling would record X-Origin-Verify in cleartext to a log group with a much wider read audience than the secret itself.\n- aws_wafv2_web_acl_logging_configuration.api gains redacted_fields for single_header x-origin-verify.\n- aws_wafv2_web_acl.api's priority-0 rule sets visibility_config.sampled_requests_enabled = false. Metrics stay on, so the block count is still observable; the sampled payload that would carry the secret is not.\n\nCHANGE 10 - the secret gains a rotation window and a second, independent narrowing (security).\nRound 2 named the static-secret problem and shipped it. Two changes, deliberately layered so neither is the only thing standing:\n- var.origin_secret becomes var.origin_secrets, a list of one or two values. The priority-0 rule becomes not_statement { or_statement { byte_match per value } }, so both the current and the previous secret are accepted during an overlap. Rotation is then: append the new value, apply, switch the distribution custom_header to it, apply, drop the old value, apply. No window in which one side blocks the other. The distribution always sends origin_secrets[0].\n- A second priority-1 rule on aws_wafv2_web_acl.api blocks any request whose source IP is not in the AWS-managed CloudFront origin-facing prefix list (aws_ec2_managed_prefix_list, com.amazonaws.global.cloudfront.origin-facing), via an ip_set_reference_statement populated from it. If the secret ever leaks, the bypass is still confined to CloudFront IP space rather than the whole internet.\n- Residual, stated plainly: origin_secrets still lives in Terraform state. Moving the check to something with a managed lifecycle is a larger change than this milestone, and the prefix-list rule is what makes shipping the static secret defensible rather than merely admitted.\n\nCHANGE 11 - the signing host is published again, correctly labelled (ops).\nCHANGE 2 requires the client to sign against the origin hostname while CHANGE 6 removed the only place that hostname appeared.\n- New output \"origin_signing_host\", value \"${aws_api_gateway_rest_api.this.id}.execute-api.${var.region}.amazonaws.com\", described as the host the mobile client must use when computing its SigV4 signature. It is not a callable path: requests to it without a valid X-Origin-Verify and from outside the CloudFront prefix list are blocked at aws_wafv2_web_acl.api.\n- output \"cloudfront_url\" stays. The round-1 output \"execute_api_url\", which advertised a working bypass, does not come back.\n\nCHANGE 12 - the header's unforgeability is pinned in writing (correctness).\nAllViewerExceptHostHeader forwards viewer headers, so a client can send its own X-Origin-Verify. The control holds only because a CloudFront origin custom_header overwrites a viewer header of the same name. That precedence is now stated as a comment on the origin block and in the verification checklist below, because swapping to a policy that merges instead of overwrites would reopen req 1 with no visible diff at the WAF rule.\n\nCHANGE 13 - post-apply verification checklist (ops).\nEvery defect this review found in two rounds was something that looked configured and did not work. The plan now ships the checks that would have caught them:\n1. curl the origin_signing_host path with no X-Origin-Verify header -> expect 403 from WAF, not 200 and not a 403 from IAM.\n2. curl it with a forged X-Origin-Verify from outside CloudFront IP space -> expect 403 from the prefix-list rule.\n3. SigV4-signed GET through cloudfront_url, signed against origin_signing_host -> expect 200.\n4. Same request from an IP geolocated outside PL/NO/SE/DK/DE -> expect 403 from CloudFront.\n5. Exceed 2000 requests/5min from one IP through CloudFront -> expect 429/403 from the edge rate rule.\n6. Within 30 minutes of traffic, confirm an object exists under s3://<logs bucket>/cloudfront-v2/ and that it is decryptable with aws_kms_key.logs. This is the check that fails if CHANGE 8 is wrong.\n7. Confirm aws_cloudwatch_log_group.api, aws_cloudwatch_log_group.waf_api and aws_cloudwatch_log_group.waf_edge all exist with retention_in_days = 365 and a kms_key_id set. Their creation is the thing that fails outright if a CMK grant is missing.\n8. Grep a WAF log sample for the secret value -> expect no match, proving CHANGE 9.\n\n=== UNCHANGED, DELIBERATELY ===\n- The edge WAF keeps rate_based_statement limit 2000, aggregate_key_type IP. With the direct path blocked it is now unavoidable.\n- geo_restriction stays CloudFront-only. No duplicate regional geo rule: there is no route that skips the edge.\n- client_certificate_id stays on aws_api_gateway_stage.prod. It is not origin verification and does nothing against a MOCK integration. Flagged as a misleading signal, not a defect.\n- The MOCK integration stays; this root is about edge topology.\n\n=== DEFERRED ===\n- aws_s3_bucket_logging.logs still targets its own bucket. Low severity, unrelated to the brief, cleanup pass.\n\n=== REQUIREMENT WALK ===\n1. PASS. custom_header plus the WAF check, plus the prefix-list rule as a second layer.\n2. PASS. Edge WAF rate limit, now on the only reachable path, in the region where it can actually be created.\n3. PASS. AWS_IAM on the method, Authorization forwarded, signing host published.\n4. PASS. 365 days everywhere, per-region CMKs with grants for both the CloudWatch Logs and delivery principals, delivery authorised by bucket and destination policy, and a check that proves an object landed.\n5. PASS. Geo whitelist on the only reachable path.",
+      "revisionSummary": "Move CLOUDFRONT-scope resources to a us-east-1 provider alias, add the missing S3 bucket and delivery-destination policies with correct KMS conditions, stop the WAF logging the origin secret, add a two-value rotation window plus the CloudFront prefix list, restore the origin hostname as a signing-host output, and add a post-apply verification checklist.",
+      "convergence": {
+        "converged": false,
+        "reason": "codex voted REQUEST_CHANGES; the verdicts of gemini, grok, openrouter:kimi-k3, openrouter:glm-5-3 were not recovered. The host ruled REQUEST_CHANGES and accepted 13 critical issues (engine debug log); the individual rulings were not recovered. The host revised the plan for the next round."
+      }
+    },
+    {
+      "n": 3,
+      "hostBlindVerdict": null,
+      "peers": [
+        {
+          "source": "codex",
+          "provider": "codex",
+          "model": "default",
+          "reasoningEffort": null,
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r3-codex-1",
+              "category": "ops",
+              "text": "CHANGE 7/8 must assign `aws.us_east_1` to the CloudFront log delivery source, destination, delivery, and any destination-policy resource—not only the edge WAF resources. CloudFront requires logging-v2 CloudWatch API calls in us-east-1. A destination policy is a separate Terraform resource and, if used, grants the source AWS account `logs:CreateDelivery`; it does not grant `delivery.logs.amazonaws.com`. Bucket/KMS `SourceArn` conditions should name the us-east-1 delivery-source ARN. [AWS logging-v2 requirements](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/standard-logging.html) [Terraform destination-policy resource](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_log_delivery_destination_policy)"
+            },
+            {
+              "id": "r3-codex-2",
+              "category": "correctness",
+              "text": "CHANGE 10 permits one secret but always builds an `or_statement`; AWS WAF requires more than one nested statement. Use a direct byte-match statement for one value and an OR for two, or otherwise guarantee two children. [AWS OrStatement specification](https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-properties-wafv2-webacl-orstatement.html)"
+            },
+            {
+              "id": "r3-codex-3",
+              "category": "security",
+              "text": "CHANGE 9 disables sampling only on the secret-check rule, while the regional web ACL and later rules still enable it. Successful requests carrying the secret can therefore appear in default-action or later-rule samples; log redaction does not protect sampled requests. Disable sampling for the regional ACL and applicable rules, or configure WAF data protection, and verify with `GetSampledRequests`. [AWS WAF redaction guidance](https://docs.aws.amazon.com/waf/latest/developerguide/logging-management.html)"
+            },
+            {
+              "id": "r3-codex-4",
+              "category": "correctness",
+              "text": "CHANGE 2/11 documents only the signing host. SigV4 also covers the canonical URI, which must be `/prod/orders` at API Gateway even though the viewer requests `/orders` and CloudFront adds `/prod`. Publish the signing path/base URL and provide a test command or signer capable of signing the origin host and origin path while sending the viewer URL. [AWS SigV4 troubleshooting](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_sigv-troubleshooting.html)"
+            },
+            {
+              "id": "r3-codex-5",
+              "category": "correctness",
+              "text": "The named API Gateway inventory cannot satisfy checklist item 3: the non-proxy MOCK integration lacks `aws_api_gateway_method_response` and `aws_api_gateway_integration_response`, so it cannot return the expected 200. Additionally, execution logging is enabled without declaring `aws_api_gateway_account.cloudwatch_role_arn` or an explicit pre-existing regional prerequisite. Add these resources and deployment dependencies. [API Gateway integration responses](https://docs.aws.amazon.com/apigateway/latest/developerguide/api-gateway-integration-settings-integration-response.html) [CloudWatch logging prerequisites](https://docs.aws.amazon.com/apigateway/latest/developerguide/set-up-logging.html)"
+            }
+          ],
+          "summary": "REQUEST_CHANGES. Main blockers: CloudFront logging-v2 resources are not assigned to us-east-1 and the destination policy is misdescribed; the one-secret OR expression is invalid; WAF sampling still exposes the origin secret; SigV4 must cover the origin stage path; and the API Gateway MOCK/logging setup is incomplete. Confidence: high.",
+          "text": "**[REJECT]**\n\n**Justification**: The topology is coherent, but several implementation details will either prevent `terraform apply` or make the post-apply checks fail. No material performance or scope blockers were found.\n\n**Summary**\n\nClarity: Resource targeting is mostly precise, but the logging-v2 resources and signing contract are incomplete.  \nVerifiability: Good checklist, although checks 3 and 8 cannot pass as written.  \nCompleteness: Missing API Gateway response/logging prerequisites and incomplete WAF sampling protection.  \nBig Picture: Sound architecture once the blockers below are corrected.\n\n<SUMMARY>\nREQUEST_CHANGES. Main blockers: CloudFront logging-v2 resources are not assigned to us-east-1 and the destination policy is misdescribed; the one-secret OR expression is invalid; WAF sampling still exposes the origin secret; SigV4 must cover the origin stage path; and the API Gateway MOCK/logging setup is incomplete. Confidence: high.\n</SUMMARY>\n\n**Blocking issues**\n\nVERDICT: REQUEST_CHANGES\n- [ops] CHANGE 7/8 must assign `aws.us_east_1` to the CloudFront log delivery source, destination, delivery, and any destination-policy resource—not only the edge WAF resources. CloudFront requires logging-v2 CloudWatch API calls in us-east-1. A destination policy is a separate Terraform resource and, if used, grants the source AWS account `logs:CreateDelivery`; it does not grant `delivery.logs.amazonaws.com`. Bucket/KMS `SourceArn` conditions should name the us-east-1 delivery-source ARN. [AWS logging-v2 requirements](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/standard-logging.html) [Terraform destination-policy resource](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_log_delivery_destination_policy)\n- [correctness] CHANGE 10 permits one secret but always builds an `or_statement`; AWS WAF requires more than one nested statement. Use a direct byte-match statement for one value and an OR for two, or otherwise guarantee two children. [AWS OrStatement specification](https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-properties-wafv2-webacl-orstatement.html)\n- [security] CHANGE 9 disables sampling only on the secret-check rule, while the regional web ACL and later rules still enable it. Successful requests carrying the secret can therefore appear in default-action or later-rule samples; log redaction does not protect sampled requests. Disable sampling for the regional ACL and applicable rules, or configure WAF data protection, and verify with `GetSampledRequests`. [AWS WAF redaction guidance](https://docs.aws.amazon.com/waf/latest/developerguide/logging-management.html)\n- [correctness] CHANGE 2/11 documents only the signing host. SigV4 also covers the canonical URI, which must be `/prod/orders` at API Gateway even though the viewer requests `/orders` and CloudFront adds `/prod`. Publish the signing path/base URL and provide a test command or signer capable of signing the origin host and origin path while sending the viewer URL. [AWS SigV4 troubleshooting](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_sigv-troubleshooting.html)\n- [correctness] The named API Gateway inventory cannot satisfy checklist item 3: the non-proxy MOCK integration lacks `aws_api_gateway_method_response` and `aws_api_gateway_integration_response`, so it cannot return the expected 200. Additionally, execution logging is enabled without declaring `aws_api_gateway_account.cloudwatch_role_arn` or an explicit pre-existing regional prerequisite. Add these resources and deployment dependencies. [API Gateway integration responses](https://docs.aws.amazon.com/apigateway/latest/developerguide/api-gateway-integration-settings-integration-response.html) [CloudWatch logging prerequisites](https://docs.aws.amazon.com/apigateway/latest/developerguide/set-up-logging.html)",
+          "ms": 335055
+        },
+        {
+          "source": "gemini",
+          "provider": "gemini",
+          "model": "gemini-3.7-flash-high",
+          "reasoningEffort": null,
+          "verdict": "APPROVE",
+          "criticalIssues": [],
+          "summary": "Verdict: APPROVE. The plan resolves all multi-region scoping, log delivery authorization, and secret exposure defects identified in earlier rounds. Architecture and verification steps are complete, correct, and directly executable. Confidence: 98%.",
+          "text": "**[APPROVE]**\n\n**Justification**: The Round 3 plan fully resolves the cross-region provider aliasing for CLOUDFRONT-scoped resources, fixes log delivery permissions and KMS policies for CloudWatch Logs v2 delivery, hardens origin protection with layered WAF controls and secret rotation, redacts origin verification headers from logs, and provides a clear post-apply verification checklist. All five requirements from the brief are satisfied and actionable.\n\n**Summary**:\n- **Clarity**: Resource names, provider aliases, WAF rules, and IAM/KMS policy statements are explicitly specified.\n- **Verifiability**: Concrete 8-step verification checklist tests direct block, forged header block, SigV4 auth, geo-restriction, rate limiting, S3/KMS log delivery, log retention, and secret redaction.\n- **Completeness**: Explicitly handles multi-region KMS boundaries, delivery service principal permissions, header precedence, and rotation workflows.\n- **Big Picture**: Clear architecture enforcing edge-only access with zero direct public bypass, authenticated requests, conformance logging, and geographic fencing.\n\n<SUMMARY>\nVerdict: APPROVE. The plan resolves all multi-region scoping, log delivery authorization, and secret exposure defects identified in earlier rounds. Architecture and verification steps are complete, correct, and directly executable. Confidence: 98%.\n</SUMMARY>\n\nVERDICT: APPROVE",
+          "ms": 18021
+        },
+        {
+          "source": "grok",
+          "provider": "grok",
+          "model": "grok-4.6",
+          "reasoningEffort": "high",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r3-grok-1",
+              "category": "correctness",
+              "text": "CHANGE 10: WAF `or_statement` requires ≥2 nested statements — a single `origin_secrets` value will fail apply; branch (or pad) the not_statement for len 1 vs 2, and make rotation reorder the list so it matches “always send origin_secrets[0]”."
+            },
+            {
+              "id": "r3-grok-2",
+              "category": "correctness",
+              "text": "CHANGE 10: materialize `com.amazonaws.global.cloudfront.origin-facing` into regional `aws_wafv2_ip_set` IPv4 **and** IPv6 and `not_statement { or_statement { both sets } }`; do not pass the managed prefix-list ARN to `ip_set_reference_statement` (happy path will 403 on IPv6 origin connects)."
+            },
+            {
+              "id": "r3-grok-3",
+              "category": "ops",
+              "text": "Pin CloudFront logging v2 `aws_cloudwatch_log_delivery_source` / `_destination` / `_delivery` on `aws.us_east_1` (bucket+CMK may stay in var.region), name both WAF log groups `aws-waf-logs-*`, and either unset `client_certificate_id` or the origin will fail IAM/SigV4 checks."
+            },
+            {
+              "id": "r3-grok-4",
+              "category": "security",
+              "text": "Set `sampled_requests_enabled = false` on every rule on `aws_wafv2_web_acl.api` (priority-1 samples still carry the secret); logging redaction does not cover GetSampledRequests."
+            }
+          ],
+          "summary": "REQUEST_CHANGES. Architecture and requirement walk are sound (~80%+), but literal CHANGE 10 will fail apply (WAF or_statement with one secret; prefix-list ARN is not a WAF IP set) and can 403 legitimate origin traffic if IPv6 CloudFront IPs are omitted. Pin dual-stack IP sets, a 1- vs 2-secret rule shape, us-east-1 for CloudFront v2 delivery, aws-waf-logs-* names, and sampling/redaction on all regional rules. Confidence high on the WAF footguns, medium on delivery region.",
+          "text": "The round-3 plan is executable in outline and the topology is now **enforced**, not just described: the only successful path is CloudFront → execute-api, with geo and the rate limit on that path, IAM at the method, and origin lock via header + IP. Direct `execute-api` remains a public TCP endpoint, but it should only yield WAF 403s. Residual: a leaked secret plus an attacker-controlled CloudFront distribution still presents CloudFront origin-facing IPs and bypasses **your** geo/rate rules — acknowledged, not a brief miss for this milestone.\n\nA capable developer will still get stuck on three apply/runtime traps if they follow the text literally. Those need to be pinned before build.\n\n**Clarity.** CHANGE 7–9 and 11–13 are specific enough to start. CHANGE 10 is not: `ip_set_reference_statement` cannot take an EC2 managed prefix-list ARN; you must snapshot CIDRs into `aws_wafv2_ip_set` (IPv4 and IPv6 — execute-api is dual-stack and CloudFront will use AAAA). `or_statement` is invalid with one nested statement, but `var.origin_secrets` is defined as one or two values. Rotation text contradicts “distribution always sends `origin_secrets[0]`”.\n\n**Verifiability.** The checklist would have caught the last two rounds’ silent failures. Item 5 should expect WAF **403**, not 429 (unless a custom response code is added). Item 6 is the right proof for CHANGE 8.\n\n**Completeness.** Inventory still omits `aws_wafv2_ip_set`, `aws_cloudwatch_log_delivery_source`, `aws_cloudwatch_log_delivery`, and the Name prefix `aws-waf-logs-*` (WAF logging create fails without it). CloudFront standard logging v2 source/destination/delivery are commonly **us-east-1** even when the bucket stays in `var.region`; CHANGE 7 moved only the CLOUDFRONT WAF, not the delivery trio. `client_certificate_id` on the stage, if non-null, requires a cert CloudFront will not present and will fail check 3.\n\n**Security.** CHANGE 9 is incomplete: `redacted_fields` does not apply to sampled requests; priority-1 (prefix-list) samples will still show `X-Origin-Verify`. Disable sampling on every rule on `aws_wafv2_web_acl.api`, and redact `authorization` on the edge ACL if those logs are retained.\n\n<SUMMARY>\nREQUEST_CHANGES. Architecture and requirement walk are sound (~80%+), but literal CHANGE 10 will fail apply (WAF or_statement with one secret; prefix-list ARN is not a WAF IP set) and can 403 legitimate origin traffic if IPv6 CloudFront IPs are omitted. Pin dual-stack IP sets, a 1- vs 2-secret rule shape, us-east-1 for CloudFront v2 delivery, aws-waf-logs-* names, and sampling/redaction on all regional rules. Confidence high on the WAF footguns, medium on delivery region.\n</SUMMARY>\n\nVERDICT: REQUEST_CHANGES\n- [correctness] CHANGE 10: WAF `or_statement` requires ≥2 nested statements — a single `origin_secrets` value will fail apply; branch (or pad) the not_statement for len 1 vs 2, and make rotation reorder the list so it matches “always send origin_secrets[0]”.\n- [correctness] CHANGE 10: materialize `com.amazonaws.global.cloudfront.origin-facing` into regional `aws_wafv2_ip_set` IPv4 **and** IPv6 and `not_statement { or_statement { both sets } }`; do not pass the managed prefix-list ARN to `ip_set_reference_statement` (happy path will 403 on IPv6 origin connects).\n- [ops] Pin CloudFront logging v2 `aws_cloudwatch_log_delivery_source` / `_destination` / `_delivery` on `aws.us_east_1` (bucket+CMK may stay in var.region), name both WAF log groups `aws-waf-logs-*`, and either unset `client_certificate_id` or the origin will fail IAM/SigV4 checks.\n- [security] Set `sampled_requests_enabled = false` on every rule on `aws_wafv2_web_acl.api` (priority-1 samples still carry the secret); logging redaction does not cover GetSampledRequests.",
+          "ms": 279758
+        },
+        {
+          "source": "openrouter:kimi-k3",
+          "provider": "openrouter",
+          "model": "moonshotai/kimi-k3",
+          "reasoningEffort": "high",
+          "verdict": "APPROVE",
+          "criticalIssues": [
+            {
+              "id": "r3-kimi-k3-1",
+              "category": "ambiguity",
+              "text": "CHANGE 10 rotation procedure contradicts itself: it says the distribution always sends origin_secrets[0], but the rotation steps say \"append the new value, apply, switch the distribution custom_header to it\" — appending puts the new value at index 1, so no \"switch\" is possible without reordering or re-indexing. A developer will resolve this (prepend the new value, apply, then drop the old), but the written procedure cannot be followed literally."
+            },
+            {
+              "id": "r3-kimi-k3-2",
+              "category": "security",
+              "text": "CHANGE 9's secret-protection goal is only partially met: it disables sampled_requests_enabled on the priority-0 rule and redacts the header in logs, but sampled requests are governed per-rule and at the WebACL's default-action visibility level, and redacted_fields does not apply to sampled requests — allowed requests carrying the live secret can still appear in GetSampledRequests if the WebACL-level sampling is on. Mitigated by the fact that the secret is already readable via GetWebAcl (the byte_match search string) and lives in Terraform state, which the plan already discloses as accepted residual risk — so this closes only a narrow audience delta. Worth stating in the residual note rather than claiming CHANGE 9 fully stops the control from recording its own secret."
+            }
+          ],
+          "summary": "APPROVE. Round 3 is executable: resources precisely named, provider/region correctness fixed, delivery path authorized with correct KMS statement separation, rotation and prefix-list layering sound, and the verification checklist would catch the \"looks configured but doesn't work\" defect class that plagued earlier rounds. Two non-blocking issues: (1) the rotation procedure contradicts \"always sends origin_secrets[0]\" (append vs. switch); (2) CHANGE 9 doesn't cover WebACL-level request sampling, where redacted_fields doesn't apply, so allowed requests can still expose the secret via GetSampledRequests — though the secret is already disclosed as readable via GetWebAcl and state. Confidence: high.",
+          "text": "**APPROVE**\n\n**Justification**: The plan is executable end-to-end by a capable developer. Every resource is named precisely (including the round-2 ambiguity about \"both WAF logging log groups\"), each change has a clear starting point, the requirement walk is honest about residuals, and CHANGE 13 provides concrete, executable verification. The round-2 blockers (provider region vs. CLOUDFRONT scope, unauthorized delivery path, secret leakage into WAF logs, no rotation story, missing signing host) are all substantively addressed with correct AWS mechanics: custom header overwrite precedence, per-region CMKs, separate KMS statements for the delivery principal without the logs-ARN encryption-context condition, and redacted_fields syntax are all right. Two issues remain, but neither blocks execution; both are listed below for a future round.\n\n**Blocking issues**: none.\n\nVERDICT: APPROVE\n\n- [ambiguity] CHANGE 10 rotation procedure contradicts itself: it says the distribution always sends origin_secrets[0], but the rotation steps say \"append the new value, apply, switch the distribution custom_header to it\" — appending puts the new value at index 1, so no \"switch\" is possible without reordering or re-indexing. A developer will resolve this (prepend the new value, apply, then drop the old), but the written procedure cannot be followed literally.\n- [security] CHANGE 9's secret-protection goal is only partially met: it disables sampled_requests_enabled on the priority-0 rule and redacts the header in logs, but sampled requests are governed per-rule and at the WebACL's default-action visibility level, and redacted_fields does not apply to sampled requests — allowed requests carrying the live secret can still appear in GetSampledRequests if the WebACL-level sampling is on. Mitigated by the fact that the secret is already readable via GetWebAcl (the byte_match search string) and lives in Terraform state, which the plan already discloses as accepted residual risk — so this closes only a narrow audience delta. Worth stating in the residual note rather than claiming CHANGE 9 fully stops the control from recording its own secret.\n\n<SUMMARY>\nAPPROVE. Round 3 is executable: resources precisely named, provider/region correctness fixed, delivery path authorized with correct KMS statement separation, rotation and prefix-list layering sound, and the verification checklist would catch the \"looks configured but doesn't work\" defect class that plagued earlier rounds. Two non-blocking issues: (1) the rotation procedure contradicts \"always sends origin_secrets[0]\" (append vs. switch); (2) CHANGE 9 doesn't cover WebACL-level request sampling, where redacted_fields doesn't apply, so allowed requests can still expose the secret via GetSampledRequests — though the secret is already disclosed as readable via GetWebAcl and state. Confidence: high.\n</SUMMARY>",
+          "ms": 463546
+        },
+        {
+          "source": "openrouter:glm-5-3",
+          "provider": "openrouter",
+          "model": "z-ai/glm-5.3",
+          "reasoningEffort": "high",
+          "verdict": "APPROVE",
+          "criticalIssues": [
+            {
+              "id": "r3-glm-5-3-1",
+              "category": "ops",
+              "text": "The prefix-list rule snapshots CloudFront origin-facing ranges into a WAF IPSet at apply time; AWS changes these ranges without notice, so the rule will drift and eventually false-block (or, post-leak, under-block). Non-blocking since the secret check is the primary control, but plan a periodic refresh mechanism."
+            },
+            {
+              "id": "r3-glm-5-3-2",
+              "category": "correctness",
+              "text": "Checklist item 2 cannot isolate the prefix-list rule: with a forged secret, the priority-0 secret rule blocks first (403), so the 403 observed is not attributable to the prefix rule. The expected outcome still holds; the attribution doesn't."
+            },
+            {
+              "id": "r3-glm-5-3-3",
+              "category": "ops",
+              "text": "aws_wafv2_ip_set` (and the prefix-list data source) is introduced in CHANGE 10 but absent from the named inventory; add it so the plan stands alone as claimed."
+            }
+          ],
+          "summary": "Approve. The round-3 changes are correct: us-east-1 provider aliasing for CLOUDFRONT-scope WAF, per-region CMKs, delivery-path KMS/bucket/destination policies with the encryption-context condition correctly excluded from the delivery statement, secret rotation without a blocking window, and a checklist that would have caught every prior defect. Advisory only: the CloudFront prefix list is snapshotted into a WAF IPSet and will not auto-sync when AWS changes ranges (ops, non-blocking since the secret check is primary); checklist item 2 can't distinguish the prefix rule from the secret rule unless the tester holds a valid secret. Confidence: high.",
+          "text": "**[APPROVE]**\n\n**Justification**: The plan is executable end-to-end. CHANGE 7 correctly fixes the us-east-1 scoping for CLOUDFRONT-scope WAF resources (with the per-region CMK, which is the right call — a regional CMK cannot encrypt a cross-region log group). CHANGE 8 supplies the actually-missing delivery authorization, and correctly avoids reusing the `kms:EncryptionContext:aws:logs:arn` condition on the delivery principal. The rotation sequence in CHANGE 10 has no blocking window, and CHANGE 12 pins the custom_header-overwrites-viewer-header precedence, which is the load-bearing assumption for req 1. Acceptance criteria (CHANGE 13) are concrete and each maps to a specific prior defect. The two open observations below are advisory, not blockers: the secret check remains the primary control and is correctly layered.\n\n**Summary**: Clarity — high; every change names resources and starts from a concrete anchor. Verifiability — strong; the eight-step checklist is executable and each step has an expected outcome. Completeness — good; residual risk (secret in state, prefix-list staleness) is stated rather than hidden. Big Picture — coherent; the requirement walk follows from the changes, not the other way round.\n\n<SUMMARY>Approve. The round-3 changes are correct: us-east-1 provider aliasing for CLOUDFRONT-scope WAF, per-region CMKs, delivery-path KMS/bucket/destination policies with the encryption-context condition correctly excluded from the delivery statement, secret rotation without a blocking window, and a checklist that would have caught every prior defect. Advisory only: the CloudFront prefix list is snapshotted into a WAF IPSet and will not auto-sync when AWS changes ranges (ops, non-blocking since the secret check is primary); checklist item 2 can't distinguish the prefix rule from the secret rule unless the tester holds a valid secret. Confidence: high.</SUMMARY>\n\nVERDICT: APPROVE\n- [ops] The prefix-list rule snapshots CloudFront origin-facing ranges into a WAF IPSet at apply time; AWS changes these ranges without notice, so the rule will drift and eventually false-block (or, post-leak, under-block). Non-blocking since the secret check is the primary control, but plan a periodic refresh mechanism.\n- [correctness] Checklist item 2 cannot isolate the prefix-list rule: with a forged secret, the priority-0 secret rule blocks first (403), so the 403 observed is not attributable to the prefix rule. The expected outcome still holds; the attribution doesn't.\n- [ops] `aws_wafv2_ip_set` (and the prefix-list data source) is introduced in CHANGE 10 but absent from the named inventory; add it so the plan stands alone as claimed.",
+          "ms": 44693
+        }
+      ],
+      "roundMs": 463581,
+      "slowest": "openrouter:kimi-k3",
+      "adjudication": [],
+      "adjudicationRecovered": false,
+      "acceptedIssues": 14,
+      "hostVerdict": "REQUEST_CHANGES",
+      "revision": null,
+      "revisionSummary": null,
+      "convergence": {
+        "converged": false,
+        "reason": "codex, grok voted REQUEST_CHANGES; gemini, openrouter:kimi-k3, openrouter:glm-5-3 voted APPROVE. The host ruled REQUEST_CHANGES and accepted 14 critical issues (engine debug log); the individual rulings were not recovered. The host revised the plan again and recorded a blind verdict on it, but the next dispatch_peers call came after the 20-minute wall budget, so the engine ended the run unresolved before any reviewer saw that revision."
+      }
+    }
+  ],
+  "outcome": {
+    "verdict": "REQUEST_CHANGES",
+    "converged": false,
+    "rounds": 3,
+    "confidence": "none",
+    "finalReportHeadline": "UNRESOLVED after 3 round(s)",
+    "openDissent": [],
+    "nonBlockingThemes": []
+  },
+  "notes": [
+    "Recovered after the fact, not recorded for this page: the run predates Deliberation's run journals, and the host session that drove it was not kept. Sources: the session record the engine persisted when the run ended, the Codex CLI's own session logs of each round (the exact prompt Deliberation sent and Codex's full reply), and Deliberation's debug log (dispatch, per-voice timing and one event per adjudication).",
+    "deliberationVersion is inferred, not recorded: 3.14.5 is the newest release before the run (tagged 2026-09-04; 3.14.6 followed on 2026-09-11), and its consensus-step code matches what the logs show: the debug events it writes, the budget stop at dispatch_peers, and the session record it persists. The record names the tool 'consensus' because that engine persisted host-arbiter consensus-step loops under that name.",
+    "runId is null: the loop id was not kept, and the local session record id is left out.",
+    "hostBlindVerdict is null in every round: the engine persists only the last blind verdict, and here that one belongs to a revision no reviewer saw (see the last round's convergence.reason). Its text is left out because this shape has no place for an unreviewed round.",
+    "adjudication is empty in every round because the host's rulings were not recovered; it does not mean no reviewer raised an issue. adjudicationRecovered is false to say so. hostVerdict and acceptedIssues, the number of critical issues the host accepted, come from the engine's per-round debug event.",
+    "Peer verdicts and critical issues are the engine's: from the session record for the final reviewed round, and for earlier Codex replies from running the 3.14.5 reply parser on the reply text. Issue ids (r<n>-<source>-<k>, in reply order) were assigned during recovery; summary is the reply's <SUMMARY> block, or null when it has none. Model replies may contain non-ASCII punctuation; it is kept as returned. Codex reported its model as 'default' and no reasoning effort; gemini's effort is part of its model id.",
+    "ms is each voice's call time from the debug log; roundMs runs from the engine's dispatch_start event to the last voice's result, and slowest is the voice with the largest ms. recordedAt is when the engine persisted the record. steps are inferred from the engine code and the logged events, not recorded.",
+    "subject.title, convergence.reason and outcome were written during recovery from the recorded votes and events only; finalReportHeadline is the Outcome line the 3.14.5 engine writes for an unresolved run, and outcome.verdict is the host's last ruling.",
+    "The review subject is a small demo Terraform root (CloudFront in front of a REST API Gateway stage, WAF, KMS-encrypted logs) and a one-page requirements brief, written to show a scanner-green root that does not meet its requirements. The demo lives in a private repository, so there is no link.",
+    "planUnderReview is the init prompt verbatim; Deliberation sent it to Codex unchanged in round 1, and the two copies match. Each revision is the plan Deliberation sent in the next round, verbatim from that round's Codex prompt; revisionSummary is the host's one-line diffSummary for it, from the 'Prior rounds' list in later prompts. The third revision was not kept, so the last round's revision and revisionSummary are null.",
+    "Peer text and summary are null for gemini, grok, kimi-k3 and glm-5-3 in rounds 1 and 2: only Codex kept its own logs, and the session record holds the final reviewed round alone. Their verdicts in those rounds were not recovered either, so verdict is null with no isError; the debug log shows every call returned without an error.",
+    "Codex's round-1 reply has no VERDICT line, so the 3.14.5 parser read no verdict from it; verdict is null there, as the engine saw it. The reply objects to the prompt's output contract rather than reviewing the root.",
+    "Redacted in prompt and reply text: local file paths up to the demo directory are replaced with [redacted: local path] (the demo-relative part, such as case1-cloudfront/main.tf, is kept); an account-root ARN template is replaced with [redacted: account root ARN]; the at sign in an AWS service name is written as a hyphen; and a common English noun that collides with a confidentiality scan pattern is replaced by the synonym 'conformance'. Counts per kind are in the next note.",
+    "Replacements in this file: path 4, arn 0, at 0, word 2 (path, ARN template, at sign, common noun)."
+  ]
+}

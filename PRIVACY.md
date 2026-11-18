@@ -135,6 +135,14 @@ If you set any of these, delete the files or directories they point to as well:
 `history` directory next to it. If one of them points into a directory you share with
 other tools, delete only the Deliberation files there.
 
+## This website
+
+The website at https://usedeliberation.com uses Plausible Analytics to count page views.
+Plausible sets no cookies and stores no personal data; it records the page, the referrer,
+the browser and device type, and the country, derived from an IP address that it does not
+store. The plugin and the MCP server never contact Plausible: the "No telemetry" section
+above applies to them unchanged.
+
 ## Contact
 
 Questions or concerns: open an issue at

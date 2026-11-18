@@ -73,6 +73,25 @@ breaking changes cut a release ([CONTRIBUTING.md](CONTRIBUTING.md#release-proces
 **Done means:** `npm run check` and `npm run sync:check` pass, and `git grep` for any old name or flag finds no
 stale reference in docs.
 
+## Website (site/)
+
+`site/` is a standalone Astro project with its own `package.json` and lockfile. It needs the
+Node version in `site/package.json` `engines`; the Node 18 floor applies only to `core/` and
+`server/`. It renders the repo's own Markdown at build time; `site/src/pages.config.ts` maps
+routes to source files. Never copy docs into `site/`. A newly mapped source file also goes
+into the `paths` lists of `.github/workflows/site.yml`, or edits to it will not rebuild the site.
+
+```bash
+cd site && npm ci             # install the site's own dependencies
+npm test                      # link-rewriting and section-splitting tests
+npm run build                 # build to site/dist (works offline; changelog falls back to CHANGELOG.md)
+npm run dev                   # local dev server
+```
+
+The site is not released. Commit site work as `docs(site):`, `chore(site):` or `ci(site):`,
+never `feat`/`fix`/`perf`/`revert` or `!` ([CONTRIBUTING.md](CONTRIBUTING.md#the-website-is-not-released)).
+Root `npm run check` does not cover `site/`; run the commands above when you change it.
+
 ## Pre-PR cross-model review
 
 Before opening a PR, run a consensus code review of `git diff master...HEAD` plus the goal,

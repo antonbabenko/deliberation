@@ -1,0 +1,1342 @@
+{
+  "id": "arch-resumable-loops",
+  "recordedAt": "2026-11-18T19:10:28.921Z",
+  "deliberationVersion": "4.6.1",
+  "runId": "b0214ed7",
+  "tool": "consensus-step",
+  "expert": "architect",
+  "question": "Should a consensus-step loop survive an MCP server restart by writing its state to disk, or should it stay in memory? Review the design, the tradeoffs and what it would break.",
+  "subject": {
+    "type": "plan",
+    "related": "https://github.com/antonbabenko/deliberation/blob/4bf190b/core/loop-store.js",
+    "title": "Let a consensus-step loop survive an MCP server restart",
+    "short": "Loops that survive a restart"
+  },
+  "planUnderReview": "Proposal: let a consensus-step loop survive an MCP server restart\n\nQuestion for the panel: is this the right architecture, or should the loop state stay in memory? Review the design, the tradeoffs and what it would break.\n\nContext (Deliberation repo, v4.6.1; file-blind reviewers get the relevant facts here):\n\n- `consensus-step` is a stateful MCP tool driven by the host model, one action per call: init -> record_blind -> dispatch_peers -> submit_adjudication -> submit_revision, repeated up to `consensus.maxRounds` (default 5). A round takes 1 to 6 minutes of provider time plus the host's own adjudication and revision turns, so a 3-round loop often runs 15 to 30 minutes.\n- Loop state lives in `core/loop-store.js`: an in-memory `Map` keyed by sessionId, sliding TTL of 30 minutes, at most 100 entries with LRU eviction. A restart drops it, and the next call returns `{ error: \"session-expired\" }`; `commands/consensus.md` tells the host to stop and re-run from init.\n- What `init` stores per loop (server/mcp/index.js, runConsensusStep): the engine `LoopState` (round, status, currentPlan, blind verdict, round history, maxRounds, quorumFloor), `originalPrompt`, `startedAt`, `journaled`, `config` (a snapshot of the resolved config object), `pinnedProviders` (live Provider objects with methods and closures, chosen once at init), and `provenance` (runtime and config ids).\n- Every host session runs its own stdio server process. A plugin update, `/deliberation:reload-mcp`, a host crash or a host that restarts its MCP servers kills the process, and with it every live loop.\n- Durable records already exist but serve other purposes: `sessions.persist` (default false) writes one terminal record per finished run under the sessions dir; the dashboard journal (`core/journal.js`) appends metadata events per run under `<cache>/deliberation/runs/`, and content only when `dashboard.capture` is `content`. The dashboard marks a consensus-step run idle past the 30-minute TTL as `abandoned (expired)`.\n- Privacy defaults: the debug log is content-free by design, and prompts or answers reach disk only when the user opts in (`sessions.persist`, `dashboard.capture: content`).\n\nProposed design:\n\n1. New module `core/loop-persist.js`. After every `loopStore.put`, write a snapshot of the loop to `<sessionsDir>/loops/<sessionId>.json` with write-to-temp plus rename, file mode 0600. The snapshot holds the engine LoopState, originalPrompt, startedAt, journaled, provenance, the provider NAMES from `pinnedProviders`, and a hash of the config snapshot. It does not hold Provider objects or the config itself.\n2. On a `loopStore.get` miss, try `<sessionsDir>/loops/<sessionId>.json`. If it exists and its last write is under 24 hours old, rehydrate: re-select providers by the stored names from the live registry, re-read the live config, and put the state back in memory. If the live config hash differs from the stored one, continue and add a `configChanged: true` field to the response.\n3. On every terminal transition (converged, unresolved, quorum-lost, budget-exhausted) delete the snapshot after the existing atomic `loopStore.take`.\n4. Two host sessions could both hold the same sessionId. Guard it with a lock file `<sessionId>.lock` created with O_EXCL on rehydrate and removed on terminal or TTL expiry; a process that cannot take the lock returns `session-locked`.\n5. Enabled by default (`consensus.resumable: true`), because losing a 20-minute run to a plugin update is the common failure and users do not know the switch exists.\n6. A startup sweep deletes snapshots older than 24 hours.\n7. Tests: put/get round trip through disk; rehydrate after a simulated restart (new store instance, same dir); config-hash change; lock contention between two store instances; sweep; terminal deletion; a snapshot written by a newer engine version is refused.\n8. Docs: TECHNICAL.md (consensus-step and threat model), config schema and default for `consensus.resumable`, `commands/consensus.md` (session-expired becomes rarer; on `configChanged` the host should say so in its report).\n\nOut of scope: resuming the provider calls in flight at the moment of the crash (a dispatch_peers that was running is simply re-run by the host).\n",
+  "panel": [
+    {
+      "provider": "grok",
+      "source": "grok",
+      "model": "grok-4.7",
+      "reasoningEffort": "medium",
+      "role": "peer"
+    },
+    {
+      "provider": "openrouter",
+      "source": "openrouter:deepseek-v4-pro-0813",
+      "model": "deepseek/deepseek-v4-pro-0813",
+      "reasoningEffort": "medium",
+      "role": "peer"
+    },
+    {
+      "provider": "openrouter",
+      "source": "openrouter:kimi-k3-1-pro",
+      "model": "moonshotai/kimi-k3.1-pro",
+      "reasoningEffort": "medium",
+      "role": "peer"
+    }
+  ],
+  "notOnPanel": [
+    {
+      "provider": "codex",
+      "reason": "providers.codex.enabled: false in the recording machine's config"
+    },
+    {
+      "provider": "gemini",
+      "reason": "providers.gemini.enabled: false in the recording machine's config"
+    }
+  ],
+  "arbiter": {
+    "kind": "host"
+  },
+  "limits": {
+    "maxRounds": 5
+  },
+  "steps": [
+    {
+      "action": "init",
+      "status": "await_blind",
+      "round": 1
+    },
+    {
+      "action": "record_blind",
+      "status": "await_peers",
+      "round": 1
+    },
+    {
+      "action": "dispatch_peers",
+      "status": "await_adjudication",
+      "round": 1
+    },
+    {
+      "action": "submit_adjudication",
+      "status": "await_revision",
+      "round": 1
+    },
+    {
+      "action": "submit_revision",
+      "status": "await_blind",
+      "round": 2
+    },
+    {
+      "action": "record_blind",
+      "status": "await_peers",
+      "round": 2
+    },
+    {
+      "action": "dispatch_peers",
+      "status": "await_adjudication",
+      "round": 2
+    },
+    {
+      "action": "submit_adjudication",
+      "status": "await_revision",
+      "round": 2
+    },
+    {
+      "action": "submit_revision",
+      "status": "await_blind",
+      "round": 3
+    },
+    {
+      "action": "record_blind",
+      "status": "await_peers",
+      "round": 3
+    },
+    {
+      "action": "dispatch_peers",
+      "status": "await_adjudication",
+      "round": 3
+    },
+    {
+      "action": "submit_adjudication",
+      "status": "await_revision",
+      "round": 3
+    },
+    {
+      "action": "submit_revision",
+      "status": "await_blind",
+      "round": 4
+    },
+    {
+      "action": "record_blind",
+      "status": "await_peers",
+      "round": 4
+    },
+    {
+      "action": "dispatch_peers",
+      "status": "await_adjudication",
+      "round": 4
+    },
+    {
+      "action": "submit_adjudication",
+      "status": "await_revision",
+      "round": 4
+    },
+    {
+      "action": "submit_revision",
+      "status": "await_blind",
+      "round": 5
+    },
+    {
+      "action": "record_blind",
+      "status": "await_peers",
+      "round": 5
+    },
+    {
+      "action": "dispatch_peers",
+      "status": "await_adjudication",
+      "round": 5
+    },
+    {
+      "action": "submit_adjudication",
+      "status": "await_revision",
+      "round": 5
+    },
+    {
+      "action": "submit_revision",
+      "status": "unresolved",
+      "round": 5
+    }
+  ],
+  "rounds": [
+    {
+      "n": 1,
+      "hostBlindVerdict": {
+        "verdict": "REQUEST_CHANGES",
+        "summary": "Surviving a restart is worth having, but as written the feature writes content to disk without consent, locks out the restarted server, and lets a resumed loop run on a different panel than it started with.",
+        "criticalIssues": [
+          {
+            "id": "r1-host-1",
+            "category": "security",
+            "text": "Step 5 turns the feature on by default, so every consensus-step loop writes the plan, the host's blind verdicts and the round history to disk. That breaks the stated privacy default (content reaches disk only on opt-in via sessions.persist or dashboard.capture: content). Resumability must be opt-in, or tied to an existing content opt-in."
+          },
+          {
+            "id": "r1-host-2",
+            "category": "correctness",
+            "text": "The lock in step 4 defeats the main use case. A process that dies holding `<sessionId>.lock` never removes it, so the restarted server, the only legitimate claimant, gets `session-locked`. The lock needs an owner (pid plus process start time) and stale-lock takeover, or no lock at all."
+          },
+          {
+            "id": "r1-host-3",
+            "category": "correctness",
+            "text": "Step 2 re-reads the live config and re-selects providers on resume, which silently changes the panel and model pins the loop was started with (init pins them on purpose). Flagging `configChanged: true` does not restore comparability between rounds. Either refuse the resume on a changed hash or store the pinned per-provider settings (model, reasoningEffort, timeout) in the snapshot and reuse them."
+          }
+        ],
+        "text": "**Verdict**: REQUEST CHANGES\n**Critical issues** (must-fix; empty = none):\n  - `[security]` Step 5 turns the feature on by default, so every consensus-step loop writes the plan, the host's blind verdicts and the round history to disk. That breaks the stated privacy default (content reaches disk only on opt-in via sessions.persist or dashboard.capture: content). Resumability must be opt-in, or tied to an existing content opt-in.\n  - `[correctness]` The lock in step 4 defeats the main use case. A process that dies holding `<sessionId>.lock` never removes it, so the restarted server, the only legitimate claimant, gets `session-locked`. The lock needs an owner (pid plus process start time) and stale-lock takeover, or no lock at all.\n  - `[correctness]` Step 2 re-reads the live config and re-selects providers on resume, which silently changes the panel and model pins the loop was started with (init pins them on purpose). Flagging `configChanged: true` does not restore comparability between rounds. Either refuse the resume on a changed hash or store the pinned per-provider settings (model, reasoningEffort, timeout) in the snapshot and reuse them.\n**One-line bottom line**: Surviving a restart is worth having, but as written the feature writes content to disk without consent, locks out the restarted server, and lets a resumed loop run on a different panel than it started with.\n\nNon-blocking notes:\n- The dashboard derives `abandoned (expired)` for a consensus-step run idle past 30 minutes; a resumed run needs a journal event so the status recovers.\n- `take` on a terminal transition must also consult disk, or a terminal call right after a restart reports session-expired."
+      },
+      "peers": [
+        {
+          "source": "grok",
+          "provider": "grok",
+          "model": "grok-4.7",
+          "reasoningEffort": "medium",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r1-grok-1",
+              "category": "security",
+              "text": "Default-on snapshots persist originalPrompt, currentPlan, blind verdicts, and round history, breaking the opt-in rule that prompts and answers reach disk only when the user asks."
+            },
+            {
+              "id": "r1-grok-2",
+              "category": "security",
+              "text": "A raw sessionId in the snapshot or lock path is path traversal if the host supplies it; temp files must be created mode 0600, not chmodded after write."
+            },
+            {
+              "id": "r1-grok-3",
+              "category": "correctness",
+              "text": "An O_EXCL lock file survives the crash, so resume returns session-locked, and the live process never holds it, so a second server can rehydrate the same session."
+            },
+            {
+              "id": "r1-grok-4",
+              "category": "correctness",
+              "text": "Rehydrate within 24 hours ignores the 30-minute sliding TTL, and idle expiry never deletes the snapshot, so a restart resurrects a session the live process would already have expired."
+            },
+            {
+              "id": "r1-grok-5",
+              "category": "correctness",
+              "text": "Plugin update is the motivating restart, but there is no readable schemaVersion for older snapshots, and missing providers or a config-hash mismatch still re-resolve live config instead of the pinned identity."
+            },
+            {
+              "id": "r1-grok-6",
+              "category": "ambiguity",
+              "text": "No error contract for corrupt snapshot, missing provider, or session-locked, so a host that re-inits on any error can clobber a recoverable snapshot."
+            },
+            {
+              "id": "r1-grok-7",
+              "category": "scope",
+              "text": "A new default and persisted content shape also have to land in README, SETUP, tool-guide, and design-decisions, not only TECHNICAL.md and commands/consensus.md."
+            },
+            {
+              "id": "r1-grok-8",
+              "category": "ops",
+              "text": "Startup sweep does not cover temp files left by a crash mid-rename, or snapshots and locks left by a process that never starts again before 24 hours."
+            }
+          ],
+          "summary": "The loop cannot stay memory-only: a restart kills the stdio process, so the 15–30 minute run is already gone. A JSON snapshot plus rehydrate-by-provider-name is the right shape. This plan is not safe to build as written: it silently writes prompt and verdict content, and the lock and TTL rules fail on the crash they are meant to survive.",
+          "text": "The loop cannot stay memory-only: a restart kills the stdio process, so the 15–30 minute run is already gone. A JSON snapshot plus rehydrate-by-provider-name is the right shape. This plan is not safe to build as written: it silently writes prompt and verdict content, and the lock and TTL rules fail on the crash they are meant to survive.\n\n**Action plan**\n1. Keep the hot path in `loop-store`, but treat the snapshot as crash recovery only. Persist a `schemaVersion`, `expiresAt` (same 30-minute sliding TTL), serializable provider identity (name plus model and options chosen at init), and the loop-relevant resolved settings. Do not re-resolve from live config.\n2. Default `consensus.resumable` to false. Turning it on writes `originalPrompt`, `currentPlan`, blind verdicts, and round history to disk; that must be an explicit opt-in, documented in the threat model next to `sessions.persist` and `dashboard.capture`.\n3. Replace the `O_EXCL` lock file with a lock the kernel drops on process death (or a PID lock with stale-PID reclaim). Acquire it at init and hold it until terminal or TTL expiry, so a live owner and a rehydrate cannot both run.\n4. On rehydrate, refuse if `expiresAt` has passed, the schema is unknown or newer, JSON is corrupt, or a pinned provider is missing. Return distinct errors. `init` must not overwrite a recoverable snapshot.\n5. Delete the snapshot on terminal transition and on in-memory TTL expiry. Sweep only orphans and same-dir temp files; cap the resume window at the existing TTL, not 24 hours.\n6. Filename must be a hash or an allowlisted id, never a raw `sessionId`. Create the temp file `0600` in a `0700` directory; do not chmod after write.\n7. Tests must cover crash-during-write, lock released by a dead owner, live-owner versus rehydrate, TTL not extended by restart, missing provider, and `init` not clobbering. Docs must cover every surface a new default and persisted shape touch.\n\n**Effort:** Medium. **Confidence:** high — the failure modes follow from process-death plus the stated privacy and TTL rules.\n\n**Why this approach**\n- Memory cannot outlive the MCP process; disk can, without serializing `Provider` closures.\n- Re-reading live config after `/deliberation:reload-mcp` changes quorum, models, or provider choice under an old `LoopState`. Pin the identity that `init` already froze.\n- A 24-hour resurrection window disagrees with the 30-minute TTL and with the dashboard’s `abandoned (expired)` mark, and it leaves prompts on disk long after the run is dead.\n\n**Risks**\n- Opt-in default means a plugin update still kills runs until the user enables it. That is the privacy tradeoff; do not paper over it with a silent default.\n- PID reuse can steal a stale lock. Bind the lock to pid plus a nonce or start time, and treat an unreadable lock as locked, not free.\n- Partial rename recovery is only atomic if the temp file is on the same filesystem as the snapshot.\n\nVERDICT: REQUEST_CHANGES\n- [security] Default-on snapshots persist originalPrompt, currentPlan, blind verdicts, and round history, breaking the opt-in rule that prompts and answers reach disk only when the user asks.\n- [security] A raw sessionId in the snapshot or lock path is path traversal if the host supplies it; temp files must be created mode 0600, not chmodded after write.\n- [correctness] An O_EXCL lock file survives the crash, so resume returns session-locked, and the live process never holds it, so a second server can rehydrate the same session.\n- [correctness] Rehydrate within 24 hours ignores the 30-minute sliding TTL, and idle expiry never deletes the snapshot, so a restart resurrects a session the live process would already have expired.\n- [correctness] Plugin update is the motivating restart, but there is no readable schemaVersion for older snapshots, and missing providers or a config-hash mismatch still re-resolve live config instead of the pinned identity.\n- [ambiguity] No error contract for corrupt snapshot, missing provider, or session-locked, so a host that re-inits on any error can clobber a recoverable snapshot.\n- [scope] A new default and persisted content shape also have to land in README, SETUP, tool-guide, and design-decisions, not only TECHNICAL.md and commands/consensus.md.\n- [ops] Startup sweep does not cover temp files left by a crash mid-rename, or snapshots and locks left by a process that never starts again before 24 hours.",
+          "ms": 90233
+        },
+        {
+          "source": "openrouter:deepseek-v4-pro-0813",
+          "provider": "openrouter",
+          "model": "deepseek/deepseek-v4-pro-0813",
+          "reasoningEffort": "medium",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r1-deepseek-v4-pro-0813-1",
+              "category": "security",
+              "text": "consensus.resumable: true` by default writes `originalPrompt`, `currentPlan`, `blind verdict` and `round history` (real content) to disk unencrypted, contradicting the documented \"prompts or answers reach disk only when the user opts in\" model; the plan's \"does not hold Provider objects or the config\" framing misses that the content, not the config, is the sensitive part."
+            },
+            {
+              "id": "r1-deepseek-v4-pro-0813-2",
+              "category": "correctness",
+              "text": "Stale lock files: a crash while holding the O_EXCL lock leaves it forever; no PID/age staleness detection is specified and the sweep covers only snapshots, so a crashed process permanently blocks resumption with `session-locked`."
+            },
+            {
+              "id": "r1-deepseek-v4-pro-0813-3",
+              "category": "correctness",
+              "text": "Terminal-loop resurrection: a crash between `loopStore.take` and snapshot delete leaves a converged/unresolved snapshot that rehydrate would accept, re-running a finished loop; rehydrate must refuse terminal statuses."
+            },
+            {
+              "id": "r1-deepseek-v4-pro-0813-4",
+              "category": "correctness",
+              "text": "Config-change handling is too coarse: changes to `maxRounds`, `quorumFloor` or the provider set invalidate the loop, but the plan continues with only a `configChanged` flag, which can produce wrong adjudication results."
+            },
+            {
+              "id": "r1-deepseek-v4-pro-0813-5",
+              "category": "ambiguity",
+              "text": "Provider re-selection failure is undefined: if a pinned provider name is missing from the live registry (logout, provider removed), no behavior is specified — silent continuation with fewer peers would be wrong."
+            },
+            {
+              "id": "r1-deepseek-v4-pro-0813-6",
+              "category": "ambiguity",
+              "text": "The lock is taken only on rehydrate, not at init, so two processes can init the same sessionId and overwrite each other's snapshots; lock removal on in-memory TTL expiry and the 30-minute TTL vs 24-hour snapshot window are unspecified."
+            },
+            {
+              "id": "r1-deepseek-v4-pro-0813-7",
+              "category": "ambiguity",
+              "text": "sessionsDir` existence and its relationship to `sessions.persist: false` are undefined, and the engine-version policy covers only newer snapshots, not older ones."
+            },
+            {
+              "id": "r1-deepseek-v4-pro-0813-8",
+              "category": "ops",
+              "text": "The dashboard marks runs idle past 30 minutes as \"abandoned (expired)\" while they remain resumable for 24 hours — contradictory user-facing semantics that need reconciling."
+            }
+          ],
+          "summary": "The snapshot-and-rehydrate architecture is sound, but the plan as written is not approvable: default-on `resumable` writes prompt/answer content to disk, reversing the repo's opt-in privacy model, and two crash-window bugs (stale lock files, terminal-loop resurrection) break the exact restart scenario the feature targets. Fix by defaulting resumable off (or gating on existing opt-ins), adding PID/age lock staleness, refusing terminal rehydrate, defining provider-resolution failure, and splitting safe vs invalidating config changes. Effort Medium; confidence high. Top risk: the privacy regression.",
+          "text": "## Review: resumable consensus-step loops\n\n### Bottom line\nThe architecture is the right shape — snapshot the loop to disk and rehydrate on a store miss — and the motivation (losing 15–30 minute runs to plugin updates and reloads) is real. But as specified it silently reverses the repo's core privacy contract: `resumable: true` by default writes `originalPrompt`, `currentPlan`, `blind verdict` and `round history` — actual prompt/answer content — to disk unencrypted, where the documented model is \"prompts or answers reach disk only when the user opts in.\" That alone blocks approval. Two correctness bugs are also critical: stale lock files after a crash permanently block resumption, and a crash between `take` and delete lets a finished loop resurrect.\n\n### Action plan\n1. Make `consensus.resumable` default **false**, or gate content persistence on `sessions.persist` / `dashboard.capture: content`. If you keep default-on, the threat model change is a regression, not a doc update — state it as such.\n2. Add lock staleness: write PID + timestamp into the lock file; treat as stale when the PID is dead or the lock exceeds an age threshold; have the sweep remove stale locks, not just old snapshots.\n3. Refuse rehydrate when the stored `status` is terminal (converged/unresolved/quorum-lost/budget-exhausted), and delete terminal snapshots in the same critical section as `take` (or tolerate the residue by refusing it).\n4. Define provider re-selection failure: if a pinned name is missing from the live registry (logout, provider removed), fail rehydrate with an explicit error listing the missing names — do not silently continue with fewer peers.\n5. Split config changes into safe (timeouts, verbosity) vs invalidating (`maxRounds`, `quorumFloor`, provider set). Invalidating changes should refuse rehydrate or force re-init, not continue with a `configChanged` flag.\n6. Take the lock at **init** too, not only on rehydrate, so two processes can't init the same sessionId and overwrite each other's snapshots.\n7. Specify lock removal on in-memory TTL expiry and reconcile the 30-minute TTL with the 24-hour snapshot window; align the dashboard's \"abandoned (expired)\" semantics with the new resume window.\n8. Add an engine-version field with an explicit policy for both newer *and* older snapshots.\n\n### Why this approach (with the fixes)\n- Snapshot-to-disk is the only way to resume without re-running providers, because the loop's continuation depends on content (blind verdicts, round history) that only the server holds. The host cannot reconstruct it.\n- The lock file is the right primitive for cross-process exclusion, but O_EXCL alone is insufficient without staleness detection — a crashed process is the exact failure mode this feature exists to survive.\n- Storing provider *names* + config *hash* rather than live objects is correct; the sensitive part is the content, which the plan's framing (\"does not hold Provider objects or the config\") glosses over.\n\n### Risks\n- **Privacy regression** is the headline: default-on content persistence contradicts the repo's stated defaults and its content-free debug log. This is the one issue that cannot be fixed by documentation alone.\n- **Stale-lock DoS**: a crash mid-loop leaves a lock that no described mechanism clears, so the very restart this feature targets can leave the loop permanently `session-locked`.\n- **Resurrected terminal loop**: the `take`-then-delete ordering has a crash window; rehydrating a converged snapshot re-runs a finished adjudication.\n\n### Edge cases\n- **Escalation trigger**: if you later want to survive a crash *mid-provider-call* (the out-of-scope item), that needs idempotent dispatch records per peer, not just loop snapshots — a substantially larger design.\n- **Alternative sketch**: if the privacy constraint is non-negotiable, persist only non-content state (round, status, provider names, config hash) and require the host to re-supply `originalPrompt` and re-run the current round's providers on resume — cheaper on disk, weaker resume guarantee.\n\n**Effort**: Medium (1–2d) for the design fixes; the implementation itself is Short–Medium.\n\n**Confidence**: high — the privacy conflict and the two crash-window bugs follow directly from the stated facts and the repo's own defaults.\n\n<SUMMARY>\nThe snapshot-and-rehydrate architecture is sound, but the plan as written is not approvable: default-on `resumable` writes prompt/answer content to disk, reversing the repo's opt-in privacy model, and two crash-window bugs (stale lock files, terminal-loop resurrection) break the exact restart scenario the feature targets. Fix by defaulting resumable off (or gating on existing opt-ins), adding PID/age lock staleness, refusing terminal rehydrate, defining provider-resolution failure, and splitting safe vs invalidating config changes. Effort Medium; confidence high. Top risk: the privacy regression.\n</SUMMARY>\n\nVERDICT: REQUEST_CHANGES\n- [security] `consensus.resumable: true` by default writes `originalPrompt`, `currentPlan`, `blind verdict` and `round history` (real content) to disk unencrypted, contradicting the documented \"prompts or answers reach disk only when the user opts in\" model; the plan's \"does not hold Provider objects or the config\" framing misses that the content, not the config, is the sensitive part.\n- [correctness] Stale lock files: a crash while holding the O_EXCL lock leaves it forever; no PID/age staleness detection is specified and the sweep covers only snapshots, so a crashed process permanently blocks resumption with `session-locked`.\n- [correctness] Terminal-loop resurrection: a crash between `loopStore.take` and snapshot delete leaves a converged/unresolved snapshot that rehydrate would accept, re-running a finished loop; rehydrate must refuse terminal statuses.\n- [correctness] Config-change handling is too coarse: changes to `maxRounds`, `quorumFloor` or the provider set invalidate the loop, but the plan continues with only a `configChanged` flag, which can produce wrong adjudication results.\n- [ambiguity] Provider re-selection failure is undefined: if a pinned provider name is missing from the live registry (logout, provider removed), no behavior is specified — silent continuation with fewer peers would be wrong.\n- [ambiguity] The lock is taken only on rehydrate, not at init, so two processes can init the same sessionId and overwrite each other's snapshots; lock removal on in-memory TTL expiry and the 30-minute TTL vs 24-hour snapshot window are unspecified.\n- [ambiguity] `sessionsDir` existence and its relationship to `sessions.persist: false` are undefined, and the engine-version policy covers only newer snapshots, not older ones.\n- [ops] The dashboard marks runs idle past 30 minutes as \"abandoned (expired)\" while they remain resumable for 24 hours — contradictory user-facing semantics that need reconciling.",
+          "ms": 95141
+        },
+        {
+          "source": "openrouter:kimi-k3-1-pro",
+          "provider": "openrouter",
+          "model": "moonshotai/kimi-k3.1-pro",
+          "reasoningEffort": "medium",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r1-kimi-k3-1-pro-1",
+              "category": "security",
+              "text": "Enabling snapshots by default writes prompts, plans, verdicts, and history to disk while content persistence is otherwise explicitly opt-in; mode 0600 does not resolve that policy violation."
+            },
+            {
+              "id": "r1-kimi-k3-1-pro-2",
+              "category": "correctness",
+              "text": "Taking the lock only on rehydrate leaves the original process unowned and unlocked, allowing two processes to resume and mutate the same loop with last-writer-wins snapshots."
+            },
+            {
+              "id": "r1-kimi-k3-1-pro-3",
+              "category": "correctness",
+              "text": "Deleting the snapshot after the in-memory terminal take leaves a crash window in which the previous nonterminal snapshot survives and the completed loop can be resumed."
+            },
+            {
+              "id": "r1-kimi-k3-1-pro-4",
+              "category": "ops",
+              "text": "An O_EXCL lock left by a crashed process has no specified safe takeover mechanism; TTL-based removal can also delete state still owned by another active process."
+            },
+            {
+              "id": "r1-kimi-k3-1-pro-5",
+              "category": "ambiguity",
+              "text": "Continuing after any config change and re-selecting providers by name does not define behavior for missing providers, changed quorum or round limits, or other consensus-affecting configuration, potentially producing a materially different panel mid-loop."
+            }
+          ],
+          "summary": "Durable, opt-in snapshots are appropriate, but approval requires a single-writer protocol with leases and fencing, crash-safe terminal persistence, and explicit compatibility rules. Effort: Medium. Confidence: high. The leading risk is writing sensitive consensus content by default despite the existing opt-in-only disk-privacy contract.",
+          "text": "**Bottom line:** Disk-backed snapshots are a reasonable architecture for loops lasting 15–30 minutes, but this design is not safe to ship as written. Default-on persistence contradicts the repository’s content-privacy guarantee, and the proposed lock neither prevents concurrent writers nor reliably recovers after a crash.\n\n**Action plan:**\n1. Make `consensus.resumable` default to `false`, or require an explicit content-persistence opt-in. Document that snapshots contain prompts, plans, verdicts, and history even when `sessions.persist` is false.\n2. Establish ownership at `init`, not only during rehydration. Give each owner a random fencing token and short-lived lease, and verify ownership on every write, take, and delete.\n3. Add a monotonically increasing snapshot revision and reject stale writes. Persist a terminal state or tombstone before removing in-memory state so a crash cannot resurrect a completed loop.\n4. Define resume compatibility precisely: missing pinned providers must produce an explicit non-resumable error, and consensus-affecting config changes must not be silently accepted through `configChanged: true`.\n5. Treat snapshots as untrusted input: validate their schema and engine version, constrain session IDs to safe filenames, use canonical config hashing, and handle corrupt files without crashing the server.\n6. Specify stale-lock recovery and cleanup for both snapshots and locks. Add crash-point tests around ownership takeover, concurrent writes, terminal persistence, and provider disappearance.\n\n**Effort:** Medium  \n**Confidence:** High; the privacy and concurrency failures follow directly from the supplied design.\n\n**Why this approach:** Retaining host-driven orchestration and persisting only between actions keeps the change bounded. Re-running an interrupted `dispatch_peers` is an acceptable documented limitation, although it can duplicate provider cost. The additional complexity should be concentrated in ownership and state-transition correctness rather than provider reconstruction.\n\n<SUMMARY>Durable, opt-in snapshots are appropriate, but approval requires a single-writer protocol with leases and fencing, crash-safe terminal persistence, and explicit compatibility rules. Effort: Medium. Confidence: high. The leading risk is writing sensitive consensus content by default despite the existing opt-in-only disk-privacy contract.</SUMMARY>\n\nVERDICT: REQUEST_CHANGES\n- [security] Enabling snapshots by default writes prompts, plans, verdicts, and history to disk while content persistence is otherwise explicitly opt-in; mode 0600 does not resolve that policy violation.\n- [correctness] Taking the lock only on rehydrate leaves the original process unowned and unlocked, allowing two processes to resume and mutate the same loop with last-writer-wins snapshots.\n- [correctness] Deleting the snapshot after the in-memory terminal take leaves a crash window in which the previous nonterminal snapshot survives and the completed loop can be resumed.\n- [ops] An O_EXCL lock left by a crashed process has no specified safe takeover mechanism; TTL-based removal can also delete state still owned by another active process.\n- [ambiguity] Continuing after any config change and re-selecting providers by name does not define behavior for missing providers, changed quorum or round limits, or other consensus-affecting configuration, potentially producing a materially different panel mid-loop.",
+          "ms": 80552
+        }
+      ],
+      "roundMs": 95141,
+      "slowest": "openrouter:deepseek-v4-pro-0813",
+      "adjudication": [
+        {
+          "issueId": "r1-host-1",
+          "source": "host",
+          "decision": "accept",
+          "reason": "Raised by all three peers as well; contradicts the stated privacy default. v2 makes it opt-in."
+        },
+        {
+          "issueId": "r1-host-2",
+          "source": "host",
+          "decision": "accept",
+          "reason": "Raised by grok, deepseek and kimi too; v2 records an owner (pid plus start time) and allows takeover from a dead owner."
+        },
+        {
+          "issueId": "r1-host-3",
+          "source": "host",
+          "decision": "accept",
+          "reason": "grok, deepseek and kimi raise the same drift; v2 stores the pinned provider settings and consensus knobs in the snapshot."
+        },
+        {
+          "issueId": "r1-grok-1",
+          "source": "grok",
+          "decision": "accept",
+          "reason": "Same as the host issue; fixed by opt-in in v2."
+        },
+        {
+          "issueId": "r1-grok-2",
+          "source": "grok",
+          "decision": "accept",
+          "reason": "The host supplies sessionId on every later call and a get miss now reads a file named after it; v2 validates the UUID shape before any path use and creates files with mode 0600 from the start."
+        },
+        {
+          "issueId": "r1-grok-3",
+          "source": "grok",
+          "decision": "accept",
+          "reason": "Same as the host lock issue; v2 takes ownership at init and on resume, with dead-owner takeover."
+        },
+        {
+          "issueId": "r1-grok-4",
+          "source": "grok",
+          "decision": "accept",
+          "reason": "A resumed loop would outlive one the live process already expired; v2 uses the same sliding TTL for the snapshot."
+        },
+        {
+          "issueId": "r1-grok-5",
+          "source": "grok",
+          "decision": "accept",
+          "reason": "v2 adds schemaVersion (refuses any other version) and resumes on the pinned identity, refusing when a pinned provider is gone."
+        },
+        {
+          "issueId": "r1-grok-6",
+          "source": "grok",
+          "decision": "accept",
+          "reason": "Without one a host that re-inits on any error clobbers a recoverable loop; v2 defines resume-refused with reasons and session-locked."
+        },
+        {
+          "issueId": "r1-grok-7",
+          "source": "grok",
+          "decision": "accept",
+          "reason": "AGENTS.md requires every surface in the same PR; v2 lists them."
+        },
+        {
+          "issueId": "r1-grok-8",
+          "source": "grok",
+          "decision": "accept",
+          "reason": "v2 sweeps temp files and expired snapshots at startup and on each put."
+        },
+        {
+          "issueId": "r1-deepseek-v4-pro-0813-1",
+          "source": "openrouter:deepseek-v4-pro-0813",
+          "decision": "accept",
+          "reason": "Same as the host and grok issue; fixed by opt-in in v2."
+        },
+        {
+          "issueId": "r1-deepseek-v4-pro-0813-2",
+          "source": "openrouter:deepseek-v4-pro-0813",
+          "decision": "accept",
+          "reason": "Same as the host lock issue; fixed by owner plus dead-owner takeover."
+        },
+        {
+          "issueId": "r1-deepseek-v4-pro-0813-3",
+          "source": "openrouter:deepseek-v4-pro-0813",
+          "decision": "accept",
+          "reason": "kimi raises the same window; v2 writes a terminal tombstone before take and refuses to resume a terminal status."
+        },
+        {
+          "issueId": "r1-deepseek-v4-pro-0813-4",
+          "source": "openrouter:deepseek-v4-pro-0813",
+          "decision": "accept",
+          "reason": "v2 pins maxRounds, quorumFloor and maxWallMs in the snapshot and reuses them."
+        },
+        {
+          "issueId": "r1-deepseek-v4-pro-0813-5",
+          "source": "openrouter:deepseek-v4-pro-0813",
+          "decision": "accept",
+          "reason": "v2 refuses the resume with reason missing-provider instead of running with fewer peers."
+        },
+        {
+          "issueId": "r1-deepseek-v4-pro-0813-6",
+          "source": "openrouter:deepseek-v4-pro-0813",
+          "decision": "dismiss",
+          "reason": "Two processes cannot init the same id: init draws a fresh random UUID per loop (sessions.newSessionId). The TTL window part is covered by the accepted grok TTL issue, and the owner is now taken at init."
+        },
+        {
+          "issueId": "r1-deepseek-v4-pro-0813-7",
+          "source": "openrouter:deepseek-v4-pro-0813",
+          "decision": "accept",
+          "reason": "v2 states the loops dir is used only when consensus.resumable is on, independent of sessions.persist, and refuses any other schemaVersion."
+        },
+        {
+          "issueId": "r1-deepseek-v4-pro-0813-8",
+          "source": "openrouter:deepseek-v4-pro-0813",
+          "decision": "accept",
+          "reason": "Resolved by aligning the snapshot to the 30-minute TTL and emitting a resumed journal event."
+        },
+        {
+          "issueId": "r1-kimi-k3-1-pro-1",
+          "source": "openrouter:kimi-k3-1-pro",
+          "decision": "accept",
+          "reason": "Same as the host issue; fixed by opt-in in v2."
+        },
+        {
+          "issueId": "r1-kimi-k3-1-pro-2",
+          "source": "openrouter:kimi-k3-1-pro",
+          "decision": "accept",
+          "reason": "v2 takes ownership at init, so a second process can only take over a dead owner."
+        },
+        {
+          "issueId": "r1-kimi-k3-1-pro-3",
+          "source": "openrouter:kimi-k3-1-pro",
+          "decision": "accept",
+          "reason": "Same as the deepseek terminal window; fixed by the tombstone."
+        },
+        {
+          "issueId": "r1-kimi-k3-1-pro-4",
+          "source": "openrouter:kimi-k3-1-pro",
+          "decision": "accept",
+          "reason": "v2 takes over only when the owner pid is gone or its start time differs, never on age alone."
+        },
+        {
+          "issueId": "r1-kimi-k3-1-pro-5",
+          "source": "openrouter:kimi-k3-1-pro",
+          "decision": "accept",
+          "reason": "Same as the host pinning issue; v2 resumes on pinned settings and refuses on a missing provider."
+        }
+      ],
+      "hostVerdict": "REQUEST_CHANGES",
+      "revision": "Proposal v2: let a consensus-step loop survive an MCP server restart (opt-in)\n\nQuestion for the panel: is this the right architecture, or should the loop state stay in memory? Review the design, the tradeoffs and what it would break.\n\nContext (unchanged from v1; file-blind reviewers get the relevant facts here):\n\n- `consensus-step` is a stateful MCP tool driven by the host model, one action per call: init -> record_blind -> dispatch_peers -> submit_adjudication -> submit_revision, repeated up to `consensus.maxRounds` (default 5). A round takes 1 to 6 minutes of provider time plus the host's own turns, so a 3-round loop often runs 15 to 30 minutes.\n- Loop state lives in `core/loop-store.js`: an in-memory `Map` keyed by sessionId, sliding TTL of 30 minutes, at most 100 entries with LRU eviction. A restart drops it, and the next call returns `{ error: \"session-expired\" }`; `commands/consensus.md` tells the host to re-run from init.\n- `init` stores per loop: the engine `LoopState`, `originalPrompt`, `startedAt`, `journaled`, a `config` snapshot, `pinnedProviders` (live Provider objects chosen once at init) and `provenance`. sessionIds are random UUIDs drawn at init (`sessions.newSessionId`); the host passes them back on every later call.\n- Every host session runs its own stdio server process. A plugin update, `/deliberation:reload-mcp`, a host crash or an MCP restart kills the process and every live loop in it.\n- Durable records today: `sessions.persist` (default false) writes one terminal record per finished run; the dashboard journal appends metadata per run, and content only when `dashboard.capture` is `content`. The dashboard marks a consensus-step run idle past the 30-minute TTL as `abandoned (expired)`.\n- Privacy default: prompts or answers reach disk only when the user opts in.\n\nDesign:\n\n1. Opt-in. New key `consensus.resumable` (boolean, default false). The schema description states that turning it on writes the plan, every revision, the host's blind verdicts, adjudications and peer replies to disk under `<sessionsDir>/loops/`, mode 0600 in a 0700 directory, until the loop ends or its TTL passes. It does not depend on `sessions.persist`. With the key off, nothing in this proposal runs and behavior is byte-for-byte today's.\n2. Snapshot. `core/loop-persist.js` writes `<sessionsDir>/loops/<sessionId>.json` after every `loopStore.put` of a resumable loop: write to `<sessionId>.<pid>.<rand>.tmp` opened with O_CREAT|O_EXCL and mode 0600, fsync, rename. Fields: `schemaVersion` (integer, starts at 1), `rev` (incremented per write), `owner` { pid, startTime }, `touchedAt`, the engine LoopState, originalPrompt, startedAt, journaled, provenance, and the pinned identity: per provider { name, model, reasoningEffort, timeout } plus the consensus knobs fixed at init (maxRounds, quorumFloor, maxWallMs). No Provider objects and no raw config.\n3. sessionId validation. Before any path is built, the sessionId must match the UUID v4 shape; anything else returns `session-expired` without touching the filesystem.\n4. Ownership, no separate lock file. The snapshot's `owner` is the lock. `init` writes it with the current process as owner. A write by a process that is not the owner is refused. On a get miss, a process may take over only when the recorded owner is dead: `process.kill(pid, 0)` fails with ESRCH, or the pid is alive but its start time differs (pid reuse; checked on Linux and macOS, where start time is readable; on Windows a live pid is treated as alive). Takeover rewrites `owner` with the next `rev` and re-reads the file to confirm it won. A live owner gives `{ error: \"session-locked\", ownerPid }`. Age alone never allows takeover.\n5. Resume. On a get miss for a resumable loop: read the snapshot; refuse with `{ error: \"resume-refused\", reason }` when reason is `schema` (any schemaVersion other than the current one, older or newer), `corrupt` (unparseable; the file is renamed to `.corrupt` and kept for the user), `terminal` (see 6), `expired` (`touchedAt` older than the 30-minute TTL, the same sliding TTL as the live store), or `missing-provider` (a pinned provider is no longer in the registry or is disabled). Otherwise rebuild each pinned provider from the registry with its stored model, reasoningEffort and timeout, reuse the stored consensus knobs, put the state back in memory and journal a `state` event `resumed` so the dashboard drops `abandoned (expired)`. A changed config hash alone does not refuse: the loop keeps its pinned identity, and the response carries `resumed: true` and `configChanged: true` for the host's report.\n6. Terminal transitions. Before the existing atomic `loopStore.take`, write the snapshot with its terminal status (a tombstone), then take, persist the session record if `sessions.persist` is on, then delete the snapshot. A tombstone found on resume gives `resume-refused` reason `terminal`, so a crash in that window cannot re-run a finished loop.\n7. Sweep, at startup and after each put, bounded to the loops dir: delete snapshots whose `touchedAt` is past the TTL and whose owner is dead, `.tmp` files older than the TTL, and tombstones older than the TTL.\n8. Host contract in `commands/consensus.md`: `session-expired` and `resume-refused` mean re-run from init; `session-locked` means another live session owns the loop, stop and say so; `resumed: true` means continue, and mention `configChanged` in the report.\n9. Tests: round trip through disk; resume after a simulated restart (new store, same dir); each refusal reason; config change keeps the pinned identity; takeover from a dead owner and refusal against a live one; pid reuse by start time; terminal tombstone; sweep of snapshots, tmp files and tombstones; a non-UUID sessionId never touches disk; key off writes nothing.\n10. Docs in the same PR: README.md (feature list), SETUP.md (when to turn it on), TECHNICAL.md (consensus-step, snapshot shape, threat model), docs/tool-guide.md (error contract), docs/dev/design-decisions.md (why opt-in, why owner-in-file instead of a lock file), config schema and default for `consensus.resumable`, commands/consensus.md, then `npm run sync`.\n\nOut of scope: resuming a provider call that was in flight when the process died (the host re-runs dispatch_peers), and sharing one loop between two live sessions.\n",
+      "revisionSummary": "Opt-in key; owner-in-snapshot with dead-owner takeover instead of a lock file; pinned provider settings and knobs; UUID check; TTL-aligned resume with a refusal contract; terminal tombstone; wider sweep, tests and docs.",
+      "convergence": {
+        "converged": false,
+        "reason": "All three peers voted REQUEST_CHANGES and, like the host's blind verdict, flagged the default-on content write and the stale lock file. The host accepted 23 issues and dismissed 1, and rewrote the proposal as opt-in with an owner recorded in the snapshot."
+      }
+    },
+    {
+      "n": 2,
+      "hostBlindVerdict": {
+        "verdict": "APPROVE",
+        "summary": "Opt-in, an owner recorded in the snapshot, pinned provider settings and a TTL-aligned refusal contract close the v1 gaps, so the design is sound to build; what is left is implementation detail.",
+        "criticalIssues": [],
+        "text": "**Verdict**: APPROVE\n**Critical issues** (must-fix; empty = none):\n  (none)\n**One-line bottom line**: Opt-in, an owner recorded in the snapshot, pinned provider settings and a TTL-aligned refusal contract close the v1 gaps, so the design is sound to build; what is left is implementation detail.\n\nNon-blocking notes:\n- The owner check before a write is read-then-rename, not atomic. Two processes taking over the same dead owner at the same moment both rename; the re-read settles who won, but the loser must also re-check on its next write. Only reachable when two live sessions drive the same sessionId, which is out of scope.\n- Process start time: Node has no API for it. Linux reads /proc; macOS needs a `ps` spawn or sysctl, and the dashboard today checks pid reuse on Linux only. Say which, or treat macOS like Windows (a live pid counts as alive).\n- A snapshot after every put rewrites the whole round history each time; fine at five rounds, worth a size note in TECHNICAL.md."
+      },
+      "peers": [
+        {
+          "source": "grok",
+          "provider": "grok",
+          "model": "grok-4.7",
+          "reasoningEffort": "medium",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r2-grok-1",
+              "category": "correctness",
+              "text": "Takeover is last-writer-wins: both resumers can read a dead owner, rename `rev+1`, re-read themselves as winner, and `put`. Re-read-after-rename is not a CAS; claim under flock/LockFile and abort if `rev` changed, or both processes run the loop."
+            },
+            {
+              "id": "r2-grok-2",
+              "category": "security",
+              "text": "Sweep deletes an expired snapshot only if the owner is dead, and Windows treats any live PID as owner. PID reuse then keeps prompts past the TTL and can return `session-locked` forever. Past-TTL must delete and refuse with `expired` even when the PID looks alive."
+            },
+            {
+              "id": "r2-grok-3",
+              "category": "security",
+              "text": "Key off runs nothing, so opt-out never sweeps `<sessionsDir>/loops/`. Snapshots written while the key was on remain indefinitely. TTL sweep (and opt-out cleanup) must run with the key off; `.corrupt` files are also kept with no retention bound."
+            },
+            {
+              "id": "r2-grok-4",
+              "category": "correctness",
+              "text": "consensus.resumable` is not pinned at init. A live key flip stops writes while memory moves on; turning the key back on resumes a stale round. Pin it; a pinned-on loop must keep snapshotting until the tombstone."
+            },
+            {
+              "id": "r2-grok-5",
+              "category": "correctness",
+              "text": "The snapshot is written after `put` with no failure contract. A failed or un-awaited fsync/rename still returns success, and the next restart replays an older round (duplicate dispatch or adjudication). The mutation must not commit unless the rename finished."
+            }
+          ],
+          "summary": "Opt-in disk snapshots are the right architecture. A 15–30 minute loop should not die on MCP restart, and the default must stay in-memory so prompts hit disk only when asked. The claim protocol and the deletion rules, as written, do not yet keep a single owner or the TTL privacy promise.",
+          "text": "Opt-in disk snapshots are the right architecture. A 15–30 minute loop should not die on MCP restart, and the default must stay in-memory so prompts hit disk only when asked. The claim protocol and the deletion rules, as written, do not yet keep a single owner or the TTL privacy promise.\n\n**Action plan**\n1. Make takeover a real exclusive claim: under an flock/LockFile on the snapshot (not a second lock file), re-read, and write `rev+1` only if `rev` is unchanged; the loser must not `put` and must return `session-locked`.\n2. Treat `touchedAt` past the 30-minute TTL as fatal even if the PID looks alive: delete the snapshot and return `resume-refused` / `expired`. Do not let PID reuse pin secrets.\n3. Pin `consensus.resumable` at init. Key off means no new loops and no resume; an in-flight pinned-on loop keeps writing until tombstone. Startup sweep still runs when the key is off.\n4. Do not return success from a resumable mutation unless the temp file was fsynced and renamed; on failure roll back the in-memory `put`.\n5. Give `.corrupt` the same TTL retention as tombstones, or delete it in the refusal path.\n6. Tests: two racers against a dead owner (one winner), expired snapshot with a live reused PID, key toggled off then on, and a failed rename.\n\n**Effort:** Short for the plan, Medium to implement.\n**Confidence:** high that these are real holes; medium on Windows start-time APIs, which this message does not demonstrate. [unverified]\n\n**Why this approach:** Owner-in-file is fine only with a kernel-released exclusion; last-rename-wins plus a re-read is not a CAS. TTL must beat liveness, or sweep cannot enforce the opt-in retention story. Pinning the flag matches how provider identity is already pinned.\n\n**Risks:** A crash between a successful rename and the tool response can still double-dispatch; that is the accepted in-flight gap, not a reason to skip awaiting the write. `flock` is per machine; a synced `sessionsDir` is outside this design.\n\nVERDICT: REQUEST_CHANGES\n- [correctness] Takeover is last-writer-wins: both resumers can read a dead owner, rename `rev+1`, re-read themselves as winner, and `put`. Re-read-after-rename is not a CAS; claim under flock/LockFile and abort if `rev` changed, or both processes run the loop.\n- [security] Sweep deletes an expired snapshot only if the owner is dead, and Windows treats any live PID as owner. PID reuse then keeps prompts past the TTL and can return `session-locked` forever. Past-TTL must delete and refuse with `expired` even when the PID looks alive.\n- [security] Key off runs nothing, so opt-out never sweeps `<sessionsDir>/loops/`. Snapshots written while the key was on remain indefinitely. TTL sweep (and opt-out cleanup) must run with the key off; `.corrupt` files are also kept with no retention bound.\n- [correctness] `consensus.resumable` is not pinned at init. A live key flip stops writes while memory moves on; turning the key back on resumes a stale round. Pin it; a pinned-on loop must keep snapshotting until the tombstone.\n- [correctness] The snapshot is written after `put` with no failure contract. A failed or un-awaited fsync/rename still returns success, and the next restart replays an older round (duplicate dispatch or adjudication). The mutation must not commit unless the rename finished.",
+          "ms": 182562
+        },
+        {
+          "source": "openrouter:deepseek-v4-pro-0813",
+          "provider": "openrouter",
+          "model": "deepseek/deepseek-v4-pro-0813",
+          "reasoningEffort": "medium",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r2-deepseek-v4-pro-0813-1",
+              "category": "correctness",
+              "text": "Windows pid-reuse causes a permanent lock and leak.** The design says \"on Windows a live pid is treated as alive.\" On Windows, pids are small integers recycled quickly, so a dead owner's pid is very likely to be reused by an unrelated process. `process.kill(pid, 0)` then succeeds, start time is unreadable, and the snapshot is treated as owned by a live process forever: every resume returns `session-locked` (a lie — no live session owns it), and the sweep never deletes it (owner \"alive\"). The user gets a confusing error and a permanent disk leak with no recovery path except manual deletion. Fix: either (a) state this consequence explicitly in the design decision and the host contract, with a documented manual-recovery step, or (b) use a Windows liveness mechanism that survives pid reuse (process handle with creation time via `wmic`/PowerShell, or a per-owner random token checked through a named pipe). At minimum, the consequence must be documented — \"treated as alive\" alone hides that the loop is unrecoverable."
+            },
+            {
+              "id": "r2-deepseek-v4-pro-0813-2",
+              "category": "ambiguity",
+              "text": "Snapshot write failure and provider rebuild failure are unspecified.** What happens when the snapshot write fails (ENOSPC, EACCES, read-only dir)? Does the action fail, or does the loop continue in memory as non-resumable? Similarly, on resume, rebuilding a pinned provider can fail for reasons other than \"not in registry / disabled\" — e.g., the API key was removed from config, or the provider constructor throws. Specify both: snapshot write failure should be non-fatal (log a warning, continue in memory, the loop is simply not resumable — the loop's 1–6 minute provider calls must not be aborted by a disk error), and provider rebuild failure should return a distinct `resume-refused` reason rather than an unhandled throw."
+            },
+            {
+              "id": "r2-deepseek-v4-pro-0813-3",
+              "category": "security",
+              "text": "Windows 0600 is not enforced by the OS.** Mode bits on Windows are best-effort; the directory is protected by the user's ACLs, not by 0600/0700. The threat model in the schema description and TECHNICAL.md must state this, so a Windows user relying on the stated mode for a multi-user machine is not misled. (The O_EXCL tmp + rename pattern itself is sound against symlink attacks on POSIX; rename replaces the link, not the referent.)"
+            },
+            {
+              "id": "r2-deepseek-v4-pro-0813-4",
+              "category": "correctness",
+              "text": "Takeover TOCTOU race.** \"Rewrites owner and re-reads to confirm it won\" is a best-effort CAS, not atomic. Two processes that both detect a dead owner can both write and both re-read before the other's rename lands, so both believe they won. The window is narrow (requires the host to send the same sessionId to two server processes simultaneously), and the consequence is divergent state, not corruption. Acceptable as a documented tradeoff of the no-lock-file decision, but design-decisions.md should state the race explicitly rather than implying the re-read closes it."
+            },
+            {
+              "id": "r2-deepseek-v4-pro-0813-5",
+              "category": "ops",
+              "text": "corrupt` files are never swept.** The sweep covers snapshots, `.tmp`, and tombstones, but not `.corrupt` files. They accumulate forever. Add them to the sweep (with a longer grace period, since they're evidence) or document them as user-managed."
+            },
+            {
+              "id": "r2-deepseek-v4-pro-0813-6",
+              "category": "ambiguity",
+              "text": "Resume on same-process LRU eviction.** \"On a get miss for a resumable loop\" triggers disk resume not only after a restart but also after LRU eviction (100-entry cap) in the same process. That's a feature (LRU eviction no longer loses resumable loops), but it should be stated explicitly, and the TTL interaction confirmed: a TTL-evicted loop has a stale `touchedAt`, so resume correctly refuses `expired`, while an LRU-evicted loop with a fresh `touchedAt` resumes."
+            },
+            {
+              "id": "r2-deepseek-v4-pro-0813-7",
+              "category": "ambiguity",
+              "text": "Config hash scope.** \"A changed config hash alone does not refuse\" — specify what is hashed. If it's the full config, any unrelated change (e.g., a dashboard setting) sets `configChanged`. Hash only the consensus-relevant keys, or state that `configChanged` is intentionally coarse."
+            },
+            {
+              "id": "r2-deepseek-v4-pro-0813-8",
+              "category": "ambiguity",
+              "text": "Dashboard idle timer.** The `resumed` event must reset the dashboard's idle detection. If the dashboard computes idle from `startedAt` (the original, pre-crash start) rather than `touchedAt`, a resumed loop could be immediately re-marked `abandoned (expired)`. Verify against the dashboard implementation."
+            },
+            {
+              "id": "r2-deepseek-v4-pro-0813-9",
+              "category": "correctness",
+              "text": "Windows pid-reuse: a reused pid is treated as alive, so a dead owner's snapshot is permanently session-locked and never swept; the consequence (unrecoverable loop + disk leak) must be mitigated or explicitly documented with a recovery path."
+            },
+            {
+              "id": "r2-deepseek-v4-pro-0813-10",
+              "category": "ambiguity",
+              "text": "Snapshot write failure (ENOSPC/EACCES) and provider rebuild failure (missing key) are unspecified; specify non-fatal write handling and a distinct resume-refused reason for rebuild failure."
+            },
+            {
+              "id": "r2-deepseek-v4-pro-0813-11",
+              "category": "security",
+              "text": "Windows 0600/0700 mode bits are not enforced by the OS (ACL-based); the threat model must state this so Windows users are not misled."
+            }
+          ],
+          "summary": "The architecture is right — opt-in disk persistence with owner-in-snapshot (no lock file), pinned provider identity, and a terminal tombstone is a sound design that addresses every v1 concern. The remaining issues are refinements, not architectural flaws. Two of them (Windows pid-reuse consequence, write-failure handling) are worth fixing before merge; the rest are documentation-level.",
+          "text": "## Review: consensus-step loop persistence (v2)\n\n**Bottom line**: The architecture is right — opt-in disk persistence with owner-in-snapshot (no lock file), pinned provider identity, and a terminal tombstone is a sound design that addresses every v1 concern. The remaining issues are refinements, not architectural flaws. Two of them (Windows pid-reuse consequence, write-failure handling) are worth fixing before merge; the rest are documentation-level.\n\n### Blocking issues\n\n- **[correctness] Windows pid-reuse causes a permanent lock and leak.** The design says \"on Windows a live pid is treated as alive.\" On Windows, pids are small integers recycled quickly, so a dead owner's pid is very likely to be reused by an unrelated process. `process.kill(pid, 0)` then succeeds, start time is unreadable, and the snapshot is treated as owned by a live process forever: every resume returns `session-locked` (a lie — no live session owns it), and the sweep never deletes it (owner \"alive\"). The user gets a confusing error and a permanent disk leak with no recovery path except manual deletion. Fix: either (a) state this consequence explicitly in the design decision and the host contract, with a documented manual-recovery step, or (b) use a Windows liveness mechanism that survives pid reuse (process handle with creation time via `wmic`/PowerShell, or a per-owner random token checked through a named pipe). At minimum, the consequence must be documented — \"treated as alive\" alone hides that the loop is unrecoverable.\n\n- **[ambiguity] Snapshot write failure and provider rebuild failure are unspecified.** What happens when the snapshot write fails (ENOSPC, EACCES, read-only dir)? Does the action fail, or does the loop continue in memory as non-resumable? Similarly, on resume, rebuilding a pinned provider can fail for reasons other than \"not in registry / disabled\" — e.g., the API key was removed from config, or the provider constructor throws. Specify both: snapshot write failure should be non-fatal (log a warning, continue in memory, the loop is simply not resumable — the loop's 1–6 minute provider calls must not be aborted by a disk error), and provider rebuild failure should return a distinct `resume-refused` reason rather than an unhandled throw.\n\n- **[security] Windows 0600 is not enforced by the OS.** Mode bits on Windows are best-effort; the directory is protected by the user's ACLs, not by 0600/0700. The threat model in the schema description and TECHNICAL.md must state this, so a Windows user relying on the stated mode for a multi-user machine is not misled. (The O_EXCL tmp + rename pattern itself is sound against symlink attacks on POSIX; rename replaces the link, not the referent.)\n\n### Non-blocking notes\n\n- **[correctness] Takeover TOCTOU race.** \"Rewrites owner and re-reads to confirm it won\" is a best-effort CAS, not atomic. Two processes that both detect a dead owner can both write and both re-read before the other's rename lands, so both believe they won. The window is narrow (requires the host to send the same sessionId to two server processes simultaneously), and the consequence is divergent state, not corruption. Acceptable as a documented tradeoff of the no-lock-file decision, but design-decisions.md should state the race explicitly rather than implying the re-read closes it.\n\n- **[ops] `.corrupt` files are never swept.** The sweep covers snapshots, `.tmp`, and tombstones, but not `.corrupt` files. They accumulate forever. Add them to the sweep (with a longer grace period, since they're evidence) or document them as user-managed.\n\n- **[ambiguity] Resume on same-process LRU eviction.** \"On a get miss for a resumable loop\" triggers disk resume not only after a restart but also after LRU eviction (100-entry cap) in the same process. That's a feature (LRU eviction no longer loses resumable loops), but it should be stated explicitly, and the TTL interaction confirmed: a TTL-evicted loop has a stale `touchedAt`, so resume correctly refuses `expired`, while an LRU-evicted loop with a fresh `touchedAt` resumes.\n\n- **[ambiguity] Config hash scope.** \"A changed config hash alone does not refuse\" — specify what is hashed. If it's the full config, any unrelated change (e.g., a dashboard setting) sets `configChanged`. Hash only the consensus-relevant keys, or state that `configChanged` is intentionally coarse.\n\n- **[ambiguity] Dashboard idle timer.** The `resumed` event must reset the dashboard's idle detection. If the dashboard computes idle from `startedAt` (the original, pre-crash start) rather than `touchedAt`, a resumed loop could be immediately re-marked `abandoned (expired)`. Verify against the dashboard implementation.\n\n### Effort\n\nMedium (1–2d) for the full plan; the blocking fixes above are each Short (<1h) — documentation plus a small liveness/write-failure branch.\n\n### Confidence\n\nHigh — the design is coherent and the v1 concerns are genuinely resolved; the flagged issues are concrete and verifiable against the stated platform support (Windows is explicitly supported per AGENTS.md).\n\nVERDICT: REQUEST_CHANGES\n- [correctness] Windows pid-reuse: a reused pid is treated as alive, so a dead owner's snapshot is permanently session-locked and never swept; the consequence (unrecoverable loop + disk leak) must be mitigated or explicitly documented with a recovery path.\n- [ambiguity] Snapshot write failure (ENOSPC/EACCES) and provider rebuild failure (missing key) are unspecified; specify non-fatal write handling and a distinct resume-refused reason for rebuild failure.\n- [security] Windows 0600/0700 mode bits are not enforced by the OS (ACL-based); the threat model must state this so Windows users are not misled.",
+          "ms": 147075
+        },
+        {
+          "source": "openrouter:kimi-k3-1-pro",
+          "provider": "openrouter",
+          "model": "moonshotai/kimi-k3.1-pro",
+          "reasoningEffort": "medium",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r2-kimi-k3-1-pro-1",
+              "category": "correctness",
+              "text": "An LRU eviction causes a get miss in the loop’s original, still-live process; the proposed rules then return `session-locked` because the snapshot owner is alive, even though it is the current process. Allow direct rehydration when both pid and start time match the current process, reserving takeover and locking for other owners."
+            },
+            {
+              "id": "r2-kimi-k3-1-pro-2",
+              "category": "correctness",
+              "text": "Takeover by rewriting `owner` and re-reading is not atomic: two processes can each write and confirm their own owner before the other overwrites it, then run divergent loops. Acquisition needs an atomic primitive plus an ownership token/fencing check on subsequent writes; `rev` and re-reading alone do not provide mutual exclusion."
+            },
+            {
+              "id": "r2-kimi-k3-1-pro-3",
+              "category": "correctness",
+              "text": "Snapshot commit ordering and disk-failure behavior are unspecified. Updating memory before an awaited durable write can acknowledge state that resumes stale, while overlapping asynchronous writes can rename an older revision last; serialize writes per session and fail or roll back the state transition so a successful call always has its latest revision durably snapshotted."
+            }
+          ],
+          "summary": null,
+          "text": "VERDICT: REQUEST_CHANGES\n- [correctness] An LRU eviction causes a get miss in the loop’s original, still-live process; the proposed rules then return `session-locked` because the snapshot owner is alive, even though it is the current process. Allow direct rehydration when both pid and start time match the current process, reserving takeover and locking for other owners.\n- [correctness] Takeover by rewriting `owner` and re-reading is not atomic: two processes can each write and confirm their own owner before the other overwrites it, then run divergent loops. Acquisition needs an atomic primitive plus an ownership token/fencing check on subsequent writes; `rev` and re-reading alone do not provide mutual exclusion.\n- [correctness] Snapshot commit ordering and disk-failure behavior are unspecified. Updating memory before an awaited durable write can acknowledge state that resumes stale, while overlapping asynchronous writes can rename an older revision last; serialize writes per session and fail or roll back the state transition so a successful call always has its latest revision durably snapshotted.",
+          "ms": 54391
+        }
+      ],
+      "roundMs": 182562,
+      "slowest": "grok",
+      "adjudication": [
+        {
+          "issueId": "r2-grok-1",
+          "source": "grok",
+          "decision": "accept",
+          "reason": "deepseek and kimi raise the same race; v3 claims the next rev with an O_EXCL claim file, which only one process can create, and fences every later write on the claimed rev."
+        },
+        {
+          "issueId": "r2-grok-2",
+          "source": "grok",
+          "decision": "accept",
+          "reason": "Content would outlive the TTL; v3 deletes and refuses any snapshot past the TTL regardless of owner."
+        },
+        {
+          "issueId": "r2-grok-3",
+          "source": "grok",
+          "decision": "accept",
+          "reason": "Turning the feature off must not strand content; v3 sweeps whenever the dir exists and bounds .corrupt files to 7 days."
+        },
+        {
+          "issueId": "r2-grok-4",
+          "source": "grok",
+          "decision": "accept",
+          "reason": "Same pinning principle as the provider identity; v3 pins it at init."
+        },
+        {
+          "issueId": "r2-grok-5",
+          "source": "grok",
+          "decision": "accept",
+          "reason": "kimi and deepseek raise the same gap; v3 writes synchronously before the response and drops the loop to non-resumable, reported in the response, on failure."
+        },
+        {
+          "issueId": "r2-deepseek-v4-pro-0813-1",
+          "source": "openrouter:deepseek-v4-pro-0813",
+          "decision": "accept",
+          "reason": "Real on Windows and also hits macOS, where start time is not readable without a spawn; v3 replaces PID liveness with an owner heartbeat, the same on every OS."
+        },
+        {
+          "issueId": "r2-deepseek-v4-pro-0813-2",
+          "source": "openrouter:deepseek-v4-pro-0813",
+          "decision": "accept",
+          "reason": "v3 specifies both: a write failure leaves the loop running in memory as non-resumable; a rebuild failure refuses with reason provider-error."
+        },
+        {
+          "issueId": "r2-deepseek-v4-pro-0813-3",
+          "source": "openrouter:deepseek-v4-pro-0813",
+          "decision": "accept",
+          "reason": "The schema text would mislead a Windows user; v3 states that Windows relies on the profile directory ACLs."
+        },
+        {
+          "issueId": "r2-deepseek-v4-pro-0813-4",
+          "source": "openrouter:deepseek-v4-pro-0813",
+          "decision": "accept",
+          "reason": "Same as the grok race; fixed by the O_EXCL claim file."
+        },
+        {
+          "issueId": "r2-deepseek-v4-pro-0813-5",
+          "source": "openrouter:deepseek-v4-pro-0813",
+          "decision": "accept",
+          "reason": "Same as grok; 7-day bound in v3."
+        },
+        {
+          "issueId": "r2-deepseek-v4-pro-0813-6",
+          "source": "openrouter:deepseek-v4-pro-0813",
+          "decision": "accept",
+          "reason": "kimi shows the v2 rules lock the owner out of its own loop after an LRU eviction; v3 states the case and lets the current owner rehydrate directly."
+        },
+        {
+          "issueId": "r2-deepseek-v4-pro-0813-7",
+          "source": "openrouter:deepseek-v4-pro-0813",
+          "decision": "accept",
+          "reason": "v3 hashes only the providers, models and consensus blocks, so unrelated edits do not set configChanged."
+        },
+        {
+          "issueId": "r2-deepseek-v4-pro-0813-8",
+          "source": "openrouter:deepseek-v4-pro-0813",
+          "decision": "dismiss",
+          "reason": "Checked server/dashboard/runs.js: deriveStatus measures idle from the run's last journal event (lastAt), not startedAt, and status is derived at read time, never cached, so the resumed event clears abandoned (expired) on the next read."
+        },
+        {
+          "issueId": "r2-deepseek-v4-pro-0813-9",
+          "source": "openrouter:deepseek-v4-pro-0813",
+          "decision": "accept",
+          "reason": "Repeat of the deepseek PID issue above; same fix, the heartbeat."
+        },
+        {
+          "issueId": "r2-deepseek-v4-pro-0813-10",
+          "source": "openrouter:deepseek-v4-pro-0813",
+          "decision": "accept",
+          "reason": "Repeat of the deepseek failure-contract issue above; same fix."
+        },
+        {
+          "issueId": "r2-deepseek-v4-pro-0813-11",
+          "source": "openrouter:deepseek-v4-pro-0813",
+          "decision": "accept",
+          "reason": "Repeat of the deepseek Windows ACL issue above; same doc fix."
+        },
+        {
+          "issueId": "r2-kimi-k3-1-pro-1",
+          "source": "openrouter:kimi-k3-1-pro",
+          "decision": "accept",
+          "reason": "A real bug in v2's rules; v3 rehydrates directly when the snapshot's owner id is this process."
+        },
+        {
+          "issueId": "r2-kimi-k3-1-pro-2",
+          "source": "openrouter:kimi-k3-1-pro",
+          "decision": "accept",
+          "reason": "Same race as grok and deepseek; v3 adds the O_EXCL claim and a rev fence on every write."
+        },
+        {
+          "issueId": "r2-kimi-k3-1-pro-3",
+          "source": "openrouter:kimi-k3-1-pro",
+          "decision": "accept",
+          "reason": "v3 serializes writes per session (synchronous write before the response) so the last rename is always the latest rev."
+        }
+      ],
+      "hostVerdict": "REQUEST_CHANGES",
+      "revision": "Proposal v3: let a consensus-step loop survive an MCP server restart (opt-in)\n\nQuestion for the panel: is this the right architecture, or should the loop state stay in memory? Review the design, the tradeoffs and what it would break.\n\nContext (unchanged; file-blind reviewers get the relevant facts here):\n\n- `consensus-step` is a stateful MCP tool driven by the host model, one action per call: init -> record_blind -> dispatch_peers -> submit_adjudication -> submit_revision, repeated up to `consensus.maxRounds` (default 5). A round takes 1 to 6 minutes of provider time plus the host's own turns, so a 3-round loop often runs 15 to 30 minutes.\n- Loop state lives in `core/loop-store.js`: an in-memory `Map` keyed by sessionId, sliding TTL of 30 minutes, at most 100 entries with LRU eviction. A restart drops it, and the next call returns `{ error: \"session-expired\" }`; `commands/consensus.md` tells the host to re-run from init.\n- `init` stores per loop: the engine `LoopState`, `originalPrompt`, `startedAt`, `journaled`, a `config` snapshot, `pinnedProviders` (live Provider objects chosen once at init) and `provenance`. sessionIds are random UUIDs drawn at init; the host passes them back on every later call.\n- Every host session runs its own stdio server process. A plugin update, `/deliberation:reload-mcp`, a host crash or an MCP restart kills the process and every live loop in it.\n- Durable records today: `sessions.persist` (default false) writes one terminal record per finished run; the dashboard journal appends metadata per run, and content only when `dashboard.capture` is `content`. The dashboard derives a consensus-step run's status at read time from its last journal event; idle past 30 minutes reads `abandoned (expired)`.\n- Privacy default: prompts or answers reach disk only when the user opts in.\n\nDesign:\n\n1. Opt-in, pinned. New key `consensus.resumable` (boolean, default false), read once at `init` and pinned on the loop: a key flip mid-loop changes nothing for that loop. The schema description states that it writes the plan, every revision, the host's blind verdicts, adjudications and peer replies to `<sessionsDir>/loops/` until the loop ends or its TTL passes. Files are mode 0600 in a 0700 directory on POSIX; on Windows mode bits are not enforced and the files rely on the user profile's ACLs, which the description also says. Independent of `sessions.persist`.\n2. Process identity and heartbeat. Each server process draws a random 128-bit `ownerId` at startup. While it owns at least one resumable loop it touches `<sessionsDir>/loops/owners/<ownerId>.hb` every 30 seconds (an unref'd timer). Liveness is the heartbeat's mtime, the same on every OS: an owner whose heartbeat is missing or older than 90 seconds is dead. No PID or process start time is read.\n3. Snapshot and write fence. `core/loop-persist.js` writes `<sessionId>.json` with `schemaVersion` (1), `rev`, `ownerId`, `touchedAt`, the engine LoopState, originalPrompt, startedAt, journaled, provenance, the pinned identity (per provider { name, model, reasoningEffort, timeout }, plus maxRounds, quorumFloor, maxWallMs and resumable fixed at init) and `configHash` (a hash of the `providers`, `models` and `consensus` blocks only). Every write of revision N first creates `<sessionId>.claim.<N>` with O_CREAT|O_EXCL. Only one process can create it, so at most one writer exists per revision; a process that fails to create it was fenced out by a newer writer, drops its in-memory copy and returns `{ error: \"session-locked\" }`. The claim is the compare-and-swap; the rename that follows (from a 0600 O_EXCL temp file, after fsync) only publishes it. Claims older than the latest rev are deleted after the rename.\n4. Write ordering and failure. The write is synchronous and happens before the step's in-memory `put` and before the response, so a successful response always has its revision on disk, and writes for one loop cannot overlap. If the write fails (ENOSPC, EACCES, read-only dir), the step still succeeds in memory, the loop turns non-resumable for the rest of its life, any older snapshot of it is deleted, and the response carries `resumable: false` with the reason. A disk error never aborts provider work.\n5. sessionId validation. Before any path is built, the sessionId must match the UUID v4 shape; anything else returns `session-expired` without touching the filesystem.\n6. Resume. On a `loopStore.get` miss (after a restart, or an LRU eviction in the same process) read `<sessionId>.json`:\n   - `ownerId` is this process (the LRU case): put it back in memory, no claim needed beyond the next write's.\n   - otherwise take over only if the owner is dead per 2, by writing the next revision through the claim in 3 with this process as owner. A live owner gives `session-locked`.\n   - refuse with `{ error: \"resume-refused\", reason }`: `schema` (any other schemaVersion), `corrupt` (renamed to `.corrupt`), `terminal` (see 7), `expired` (`touchedAt` past the 30-minute TTL, whatever the owner), `missing-provider` (a pinned provider is gone or disabled), `provider-error` (rebuilding a pinned provider throws, e.g. its key was removed).\n   - on success rebuild each provider with its pinned settings, reuse the pinned knobs, journal a `state` event `resumed`, and add `resumed: true` (and `configChanged: true` when the hash differs) to the response.\n7. Terminal transitions. Before the existing atomic `loopStore.take`, write the snapshot with its terminal status (a tombstone, through the claim), then take, persist the session record if `sessions.persist` is on, then delete the snapshot, its claims and, if it owns no other loop, the heartbeat file. A tombstone found on resume gives reason `terminal`.\n8. Sweep, at startup and after each write, whenever the loops dir exists, including with the key off: delete any snapshot or tombstone past the TTL regardless of owner, claim files without a live snapshot, `.tmp` files older than the TTL, heartbeat files older than the TTL, and `.corrupt` files older than 7 days.\n9. Host contract in `commands/consensus.md`: `session-expired` and `resume-refused` mean re-run from init; `session-locked` means another live session owns the loop, stop and say so; `resumed: true` means continue, and mention `configChanged` in the report; `resumable: false` means the loop continues but will not survive a restart.\n10. Tests: round trip; resume after a simulated restart; LRU eviction resumes in the same process; every refusal reason; config change keeps the pinned identity; dead-heartbeat takeover and refusal against a live heartbeat; two takers race on one claim and exactly one wins; a fenced-out old owner gets session-locked on its next write; write failure turns the loop non-resumable without failing the step; tombstone; sweep with the key off; non-UUID sessionId never touches disk; key off writes nothing.\n11. Docs in the same PR: README.md, SETUP.md, TECHNICAL.md (snapshot shape, heartbeat and claim, threat model incl. Windows ACLs), docs/tool-guide.md (error contract), docs/dev/design-decisions.md (why opt-in, why heartbeat over PID, why a per-rev claim), config schema and default, commands/consensus.md, then `npm run sync`.\n\nOut of scope: resuming a provider call that was in flight when the process died (the host re-runs dispatch_peers), and two live sessions sharing one loop (the fence makes the second one stop, it does not merge them).\n",
+      "revisionSummary": "Heartbeat ownership instead of PID checks; per-revision O_EXCL claim as the write fence; synchronous write before the response with a non-resumable fallback; resumable pinned at init; same-process LRU resume; sweep regardless of key and owner; Windows ACL note; provider-error refusal; scoped config hash.",
+      "convergence": {
+        "converged": false,
+        "reason": "All three peers voted REQUEST_CHANGES on v2: a rename-and-re-read takeover is not a compare-and-swap, a reused Windows PID locks a loop forever, and a failed snapshot write had no contract. The host accepted 18 issues and dismissed 1 after checking the dashboard code."
+      }
+    },
+    {
+      "n": 3,
+      "hostBlindVerdict": {
+        "verdict": "APPROVE",
+        "summary": "The per-revision O_EXCL claim is a real compare-and-swap, the heartbeat removes the PID and start-time problems on every OS, and the synchronous write gives each response a durable revision, so v3 is ready to build.",
+        "criticalIssues": [],
+        "text": "**Verdict**: APPROVE\n**Critical issues** (must-fix; empty = none):\n  (none)\n**One-line bottom line**: The per-revision O_EXCL claim is a real compare-and-swap, the heartbeat removes the PID and start-time problems on every OS, and the synchronous write gives each response a durable revision, so v3 is ready to build.\n\nNon-blocking notes:\n- Step 4's fallback deletes the older snapshot after a failed write; on the same disk error (EACCES on the directory) that delete can fail too, leaving an older revision resumable until the TTL. The response could say so, or resume could refuse a snapshot whose rev is behind a claim file.\n- A laptop that sleeps longer than 90 seconds loses ownership of its loops on wake if another session resumes them; the fence makes that safe, and the host sees session-locked.\n- One claim file per revision is a few dozen files per loop at most; the sweep covers them."
+      },
+      "peers": [
+        {
+          "source": "grok",
+          "provider": "grok",
+          "model": "grok-4.7",
+          "reasoningEffort": "medium",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r3-grok-1",
+              "category": "ambiguity",
+              "text": "here and must be confirmed against Node 18 docs."
+            },
+            {
+              "id": "r3-grok-2",
+              "category": "correctness",
+              "text": "A crash after O_EXCL claim create and before publish leaves claim.N beside an older live snapshot; sweep does not remove it, and every later taker gets session-locked until TTL."
+            },
+            {
+              "id": "r3-grok-3",
+              "category": "correctness",
+              "text": "After a crash or reload the old heartbeat is still fresh for up to 90s, and the host contract treats session-locked as stop, so the restart path this feature exists for abandons the loop."
+            },
+            {
+              "id": "r3-grok-4",
+              "category": "correctness",
+              "text": "Missing heartbeat means dead, but the plan never creates and fsyncs it before the snapshot is visible, and LRU eviction can stop it while snapshots still name that ownerId, so a live process can be taken over."
+            },
+            {
+              "id": "r3-grok-5",
+              "category": "correctness",
+              "text": "Publish-by-rename onto existing `<sessionId>.json` fails on Windows if Node 18 fs.rename cannot replace, or loses the only snapshot if unlink-then-rename crashes in between. Confirm the Node 18 fs.rename contract."
+            },
+            {
+              "id": "r3-grok-6",
+              "category": "correctness",
+              "text": "Persist-then-lost-response is the normal crash window, and a host retry of the same action is not specified as idempotent, so the step double-applies or faults."
+            },
+            {
+              "id": "r3-grok-7",
+              "category": "correctness",
+              "text": "If the non-resumable fallback cannot delete or quarantine the previous snapshot, a later process resumes stale state and repeats provider side effects."
+            },
+            {
+              "id": "r3-grok-8",
+              "category": "security",
+              "text": "corrupt` keeps full prompts for 7 days, which the opt-in disclosure does not state (it promises retention only until loop end or TTL)."
+            },
+            {
+              "id": "r3-grok-9",
+              "category": "security",
+              "text": "ownerId and rev are taken from disk and used in paths; unlike sessionId they are not constrained to a safe token before join."
+            }
+          ],
+          "summary": "Opt-in pinned snapshots are the right design; do not keep loop state only in memory. v3 must change before implementation: orphan claims lock until TTL, a 90s heartbeat plus \"session-locked means stop\" defeats immediate restart, and rename-over-existing is not a Windows-safe publish. Effort: Medium. Confidence: high. Top risk: crash after claim create and before publish strands the loop.",
+          "text": "The opt-in snapshot architecture is the right one; in-memory state cannot meet the restart goal. The v3 fence is not crash-safe, and the liveness rule blocks the restart it is meant to survive.\n\n**Bottom line**: Keep opt-in, pinned, TTL-scoped snapshots. Do not ship this claim/heartbeat protocol as specified: an orphan claim locks a loop until TTL, a fresh heartbeat makes immediate reload return stop-and-abandon, and rename-over-existing is the wrong publish on Windows.\n\n**Action plan**:\n1. Make the O_EXCL file the revision itself (`<sessionId>.<rev>.json`, new name only), or treat a claim whose owner is dead as stealable. A claim left behind by a crash before publish must not block takeover.\n2. Replace mtime liveness with an OS advisory lock on the owner file (released on exit, including kill), and keep `ownerId` so PID reuse cannot steal. Until that exists, `session-locked` must be retryable with an explicit wait, not a hard stop.\n3. Create and fsync the owner lock/heartbeat before the snapshot is visible, and hold it until that owner has no snapshots left, including across LRU eviction.\n4. Publish by creating a new name, never by replacing `<sessionId>.json`. Confirm Node 18 `fs.rename` on Windows: it fails when the destination exists [unverified against in-tree docs; Node's `fs.rename` contract is the check].\n5. On write failure, rename the old snapshot to `.corrupt` (do not leave a resumable stale rev). If that rename fails, refuse later resume of that id rather than replaying it.\n6. Make step apply idempotent: persist the action identity and replay the stored result when the host retries after a persist that never reached the client.\n7. Disclose `.corrupt` retention in the schema text, or delete those files on the same TTL as snapshots. Validate `ownerId` (hex) and `rev` (integer) from disk before any path join.\n\n**Effort**: Medium\n\n**Confidence**: high for the orphan-claim and restart-liveness gaps; Windows rename is [unverified] here and must be confirmed against Node 18 docs.\n\n**Why this approach**:\n- A 15–30 minute loop that dies on plugin reload is the failure this feature exists to fix. Memory-only leaves that failure in place. Opt-in disk is justified; the privacy default stays off.\n- Heartbeat mtime cannot tell a crashed predecessor from a live peer for up to 90 seconds. That is the common reload path, and the host contract turns it into a permanent stop. PID reuse was the right thing to reject; an OS lock does not bring that bug back.\n- Per-rev O_EXCL is the right fence only if the claim cannot outlive its writer. Today sweep keeps a claim whenever any snapshot still exists, so a dead winner blocks every successor.\n- Immutable rev files avoid Windows replace, make the claim the publish, and give readers a single highest-complete-rev rule.\n\n**Risks**:\n- False-dead takeover (sleep, long stall) can still double a provider call already in flight. The fence stops double state, not double side effects. Accept that; do not add merge.\n- A lost response after a durable write re-applies `record_blind` or faults the phase unless retry is idempotent. Transport errors are the normal crash signal.\n- Directory fsync after the publish rename is still required on POSIX; file fsync alone can lose the directory entry. Same-user path injection via `ownerId` or `rev` is in scope because those fields are read back from disk.\n\n**Escalation triggers**: If sessionsDir is ever on NFS or a share where advisory locks are not released on death, keep a heartbeat only as a fallback and document a bounded retry. If Node's Windows rename can replace in place, drop item 4's workaround and still avoid a non-atomic unlink-then-rename.\n\n<SUMMARY>\nOpt-in pinned snapshots are the right design; do not keep loop state only in memory. v3 must change before implementation: orphan claims lock until TTL, a 90s heartbeat plus \"session-locked means stop\" defeats immediate restart, and rename-over-existing is not a Windows-safe publish. Effort: Medium. Confidence: high. Top risk: crash after claim create and before publish strands the loop.\n</SUMMARY>\n\nVERDICT: REQUEST_CHANGES\n- [correctness] A crash after O_EXCL claim create and before publish leaves claim.N beside an older live snapshot; sweep does not remove it, and every later taker gets session-locked until TTL.\n- [correctness] After a crash or reload the old heartbeat is still fresh for up to 90s, and the host contract treats session-locked as stop, so the restart path this feature exists for abandons the loop.\n- [correctness] Missing heartbeat means dead, but the plan never creates and fsyncs it before the snapshot is visible, and LRU eviction can stop it while snapshots still name that ownerId, so a live process can be taken over.\n- [correctness] Publish-by-rename onto existing `<sessionId>.json` fails on Windows if Node 18 fs.rename cannot replace, or loses the only snapshot if unlink-then-rename crashes in between. Confirm the Node 18 fs.rename contract.\n- [correctness] Persist-then-lost-response is the normal crash window, and a host retry of the same action is not specified as idempotent, so the step double-applies or faults.\n- [correctness] If the non-resumable fallback cannot delete or quarantine the previous snapshot, a later process resumes stale state and repeats provider side effects.\n- [security] `.corrupt` keeps full prompts for 7 days, which the opt-in disclosure does not state (it promises retention only until loop end or TTL).\n- [security] ownerId and rev are taken from disk and used in paths; unlike sessionId they are not constrained to a safe token before join.",
+          "ms": 255209
+        },
+        {
+          "source": "openrouter:deepseek-v4-pro-0813",
+          "provider": "openrouter",
+          "model": "deepseek/deepseek-v4-pro-0813",
+          "reasoningEffort": "medium",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r3-deepseek-v4-pro-0813-1",
+              "category": "correctness",
+              "text": "A dead writer's unreleased `.claim.<N>` blocks takeover: crash between O_EXCL claim and rename leaves a claim with no published snapshot and no live owner, so the next taker computes the same revision, gets EEXIST, and returns `session-locked` even though no live session owns the loop. Sweep only fixes this if it happens to run afterwards."
+            },
+            {
+              "id": "r3-deepseek-v4-pro-0813-2",
+              "category": "correctness",
+              "text": "The terminal tombstone write has no failure path. If the final claim/write fails (ENOSPC, EACCES), the plan does not say whether to still take the loop; it can either hang completion or leave an older non-terminal snapshot that resumes a loop that already finished."
+            },
+            {
+              "id": "r3-deepseek-v4-pro-0813-3",
+              "category": "correctness",
+              "text": "Heartbeat deletion is specified only for terminal transitions. LRU eviction or a non-resumable transition can leave a heartbeat whose mtime is under 90s after the owner no longer owns the loop, making a valid takeover return `session-locked`, which the host contract treats as abort."
+            },
+            {
+              "id": "r3-deepseek-v4-pro-0813-4",
+              "category": "security",
+              "text": "Resume reads `<sessionId>.json` by path without rejecting symlinks or non-regular files. The UUID check does not stop a local symlink/FIFO from redirecting reads or blocking the server; O_EXCL protects the write/claim side but not the existing snapshot read."
+            },
+            {
+              "id": "r3-deepseek-v4-pro-0813-5",
+              "category": "ops",
+              "text": "Deleting \"claim files without a live snapshot\" unconditionally in sweep can delete a claim while its writer is between claim creation and rename, allowing a second writer and a last-writer race. Claim cleanup must be gated on owner death or age."
+            }
+          ],
+          "summary": "This is the right architecture for the problem — opt-in disk snapshots, heartbeat-based liveness and a per-revision claim fence fix most of the earlier flaws — but it is not yet approve-ready. The takeover path has a real liveness bug when a writer dies between claim creation and rename, and the terminal/tombstone path has no defined failure fallback. Both can leave a loop stuck or incorrectly resumable after a crash. Fix those, then this is sound.",
+          "text": "**Bottom line**: This is the right architecture for the problem — opt-in disk snapshots, heartbeat-based liveness and a per-revision claim fence fix most of the earlier flaws — but it is not yet approve-ready. The takeover path has a real liveness bug when a writer dies between claim creation and rename, and the terminal/tombstone path has no defined failure fallback. Both can leave a loop stuck or incorrectly resumable after a crash. Fix those, then this is sound.\n\n**Action plan**\n1. Record `ownerId` and `rev` inside each claim file. On dead-owner takeover, remove or replace dead-owner claims before claiming the next revision, with an atomicity rule proving only one taker wins.\n2. Never let sweep delete a claim file solely because no snapshot exists yet; gate claim cleanup on owner death or a short age, and reconcile stale claims before takeover, not only at startup.\n3. Define the terminal failure path: after the step completes, always `loopStore.take` in memory and best-effort delete snapshot/claims so a disk error cannot leave a resume of a finished loop.\n4. Delete the heartbeat whenever the owner's last resumable loop stops being owned — LRU eviction, non-resumable transition, or terminal — to avoid a stale-but-under-90s heartbeat producing `session-locked`.\n5. Harden resume reads with `lstat`/`O_NOFOLLOW` and reject non-regular files; `chmod` the loops directory to 0700 after `mkdir`, since `mkdir` mode is umask-affected.\n6. `fsync` the parent directory after rename, or narrow the documented durability guarantee to exclude power loss.\n7. Add tests for: crash after claim before rename with no sweep; terminal ENOSPC/EACCES; heartbeat removal on eviction; symlink/FIFO snapshot; sweep racing an in-progress write.\n\n**Effort**: Medium — the feature is already large; these are focused correctness fixes before implementation.\n\n**Confidence**: high — the gaps follow from the stated semantics, not from implementation details.\n\n**Critical issues**\n- [correctness] A dead writer's unreleased `.claim.<N>` blocks takeover: crash between O_EXCL claim and rename leaves a claim with no published snapshot and no live owner, so the next taker computes the same revision, gets EEXIST, and returns `session-locked` even though no live session owns the loop. Sweep only fixes this if it happens to run afterwards.\n- [correctness] The terminal tombstone write has no failure path. If the final claim/write fails (ENOSPC, EACCES), the plan does not say whether to still take the loop; it can either hang completion or leave an older non-terminal snapshot that resumes a loop that already finished.\n- [correctness] Heartbeat deletion is specified only for terminal transitions. LRU eviction or a non-resumable transition can leave a heartbeat whose mtime is under 90s after the owner no longer owns the loop, making a valid takeover return `session-locked`, which the host contract treats as abort.\n- [security] Resume reads `<sessionId>.json` by path without rejecting symlinks or non-regular files. The UUID check does not stop a local symlink/FIFO from redirecting reads or blocking the server; O_EXCL protects the write/claim side but not the existing snapshot read.\n- [ops] Deleting \"claim files without a live snapshot\" unconditionally in sweep can delete a claim while its writer is between claim creation and rename, allowing a second writer and a last-writer race. Claim cleanup must be gated on owner death or age.\n\nVERDICT: REQUEST_CHANGES",
+          "ms": 235094
+        },
+        {
+          "source": "openrouter:kimi-k3-1-pro",
+          "provider": "openrouter",
+          "model": "moonshotai/kimi-k3.1-pro",
+          "reasoningEffort": "medium",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r3-kimi-k3-1-pro-1",
+              "category": "correctness",
+              "text": "Deleting claims older than the latest revision makes revision numbers reusable: a paused owner can return after a successor advances two revisions, create its old next-revision claim, and overwrite newer state; immediate tombstone/claim deletion similarly permits stale resurrection. Keep fencing evidence non-reusable and retain tombstones through the stale-writer TTL, or validate current revision/terminal state after every successful claim."
+            },
+            {
+              "id": "r3-kimi-k3-1-pro-2",
+              "category": "correctness",
+              "text": "Sweeping “claim files without a live snapshot” races the required claim-before-rename sequence, especially during init when no snapshot exists yet; another process can delete the active claim and recreate it, producing two apparent winners. Fresh claims must be exempt, with orphan reclamation based on a conservative age and safe recovery protocol."
+            }
+          ],
+          "summary": "Approve the overall opt-in snapshot/resume architecture, but fix claim retention and sweeping before implementation. Effort: Short. Confidence: high. Top risk: a paused former owner can overwrite newer state or resurrect a completed loop.",
+          "text": "**Bottom line:** The opt-in persistence and pinned-resume design is sound, but the claim lifecycle does not yet provide reliable fencing. Claim cleanup can allow stale writers to regress or resurrect loops, and sweeping can break the claim’s mutual exclusion.\n\n**Action plan:**\n1. Make revisions non-reusable: retain claims for the loop’s protected lifetime, or revalidate the current revision and terminal state after acquiring a claim.\n2. Retain terminal tombstones through the stale-writer window rather than deleting all fencing evidence immediately.\n3. Never sweep a fresh claim merely because its snapshot has not been published; use a conservative orphan timeout.\n4. Add tests for a delayed owner returning after several newer revisions, a sweep between claim and rename, and a stale write after terminal completion.\n\n**Effort:** Short  \n**Confidence:** High\n\n<SUMMARY>Approve the overall opt-in snapshot/resume architecture, but fix claim retention and sweeping before implementation. Effort: Short. Confidence: high. Top risk: a paused former owner can overwrite newer state or resurrect a completed loop.</SUMMARY>\n\nVERDICT: REQUEST_CHANGES\n- [correctness] Deleting claims older than the latest revision makes revision numbers reusable: a paused owner can return after a successor advances two revisions, create its old next-revision claim, and overwrite newer state; immediate tombstone/claim deletion similarly permits stale resurrection. Keep fencing evidence non-reusable and retain tombstones through the stale-writer TTL, or validate current revision/terminal state after every successful claim.\n- [correctness] Sweeping “claim files without a live snapshot” races the required claim-before-rename sequence, especially during init when no snapshot exists yet; another process can delete the active claim and recreate it, producing two apparent winners. Fresh claims must be exempt, with orphan reclamation based on a conservative age and safe recovery protocol.",
+          "ms": 62540
+        }
+      ],
+      "roundMs": 255209,
+      "slowest": "grok",
+      "adjudication": [
+        {
+          "issueId": "r3-grok-1",
+          "source": "grok",
+          "decision": "dismiss",
+          "reason": "A parse fragment of the reply with no claim of its own; the Node 18 rename point it belongs to is ruled on separately below."
+        },
+        {
+          "issueId": "r3-grok-2",
+          "source": "grok",
+          "decision": "accept",
+          "reason": "deepseek raises the same; v4 treats a snapshot whose rev is behind the highest claim as stale and refuses it with resume-refused, so an orphan claim ends in a re-init, never a lock."
+        },
+        {
+          "issueId": "r3-grok-3",
+          "source": "grok",
+          "decision": "accept",
+          "reason": "This breaks the exact case the feature exists for; v4 returns session-locked with retryAfterMs when the heartbeat is merely not yet stale, and the host contract says to wait and retry once."
+        },
+        {
+          "issueId": "r3-grok-4",
+          "source": "grok",
+          "decision": "accept",
+          "reason": "v4 writes and fsyncs the heartbeat before the first claim, and keeps it running while the process owns any snapshot or claim on disk, not only loops in memory."
+        },
+        {
+          "issueId": "r3-grok-5",
+          "source": "grok",
+          "decision": "dismiss",
+          "reason": "Node's fs.rename goes through libuv uv_fs_rename, which on Windows calls MoveFileExW with MOVEFILE_REPLACE_EXISTING, so it replaces in one call with no unlink step. A transient EPERM from a scanner holding the file is handled by the write-failure path."
+        },
+        {
+          "issueId": "r3-grok-6",
+          "source": "grok",
+          "decision": "accept",
+          "reason": "Today a repeated action fails with unexpected-action-for-status, which the host treats as fatal; v4 stores the last action and its response in the snapshot and replays it for a repeat of the same action."
+        },
+        {
+          "issueId": "r3-grok-7",
+          "source": "grok",
+          "decision": "accept",
+          "reason": "Also in my own blind notes; covered by the stale rule: the failed write left claim N, so snapshot N-1 is refused."
+        },
+        {
+          "issueId": "r3-grok-8",
+          "source": "grok",
+          "decision": "accept",
+          "reason": "The disclosure promises loop end or TTL; v4 deletes .corrupt files at the same TTL."
+        },
+        {
+          "issueId": "r3-grok-9",
+          "source": "grok",
+          "decision": "accept",
+          "reason": "Same class as the sessionId check; v4 requires ownerId to be 32 hex characters and rev a safe non-negative integer before any join."
+        },
+        {
+          "issueId": "r3-deepseek-v4-pro-0813-1",
+          "source": "openrouter:deepseek-v4-pro-0813",
+          "decision": "accept",
+          "reason": "Same as the grok orphan-claim issue; fixed by the stale rule."
+        },
+        {
+          "issueId": "r3-deepseek-v4-pro-0813-2",
+          "source": "openrouter:deepseek-v4-pro-0813",
+          "decision": "accept",
+          "reason": "v4: a failed tombstone write still completes the loop; the tombstone's claim already exists, so any older snapshot left behind is refused as stale."
+        },
+        {
+          "issueId": "r3-deepseek-v4-pro-0813-3",
+          "source": "openrouter:deepseek-v4-pro-0813",
+          "decision": "dismiss",
+          "reason": "An LRU-evicted loop still belongs to its live owner, which rehydrates it on the next call; another process taking it over there would be the divergence the fence exists to stop, so session-locked is the right answer. The heartbeat now lives as long as the process owns files on disk (grok issue above)."
+        },
+        {
+          "issueId": "r3-deepseek-v4-pro-0813-4",
+          "source": "openrouter:deepseek-v4-pro-0813",
+          "decision": "accept",
+          "reason": "A planted symlink or FIFO in the loops dir could redirect the read or hang the server; v4 opens with O_NOFOLLOW where available, fstats for a regular file and caps the size."
+        },
+        {
+          "issueId": "r3-deepseek-v4-pro-0813-5",
+          "source": "openrouter:deepseek-v4-pro-0813",
+          "decision": "accept",
+          "reason": "kimi raises the same race; v4 sweeps a claim only when its owner's heartbeat is dead and the claim is older than the TTL."
+        },
+        {
+          "issueId": "r3-kimi-k3-1-pro-1",
+          "source": "openrouter:kimi-k3-1-pro",
+          "decision": "accept",
+          "reason": "v4 keeps every claim of a live loop until its files are swept together, and a writer checks after its claim that the snapshot on disk is rev N-1, else it is fenced out."
+        },
+        {
+          "issueId": "r3-kimi-k3-1-pro-2",
+          "source": "openrouter:kimi-k3-1-pro",
+          "decision": "accept",
+          "reason": "Same as the deepseek sweep issue; fixed by the owner-dead-and-past-TTL rule."
+        }
+      ],
+      "hostVerdict": "REQUEST_CHANGES",
+      "revision": "Proposal v4: let a consensus-step loop survive an MCP server restart (opt-in)\n\nQuestion for the panel: is this the right architecture, or should the loop state stay in memory? Review the design, the tradeoffs and what it would break.\n\nContext (unchanged; file-blind reviewers get the relevant facts here):\n\n- `consensus-step` is a stateful MCP tool driven by the host model, one action per call: init -> record_blind -> dispatch_peers -> submit_adjudication -> submit_revision, repeated up to `consensus.maxRounds` (default 5). A round takes 1 to 6 minutes of provider time plus the host's own turns, so a 3-round loop often runs 15 to 30 minutes.\n- Loop state lives in `core/loop-store.js`: an in-memory `Map` keyed by sessionId, sliding TTL of 30 minutes, at most 100 entries with LRU eviction. A restart drops it, and the next call returns `{ error: \"session-expired\" }`; `commands/consensus.md` tells the host to re-run from init.\n- `init` stores per loop: the engine `LoopState`, `originalPrompt`, `startedAt`, `journaled`, a `config` snapshot, `pinnedProviders` (live Provider objects chosen once at init) and `provenance`. sessionIds are random UUIDs drawn at init; the host passes them back on every later call.\n- Every host session runs its own stdio server process. A plugin update, `/deliberation:reload-mcp`, a host crash or an MCP restart kills the process and every live loop in it.\n- Durable records today: `sessions.persist` (default false) writes one terminal record per finished run; the dashboard journal appends metadata per run, and content only when `dashboard.capture` is `content`. The dashboard derives a consensus-step run's status at read time from its last journal event; idle past 30 minutes reads `abandoned (expired)`.\n- Privacy default: prompts or answers reach disk only when the user opts in.\n\nDesign:\n\n1. Opt-in, pinned. New key `consensus.resumable` (boolean, default false), read once at `init` and pinned on the loop: a key flip mid-loop changes nothing for that loop. The schema description states that it writes the plan, every revision, the host's blind verdicts, adjudications and peer replies to `<sessionsDir>/loops/` until the loop ends or its TTL passes. Files are mode 0600 in a 0700 directory on POSIX; on Windows mode bits are not enforced and the files rely on the user profile's ACLs, which the description also says. Independent of `sessions.persist`.\n2. Process identity and heartbeat. Each server process draws a random 128-bit `ownerId` (32 hex characters) at startup. Before its first claim it writes and fsyncs `<sessionsDir>/loops/owners/<ownerId>.hb`, then touches it every 30 seconds (an unref'd timer) for as long as it owns any snapshot or claim on disk, including loops evicted from memory and loops turned non-resumable. Liveness is the heartbeat's mtime, the same on every OS: missing or older than 90 seconds means dead. No PID or process start time is read.\n3. Snapshot and write fence. `core/loop-persist.js` writes `<sessionId>.json` with `schemaVersion` (1), `rev`, `ownerId`, `touchedAt`, the engine LoopState, originalPrompt, startedAt, journaled, provenance, the pinned identity (per provider { name, model, reasoningEffort, timeout }, plus maxRounds, quorumFloor, maxWallMs and resumable fixed at init), `configHash` (of the `providers`, `models` and `consensus` blocks only) and `lastStep` { action, response } (see 6). Every write of revision N first creates `<sessionId>.claim.<N>` with O_CREAT|O_EXCL, then checks that the snapshot on disk is at rev N-1 (or absent for N = 1); if either fails, the writer was fenced out, drops its in-memory copy and returns `{ error: \"session-locked\" }`. Only then does it rename a 0600 O_EXCL temp file, fsynced, over the snapshot. Claims are never deleted while the loop's snapshot lives, so a revision number cannot be reused. Values read from disk are validated before use in a path: `ownerId` must be 32 hex characters and `rev` a safe non-negative integer.\n4. Write ordering and failure. The write is synchronous and happens before the step's in-memory `put` and before the response, so a successful response always has its revision on disk, and writes for one loop cannot overlap. If the write fails after its claim (ENOSPC, EACCES), the step still succeeds in memory, the loop turns non-resumable, the response carries `resumable: false` with the reason, and the process keeps its heartbeat so no one takes over. Whatever older snapshot remains is now behind claim N and is refused as stale (6). A disk error never aborts provider work.\n5. sessionId validation. Before any path is built, the sessionId must match the UUID v4 shape; anything else returns `session-expired` without touching the filesystem. Files are opened with O_NOFOLLOW where the platform has it, must fstat as regular files, and are refused above 4 MiB.\n6. Resume and retries. On a `loopStore.get` miss (after a restart, or an LRU eviction in the same process) read `<sessionId>.json`:\n   - refuse with `{ error: \"resume-refused\", reason }`: `stale` (a claim exists for a rev above the snapshot's: a writer died between claim and rename, or a write failed after a response went out; both end in a re-init, never a lock), `schema`, `corrupt`, `terminal`, `expired` (`touchedAt` past the 30-minute TTL, whatever the owner), `missing-provider`, `provider-error`.\n   - `ownerId` is this process (the LRU case): put it back in memory.\n   - owner dead per 2: take over by writing the next revision through the claim in 3 with this process as owner.\n   - owner heartbeat still fresh: `{ error: \"session-locked\", retryAfterMs }`, where retryAfterMs is the time until that heartbeat turns stale. After a restart this is the old process's last heartbeat, so the host waits once and retries; a second session-locked means a live session really owns the loop.\n   - on success rebuild each provider with its pinned settings, reuse the pinned knobs, journal a `state` event `resumed`, and add `resumed: true` (and `configChanged: true` when the hash differs) to the response.\n   - a repeat of the action recorded in `lastStep` (the response was lost in a crash after the write) returns the stored response instead of `unexpected-action-for-status`, so a host retry is idempotent.\n7. Terminal transitions. Write the snapshot with its terminal status (a tombstone, through a claim) before the existing atomic `loopStore.take`, then take, persist the session record if `sessions.persist` is on, then delete the snapshot and its claims, and the heartbeat if the process owns nothing else. If the tombstone write fails the loop still completes; its claim already exists, so an older snapshot left behind is refused as stale.\n8. Sweep, at startup and after each write, whenever the loops dir exists, including with the key off: delete any snapshot or tombstone past the TTL regardless of owner; a claim only when its loop has no snapshot, the owner heartbeat is dead and the claim is older than the TTL; `.tmp` files and heartbeat files older than the TTL; `.corrupt` files at the same TTL (the disclosure promises nothing longer).\n9. Host contract in `commands/consensus.md`: `session-expired` and `resume-refused` mean re-run from init; `session-locked` with `retryAfterMs` means wait that long and retry once, and a second one means another live session owns the loop, stop and say so; `resumed: true` means continue, and mention `configChanged` in the report; `resumable: false` means the loop continues but will not survive a restart.\n10. Tests: round trip; resume after a simulated restart; LRU eviction resumes in the same process; every refusal reason incl. stale after a crash between claim and rename; session-locked with retryAfterMs right after a restart, then success on retry; a repeated action after a lost response returns the stored response; a symlink or FIFO in place of a snapshot is refused; config change keeps the pinned identity; dead-heartbeat takeover and refusal against a live heartbeat; two takers race on one claim and exactly one wins; a fenced-out old owner gets session-locked on its next write; write failure turns the loop non-resumable without failing the step; tombstone; sweep with the key off; non-UUID sessionId never touches disk; key off writes nothing.\n11. Docs in the same PR: README.md, SETUP.md, TECHNICAL.md (snapshot shape, heartbeat and claim, threat model incl. Windows ACLs), docs/tool-guide.md (error contract), docs/dev/design-decisions.md (why opt-in, why heartbeat over PID, why a per-rev claim), config schema and default, commands/consensus.md, then `npm run sync`.\n\nOut of scope: resuming a provider call that was in flight when the process died (the host re-runs dispatch_peers), and two live sessions sharing one loop (the fence makes the second one stop, it does not merge them).\n",
+      "revisionSummary": "Stale rule for a snapshot behind its highest claim; session-locked carries retryAfterMs for the restart race; heartbeat lives while the process owns files; claims never reused; lastStep replay makes retries idempotent; O_NOFOLLOW and regular-file checks; validated ownerId and rev; owner-dead-and-aged claim sweep; .corrupt at the TTL.",
+      "convergence": {
+        "converged": false,
+        "reason": "All three peers voted REQUEST_CHANGES on v3: an orphan claim locked takers out, the restarted server raced its own fresh heartbeat, and a lost response made a retry fail. The host accepted 13 issues and dismissed 3."
+      }
+    },
+    {
+      "n": 4,
+      "hostBlindVerdict": {
+        "verdict": "APPROVE",
+        "summary": "The stale rule turns every orphan claim into a clean re-init, retryAfterMs covers the restart racing its own last heartbeat, and lastStep makes a lost response safe to retry, so v4 closes the round 3 gaps without adding new state.",
+        "criticalIssues": [],
+        "text": "**Verdict**: APPROVE\n**Critical issues** (must-fix; empty = none):\n  (none)\n**One-line bottom line**: The stale rule turns every orphan claim into a clean re-init, retryAfterMs covers the restart racing its own last heartbeat, and lastStep makes a lost response safe to retry, so v4 closes the round 3 gaps without adding new state.\n\nNon-blocking notes:\n- The stale rule also refuses the one crash window that could have resumed (claim written, rename not reached, no response sent). That costs a re-init in a rare case and is the safe choice; say so in design-decisions.\n- After a restart the host may wait up to 90 seconds before its retry; `commands/consensus.md` should print that wait so it does not look like a hang.\n- `lastStep` for dispatch_peers stores every peer reply twice (round history and lastStep); fine under the 4 MiB cap at five rounds, but the cap should be checked against a five-peer, five-round loop."
+      },
+      "peers": [
+        {
+          "source": "grok",
+          "provider": "grok",
+          "model": "grok-4.7",
+          "reasoningEffort": "medium",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r4-grok-1",
+              "category": "correctness",
+              "text": "Persist failure before the O_EXCL claim still returns step success and leaves the previous snapshot resumable, so a restarted owner can adopt a revision the host already passed."
+            },
+            {
+              "id": "r4-grok-2",
+              "category": "correctness",
+              "text": "Sweep deletes a snapshot past touchedAt even during an in-flight step, and the publish path treats the missing file as a foreign fence, dropping memory and returning session-locked after provider work has finished."
+            },
+            {
+              "id": "r4-grok-3",
+              "category": "security",
+              "text": "Unparseable or oversize snapshots are not renamed to .corrupt and have no mtime-based TTL, so prompt content can remain after the disclosed retention window."
+            },
+            {
+              "id": "r4-grok-4",
+              "category": "ambiguity",
+              "text": "Get-miss does not define ENOENT as session-expired, and LoopState has no explicit JSON subset, so a raw dump can silently drop Map or undefined fields on resume."
+            },
+            {
+              "id": "r4-grok-5",
+              "category": "ops",
+              "text": "Heartbeat mtime and O_EXCL are unspecified on non-local filesystems; NFS or a synced sessionsDir can false-stale the owner or split the write fence."
+            }
+          ],
+          "summary": "Opt-in snapshots with a per-rev O_EXCL claim and heartbeat ownership are the right design; memory-only cannot survive MCP restarts. Do not ship v4 until a failed claim cannot leave an older rev resumable, an in-flight TTL sweep cannot surface as session-locked, and unparseable files cannot outlive the TTL. Effort: Short. Confidence: medium (file-blind). Top risk: ENOSPC before the claim lets a new process adopt a revision the host already passed.",
+          "text": "The opt-in disk snapshot is the right architecture. Memory cannot survive the process death this feature exists for, and the heartbeat plus per-rev `O_EXCL` claim is a sound fence. Do not implement v4 as written: a failed or expired publish can still discard a finished step or let a later process adopt a revision the host already passed.\n\n**Action plan**\n1. Before returning success for a step that is not the revision on disk, durably invalidate the old snapshot (higher claim, or unlink if the claim cannot be created). If invalidation fails, resume of that `sessionId` must not succeed.\n2. Treat “snapshot missing or behind on our own publish” after TTL sweep or `ENOSPC`/`EACCES` as the point-4 path: keep memory, `resumable: false`, do not `session-locked` and do not drop the loop.\n3. Slide disk activity at step start (not only on the heartbeat). Sweep may delete past that TTL, but must not turn an in-flight owner’s publish into a stolen lock.\n4. Specify the get-miss matrix: no snapshot and no higher claim is `session-expired`; unparseable or oversize files are renamed to `.corrupt` or deleted by mtime so they cannot outlive the TTL.\n5. Persist an explicit JSON subset of loop state, not a raw engine dump, and reject unknown fields on load.\n6. Document that `loops/` must be a local filesystem; add tests for claim-create failure, sweep during an in-flight step, and corrupt-file retention.\n7. Leave provider-call resume and multi-session merge out of scope.\n\n**Effort:** Short (spec and tests before coding the fence).\n\n**Confidence:** medium — file-blind; LoopState’s JSON shape and real step timeouts are not in the prompt.\n\n**Why this approach**\n- Restart, reload, and host crash drop the in-memory `Map`; that is the bug being fixed. A lock file was already rejected for last-writer-wins.\n- Claims that are never reused, plus stale-if-claim-ahead, correctly close the crash-between-claim-and-rename hole without pinning the loop until TTL.\n- Heartbeat mtime is the right liveness signal across POSIX and Windows, provided the directory is local and a self-inflicted fence is not reported as `session-locked`.\n- Privacy still holds if expiry is last activity plus TTL: idle and dead owners lose files; an in-flight step must not be punished with a dropped `Map`.\n\n**Risks**\n- Disk full fails first on claim create, which point 4 does not cover. The host can already have the new step while a new `ownerId` takes over the previous rev. Invalidate first, or refuse resume.\n- Sweep “regardless of owner” plus expiry based only on last publish deletes a file the memory TTL still treats as live (long `dispatch_peers`, clock step, second session). The following `O_EXCL` check looks like a foreign fence and drops completed provider work.\n- A truncated or oversize `sessionId.json` has no readable `touchedAt` and is not a `.corrupt` file, so the disclosure cap does not apply. Same-user rewrite of `loops/` on NFS or a synced home directory also breaks `O_EXCL` and mtime liveness.\n\n**Escalation triggers:** a step wall time that routinely exceeds the 30-minute TTL, or `sessionsDir` that must sit on a network or synced volume. Either one needs a different store; do not weaken the claim fence to paper over it.\n\n**Alternative sketch:** keep the same opt-in files, but make publish a single ordered function: claim, else unlink-and-non-resumable; activity stamp; rename; only then `put` and respond. No second framework.\n\nOptional future considerations (out of scope): idempotent `lastStep` replay on an in-memory hit when the host times out but the process lived; directory fsync after rename for power loss.\n\n<SUMMARY>\nOpt-in snapshots with a per-rev O_EXCL claim and heartbeat ownership are the right design; memory-only cannot survive MCP restarts. Do not ship v4 until a failed claim cannot leave an older rev resumable, an in-flight TTL sweep cannot surface as session-locked, and unparseable files cannot outlive the TTL. Effort: Short. Confidence: medium (file-blind). Top risk: ENOSPC before the claim lets a new process adopt a revision the host already passed.\n</SUMMARY>\n\nVERDICT: REQUEST_CHANGES\n- [correctness] Persist failure before the O_EXCL claim still returns step success and leaves the previous snapshot resumable, so a restarted owner can adopt a revision the host already passed.\n- [correctness] Sweep deletes a snapshot past touchedAt even during an in-flight step, and the publish path treats the missing file as a foreign fence, dropping memory and returning session-locked after provider work has finished.\n- [security] Unparseable or oversize snapshots are not renamed to .corrupt and have no mtime-based TTL, so prompt content can remain after the disclosed retention window.\n- [ambiguity] Get-miss does not define ENOENT as session-expired, and LoopState has no explicit JSON subset, so a raw dump can silently drop Map or undefined fields on resume.\n- [ops] Heartbeat mtime and O_EXCL are unspecified on non-local filesystems; NFS or a synced sessionsDir can false-stale the owner or split the write fence.",
+          "ms": 387131
+        },
+        {
+          "source": "openrouter:deepseek-v4-pro-0813",
+          "provider": "openrouter",
+          "model": "deepseek/deepseek-v4-pro-0813",
+          "reasoningEffort": "medium",
+          "verdict": "APPROVE",
+          "criticalIssues": [],
+          "summary": "the architecture is sound and the design has converged. The per-revision O_EXCL claim is the true write fence — heartbeat liveness only gates *when* a taker may try, and any liveness misread degrades to a benign fenced-out `session-locked`, not a consistency breach. That layering is what makes this safe to approve. The remaining items are documentation-level gaps and conservative tradeoffs, none of which break correctness or security.",
+          "text": "Bottom line: the architecture is sound and the design has converged. The per-revision O_EXCL claim is the true write fence — heartbeat liveness only gates *when* a taker may try, and any liveness misread degrades to a benign fenced-out `session-locked`, not a consistency breach. That layering is what makes this safe to approve. The remaining items are documentation-level gaps and conservative tradeoffs, none of which break correctness or security.\n\nWhy this holds up:\n\n- **Fence-first, heartbeat-second.** A stale or lost heartbeat mtime (no fsync on `utimes`, coarse clock) lets a taker try early or late, but the claim/N-vs-snapshot-N-1 check means exactly one writer wins and the loser stops. This covers the failure mode most designs get wrong.\n- **Write-failure → non-resumable is self-consistent.** A failed write leaves claim N above snapshot N-1; any later resume hits `stale` → re-init, matching the `resumable: false` the host was already told. No divergence between promised and actual durability.\n- **Crash-window cost is strictly better than today.** A crash between claim and rename forces re-init, but only in that narrow window; every other crash resumes. Pre-feature, *any* restart lost everything. The \"stale discards a valid N-1 state\" choice is conservative and documented, not a regression.\n- **Privacy and TTL promises line up.** Orphan claims are empty metadata, swept only when owner-heartbeat-dead and past TTL; `.corrupt` at TTL; sweep runs with the key off so turning the feature off strands nothing.\n\nNon-critical observations (informational, for the PR description):\n\n- **Terminal-failure path underspecified (7).** When the tombstone claim fails, the loop completes in memory but the N-1 snapshot and its claims stay on disk. It's unclear whether the heartbeat is retained while that snapshot lives. If it stops, a (theoretical) taker holding the sessionId could resurrect a completed, non-terminal-snapshot loop. In practice the host has already received completion and won't call again, and TTL sweep bounds it — but a one-line statement (\"heartbeat stays until tombstone succeeds or TTL passes\") would close the gap.\n- **Heartbeat touch isn't fsynced per tick.** mtime durability across a power loss isn't guaranteed; the claim fence makes this benign, but it's worth a sentence in TECHNICAL.md rather than implying mtime is crash-durable.\n- **Set `sessionId` validation is case-sensitive** — harmless, but document that hosts must pass it back verbatim.\n- **LoopState deserialization validates only `ownerId`/`rev`.** Given 0600/0700 and the user-as-attacker threat model, low risk; a structural sanity check on load would be cheap hardening.\n\nEffort: Large (feature, tests, docs — already scoped). Confidence: high — no correctness or security blocker found.\n\nVERDICT: APPROVE",
+          "ms": 118124
+        },
+        {
+          "source": "openrouter:kimi-k3-1-pro",
+          "provider": "openrouter",
+          "model": "moonshotai/kimi-k3.1-pro",
+          "reasoningEffort": "medium",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r4-kimi-k3-1-pro-1",
+              "category": "correctness",
+              "text": "Opening a FIFO read-only can block before `fstat` runs, hanging the server instead of refusing it. Open snapshot candidates with `O_NONBLOCK` where supported, then verify with `fstat` that they are regular files."
+            },
+            {
+              "id": "r4-kimi-k3-1-pro-2",
+              "category": "correctness",
+              "text": "Replaying `lastStep` by action alone is not idempotent: a repeated `record_blind`, `submit_adjudication`, or `submit_revision` with different arguments would silently return the old response and discard the new input. Store a canonical request hash and replay only on an exact match; otherwise return an action conflict."
+            },
+            {
+              "id": "r4-kimi-k3-1-pro-3",
+              "category": "correctness",
+              "text": "A terminal tombstone failure is not guaranteed to leave a claim behind: claim creation itself can fail with ENOSPC or EACCES, leaving a valid pre-terminal snapshot that can later be resumed. Define this fallback explicitly, including best-effort invalidation/deletion and a terminal-durability warning, rather than asserting that the older snapshot will be stale."
+            },
+            {
+              "id": "r4-kimi-k3-1-pro-4",
+              "category": "ambiguity",
+              "text": "Orphaned-claim sweeping requires the claim owner's heartbeat, but claim files are not specified to contain an `ownerId`, and no snapshot exists from which to obtain it. Store and validate the owner in each claim or specify another deterministic ownership rule."
+            }
+          ],
+          "summary": null,
+          "text": "VERDICT: REQUEST_CHANGES\n- [correctness] Opening a FIFO read-only can block before `fstat` runs, hanging the server instead of refusing it. Open snapshot candidates with `O_NONBLOCK` where supported, then verify with `fstat` that they are regular files.\n- [correctness] Replaying `lastStep` by action alone is not idempotent: a repeated `record_blind`, `submit_adjudication`, or `submit_revision` with different arguments would silently return the old response and discard the new input. Store a canonical request hash and replay only on an exact match; otherwise return an action conflict.\n- [correctness] A terminal tombstone failure is not guaranteed to leave a claim behind: claim creation itself can fail with ENOSPC or EACCES, leaving a valid pre-terminal snapshot that can later be resumed. Define this fallback explicitly, including best-effort invalidation/deletion and a terminal-durability warning, rather than asserting that the older snapshot will be stale.\n- [ambiguity] Orphaned-claim sweeping requires the claim owner's heartbeat, but claim files are not specified to contain an `ownerId`, and no snapshot exists from which to obtain it. Store and validate the owner in each claim or specify another deterministic ownership rule.",
+          "ms": 179877
+        }
+      ],
+      "roundMs": 387131,
+      "slowest": "grok",
+      "adjudication": [
+        {
+          "issueId": "r4-grok-1",
+          "source": "grok",
+          "decision": "accept",
+          "reason": "kimi raises the same for the tombstone; the stale rule only works once a claim exists. v5 adds a client-side fence: every response carries rev, the host echoes it, and resume refuses a snapshot whose rev differs."
+        },
+        {
+          "issueId": "r4-grok-2",
+          "source": "grok",
+          "decision": "accept",
+          "reason": "With the heartbeat there is no PID-reuse case left to justify deleting regardless of owner; v5 sweeps a snapshot past the TTL only when its owner is dead, and a live owner expires its own loops with its in-memory TTL."
+        },
+        {
+          "issueId": "r4-grok-3",
+          "source": "grok",
+          "decision": "accept",
+          "reason": "v5 quarantines both as .corrupt and sweeps .corrupt files by mtime at the TTL."
+        },
+        {
+          "issueId": "r4-grok-4",
+          "source": "grok",
+          "decision": "accept",
+          "reason": "v5 maps ENOENT to session-expired and names the serialized LoopState fields (plain JSON, no Map, no undefined), with a round-trip test."
+        },
+        {
+          "issueId": "r4-grok-5",
+          "source": "grok",
+          "decision": "accept",
+          "reason": "O_EXCL and mtime are not reliable there; v5 requires sessionsDir on a local filesystem for this feature and says so in the schema and SETUP."
+        },
+        {
+          "issueId": "r4-kimi-k3-1-pro-1",
+          "source": "openrouter:kimi-k3-1-pro",
+          "decision": "accept",
+          "reason": "v5 opens with O_NONBLOCK where supported, then fstats for a regular file."
+        },
+        {
+          "issueId": "r4-kimi-k3-1-pro-2",
+          "source": "openrouter:kimi-k3-1-pro",
+          "decision": "accept",
+          "reason": "v5 stores a hash of the canonical request and replays only on an exact match; a different request for the same action returns action-conflict."
+        },
+        {
+          "issueId": "r4-kimi-k3-1-pro-3",
+          "source": "openrouter:kimi-k3-1-pro",
+          "decision": "accept",
+          "reason": "Same gap as the grok persist-failure issue; closed by the host-echoed rev, plus a best-effort delete of the snapshot."
+        },
+        {
+          "issueId": "r4-kimi-k3-1-pro-4",
+          "source": "openrouter:kimi-k3-1-pro",
+          "decision": "accept",
+          "reason": "v5 writes the claimant's ownerId into each claim file and validates it before use."
+        }
+      ],
+      "hostVerdict": "REQUEST_CHANGES",
+      "revision": "Proposal v5: let a consensus-step loop survive an MCP server restart (opt-in)\n\nQuestion for the panel: is this the right architecture, or should the loop state stay in memory? Review the design, the tradeoffs and what it would break.\n\nContext (unchanged; file-blind reviewers get the relevant facts here):\n\n- `consensus-step` is a stateful MCP tool driven by the host model, one action per call: init -> record_blind -> dispatch_peers -> submit_adjudication -> submit_revision, repeated up to `consensus.maxRounds` (default 5). A round takes 1 to 6 minutes of provider time plus the host's own turns, so a 3-round loop often runs 15 to 30 minutes.\n- Loop state lives in `core/loop-store.js`: an in-memory `Map` keyed by sessionId, sliding TTL of 30 minutes, at most 100 entries with LRU eviction. A restart drops it, and the next call returns `{ error: \"session-expired\" }`; `commands/consensus.md` tells the host to re-run from init.\n- `init` stores per loop: the engine `LoopState`, `originalPrompt`, `startedAt`, `journaled`, a `config` snapshot, `pinnedProviders` (live Provider objects chosen once at init) and `provenance`. sessionIds are random UUIDs drawn at init; the host passes them back on every later call.\n- Every host session runs its own stdio server process. A plugin update, `/deliberation:reload-mcp`, a host crash or an MCP restart kills the process and every live loop in it.\n- Durable records today: `sessions.persist` (default false) writes one terminal record per finished run; the dashboard journal appends metadata per run, and content only when `dashboard.capture` is `content`. The dashboard derives a consensus-step run's status at read time from its last journal event; idle past 30 minutes reads `abandoned (expired)`.\n- Privacy default: prompts or answers reach disk only when the user opts in.\n\nDesign:\n\n1. Opt-in, pinned. New key `consensus.resumable` (boolean, default false), read once at `init` and pinned on the loop: a key flip mid-loop changes nothing for that loop. The schema description states that it writes the plan, every revision, the host's blind verdicts, adjudications and peer replies to `<sessionsDir>/loops/` until the loop ends or its TTL passes. Files are mode 0600 in a 0700 directory on POSIX; on Windows mode bits are not enforced and the files rely on the user profile's ACLs, which the description also says. Independent of `sessions.persist`.\n2. Process identity and heartbeat. Each server process draws a random 128-bit `ownerId` (32 hex characters) at startup. Before its first claim it writes and fsyncs `<sessionsDir>/loops/owners/<ownerId>.hb`, then touches it every 30 seconds (an unref'd timer) for as long as it owns any snapshot or claim on disk, including loops evicted from memory and loops turned non-resumable. Liveness is the heartbeat's mtime, the same on every OS: missing or older than 90 seconds means dead. No PID or process start time is read.\n3. Snapshot and write fence. `core/loop-persist.js` writes `<sessionId>.json` with `schemaVersion` (1), `rev`, `ownerId`, `touchedAt`, the engine LoopState, originalPrompt, startedAt, journaled, provenance, the pinned identity (per provider { name, model, reasoningEffort, timeout }, plus maxRounds, quorumFloor, maxWallMs and resumable fixed at init), `configHash` (of the `providers`, `models` and `consensus` blocks only) and `lastStep` { action, response } (see 6). Every write of revision N first creates `<sessionId>.claim.<N>` with O_CREAT|O_EXCL and writes the claimant's `ownerId` into it, then checks that the snapshot on disk is at rev N-1 (or absent for N = 1); if either fails, the writer was fenced out, drops its in-memory copy and returns `{ error: \"session-locked\" }`. Only then does it rename a 0600 O_EXCL temp file, fsynced, over the snapshot. Claims are never deleted while the loop's snapshot lives, so a revision number cannot be reused. Values read from disk are validated before use: `ownerId` (in snapshots and claims) must be 32 hex characters and `rev` a safe non-negative integer. The serialized LoopState is a named plain-JSON subset (round, status, currentPlan, blindVerdict, results, decisions, hostVerdict, history, maxRounds, quorumFloor, errorStreak, announcedDropped, peerPrompt); no Map and no undefined values, checked by a round-trip test.\n4. Write ordering, failure and the client fence. Every response of a resumable loop carries `rev`, and the host passes the last `rev` it saw on its next call. The write is synchronous and happens before the step's in-memory `put` and before the response, so a successful response always has its revision on disk, and writes for one loop cannot overlap. If the write fails after its claim (ENOSPC, EACCES), the step still succeeds in memory, the loop turns non-resumable, the response carries `resumable: false` with the reason, and the process keeps its heartbeat so no one takes over. Whatever older snapshot remains is now behind claim N and is refused as stale (6); if even the claim could not be created, the process deletes the old snapshot best-effort, and in any case the host's echoed `rev` no longer matches it, so resume refuses it (6). A disk error never aborts provider work.\n5. sessionId validation. Before any path is built, the sessionId must match the UUID v4 shape; anything else returns `session-expired` without touching the filesystem. Files are opened with O_NOFOLLOW and O_NONBLOCK where the platform has them (so a planted FIFO cannot block the open), must fstat as regular files, and above 4 MiB are quarantined like unparseable ones. The feature requires `sessionsDir` on a local filesystem: O_EXCL and mtime heartbeats are not reliable on network or synced folders, which the schema and SETUP.md say.\n6. Resume and retries. On a `loopStore.get` miss (after a restart, or an LRU eviction in the same process) read `<sessionId>.json`; ENOENT is `session-expired`:\n   - refuse with `{ error: \"resume-refused\", reason }`: `stale` (a claim exists for a rev above the snapshot's, or the snapshot's rev differs from the `rev` the host passed: a writer died between claim and rename, or a write failed after a response went out; both end in a re-init, never a lock), `schema`, `corrupt` (unparseable or oversize; renamed to `.corrupt`), `terminal`, `expired` (`touchedAt` past the 30-minute TTL, whatever the owner), `missing-provider`, `provider-error`.\n   - `ownerId` is this process (the LRU case): put it back in memory.\n   - owner dead per 2: take over by writing the next revision through the claim in 3 with this process as owner.\n   - owner heartbeat still fresh: `{ error: \"session-locked\", retryAfterMs }`, where retryAfterMs is the time until that heartbeat turns stale. After a restart this is the old process's last heartbeat, so the host waits once and retries; a second session-locked means a live session really owns the loop.\n   - on success rebuild each provider with its pinned settings, reuse the pinned knobs, journal a `state` event `resumed`, and add `resumed: true` (and `configChanged: true` when the hash differs) to the response.\n   - a repeat of the step recorded in `lastStep` (the response was lost in a crash after the write) returns the stored response instead of `unexpected-action-for-status`, but only when the canonical request hash stored with it matches exactly; the same action with different arguments returns `action-conflict`.\n7. Terminal transitions. Write the snapshot with its terminal status (a tombstone, through a claim) before the existing atomic `loopStore.take`, then take, persist the session record if `sessions.persist` is on, then delete the snapshot and its claims, and the heartbeat if the process owns nothing else. If the tombstone write fails the loop still completes and the process deletes the old snapshot best-effort; anything left behind is refused as stale, by its claim or by the host's echoed rev.\n8. Sweep, at startup and after each write, whenever the loops dir exists, including with the key off: delete a snapshot or tombstone past the TTL only when its owner's heartbeat is dead (a live owner expires its own loops through its in-memory TTL, so a long step never loses its file); a claim only when its loop has no snapshot, the ownerId inside it has a dead heartbeat and the claim is older than the TTL; `.tmp` files and heartbeat files older than the TTL; `.corrupt` files by mtime at the same TTL (the disclosure promises nothing longer).\n9. Host contract in `commands/consensus.md`: `session-expired` and `resume-refused` mean re-run from init; `session-locked` with `retryAfterMs` means wait that long and retry once, and a second one means another live session owns the loop, stop and say so; pass the last `rev` back on every call; `action-conflict` means stop and report; `resumed: true` means continue, and mention `configChanged` in the report; `resumable: false` means the loop continues but will not survive a restart.\n10. Tests: round trip; resume after a simulated restart; LRU eviction resumes in the same process; every refusal reason incl. stale after a crash between claim and rename; session-locked with retryAfterMs right after a restart, then success on retry; a repeated action after a lost response returns the stored response, and the same action with other arguments returns action-conflict; a host rev that differs from the snapshot refuses as stale; an oversize snapshot is quarantined; a FIFO does not block the open; a symlink or FIFO in place of a snapshot is refused; config change keeps the pinned identity; dead-heartbeat takeover and refusal against a live heartbeat; two takers race on one claim and exactly one wins; a fenced-out old owner gets session-locked on its next write; write failure turns the loop non-resumable without failing the step; tombstone; sweep with the key off; non-UUID sessionId never touches disk; key off writes nothing.\n11. Docs in the same PR: README.md, SETUP.md, TECHNICAL.md (snapshot shape, heartbeat and claim, threat model incl. Windows ACLs), docs/tool-guide.md (error contract), docs/dev/design-decisions.md (why opt-in, why heartbeat over PID, why a per-rev claim), config schema and default, commands/consensus.md, then `npm run sync`.\n\nOut of scope: resuming a provider call that was in flight when the process died (the host re-runs dispatch_peers), and two live sessions sharing one loop (the fence makes the second one stop, it does not merge them).\n",
+      "revisionSummary": "Host-echoed rev as a client fence; owner-aware snapshot sweep; quarantine for oversize files with an mtime TTL; ENOENT and the JSON LoopState subset defined; local-filesystem requirement; O_NONBLOCK open; request-hash replay with action-conflict; ownerId inside each claim.",
+      "convergence": {
+        "converged": false,
+        "reason": "openrouter:deepseek-v4-pro-0813 voted APPROVE; grok and openrouter:kimi-k3-1-pro voted REQUEST_CHANGES with nine edge cases (a failed claim, sweep during a long step, FIFO opens, replay by action alone). The host accepted all nine."
+      }
+    },
+    {
+      "n": 5,
+      "hostBlindVerdict": {
+        "verdict": "APPROVE",
+        "summary": "The host-echoed rev closes the last gap where a failed claim could leave a resumable older snapshot, and the owner-aware sweep stops a long step from losing its own file, so v5 is correct as specified.",
+        "criticalIssues": [],
+        "text": "**Verdict**: APPROVE\n**Critical issues** (must-fix; empty = none):\n  (none)\n**One-line bottom line**: The host-echoed rev closes the last gap where a failed claim could leave a resumable older snapshot, and the owner-aware sweep stops a long step from losing its own file, so v5 is correct as specified.\n\nNon-blocking notes:\n- A host that does not send `rev` (an older command file, or another host's driver) needs a defined rule; refusing resume without it is the safe default.\n- The design has grown to a heartbeat, per-revision claims, a client fence, request hashes and a quarantine. design-decisions.md should weigh it against the plain alternative it never compared: no server state at all, with the host re-running init and passing the prior rounds in the prompt.\n- The local-filesystem requirement is documented but not detected; a startup check that refuses resumable on a known network filesystem type would make it hold."
+      },
+      "peers": [
+        {
+          "source": "grok",
+          "provider": "grok",
+          "model": "grok-4.7",
+          "reasoningEffort": "medium",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r5-grok-1",
+              "category": "correctness",
+              "text": "Any host-rev mismatch is specified as stale, which makes lastStep replay unreachable after a lost response (host still holds N-1, snapshot is already N) and also desyncs the host if takeover bumps rev before that stored response is returned."
+            },
+            {
+              "id": "r5-grok-2",
+              "category": "correctness",
+              "text": "If the claim cannot be created and the best-effort snapshot delete fails, a successful response that still carries the only on-disk rev is resumable and replays pre-step state after the host already accepted the step; the plan asserts a mismatch but also requires that a successful rev already be on disk."
+            },
+            {
+              "id": "r5-grok-3",
+              "category": "security",
+              "text": "Sweep will not delete an expired snapshot whose owner heartbeat is fresh, and nothing else deletes it on in-memory TTL expiry, so after LRU eviction the heartbeat keeps prompts on disk for the process lifetime, past the disclosed TTL."
+            }
+          ],
+          "summary": "Do not approve v5 yet. Narrow stale-rev so a lost response whose hash matches lastStep replays and catches the host up; every other host-rev mismatch stays a refusal. Define the rev returned when the claim itself cannot be created, and delete this process’s own snapshot when the in-memory TTL fires, including after LRU eviction. Effort is Short. Confidence is high. Top risk is a replay rule that is wider than the exact request hash.",
+          "text": "The rev fence, as specified, contradicts lost-response replay, and a live owner has no path that actually deletes an expired snapshot. Both break guarantees this design is supposed to enforce. Fix those contracts before implementation; do not leave loop state memory-only if resume remains a product requirement.\n\n**Action plan**\n1. Split the host-rev check. Refuse `stale` only when the host rev is ahead of the snapshot, the rev is missing or non-numeric, or a claim exists above the snapshot. If the host rev is behind and the canonical request hash matches `lastStep`, return the stored response and the snapshot’s rev so the host catches up. Any other behind-rev call is `action-conflict` or `stale`, not a replay.\n2. Make pure replay a read. Do not take over or allocate a claim before returning `lastStep`. A takeover or later step may bump `rev` only on a response the host is required to adopt before the next call.\n3. Specify the pre-claim failure response. If the claim cannot be created, do not return success with the on-disk rev. Either fail the step closed, or return success with `resumable: false` and a rev that cannot match a leftover snapshot, and keep the best-effort delete.\n4. On in-memory TTL expiry, if this process still owns the snapshot, delete the snapshot and its claims even though the heartbeat is fresh, then stop the heartbeat when nothing remains. Sweep cannot do this job: it correctly refuses to delete a live owner’s file during a long step.\n5. Keep the rest: opt-in pin, heartbeat liveness, per-rev `O_EXCL` fence, sync fsync before the response, UUID and regular-file checks, and the documented local-filesystem limit.\n6. Add tests for lost-response replay where the host rev is one behind, a mismatched host rev that is ahead still `stale`, and an LRU-evicted loop deleted at the TTL while that same process is still heartbeating other files.\n\n**Effort:** Short\n**Confidence:** high\n\n**Why this approach**\n- Round 4’s “any rev mismatch is stale” rule makes the lost-response test unsatisfiable: after a crash the host still holds rev N−1 and the snapshot is already at N.\n- “A successful response always has its revision on disk” and “a failed claim still returns a rev that does not match the leftover snapshot” cannot both be true unless that failure rev is explicitly synthetic.\n- Owner-aware sweep plus “heartbeat while any owned file exists” means LRU eviction drops the only expiry hook and then pins the file in place. Prompts then outlive the disclosed 30-minute TTL for the life of the process.\n\n**Risks**\n- Treating every behind-rev as replay would re-issue a different action. The hash check has to stay exact.\n- Deleting on memory TTL must not run for a loop that is merely LRU-evicted and still inside the sliding TTL, or same-process resume breaks.\n\n<SUMMARY>\nDo not approve v5 yet. Narrow stale-rev so a lost response whose hash matches lastStep replays and catches the host up; every other host-rev mismatch stays a refusal. Define the rev returned when the claim itself cannot be created, and delete this process’s own snapshot when the in-memory TTL fires, including after LRU eviction. Effort is Short. Confidence is high. Top risk is a replay rule that is wider than the exact request hash.\n</SUMMARY>\n\nVERDICT: REQUEST_CHANGES\n- [correctness] Any host-rev mismatch is specified as stale, which makes lastStep replay unreachable after a lost response (host still holds N-1, snapshot is already N) and also desyncs the host if takeover bumps rev before that stored response is returned.\n- [correctness] If the claim cannot be created and the best-effort snapshot delete fails, a successful response that still carries the only on-disk rev is resumable and replays pre-step state after the host already accepted the step; the plan asserts a mismatch but also requires that a successful rev already be on disk.\n- [security] Sweep will not delete an expired snapshot whose owner heartbeat is fresh, and nothing else deletes it on in-memory TTL expiry, so after LRU eviction the heartbeat keeps prompts on disk for the process lifetime, past the disclosed TTL.",
+          "ms": 204686
+        },
+        {
+          "source": "openrouter:deepseek-v4-pro-0813",
+          "provider": "openrouter",
+          "model": "deepseek/deepseek-v4-pro-0813",
+          "reasoningEffort": "medium",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r5-deepseek-v4-pro-0813-1",
+              "category": "correctness",
+              "text": "A response lost after a successful write leaves the snapshot at rev N while the host echoes N-1; §6 refuses `stale` before the `lastStep` replay check, so the stored-response retry described and tested in the plan cannot actually trigger. The replay check must precede the rev-diff refusal (or define rev N-1 + matching lastStep as replay)."
+            },
+            {
+              "id": "r5-deepseek-v4-pro-0813-2",
+              "category": "correctness",
+              "text": "A legitimate resumable snapshot that grows past 4 MiB is quarantined as `.corrupt` on the next resume, silently defeating the restart guarantee; the size limit must be enforced on write (turn the loop non-resumable) or applied only to unvalidated files, not to snapshots that parse with a valid `ownerId`/`schemaVersion`."
+            }
+          ],
+          "summary": "the durable snapshot, heartbeat ownership, per-revision claim fence, and opt-in privacy model are sound. One blocking correctness contradiction remains: the stale rev fence makes the promised `lastStep` replay path unreachable after a crash between a successful write and the response, so the idempotent-retry guarantee cannot hold as written.",
+          "text": "Bottom line: the durable snapshot, heartbeat ownership, per-revision claim fence, and opt-in privacy model are sound. One blocking correctness contradiction remains: the stale rev fence makes the promised `lastStep` replay path unreachable after a crash between a successful write and the response, so the idempotent-retry guarantee cannot hold as written.\n\nAction plan:\n1. In §6, check a matching action + canonical request hash before the rev-mismatch/stale refusal, and treat “snapshot rev = echoed rev + 1 with a matching lastStep” as replay, not stale.\n2. Add the lost-response-at-rev-N test with the host echoing N-1, and the differing-arguments → `action-conflict` case.\n3. Define the oversize rule on the write path: a valid snapshot over the threshold should make the loop non-resumable with `resumable: false`, or validated owner-written snapshots must be exempt from quarantine.\n\nEffort: Short. Confidence: high.\n\nVERDICT: REQUEST_CHANGES\n\n- [correctness] A response lost after a successful write leaves the snapshot at rev N while the host echoes N-1; §6 refuses `stale` before the `lastStep` replay check, so the stored-response retry described and tested in the plan cannot actually trigger. The replay check must precede the rev-diff refusal (or define rev N-1 + matching lastStep as replay).\n- [correctness] A legitimate resumable snapshot that grows past 4 MiB is quarantined as `.corrupt` on the next resume, silently defeating the restart guarantee; the size limit must be enforced on write (turn the loop non-resumable) or applied only to unvalidated files, not to snapshots that parse with a valid `ownerId`/`schemaVersion`.",
+          "ms": 121429
+        },
+        {
+          "source": "openrouter:kimi-k3-1-pro",
+          "provider": "openrouter",
+          "model": "moonshotai/kimi-k3.1-pro",
+          "reasoningEffort": "medium",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r5-kimi-k3-1-pro-1",
+              "category": "correctness",
+              "text": "lastStep` replay is unreachable after the principal crash it addresses: the write advances the snapshot to N+1, the lost response leaves the host at N, and the strict rev mismatch check returns `stale` before the stored response can be replayed. Matching replay and `action-conflict` need explicit precedence over that check, including on retained terminal tombstones."
+            },
+            {
+              "id": "r5-kimi-k3-1-pro-2",
+              "category": "correctness",
+              "text": "Dead-owner takeover publishes an ownership-only revision before executing the requested step. If the new owner then crashes before the step response, the host still echoes the pre-takeover rev and every subsequent retry is refused as stale, although no new host action was committed; ownership transfer must not invalidate the client’s base revision."
+            },
+            {
+              "id": "r5-kimi-k3-1-pro-3",
+              "category": "correctness",
+              "text": "A claim above the snapshot does not necessarily mean an abandoned write: a live claimant can be between O_EXCL claim creation and rename. Concurrent resume can therefore return permanent `resume-refused: stale` for a snapshot that is about to become valid; claimant liveness and a re-read/session-locked path are needed for that window."
+            }
+          ],
+          "summary": "The persistence architecture is justified, but the revision protocol needs another revision. A crash after writing revision N+1 and before its response leaves the host echoing N, which section 6 refuses as stale before `lastStep` replay can occur. Ownership-only takeover revisions introduce a similar retry failure. Effort: Large. Confidence: high. Top risk: valid crash retries become permanent re-initialization instead of idempotent resume.",
+          "text": "**Bottom line:** Opt-in persistence with heartbeat ownership and per-revision claims is a reasonable architecture; keeping long-running loops memory-only would preserve the restart data loss this feature is meant to address. The revision protocol still needs correction: as written, it rejects the lost-response retries that `lastStep` is intended to make idempotent.\n\n**Action plan:**\n1. Define one ordered revision/replay algorithm for both in-memory and disk-resume paths. Allow an exactly matching `lastStep` request to replay when the host is one revision behind; reject other mismatches as `stale`.\n2. Apply the corresponding `action-conflict` rule before generic revision mismatch handling, and define how replay interacts with retained terminal tombstones.\n3. Make dead-owner takeover neutral to the client-visible revision: fold ownership transfer into the next step write, or track the host’s base revision separately from internal persistence revisions.\n4. Distinguish an in-progress claim with a live claimant from an abandoned claim before returning `stale`; otherwise a transient claim window can unnecessarily force re-initialization.\n5. Add explicit crash-sequence tests for each case, including the host’s echoed `rev`, rather than testing replay and revision mismatch only independently.\n\n**Effort:** Large.\n\n**Confidence:** High — the replay contradiction follows directly from the specified crash and retry sequence.\n\n<SUMMARY>The persistence architecture is justified, but the revision protocol needs another revision. A crash after writing revision N+1 and before its response leaves the host echoing N, which section 6 refuses as stale before `lastStep` replay can occur. Ownership-only takeover revisions introduce a similar retry failure. Effort: Large. Confidence: high. Top risk: valid crash retries become permanent re-initialization instead of idempotent resume.</SUMMARY>\n\nVERDICT: REQUEST_CHANGES\n- [correctness] `lastStep` replay is unreachable after the principal crash it addresses: the write advances the snapshot to N+1, the lost response leaves the host at N, and the strict rev mismatch check returns `stale` before the stored response can be replayed. Matching replay and `action-conflict` need explicit precedence over that check, including on retained terminal tombstones.\n- [correctness] Dead-owner takeover publishes an ownership-only revision before executing the requested step. If the new owner then crashes before the step response, the host still echoes the pre-takeover rev and every subsequent retry is refused as stale, although no new host action was committed; ownership transfer must not invalidate the client’s base revision.\n- [correctness] A claim above the snapshot does not necessarily mean an abandoned write: a live claimant can be between O_EXCL claim creation and rename. Concurrent resume can therefore return permanent `resume-refused: stale` for a snapshot that is about to become valid; claimant liveness and a re-read/session-locked path are needed for that window.",
+          "ms": 189876
+        }
+      ],
+      "roundMs": 204686,
+      "slowest": "grok",
+      "adjudication": [
+        {
+          "issueId": "r5-grok-1",
+          "source": "grok",
+          "decision": "accept",
+          "reason": "deepseek and kimi found the same precedence bug independently; the replay check must run before the rev comparison."
+        },
+        {
+          "issueId": "r5-grok-2",
+          "source": "grok",
+          "decision": "accept",
+          "reason": "Real: the v5 fence assumed the host's rev moves past the snapshot, but a response sent without a durable write carries the old rev. The fallback response must carry a rev the snapshot can never match."
+        },
+        {
+          "issueId": "r5-grok-3",
+          "source": "grok",
+          "decision": "accept",
+          "reason": "The v5 sweep rule protects live owners but no rule makes the owner expire its own files; the owner's sweep must delete its own snapshots past the TTL."
+        },
+        {
+          "issueId": "r5-deepseek-v4-pro-0813-1",
+          "source": "openrouter:deepseek-v4-pro-0813",
+          "decision": "accept",
+          "reason": "Same as the grok precedence issue."
+        },
+        {
+          "issueId": "r5-deepseek-v4-pro-0813-2",
+          "source": "openrouter:deepseek-v4-pro-0813",
+          "decision": "accept",
+          "reason": "The size cap belongs on the write side: a loop whose snapshot would exceed it turns non-resumable instead of being destroyed later."
+        },
+        {
+          "issueId": "r5-kimi-k3-1-pro-1",
+          "source": "openrouter:kimi-k3-1-pro",
+          "decision": "accept",
+          "reason": "Same as the grok precedence issue; tombstones are included."
+        },
+        {
+          "issueId": "r5-kimi-k3-1-pro-2",
+          "source": "openrouter:kimi-k3-1-pro",
+          "decision": "accept",
+          "reason": "A takeover is not a host action; ownership must live outside the host-visible rev (a separate epoch) so the client's base rev survives it."
+        },
+        {
+          "issueId": "r5-kimi-k3-1-pro-3",
+          "source": "openrouter:kimi-k3-1-pro",
+          "decision": "accept",
+          "reason": "The claim records its ownerId since v5; a claim whose owner heartbeat is fresh must give session-locked with retryAfterMs, not stale."
+        }
+      ],
+      "hostVerdict": "REQUEST_CHANGES",
+      "revision": "Proposal v6: let a consensus-step loop survive an MCP server restart (opt-in)\n\nQuestion for the panel: is this the right architecture, or should the loop state stay in memory? Review the design, the tradeoffs and what it would break.\n\nContext (unchanged; file-blind reviewers get the relevant facts here):\n\n- `consensus-step` is a stateful MCP tool driven by the host model, one action per call: init -> record_blind -> dispatch_peers -> submit_adjudication -> submit_revision, repeated up to `consensus.maxRounds` (default 5). A round takes 1 to 6 minutes of provider time plus the host's own turns, so a 3-round loop often runs 15 to 30 minutes.\n- Loop state lives in `core/loop-store.js`: an in-memory `Map` keyed by sessionId, sliding TTL of 30 minutes, at most 100 entries with LRU eviction. A restart drops it, and the next call returns `{ error: \"session-expired\" }`; `commands/consensus.md` tells the host to re-run from init.\n- `init` stores per loop: the engine `LoopState`, `originalPrompt`, `startedAt`, `journaled`, a `config` snapshot, `pinnedProviders` (live Provider objects chosen once at init) and `provenance`. sessionIds are random UUIDs drawn at init; the host passes them back on every later call.\n- Every host session runs its own stdio server process. A plugin update, `/deliberation:reload-mcp`, a host crash or an MCP restart kills the process and every live loop in it.\n- Durable records today: `sessions.persist` (default false) writes one terminal record per finished run; the dashboard journal appends metadata per run, and content only when `dashboard.capture` is `content`. The dashboard derives a consensus-step run's status at read time from its last journal event; idle past 30 minutes reads `abandoned (expired)`.\n- Privacy default: prompts or answers reach disk only when the user opts in.\n\nDesign:\n\n1. Opt-in, pinned. New key `consensus.resumable` (boolean, default false), read once at `init` and pinned on the loop: a key flip mid-loop changes nothing for that loop. The schema description states that it writes the plan, every revision, the host's blind verdicts, adjudications and peer replies to `<sessionsDir>/loops/` until the loop ends or its TTL passes. Files are mode 0600 in a 0700 directory on POSIX; on Windows mode bits are not enforced and the files rely on the user profile's ACLs, which the description also says. Independent of `sessions.persist`.\n2. Process identity and heartbeat. Each server process draws a random 128-bit `ownerId` (32 hex characters) at startup. Before its first claim it writes and fsyncs `<sessionsDir>/loops/owners/<ownerId>.hb`, then touches it every 30 seconds (an unref'd timer) for as long as it owns any snapshot or claim on disk, including loops evicted from memory and loops turned non-resumable. Liveness is the heartbeat's mtime, the same on every OS: missing or older than 90 seconds means dead. No PID or process start time is read.\n3. Snapshot and write fence. `core/loop-persist.js` writes `<sessionId>.json` with `schemaVersion` (1), `rev`, `ownerId`, `touchedAt`, the engine LoopState, originalPrompt, startedAt, journaled, provenance, the pinned identity (per provider { name, model, reasoningEffort, timeout }, plus maxRounds, quorumFloor, maxWallMs and resumable fixed at init), `configHash` (of the `providers`, `models` and `consensus` blocks only) and `lastStep` { action, response } (see 6). Every write of revision N first creates `<sessionId>.claim.<N>` with O_CREAT|O_EXCL and writes the claimant's `ownerId` into it, then checks that the snapshot on disk is at rev N-1 (or absent for N = 1); if either fails, the writer was fenced out, drops its in-memory copy and returns `{ error: \"session-locked\" }`. Only then does it rename a 0600 O_EXCL temp file, fsynced, over the snapshot. Claims are never deleted while the loop's snapshot lives, so a revision number cannot be reused. Values read from disk are validated before use: `ownerId` (in snapshots and claims) must be 32 hex characters and `rev` a safe non-negative integer. The serialized LoopState is a named plain-JSON subset (round, status, currentPlan, blindVerdict, results, decisions, hostVerdict, history, maxRounds, quorumFloor, errorStreak, announcedDropped, peerPrompt); no Map and no undefined values, checked by a round-trip test.\n4. Write ordering, failure and the client fence. Every response of a resumable loop carries `rev`, and the host passes the last `rev` it saw on its next call. The write is synchronous and happens before the step's in-memory `put` and before the response, so a successful response always has its revision on disk, and writes for one loop cannot overlap. If the write fails after its claim (ENOSPC, EACCES), the step still succeeds in memory, the loop turns non-resumable, the response carries `resumable: false` with the reason, and the process keeps its heartbeat so no one takes over. Whatever older snapshot remains is now behind claim N and is refused as stale (6); if even the claim could not be created, the process deletes the old snapshot best-effort, and in any case the host's echoed `rev` no longer matches it, so resume refuses it (6). A disk error never aborts provider work.\n5. sessionId validation. Before any path is built, the sessionId must match the UUID v4 shape; anything else returns `session-expired` without touching the filesystem. Files are opened with O_NOFOLLOW and O_NONBLOCK where the platform has them (so a planted FIFO cannot block the open), must fstat as regular files, and above 4 MiB are quarantined like unparseable ones. The feature requires `sessionsDir` on a local filesystem: O_EXCL and mtime heartbeats are not reliable on network or synced folders, which the schema and SETUP.md say.\n6. Resume and retries. On a `loopStore.get` miss (after a restart, or an LRU eviction in the same process) read `<sessionId>.json`; ENOENT is `session-expired`:\n   - refuse with `{ error: \"resume-refused\", reason }`: `stale` (a claim exists for a rev above the snapshot's, or the snapshot's rev differs from the `rev` the host passed: a writer died between claim and rename, or a write failed after a response went out; both end in a re-init, never a lock), `schema`, `corrupt` (unparseable or oversize; renamed to `.corrupt`), `terminal`, `expired` (`touchedAt` past the 30-minute TTL, whatever the owner), `missing-provider`, `provider-error`.\n   - `ownerId` is this process (the LRU case): put it back in memory.\n   - owner dead per 2: take over by writing the next revision through the claim in 3 with this process as owner.\n   - owner heartbeat still fresh: `{ error: \"session-locked\", retryAfterMs }`, where retryAfterMs is the time until that heartbeat turns stale. After a restart this is the old process's last heartbeat, so the host waits once and retries; a second session-locked means a live session really owns the loop.\n   - on success rebuild each provider with its pinned settings, reuse the pinned knobs, journal a `state` event `resumed`, and add `resumed: true` (and `configChanged: true` when the hash differs) to the response.\n   - a repeat of the step recorded in `lastStep` (the response was lost in a crash after the write) returns the stored response instead of `unexpected-action-for-status`, but only when the canonical request hash stored with it matches exactly; the same action with different arguments returns `action-conflict`.\n7. Terminal transitions. Write the snapshot with its terminal status (a tombstone, through a claim) before the existing atomic `loopStore.take`, then take, persist the session record if `sessions.persist` is on, then delete the snapshot and its claims, and the heartbeat if the process owns nothing else. If the tombstone write fails the loop still completes and the process deletes the old snapshot best-effort; anything left behind is refused as stale, by its claim or by the host's echoed rev.\n8. Sweep, at startup and after each write, whenever the loops dir exists, including with the key off: delete a snapshot or tombstone past the TTL only when its owner's heartbeat is dead (a live owner expires its own loops through its in-memory TTL, so a long step never loses its file); a claim only when its loop has no snapshot, the ownerId inside it has a dead heartbeat and the claim is older than the TTL; `.tmp` files and heartbeat files older than the TTL; `.corrupt` files by mtime at the same TTL (the disclosure promises nothing longer).\n9. Host contract in `commands/consensus.md`: `session-expired` and `resume-refused` mean re-run from init; `session-locked` with `retryAfterMs` means wait that long and retry once, and a second one means another live session owns the loop, stop and say so; pass the last `rev` back on every call; `action-conflict` means stop and report; `resumed: true` means continue, and mention `configChanged` in the report; `resumable: false` means the loop continues but will not survive a restart.\n10. Tests: round trip; resume after a simulated restart; LRU eviction resumes in the same process; every refusal reason incl. stale after a crash between claim and rename; session-locked with retryAfterMs right after a restart, then success on retry; a repeated action after a lost response returns the stored response, and the same action with other arguments returns action-conflict; a host rev that differs from the snapshot refuses as stale; an oversize snapshot is quarantined; a FIFO does not block the open; a symlink or FIFO in place of a snapshot is refused; config change keeps the pinned identity; dead-heartbeat takeover and refusal against a live heartbeat; two takers race on one claim and exactly one wins; a fenced-out old owner gets session-locked on its next write; write failure turns the loop non-resumable without failing the step; tombstone; sweep with the key off; non-UUID sessionId never touches disk; key off writes nothing.\n11. Docs in the same PR: README.md, SETUP.md, TECHNICAL.md (snapshot shape, heartbeat and claim, threat model incl. Windows ACLs), docs/tool-guide.md (error contract), docs/dev/design-decisions.md (why opt-in, why heartbeat over PID, why a per-rev claim), config schema and default, commands/consensus.md, then `npm run sync`.\n\nChanges in v6 (they override the numbered items above where they differ):\n\nA. Precedence on resume: (1) validate and open the file; (2) if the request exactly matches `lastStep` by canonical hash and the host's rev is the snapshot's rev minus one, replay the stored response; a different request for that action returns `action-conflict`; this also applies to a tombstone; (3) only then compare revs and claims.\nB. Two counters. `rev` counts host-visible steps only. Ownership moves through a separate `epoch` in the snapshot and in each claim's name (`<sessionId>.claim.<rev>.<epoch>`), so a takeover never changes the rev the host holds, and a new owner that dies before answering leaves the host's base rev valid.\nC. Fallback rev. When a write fails and the step still answers in memory, the response carries `rev: null` and `resumable: false`; a host that sends `rev: null`, or none, cannot resume this loop after a restart, whatever is left on disk.\nD. A claim above the snapshot whose ownerId has a fresh heartbeat gives `session-locked` with `retryAfterMs`; only a claim whose owner is dead makes the snapshot `stale`.\nE. Size cap on write: a loop whose next snapshot would pass 4 MiB turns non-resumable (rule C) instead of being written; the 4 MiB check on read applies only to files that do not validate.\nF. The owner's own sweep deletes its snapshots whose `touchedAt` is past the TTL, so a loop evicted from memory does not keep its content on disk for the life of the process.\n\nOut of scope: resuming a provider call that was in flight when the process died (the host re-runs dispatch_peers), and two live sessions sharing one loop (the fence makes the second one stop, it does not merge them).\n",
+      "revisionSummary": "lastStep replay before the rev check; separate ownership epoch so takeover keeps the host rev; rev null on a non-durable answer; live claimant gives session-locked, not stale; size cap on write; owner expires its own snapshots.",
+      "convergence": {
+        "converged": false,
+        "reason": "All three peers voted REQUEST_CHANGES on v5 and independently found that its stale check ran before the lastStep replay, so the retry it promised could never fire. The host accepted all 8 issues, but round 5 was the cap, so the loop ended unresolved with a v6 that no reviewer saw."
+      }
+    }
+  ],
+  "outcome": {
+    "verdict": "REQUEST_CHANGES",
+    "converged": false,
+    "rounds": 5,
+    "confidence": "none",
+    "finalReportHeadline": "UNRESOLVED after 5 round(s)",
+    "openDissent": [
+      {
+        "source": "grok",
+        "issue": "v5 makes lastStep replay unreachable after a lost response, can replay pre-step state when both the claim and the delete fail, and lets a live owner keep expired content on disk."
+      },
+      {
+        "source": "openrouter:deepseek-v4-pro-0813",
+        "issue": "v5 checks stale before replay, and quarantines a valid snapshot that grows past 4 MiB."
+      },
+      {
+        "source": "openrouter:kimi-k3-1-pro",
+        "issue": "v5 checks stale before replay, a takeover revision invalidates the host's base rev, and a live claimant mid-rename makes a valid snapshot look stale."
+      }
+    ],
+    "nonBlockingThemes": [
+      {
+        "theme": "The design grew to a heartbeat, per-revision claims, a client fence, request hashes and a quarantine without ever being weighed against the plain alternative: no server state, with the host re-running init and passing the prior rounds in the prompt.",
+        "raisedBy": [
+          "host (blind)"
+        ]
+      },
+      {
+        "theme": "The local-filesystem requirement is documented but not detected; a startup check on the filesystem type would make it hold.",
+        "raisedBy": [
+          "host (blind)"
+        ]
+      },
+      {
+        "theme": "After a restart the host may wait up to 90 seconds before its retry, which the command should print so it does not look like a hang.",
+        "raisedBy": [
+          "host (blind)"
+        ]
+      }
+    ]
+  },
+  "notes": [
+    "Recorded live with the consensus-step tool of this repo's MCP server (server/mcp/index.js at v4.6.1), driven over stdio by the host acting as arbiter per commands/consensus.md, with a recording config whose consensus panel differs from the other runs. codex and gemini were disabled on the recording machine.",
+    "The proposal is the host's own, written from core/loop-store.js and server/mcp/index.js at 4bf190b; nothing in it is implemented. The host wrote v1 and each revision from the accepted issues. No reviewer was asked to agree or disagree.",
+    "A first attempt at this run failed before any reviewer answered (the recorder's network was blocked, every voice returned errorKind network) and was discarded. The host's round 1 blind verdict was reused word for word for this run, since no reviewer output had been seen.",
+    "Peer text, verdicts, critical issues, models, reasoning effort and ms are verbatim from the run journal (dashboard.capture: content). Model replies may contain non-ASCII punctuation; it is kept as returned.",
+    "Each peer summary is copied verbatim from the reply's <SUMMARY> block, its **Summary** line, or its Bottom line. grok's round 1 and 2 replies open with an unlabeled bottom-line paragraph, which is used. openrouter:kimi-k3-1-pro's round 2 and 4 replies are only a VERDICT line and bullets, so their summary is null.",
+    "openrouter:deepseek-v4-pro-0813's round 2 reply repeats three of its issues in a closing list; the engine counted them as separate issues and the host ruled on each as a repeat. grok's round 3 reply has one bullet the engine parsed as the fragment \"here and must be confirmed against Node 18 docs.\"; the host dismissed it as carrying no claim.",
+    "The final revision (rounds[4].revision, v6) was submitted after the round cap, so the engine recorded it and ended the loop; no reviewer saw it.",
+    "Trimmed as boilerplate: per-call provenance (runtime, activation, attempt and config ids, the config snapshot), the full loop and session ids, and the engine finalReport body, which repeats the final plan word for word.",
+    "subject.title, revisionSummary, convergence.reason, outcome.openDissent and outcome.nonBlockingThemes are written by the host; the engine returns converged, verdict and confidence only. outcome.verdict is the host's last adjudicated verdict."
+  ]
+}

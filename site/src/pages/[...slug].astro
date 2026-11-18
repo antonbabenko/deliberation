@@ -1,0 +1,58 @@
+---
+// Every doc route comes from pages.config.ts through the `docs` collection. The home
+// page ('' in the config) is the designed page in index.astro; its config entry stays so
+// links to README.md, llms.txt and the sitemap still resolve to it.
+//
+// Install steps are written once, in the host switcher on /install/. A /hosts/<id>/ page
+// shows the rest of its guide and links back for the steps (src/lib/host-pages.ts).
+import { getCollection, type CollectionEntry } from 'astro:content'
+import Layout from '../layouts/Layout.astro'
+import DocPage from '../components/DocPage.astro'
+import HostSwitch from '../components/HostSwitch.astro'
+import Cmd from '../components/Cmd.astro'
+import { HOSTS } from '../data/site-copy.ts'
+import { INSTALL_SECTIONS, hostOf, installLink, replaceSections } from '../lib/host-pages.ts'
+import { breadcrumbList, routeOf, type Crumb } from '../lib/seo.ts'
+
+export async function getStaticPaths() {
+  const docs = await getCollection('docs')
+  return docs.filter((entry) => entry.data.slug).map((entry) => ({ params: { slug: entry.data.slug }, props: { entry } }))
+}
+
+interface Props {
+  entry: CollectionEntry<'docs'>
+}
+const { entry } = Astro.props
+const { slug, title, description, parent } = entry.data
+const crumbs: Crumb[] = [
+  { name: 'Home', slug: '' },
+  ...(parent ? [{ name: parent.title, slug: parent.slug }] : []),
+  { name: title, slug },
+]
+
+const host = hostOf(slug)
+let page = entry
+if (host && entry.rendered) {
+  const ids = INSTALL_SECTIONS[host]
+  const name = HOSTS.find((h) => h.id === host)?.name ?? title
+  const html = replaceSections(entry.rendered.html, ids, installLink(ids[0], name, `${routeOf('install')}#host-${host}`))
+  page = { ...entry, rendered: { ...entry.rendered, html } }
+}
+---
+<Layout title={title} description={description} jsonLd={[breadcrumbList(crumbs)]}>
+  <DocPage entry={page}>
+    {slug === 'install' && (
+      <Fragment slot="lead">
+        <p class="lede">Pick your host and follow its steps. Then run <code>init</code> once and check the result. You need at least one provider; Requirements below lists what each one needs.</p>
+        <HostSwitch detail />
+        <div class="prose">
+          <h2 id="first-run">First run, on any host</h2>
+          <Cmd text="npx -y @antonbabenko/deliberation-mcp init" />
+          <p>It finds the keys and CLI logins you already have, writes the config, pings each provider and runs one short demo consensus. Run it again any time: a second run changes nothing and says so. In Claude Code, <code>/deliberation:setup</code> runs it for you. The <a href={routeOf('quickstart')}>quickstart</a> has every step.</p>
+          <h2 id="check">Check that it works</h2>
+          <p>Run <code>/deliberation:doctor</code> in Claude Code, or call the <code>doctor</code> tool on any other host. It is read-only: it checks the config, provider CLIs and keys, sessions and path drift, and suggests a fix for each problem it finds.</p>
+        </div>
+      </Fragment>
+    )}
+  </DocPage>
+</Layout>

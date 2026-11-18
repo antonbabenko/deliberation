@@ -1,0 +1,24 @@
+---
+import Mark from './Mark.astro'
+import { site } from '../pages.config.ts'
+import { routeOf } from '../lib/seo.ts'
+import { LOGO_STORY } from '../data/site-copy.ts'
+---
+<footer class="foot">
+  <div class="foot-in">
+    <p class="mark-line"><Mark /><span>{LOGO_STORY}</span></p>
+    <p>
+      From the maintainer of <a href="https://github.com/terraform-aws-modules">terraform-aws-modules</a>,{' '}
+      <a href="https://github.com/antonbabenko/terraform-skill">terraform-skill</a> and{' '}
+      <a href="https://compliance.tf">compliance.tf</a>.
+    </p>
+    <p class="by">Created and maintained by <a href="https://github.com/antonbabenko">Anton Babenko</a>.</p>
+    <p class="links">
+      <a href={`https://github.com/${site.repo}`}>GitHub</a>
+      <a href={`https://github.com/${site.repo}/blob/${site.branch}/LICENSE`}>MIT</a>
+      <a href={routeOf('privacy')}>Privacy</a>
+      <a href={routeOf('changelog')}>Changelog</a>
+      <span>Plausible counts visits without cookies.</span>
+    </p>
+  </div>
+</footer>

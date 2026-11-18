@@ -1,0 +1,718 @@
+{
+  "id": "security-dashboard-access",
+  "recordedAt": "2026-11-18T19:08:42.529Z",
+  "deliberationVersion": "4.6.1",
+  "runId": "ff36427a",
+  "tool": "consensus-step",
+  "expert": "security-analyst",
+  "question": "Is the local dashboard's access control adequate for what it serves, and what must change before more users turn it on?",
+  "subject": {
+    "type": "question",
+    "related": "https://github.com/antonbabenko/deliberation/blob/4bf190b/server/dashboard/server.js",
+    "title": "Local dashboard access control: loopback, Host/Origin pinning and the token cookie",
+    "short": "Dashboard access control"
+  },
+  "planUnderReview": "Security review: the local dashboard's access control in the Deliberation repo (server/dashboard/, as on master at 4bf190b)\n\nQuestion: is this access control adequate for what the dashboard serves, and what, if anything, must change before more users turn it on? Judge it against the threat model the repo states (quoted below), and say whether that model itself is the right one.\n\nWhat the dashboard is: a separate local process (`deliberation-mcp dashboard`, `/deliberation:dashboard`) that tails the run journal every Deliberation MCP process writes, and serves it read-only to a browser: live and past runs as state graphs, config, provider health, stats and an analyzer. With `dashboard.capture: \"metadata\"` (default) it serves no prompt or response text; with `\"content\"` it serves prompts and model answers (secrets scrubbed at write time). PII is redacted at serve time unless `dashboard.showPII` is on.\n\nThreat model as written in docs/dev/design-decisions.md (verbatim):\n\n> Threat model: loopback bind, Host/Origin pinned to `127.0.0.1:<port>`/`localhost:<port>` against DNS rebinding, a per-start 32-byte token in the printed URL swapped for an `HttpOnly; SameSite=Strict` cookie (browsers send it to every 127.0.0.1 port: Host/Origin checks and `nosniff` stop a web page from reading data cross-port, but a local service that receives the cookie can replay the token server-side, e.g. curl with `Host: 127.0.0.1:<port>` plus the cookie or `?t=`, and read all dashboard data. Accepted because any local listener is already inside the same-machine trust boundary - the design scope is a single-user laptop; `dlb_dash` is only issued after the user opens the tokenized URL, and a restart rotates the token. On shared multi-user machines, do not enable the dashboard or `capture: \"content\"`), the token kept off argv via a 0600 redirect file, and CSP + `textContent`-only rendering.\n\nRoutes after the guard (all GET/HEAD): `/` (UI), `/assets/*` (static, realpath-confined to the UI dir), `/api/runs`, `/api/runs/<id>`, `/api/config`, `/api/health`, `/api/stats`, `/api/analyzer`, `/api/events` (SSE stream of journal events).\n\n=== server/dashboard/server.js ===\nconst COOKIE = \"dlb_dash\";\nconst KEEPALIVE_MS = 15000;\n// A client this far behind is dropped; it reconnects with Last-Event-ID and resumes.\nconst SSE_MAX_BUFFERED = 1 << 20;\nconst BASE_HEADERS = Object.freeze({\n  \"Content-Security-Policy\": \"default-src 'self'; frame-ancestors 'none'\",\n  \"X-Content-Type-Options\": \"nosniff\",\n  \"Referrer-Policy\": \"no-referrer\",\n});\n...\n/**\n * Constant-time token check. Length is not secret (always 64 hex chars).\n * @param {unknown} given\n * @param {Buffer} expected\n */\nfunction tokenMatches(given, expected) {\n  if (typeof given !== \"string\") return false;\n  const buf = Buffer.from(given, \"utf8\");\n  return buf.length === expected.length && crypto.timingSafeEqual(buf, expected);\n}\n\n/** @param {string|undefined} header @returns {string|undefined} */\nfunction readCookie(header) {\n  if (!header) return undefined;\n  for (const part of header.split(\";\")) {\n    const i = part.indexOf(\"=\");\n    if (i > 0 && part.slice(0, i).trim() === COOKIE) return part.slice(i + 1).trim();\n  }\n  return undefined;\n}\n\n...\n  /**\n   * Every check that must pass before routing. Sends the rejection and returns\n   * false, or returns true to continue.\n   * @param {http.IncomingMessage} req @param {http.ServerResponse} res @param {URL} url\n   */\n  function guard(req, res, url) {\n    const port = boundPort();\n    const hosts = [`127.0.0.1:${port}`, `localhost:${port}`];\n    const host = String(req.headers.host || \"\").toLowerCase();\n    if (!hosts.includes(host)) return sendJson(req, res, 403, { error: \"forbidden host\" }), false;\n    const origin = req.headers.origin;\n    if (origin !== undefined && !hosts.some((h) => origin.toLowerCase() === `http://${h}`)) {\n      return sendJson(req, res, 403, { error: \"forbidden origin\" }), false;\n    }\n    if (req.method !== \"GET\" && req.method !== \"HEAD\") {\n      res.setHeader(\"Allow\", \"GET, HEAD\");\n      return sendJson(req, res, 405, { error: \"method not allowed\" }), false;\n    }\n    const t = url.searchParams.get(\"t\");\n    if (t !== null) {\n      if (!tokenMatches(t, expected)) return sendJson(req, res, 401, { error: \"unauthorized\" }), false;\n      // Not a 302: the browser is opened through a file:// redirect page, so a redirect\n      // would still be a cross-site navigation and Chrome would withhold the Strict cookie\n      // from the redirected GET /. A same-origin page that refreshes to / is same-site.\n      res.writeHead(200, {\n        \"Content-Type\": \"text/html; charset=utf-8\",\n        \"Cache-Control\": \"no-store\",\n        \"Set-Cookie\": `${COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/`,\n      });\n      res.end(req.method === \"HEAD\" ? undefined : '<!doctype html><meta charset=\"utf-8\"><meta http-equiv=\"refresh\" content=\"0;url=/\"><title>Deliberation dashboard</title><a href=\"/\">Open the dashboard</a>\\n');\n      return false;\n    }\n    if (!tokenMatches(readCookie(req.headers.cookie), expected)) return sendJson(req, res, 401, { error: \"unauthorized\" }), false;\n    return true;\n  }\n...\n  /** @param {http.IncomingMessage} req @param {http.ServerResponse} res */\n  async function handle(req, res) {\n    for (const [k, v] of Object.entries(BASE_HEADERS)) res.setHeader(k, v);\n    const url = new URL(req.url || \"/\", \"http://127.0.0.1\");\n    if (url.pathname.startsWith(\"/api/\")) res.setHeader(\"Cache-Control\", \"no-store\");\n    if (!guard(req, res, url)) return;\n\n\n=== server/dashboard/index.js (startup) ===\n/** @param {number} port @param {string} token */\nconst urlLine = (port, token) => `Deliberation dashboard: http://127.0.0.1:${port}/?t=${token}\\n`;\n\n/** @param {string} statePath */\nconst openerPath = (statePath) => path.join(path.dirname(statePath), \"dashboard-open.html\");\n...\n/**\n * Best effort; the URL line is already printed. The tokenized URL never goes on a child's\n * argv (readable by other local users through ps or /proc): it goes into a 0600 redirect\n * page next to the pidfile, and the opener gets that file's path.\n * @param {string} url  built from an integer port and a hex token, so it needs no escaping\n * @param {{statePath: string, spawn?: typeof spawn, platform?: NodeJS.Platform}} opts\n */\nfunction openBrowser(url, opts) {\n  const spawnFn = opts.spawn || spawn;\n  const platform = opts.platform || process.platform;\n  const file = openerPath(opts.statePath);\n  try {\n    fs.writeFileSync(file, `<!doctype html><meta charset=\"utf-8\"><meta http-equiv=\"refresh\" content=\"0;url=${url}\"><title>Deliberation dashboard</title><a href=\"${url}\">Open the dashboard</a>\\n`, { mode: 0o600 });\n    fs.chmodSync(file, 0o600);\n  } catch {\n    return;\n  }\n  const target = pathToFileURL(file).href;\n  const [cmd, args] = platform === \"darwin\" ? [\"open\", [target]]\n    : platform === \"win32\" ? [\"cmd\", [\"/c\", \"start\", \"\", target]]\n    : [\"xdg-open\", [target]];\n  try {\n    const child = spawnFn(cmd, args, { detached: true, stdio: \"ignore\" });\n    child.on(\"error\", () => {});\n    child.unref();\n  } catch {\n    // no opener on this machine\n  }\n}\n...\n\n/**\n * True only when a dashboard answers the token on `port` with its 302: a live pid alone\n * may be an unrelated process that reused it.\n * @param {number} port @param {string} token @param {number} [timeoutMs]\n * @returns {Promise<boolean>}\n */\nfunction probeInstance(port, token, timeoutMs = 500) {\n  return new Promise((resolve) => {\n    const req = http.get({ host: \"127.0.0.1\", port, path: `/?t=${token}`, headers: { Host: `127.0.0.1:${port}` }, timeout: timeoutMs }, (res) => {\n      res.resume();\n      resolve(res.statusCode === 200 && String(res.headers[\"set-cookie\"] || \"\").startsWith(\"dlb_dash=\"));\n    });\n    req.on(\"timeout\", () => req.destroy());\n    req.on(\"error\", () => resolve(false));\n  });\n}\n...\n  const token = crypto.randomBytes(32).toString(\"hex\");\n  const port = args.port !== undefined ? args.port : cfg.dashboard.port;\n  const server = createDashboardServer({ port, token, uiDir: UI_DIR, index, tailer, getConfig: rt.getConfig, runtimeReport:()=>({dashboardRuntimeId:mcp.history.runtimeId,runtimes:require('../../core/config-history.js').readRuntimes(path.join(runsDir,'..','history')),note:'Only processes with dashboard journaling enabled are discoverable. Heartbeat freshness is observation, not proof of liveness.'}), health: () => healthReport(rt), stats });\n  try {\n    await new Promise((resolve, reject) => {\n      server.once(\"error\", reject);\n      server.listen(port, \"127.0.0.1\", () => resolve(undefined));\n    });\n  } catch (e) {\n...\n  fs.mkdirSync(path.dirname(statePath), { recursive: true, mode: 0o700 });\n  // procStartedAt + argv let --stop prove a pid is this dashboard before signalling it.\n  fs.writeFileSync(statePath, JSON.stringify({ pid: process.pid, port: bound, token, startedAt: Date.now(), procStartedAt: Math.round(Date.now() - process.uptime() * 1000), argv: process.argv }), { mode: 0o600 });\n  fs.chmodSync(statePath, 0o600); // a stale file keeps its old mode through writeFileSync\n  const removeState = () => {\n    const s = readState(statePath);\n    if (s && s.pid === process.pid) fs.rmSync(statePath, { force: true });\n    fs.rmSync(openerPath(statePath), { force: true });\n  };\n  process.once(\"exit\", removeState);\n\nOther facts:\n- The printed URL line (`urlLine`) goes to the dashboard's stdout, which the host agent's transcript captures when `/deliberation:dashboard` starts it.\n- The state file (`statePath`) and the redirect page live under the user's cache dir (`<XDG cache>/deliberation/`), created 0700.\n- There is no logout, no token expiry while the process runs, and the cookie value is the token itself.\n",
+  "panel": [
+    {
+      "provider": "grok",
+      "source": "grok",
+      "model": "grok-4.7",
+      "reasoningEffort": "medium",
+      "role": "peer"
+    },
+    {
+      "provider": "openrouter",
+      "source": "openrouter:deepseek-v4-pro-0813",
+      "model": "deepseek/deepseek-v4-pro-0813",
+      "reasoningEffort": "medium",
+      "role": "peer"
+    },
+    {
+      "provider": "openrouter",
+      "source": "openrouter:qwen3-8-max",
+      "model": "qwen/qwen3.8-max-0902",
+      "reasoningEffort": "high",
+      "role": "peer"
+    },
+    {
+      "provider": "openrouter",
+      "source": "openrouter:kimi-k3-1-pro",
+      "model": "moonshotai/kimi-k3.1-pro",
+      "reasoningEffort": "medium",
+      "role": "peer"
+    },
+    {
+      "provider": "openrouter",
+      "source": "openrouter:glm-5-3-flashx",
+      "model": "z-ai/glm-5.3-flashx",
+      "reasoningEffort": "medium",
+      "role": "peer"
+    }
+  ],
+  "notOnPanel": [
+    {
+      "provider": "codex",
+      "reason": "providers.codex.enabled: false in the recording machine's config"
+    },
+    {
+      "provider": "gemini",
+      "reason": "providers.gemini.enabled: false in the recording machine's config"
+    }
+  ],
+  "arbiter": {
+    "kind": "host"
+  },
+  "limits": {
+    "maxRounds": 2
+  },
+  "steps": [
+    {
+      "action": "init",
+      "status": "await_blind",
+      "round": 1
+    },
+    {
+      "action": "record_blind",
+      "status": "await_peers",
+      "round": 1
+    },
+    {
+      "action": "dispatch_peers",
+      "status": "await_adjudication",
+      "round": 1
+    },
+    {
+      "action": "submit_adjudication",
+      "status": "await_revision",
+      "round": 1
+    },
+    {
+      "action": "submit_revision",
+      "status": "await_blind",
+      "round": 2
+    },
+    {
+      "action": "record_blind",
+      "status": "await_peers",
+      "round": 2
+    },
+    {
+      "action": "dispatch_peers",
+      "status": "await_adjudication",
+      "round": 2
+    },
+    {
+      "action": "submit_adjudication",
+      "status": "await_revision",
+      "round": 2
+    },
+    {
+      "action": "submit_revision",
+      "status": "unresolved",
+      "round": 2
+    }
+  ],
+  "rounds": [
+    {
+      "n": 1,
+      "hostBlindVerdict": {
+        "verdict": "REQUEST_CHANGES",
+        "summary": "Host and Origin pinning, loopback bind, GET-only routes and the constant-time check are sound, but the bearer credential leaks to every local port by design, so the model's accepted-risk paragraph is the gap to close.",
+        "criticalIssues": [
+          {
+            "id": "r1-host-1",
+            "category": "security",
+            "text": "The session credential is an ambient cookie whose value is the token itself, and cookies are not port-scoped, so the browser sends `dlb_dash` to every HTTP service on 127.0.0.1 and localhost. A developer laptop runs many of them (dev servers, notebooks, preview tools, third-party daemons), and any one that logs or forwards request headers holds a token that reads every run, and prompt and answer text under `capture: \"content\"`. The threat model calls these listeners inside the trust boundary, but they are not the same principal as the user; the risk is accepted where it can be removed cheaply. Keep the token out of an ambient cookie: the UI keeps it in sessionStorage after the `?t=` exchange and sends it as a request header (`EventSource` cannot set headers, so `/api/events` needs a short-lived, single-use ticket fetched with that header)."
+          }
+        ],
+        "text": "**Verdict**: REQUEST CHANGES\n**Critical issues** (must-fix; empty = none):\n  - `[security]` The session credential is an ambient cookie whose value is the token itself, and cookies are not port-scoped, so the browser sends `dlb_dash` to every HTTP service on 127.0.0.1 and localhost. A developer laptop runs many of them (dev servers, notebooks, preview tools, third-party daemons), and any one that logs or forwards request headers holds a token that reads every run, and prompt and answer text under `capture: \"content\"`. The threat model calls these listeners inside the trust boundary, but they are not the same principal as the user; the risk is accepted where it can be removed cheaply. Keep the token out of an ambient cookie: the UI keeps it in sessionStorage after the `?t=` exchange and sends it as a request header (`EventSource` cannot set headers, so `/api/events` needs a short-lived, single-use ticket fetched with that header).\n**One-line bottom line**: Host and Origin pinning, loopback bind, GET-only routes and the constant-time check are sound, but the bearer credential leaks to every local port by design, so the model's accepted-risk paragraph is the gap to close.\n\nNon-blocking notes:\n- The token never expires while the process runs and is printed to stdout, which the host transcript stores; a lifetime or idle limit would bound a leaked URL.\n- The `?t=` URL lands in browser history; harmless for one user, worth a line in the threat model.\n- `probeInstance`'s comment says \"with its 302\" while the server answers 200 with a meta refresh.\n- `/api/events` has no cap on concurrent streams."
+      },
+      "peers": [
+        {
+          "source": "grok",
+          "provider": "grok",
+          "model": "grok-4.7",
+          "reasoningEffort": "medium",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r1-grok-1",
+              "category": "security",
+              "text": "The dlb_dash cookie is a long-lived bearer and is not port-scoped, so any 127.0.0.1 listener the browser later visits can replay it and read every dashboard route. Replace it with a one-time `?t=` exchange for a session secret kept in sessionStorage and sent only as a request header."
+            },
+            {
+              "id": "r1-grok-2",
+              "category": "security",
+              "text": "The live token is printed on stdout and remains valid in `?t=`, history, and the opener file for the whole process, so agent transcripts undo the argv and 0600 controls. Print the opener path only, and do not accept `?t=` after the first exchange."
+            },
+            {
+              "id": "r1-grok-3",
+              "category": "scope",
+              "text": "The written model treats every local listener as trusted and leaves shared-machine refusal as a design-doc note. Loopback is shared by other UIDs, containers, and dev servers; that is the wrong boundary once more users, or content capture, turn this on."
+            }
+          ],
+          "summary": "Risk rating: HIGH. The dashboard is fit only for an opt-in single-user metadata view, not for wider enablement or content capture. Top issues: the session cookie is sent to every 127.0.0.1 port and can be replayed by any local listener; the same non-expiring token is printed to stdout and accepted as `?t=`. Confidence: high on the cookie and stdout leaks from the shown code; medium on residual exposure because journal modes and `/api/config` redaction were not in the diff. Those would raise this to critical if config or journals are world-readable or contain API keys. Host pinning and the DNS-rebinding defense look correct.",
+          "text": "The loopback bind, Host pinning, method allowlist, 0600 opener, and argv hygiene are sound. The trust boundary is not. A browser cookie cannot be port-scoped, and this process treats the cookie value as a long-lived bearer for every route, including content and config.\n\nAgainst the written model the guard mostly does what it claims: DNS rebinding fails the Host check, cross-origin browser reads fail the Origin check plus same-origin policy (no CORS headers are set), and `nosniff` plus `frame-ancestors 'none'` block XSSI and framing. `SameSite=Strict` also keeps a public website from attaching the cookie to a loopback request.\n\nThat model is the wrong one for wider use. Loopback is a machine-wide bus, not a per-user or per-app boundary. `Set-Cookie: dlb_dash=<token>; HttpOnly; SameSite=Strict; Path=/` is stored for host `127.0.0.1` with no port. Any later first-party visit to `http://127.0.0.1:<other-port>/` sends the token to that listener. A different UID, a container published on loopback, or a dev server can then replay `Host: 127.0.0.1:<dashport>` plus the cookie or `?t=` and read every dashboard route. Same-origin policy does not stop a non-browser replay. \"Any local listener is already trusted\" is false, and a design-doc warning not to enable this on shared machines is not a control.\n\nSame-UID peers do not need the cookie: the state file stores the live token, and the journal is on disk beside it. The HTTP gate only matters for parties who can take a loopback connection but cannot read those files. Those are exactly the parties the cookie hands the secret to.\n\nTwo further breaks of the stated secrecy design: `urlLine` prints `?t=<token>` to stdout, which the host transcript captures, and `?t=` stays valid for the process lifetime, so history, the opener page, and that transcript are full bearers. There is no logout or expiry; restart is the only revocation. `Sec-Fetch-Site` is not checked. That header would not stop curl, but a port-scoped session secret would.\n\nDo not rely on this for `capture: \"content\"` or for more users until the bearer is origin-scoped.\n\n<SUMMARY>\nRisk rating: HIGH. The dashboard is fit only for an opt-in single-user metadata view, not for wider enablement or content capture. Top issues: the session cookie is sent to every 127.0.0.1 port and can be replayed by any local listener; the same non-expiring token is printed to stdout and accepted as `?t=`. Confidence: high on the cookie and stdout leaks from the shown code; medium on residual exposure because journal modes and `/api/config` redaction were not in the diff. Those would raise this to critical if config or journals are world-readable or contain API keys. Host pinning and the DNS-rebinding defense look correct.\n</SUMMARY>\n\nVERDICT: REQUEST_CHANGES\n- [security] The dlb_dash cookie is a long-lived bearer and is not port-scoped, so any 127.0.0.1 listener the browser later visits can replay it and read every dashboard route. Replace it with a one-time `?t=` exchange for a session secret kept in sessionStorage and sent only as a request header.\n- [security] The live token is printed on stdout and remains valid in `?t=`, history, and the opener file for the whole process, so agent transcripts undo the argv and 0600 controls. Print the opener path only, and do not accept `?t=` after the first exchange.\n- [scope] The written model treats every local listener as trusted and leaves shared-machine refusal as a design-doc note. Loopback is shared by other UIDs, containers, and dev servers; that is the wrong boundary once more users, or content capture, turn this on.",
+          "ms": 383896
+        },
+        {
+          "source": "openrouter:deepseek-v4-pro-0813",
+          "provider": "openrouter",
+          "model": "deepseek/deepseek-v4-pro-0813",
+          "reasoningEffort": "medium",
+          "verdict": "APPROVE",
+          "criticalIssues": [
+            {
+              "id": "r1-deepseek-v4-pro-0813-1",
+              "category": "security",
+              "text": "Token printed to stdout / agent transcript — `urlLine` in `server/dashboard/index.js`. A host-agent transcript can leave the machine (cloud logging/model provider), and the token has no expiry, so a leaked transcript grants localhost access for the process lifetime. Remediation: treat tool output as a trust boundary — avoid emitting the full `?t=` token into captured output, or use a short-lived one-time exchange and rotate it; at minimum document and rotate."
+            },
+            {
+              "id": "r1-deepseek-v4-pro-0813-2",
+              "category": "security",
+              "text": "No logout or server-side token revocation — `guard`/`Set-Cookie` in `server/dashboard/server.js`. A leaked query string, browser history, or screenshot remains valid until process exit. Remediation: add a revocation/rotation mechanism and a session lifetime; clearing the cookie alone is not enough while `?t=` is accepted."
+            },
+            {
+              "id": "r1-deepseek-v4-pro-0813-3",
+              "category": "security",
+              "text": "Shared-host/content gating is docs-only — no startup enforcement. If users enable `capture: \"content\"` or `showPII` on a shared/multi-user box, the threat model no longer holds and prompt/answer text can be exposed through loopback if the token is replayed. Remediation: require an explicit `allowSharedHost`-style opt-in for `capture: \"content\"`/`showPII`, or refuse to start on detected multi-user systems."
+            },
+            {
+              "id": "r1-deepseek-v4-pro-0813-4",
+              "category": "security",
+              "text": "Windows file-mode assumptions — `0600`/`0700` via `fs.chmodSync`/`mkdirSync` do not give the same ACL guarantees on Windows; state/redirect files may be more broadly readable on some profiles. [unverified — confirm on Windows]. Remediation: validate ACLs on Windows if shared machines are supported."
+            },
+            {
+              "id": "r1-deepseek-v4-pro-0813-5",
+              "category": "ambiguity",
+              "text": "). Injection/CSRF: not applicable (read-only GET/HEAD, no user-controlled rendering/commands). XSS: secure via CSP + `nosniff` + `textContent`. Misconfiguration: the main risk area above. Vulnerable components/logging failures: n/a; logging is only a risk because the token is in the URL/transcript."
+            },
+            {
+              "id": "r1-deepseek-v4-pro-0813-6",
+              "category": "security",
+              "text": "None found in the reviewed access-control path; the high-risk items above are not blocking for the stated single-user default but should be resolved before shared-host or content-capture rollout."
+            }
+          ],
+          "summary": "No critical access-control defect found. Risk is LOW for the stated single-user default, MEDIUM for content capture/shared-host use. Top residual risks: bearer token emitted to stdout/agent transcripts with no expiry, no server-side session revocation, and docs-only enforcement of the shared-machine/content prohibition. Confidence is moderate; the review did not see `/api/config` redaction, serve-time PII redaction implementation, or static-asset realpath confinement, and Windows ACL behavior is unverified — any of those could raise the rating. The threat model itself is correct for a single-user workstation.",
+          "text": "**Threat Summary**: The dashboard’s access control is well matched to the stated single-user-laptop threat model. Loopback bind, exact `Host`/`Origin` pinning including the port, a 256-bit constant-time token, an `HttpOnly; SameSite=Strict` cookie, `nosniff`, `Referrer-Policy: no-referrer`, CSP `frame-ancestors 'none'`, and a GET/HEAD-only allowlist close the remote web-attacker route. The threat model itself is the right one for the default scope: any process already running as the same UID can read the journal directly, so the token only needs to defeat remote/browser attacks and other local users, which it does. The residual risks are lifecycle and operational: the bearer URL goes to stdout/agent transcripts, the session is non-revocable, and the shared-host/content-capture prohibition is documentation, not enforcement.\n\n**Critical Vulnerabilities** (exploit risk: high): None found in the reviewed access-control path.\n\n**High-Risk Issues** (should fix before broader rollout):\n\n- [security] Token printed to stdout / agent transcript — `urlLine` in `server/dashboard/index.js`. A host-agent transcript can leave the machine (cloud logging/model provider), and the token has no expiry, so a leaked transcript grants localhost access for the process lifetime. Remediation: treat tool output as a trust boundary — avoid emitting the full `?t=` token into captured output, or use a short-lived one-time exchange and rotate it; at minimum document and rotate.\n- [security] No logout or server-side token revocation — `guard`/`Set-Cookie` in `server/dashboard/server.js`. A leaked query string, browser history, or screenshot remains valid until process exit. Remediation: add a revocation/rotation mechanism and a session lifetime; clearing the cookie alone is not enough while `?t=` is accepted.\n- [security] Shared-host/content gating is docs-only — no startup enforcement. If users enable `capture: \"content\"` or `showPII` on a shared/multi-user box, the threat model no longer holds and prompt/answer text can be exposed through loopback if the token is replayed. Remediation: require an explicit `allowSharedHost`-style opt-in for `capture: \"content\"`/`showPII`, or refuse to start on detected multi-user systems.\n- [security] Windows file-mode assumptions — `0600`/`0700` via `fs.chmodSync`/`mkdirSync` do not give the same ACL guarantees on Windows; state/redirect files may be more broadly readable on some profiles. [unverified — confirm on Windows]. Remediation: validate ACLs on Windows if shared machines are supported.\n\n**Recommendations** (hardening suggestions):\n- Keep `SameSite=Strict` (not `Lax`) and add `Secure` only if the dashboard is ever served over TLS; do not add it for current plain HTTP loopback.\n- Apply `fs.chmodSync` to an already-existing cache directory too, not only on creation, so a pre-existing permissive dir cannot persist.\n- Verify `/api/config` truly excludes credentials and that serve-time PII redaction cannot be bypassed — these are behind the same token, so they are as sensitive as the token allows.\n- Consider a small brute-force/rate-limit note for localhost requests; not a practical risk with a 256-bit token, but cheap defense in depth.\n\n**OWASP status recap**: Broken Access Control: secure for single-user. Broken Authentication: secure with lifecycle caveats above. Sensitive Data Exposure: risk depends entirely on `capture`/`showPII` and config redaction (latter [unverified]). Injection/CSRF: not applicable (read-only GET/HEAD, no user-controlled rendering/commands). XSS: secure via CSP + `nosniff` + `textContent`. Misconfiguration: the main risk area above. Vulnerable components/logging failures: n/a; logging is only a risk because the token is in the URL/transcript.\n\n**Risk Rating**: **LOW** for the default single-user metadata dashboard; **MEDIUM** once `capture: \"content\"`/`showPII` or multiple local users are in play.\n\n`<SUMMARY>`\nNo critical access-control defect found. Risk is LOW for the stated single-user default, MEDIUM for content capture/shared-host use. Top residual risks: bearer token emitted to stdout/agent transcripts with no expiry, no server-side session revocation, and docs-only enforcement of the shared-machine/content prohibition. Confidence is moderate; the review did not see `/api/config` redaction, serve-time PII redaction implementation, or static-asset realpath confinement, and Windows ACL behavior is unverified — any of those could raise the rating. The threat model itself is correct for a single-user workstation.\n`</SUMMARY>`\n\nVERDICT: APPROVE\n- [security] None found in the reviewed access-control path; the high-risk items above are not blocking for the stated single-user default but should be resolved before shared-host or content-capture rollout.",
+          "ms": 211704
+        },
+        {
+          "source": "openrouter:qwen3-8-max",
+          "provider": "openrouter",
+          "model": "qwen/qwen3.8-max-0902",
+          "reasoningEffort": null,
+          "verdict": null,
+          "criticalIssues": [],
+          "summary": null,
+          "text": null,
+          "ms": 599986,
+          "isError": true,
+          "errorKind": "timeout",
+          "message": "Call deadline expired"
+        },
+        {
+          "source": "openrouter:kimi-k3-1-pro",
+          "provider": "openrouter",
+          "model": "moonshotai/kimi-k3.1-pro",
+          "reasoningEffort": "medium",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r1-kimi-k3-1-pro-1",
+              "category": "security",
+              "text": "Remove or reliably redact the full bearer-token URL from dashboard stdout before broader rollout; host transcripts otherwise become an additional persistent secret store."
+            },
+            {
+              "id": "r1-kimi-k3-1-pro-2",
+              "category": "ambiguity",
+              "text": "Make the rollout boundary explicit: single-user loopback only, with no shared machines, reverse proxies, tunnels, or port forwarding, and heightened warnings for content capture and PII display."
+            }
+          ],
+          "summary": "Risk is MEDIUM. The supplied Host, Origin, method, token, cookie, and loopback controls adequately implement the stated single-user laptop threat model; no remote authentication bypass was identified. Local cross-port cookie replay is real but explicitly and reasonably accepted within that boundary. Before broader rollout, stop placing the raw bearer token in host-captured stdout or guarantee redaction, and clearly prohibit shared machines and network forwarding/proxying. Confidence is moderate-high for the guard, but lower for the overall dashboard because route handlers, UI rendering, static-file confinement, config contents, and redaction implementations were not supplied.",
+          "text": "**Threat Summary**: The guard is sound for the stated single-user, loopback-only deployment: I see no practical remote web bypass in the supplied code. The main rollout blocker is operational secret handling—the bearer token is deliberately copied into host-agent transcripts—and the documentation must prevent the model from being stretched to shared or network-accessible deployments.\n\n**Critical Vulnerabilities** (exploit risk: high):\n- None identified in the supplied guard. The exact Host allowlist blocks ordinary DNS rebinding, Origin validation protects cross-origin requests that supply it, `SameSite=Strict` covers cross-site navigations where Origin may be absent, and browser same-origin policy prevents response reading. Routes are read-only, so there is no meaningful write-CSRF exposure.\n\n**High-Risk Issues**:\n- **Bearer token persisted in transcripts**: `server/dashboard/index.js`, `urlLine`/startup stdout - The host captures the complete tokenized URL, potentially retaining or transmitting it beyond the dashboard’s cache-directory protections. Disclosure still requires an attacker to reach the victim’s loopback service, so this is not by itself a remote compromise, but it unnecessarily expands the token’s trust boundary and lifetime. Print a non-secret URL plus instructions for retrieving the opener file, or guarantee transcript redaction; retain the full URL only in the 0600 file.\n- **Deployment scope must be enforced by documentation**: the threat model as a whole - The control is not an authorization boundary between OS users and must not be presented as one. Broad rollout documentation should explicitly prohibit shared machines, remote bind addresses, reverse proxies, port forwarding/tunneling, and exposing the service from shared development environments. `capture: \"content\"` and `showPII` deserve a separate prominent sensitivity warning; scrubbing/redaction should not be treated as guaranteeing that prompts, answers, config, or analyzer output are harmless.\n\n**Assessment of the design**:\n- The 256-bit random token and constant-time comparison are appropriate; brute-force throttling is unnecessary.\n- Loopback binding and exact host/port matching are correctly restrictive. Cookies are host-scoped but not port-scoped, so the documented local-listener replay is real. Accepting it is reasonable only because every local listener is explicitly inside the trusted boundary.\n- `HttpOnly` does not prevent that replay; it only prevents script access. Lack of `Secure` is not a finding for an HTTP loopback-only service.\n- Process-lifetime validity, no logout, and restart rotation are acceptable for this scope. A separate one-time bootstrap token and random session cookie would reduce URL-token exposure, but are hardening rather than prerequisites.\n- The 0600 state/opener files under a 0700 user cache directory are appropriate. Crash-leftover files remain protected, and tokens left in old transcripts become useless after restart.\n- The SSE buffered-client limit is relevant availability protection. No access-control performance concern is apparent.\n\n**Recommendations**:\n- Remove or redact the tokenized stdout URL before encouraging general adoption.\n- Add an explicit rollout warning that authentication is not multi-user isolation and that forwarding the port nullifies the loopback boundary.\n- Consider one-time bootstrap-token consumption, a distinct session cookie, and logout/session clearing as usability hardening.\n- Verify the complete UI and route handlers separately; the supplied excerpts do not establish output encoding, static-file confinement, config-field sensitivity, or redaction effectiveness.\n\n**OWASP status**:\n\n| Category | Status |\n|---|---|\n| Injection | Insufficient context outside the guard |\n| Broken authentication | Secure within the stated model; transcript exposure needs correction |\n| Sensitive data exposure | Vulnerable to unnecessary bearer-token retention in transcripts |\n| XXE | Not applicable to supplied code |\n| Broken access control | Secure for single-user loopback; intentionally unsuitable for shared deployment |\n| Security misconfiguration | Secure in supplied startup configuration |\n| XSS | Insufficient context; CSP and `textContent` are positive stated controls |\n| Insecure deserialization | Not applicable to supplied code |\n| Vulnerable components | Not applicable from supplied dependency information |\n| Logging/monitoring failures | Vulnerable: authentication secret written to captured stdout |\n\n**Risk Rating**: MEDIUM\n\n<SUMMARY>Risk is MEDIUM. The supplied Host, Origin, method, token, cookie, and loopback controls adequately implement the stated single-user laptop threat model; no remote authentication bypass was identified. Local cross-port cookie replay is real but explicitly and reasonably accepted within that boundary. Before broader rollout, stop placing the raw bearer token in host-captured stdout or guarantee redaction, and clearly prohibit shared machines and network forwarding/proxying. Confidence is moderate-high for the guard, but lower for the overall dashboard because route handlers, UI rendering, static-file confinement, config contents, and redaction implementations were not supplied.</SUMMARY>\n\nVERDICT: REQUEST_CHANGES\n- [security] Remove or reliably redact the full bearer-token URL from dashboard stdout before broader rollout; host transcripts otherwise become an additional persistent secret store.\n- [ambiguity] Make the rollout boundary explicit: single-user loopback only, with no shared machines, reverse proxies, tunnels, or port forwarding, and heightened warnings for content capture and PII display.",
+          "ms": 68128
+        },
+        {
+          "source": "openrouter:glm-5-3-flashx",
+          "provider": "openrouter",
+          "model": "z-ai/glm-5.3-flashx",
+          "reasoningEffort": "medium",
+          "verdict": "APPROVE",
+          "criticalIssues": [
+            {
+              "id": "r1-glm-5-3-flashx-1",
+              "category": "security",
+              "text": "Token printed to stdout lands in host-agent transcripts, which may sync off-machine; the threat model doesn't cover this leak path and there is no revocation before restart."
+            },
+            {
+              "id": "r1-glm-5-3-flashx-2",
+              "category": "security",
+              "text": "0600 file modes are unenforced on Windows, so the state file and redirect page (both containing the token) are readable by other local users there; docs should gate or warn explicitly."
+            },
+            {
+              "id": "r1-glm-5-3-flashx-3",
+              "category": "ops",
+              "text": "The 0600 redirect page persists after a crash/SIGKILL since cleanup runs only on `exit`, leaving a tokenized file on disk with no TTL."
+            },
+            {
+              "id": "r1-glm-5-3-flashx-4",
+              "category": "ambiguity",
+              "text": "Behavior for `https://localhost` origins and the cookie-value-equals-token design are undocumented; state both in TECHNICAL.md."
+            }
+          ],
+          "summary": null,
+          "text": "## Review\n\n**Correctness of the guard**: The implementation matches the documented threat model. Host pinning blocks DNS rebinding and cross-port confusion (browsers always send the true port in `Host`). The `?t=` flow avoiding a 302 is correctly reasoned — a redirect from a `file://` opener would be cross-site and Chrome would withhold the Strict cookie; the meta-refresh same-site page is the right call. `SameSite=Strict` correctly covers the residual cross-origin GET risk (e.g. `<img src=\".../api/runs\">` from a hostile page sends no Origin but also no cookie). Constant-time compare with length pre-check is fine (length is not secret, 64 hex always).\n\n**Scope judgment**: The model — loopback bind, same-machine trust boundary, shared-machine opt-out — is the right model for a single-user developer laptop tool, and the code is consistent with it. Nothing serves write operations; GET/HEAD-only is enforced pre-routing.\n\n**Gaps worth fixing before broader adoption** (none are blockers for the stated scope):\n\n1. **Token in stdout/transcripts** [security]: `urlLine` goes to stdout, which the host agent's transcript captures — and transcripts may sync to vendor clouds. The threat model treats the token as machine-local, but it now has an off-machine copy path. Recommendation: print a URL without the raw token (e.g. instruct \"run `deliberation-mcp dashboard --open`\", or print only the redirect-file path), or explicitly note the transcript-leak path in the threat model. Mitigated today by per-restart rotation, but a leaked token is valid until restart with no revocation.\n2. **No expiry/revocation, cookie value = token** [security]: acceptable per scope, but for `capture: \"content\"` mode consider a separate stricter gate (re-enter token, or require the `?t=` grant per session) since the data is more valuable than metadata.\n3. **Windows mode bits are advisory** [security]: `0600` on the state/redirect files is a no-op on NTFS/FAT; on Windows multi-user setups anyone with profile access reads the token. The docs say \"do not enable on shared machines\" — make the Windows case explicit in the warning, or gate startup on an effective-permission check.\n4. **Redirect page persistence** [ops]: the opener file is only removed on `process.once(\"exit\")`; a `SIGKILL`/crash leaves a tokenized file in the cache dir indefinitely. Delete it on first successful open, or after a short TTL.\n5. **`Cache-Control` scope** [security, minor]: `no-store` is set only for `/api/`; `/` (which embeds nothing sensitive today) and `/assets/*` may be cached — fine, but if the UI ever inlines content-mode data, extend it. Also `?t=` responses are covered; good.\n6. **Origin check nuance** [ambiguity, minor]: `https://localhost:<port>` is rejected (compared only against `http://`). Correct behavior, but worth a one-line doc note so a user behind an https proxy isn't confused.\n\n**Threat model itself**: Yes, it is the right model, and unusually honest — it explicitly names the cross-port cookie replay residual and accepts it within the same-user boundary. The one thing it understates is the transcript/stdout token path (item 1); amend it.\n\nEverything else checked and clean: static assets realpath-confined, no insecure deserialization, no injection surfaces (token compared, not interpreted), SSE backpressure bounded (`SSE_MAX_BUFFERED`), nosniff + CSP + textContent rendering appropriate for a read-only surface.\n\nVERDICT: APPROVE\n- [security] Token printed to stdout lands in host-agent transcripts, which may sync off-machine; the threat model doesn't cover this leak path and there is no revocation before restart.\n- [security] 0600 file modes are unenforced on Windows, so the state file and redirect page (both containing the token) are readable by other local users there; docs should gate or warn explicitly.\n- [ops] The 0600 redirect page persists after a crash/SIGKILL since cleanup runs only on `exit`, leaving a tokenized file on disk with no TTL.\n- [ambiguity] Behavior for `https://localhost` origins and the cookie-value-equals-token design are undocumented; state both in TECHNICAL.md.",
+          "ms": 13203
+        }
+      ],
+      "roundMs": 599986,
+      "slowest": "openrouter:qwen3-8-max",
+      "adjudication": [
+        {
+          "issueId": "r1-host-1",
+          "source": "host",
+          "decision": "accept",
+          "reason": "grok raises the same; the round 2 plan moves the credential out of an ambient cookie."
+        },
+        {
+          "issueId": "r1-grok-1",
+          "source": "grok",
+          "decision": "accept",
+          "reason": "Same as the host issue; adopted as proposed."
+        },
+        {
+          "issueId": "r1-grok-2",
+          "source": "grok",
+          "decision": "accept",
+          "reason": "deepseek, kimi and glm raise the same leak path; the round 2 plan makes ?t= a one-time code that dies on first use."
+        },
+        {
+          "issueId": "r1-grok-3",
+          "source": "grok",
+          "decision": "accept",
+          "reason": "Other UIDs, containers and dev servers share loopback without being the user; the round 2 plan rewrites the threat model's trust boundary."
+        },
+        {
+          "issueId": "r1-deepseek-v4-pro-0813-1",
+          "source": "openrouter:deepseek-v4-pro-0813",
+          "decision": "accept",
+          "reason": "Same as the grok stdout issue."
+        },
+        {
+          "issueId": "r1-deepseek-v4-pro-0813-2",
+          "source": "openrouter:deepseek-v4-pro-0813",
+          "decision": "accept",
+          "reason": "The round 2 plan adds an idle lifetime and a revoke route."
+        },
+        {
+          "issueId": "r1-deepseek-v4-pro-0813-3",
+          "source": "openrouter:deepseek-v4-pro-0813",
+          "decision": "defer",
+          "reason": "Real, but detecting a multi-user machine reliably is its own feature; the round 2 plan states the boundary in the threat model and lists enforcement as out of scope."
+        },
+        {
+          "issueId": "r1-deepseek-v4-pro-0813-4",
+          "source": "openrouter:deepseek-v4-pro-0813",
+          "decision": "accept",
+          "reason": "glm raises it too; the round 2 plan documents that Windows relies on the per-user profile ACLs."
+        },
+        {
+          "issueId": "r1-deepseek-v4-pro-0813-5",
+          "source": "openrouter:deepseek-v4-pro-0813",
+          "decision": "dismiss",
+          "reason": "A parse fragment of the reply's OWASP checklist that states no defect."
+        },
+        {
+          "issueId": "r1-deepseek-v4-pro-0813-6",
+          "source": "openrouter:deepseek-v4-pro-0813",
+          "decision": "dismiss",
+          "reason": "Not an issue: the reply's closing note that it found no blocker."
+        },
+        {
+          "issueId": "r1-kimi-k3-1-pro-1",
+          "source": "openrouter:kimi-k3-1-pro",
+          "decision": "accept",
+          "reason": "Same as the grok stdout issue."
+        },
+        {
+          "issueId": "r1-kimi-k3-1-pro-2",
+          "source": "openrouter:kimi-k3-1-pro",
+          "decision": "accept",
+          "reason": "Folded into the threat model rewrite in the round 2 plan."
+        },
+        {
+          "issueId": "r1-glm-5-3-flashx-1",
+          "source": "openrouter:glm-5-3-flashx",
+          "decision": "accept",
+          "reason": "Same as the grok stdout issue and the deepseek revocation issue."
+        },
+        {
+          "issueId": "r1-glm-5-3-flashx-2",
+          "source": "openrouter:glm-5-3-flashx",
+          "decision": "accept",
+          "reason": "Same as the deepseek Windows issue."
+        },
+        {
+          "issueId": "r1-glm-5-3-flashx-3",
+          "source": "openrouter:glm-5-3-flashx",
+          "decision": "accept",
+          "reason": "The round 2 plan deletes the opener page as soon as its one-time code is used, and the code is dead after first use either way."
+        },
+        {
+          "issueId": "r1-glm-5-3-flashx-4",
+          "source": "openrouter:glm-5-3-flashx",
+          "decision": "dismiss",
+          "reason": "The server speaks plain HTTP only, so an https://localhost origin can never be its own and is rightly refused; the cookie-equals-token design is removed by the accepted credential change."
+        }
+      ],
+      "hostVerdict": "REQUEST_CHANGES",
+      "revision": "Security review: the local dashboard's access control in the Deliberation repo (server/dashboard/, as on master at 4bf190b)\n\nQuestion: is this access control adequate for what the dashboard serves, and what, if anything, must change before more users turn it on? Judge it against the threat model the repo states (quoted below), and say whether that model itself is the right one.\n\nWhat the dashboard is: a separate local process (`deliberation-mcp dashboard`, `/deliberation:dashboard`) that tails the run journal every Deliberation MCP process writes, and serves it read-only to a browser: live and past runs as state graphs, config, provider health, stats and an analyzer. With `dashboard.capture: \"metadata\"` (default) it serves no prompt or response text; with `\"content\"` it serves prompts and model answers (secrets scrubbed at write time). PII is redacted at serve time unless `dashboard.showPII` is on.\n\nThreat model as written in docs/dev/design-decisions.md (verbatim):\n\n> Threat model: loopback bind, Host/Origin pinned to `127.0.0.1:<port>`/`localhost:<port>` against DNS rebinding, a per-start 32-byte token in the printed URL swapped for an `HttpOnly; SameSite=Strict` cookie (browsers send it to every 127.0.0.1 port: Host/Origin checks and `nosniff` stop a web page from reading data cross-port, but a local service that receives the cookie can replay the token server-side, e.g. curl with `Host: 127.0.0.1:<port>` plus the cookie or `?t=`, and read all dashboard data. Accepted because any local listener is already inside the same-machine trust boundary - the design scope is a single-user laptop; `dlb_dash` is only issued after the user opens the tokenized URL, and a restart rotates the token. On shared multi-user machines, do not enable the dashboard or `capture: \"content\"`), the token kept off argv via a 0600 redirect file, and CSP + `textContent`-only rendering.\n\nRoutes after the guard (all GET/HEAD): `/` (UI), `/assets/*` (static, realpath-confined to the UI dir), `/api/runs`, `/api/runs/<id>`, `/api/config`, `/api/health`, `/api/stats`, `/api/analyzer`, `/api/events` (SSE stream of journal events).\n\n=== server/dashboard/server.js ===\nconst COOKIE = \"dlb_dash\";\nconst KEEPALIVE_MS = 15000;\n// A client this far behind is dropped; it reconnects with Last-Event-ID and resumes.\nconst SSE_MAX_BUFFERED = 1 << 20;\nconst BASE_HEADERS = Object.freeze({\n  \"Content-Security-Policy\": \"default-src 'self'; frame-ancestors 'none'\",\n  \"X-Content-Type-Options\": \"nosniff\",\n  \"Referrer-Policy\": \"no-referrer\",\n});\n...\n/**\n * Constant-time token check. Length is not secret (always 64 hex chars).\n * @param {unknown} given\n * @param {Buffer} expected\n */\nfunction tokenMatches(given, expected) {\n  if (typeof given !== \"string\") return false;\n  const buf = Buffer.from(given, \"utf8\");\n  return buf.length === expected.length && crypto.timingSafeEqual(buf, expected);\n}\n\n/** @param {string|undefined} header @returns {string|undefined} */\nfunction readCookie(header) {\n  if (!header) return undefined;\n  for (const part of header.split(\";\")) {\n    const i = part.indexOf(\"=\");\n    if (i > 0 && part.slice(0, i).trim() === COOKIE) return part.slice(i + 1).trim();\n  }\n  return undefined;\n}\n\n...\n  /**\n   * Every check that must pass before routing. Sends the rejection and returns\n   * false, or returns true to continue.\n   * @param {http.IncomingMessage} req @param {http.ServerResponse} res @param {URL} url\n   */\n  function guard(req, res, url) {\n    const port = boundPort();\n    const hosts = [`127.0.0.1:${port}`, `localhost:${port}`];\n    const host = String(req.headers.host || \"\").toLowerCase();\n    if (!hosts.includes(host)) return sendJson(req, res, 403, { error: \"forbidden host\" }), false;\n    const origin = req.headers.origin;\n    if (origin !== undefined && !hosts.some((h) => origin.toLowerCase() === `http://${h}`)) {\n      return sendJson(req, res, 403, { error: \"forbidden origin\" }), false;\n    }\n    if (req.method !== \"GET\" && req.method !== \"HEAD\") {\n      res.setHeader(\"Allow\", \"GET, HEAD\");\n      return sendJson(req, res, 405, { error: \"method not allowed\" }), false;\n    }\n    const t = url.searchParams.get(\"t\");\n    if (t !== null) {\n      if (!tokenMatches(t, expected)) return sendJson(req, res, 401, { error: \"unauthorized\" }), false;\n      // Not a 302: the browser is opened through a file:// redirect page, so a redirect\n      // would still be a cross-site navigation and Chrome would withhold the Strict cookie\n      // from the redirected GET /. A same-origin page that refreshes to / is same-site.\n      res.writeHead(200, {\n        \"Content-Type\": \"text/html; charset=utf-8\",\n        \"Cache-Control\": \"no-store\",\n        \"Set-Cookie\": `${COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/`,\n      });\n      res.end(req.method === \"HEAD\" ? undefined : '<!doctype html><meta charset=\"utf-8\"><meta http-equiv=\"refresh\" content=\"0;url=/\"><title>Deliberation dashboard</title><a href=\"/\">Open the dashboard</a>\\n');\n      return false;\n    }\n    if (!tokenMatches(readCookie(req.headers.cookie), expected)) return sendJson(req, res, 401, { error: \"unauthorized\" }), false;\n    return true;\n  }\n...\n  /** @param {http.IncomingMessage} req @param {http.ServerResponse} res */\n  async function handle(req, res) {\n    for (const [k, v] of Object.entries(BASE_HEADERS)) res.setHeader(k, v);\n    const url = new URL(req.url || \"/\", \"http://127.0.0.1\");\n    if (url.pathname.startsWith(\"/api/\")) res.setHeader(\"Cache-Control\", \"no-store\");\n    if (!guard(req, res, url)) return;\n\n\n=== server/dashboard/index.js (startup) ===\n/** @param {number} port @param {string} token */\nconst urlLine = (port, token) => `Deliberation dashboard: http://127.0.0.1:${port}/?t=${token}\\n`;\n\n/** @param {string} statePath */\nconst openerPath = (statePath) => path.join(path.dirname(statePath), \"dashboard-open.html\");\n...\n/**\n * Best effort; the URL line is already printed. The tokenized URL never goes on a child's\n * argv (readable by other local users through ps or /proc): it goes into a 0600 redirect\n * page next to the pidfile, and the opener gets that file's path.\n * @param {string} url  built from an integer port and a hex token, so it needs no escaping\n * @param {{statePath: string, spawn?: typeof spawn, platform?: NodeJS.Platform}} opts\n */\nfunction openBrowser(url, opts) {\n  const spawnFn = opts.spawn || spawn;\n  const platform = opts.platform || process.platform;\n  const file = openerPath(opts.statePath);\n  try {\n    fs.writeFileSync(file, `<!doctype html><meta charset=\"utf-8\"><meta http-equiv=\"refresh\" content=\"0;url=${url}\"><title>Deliberation dashboard</title><a href=\"${url}\">Open the dashboard</a>\\n`, { mode: 0o600 });\n    fs.chmodSync(file, 0o600);\n  } catch {\n    return;\n  }\n  const target = pathToFileURL(file).href;\n  const [cmd, args] = platform === \"darwin\" ? [\"open\", [target]]\n    : platform === \"win32\" ? [\"cmd\", [\"/c\", \"start\", \"\", target]]\n    : [\"xdg-open\", [target]];\n  try {\n    const child = spawnFn(cmd, args, { detached: true, stdio: \"ignore\" });\n    child.on(\"error\", () => {});\n    child.unref();\n  } catch {\n    // no opener on this machine\n  }\n}\n...\n\n/**\n * True only when a dashboard answers the token on `port` with its 302: a live pid alone\n * may be an unrelated process that reused it.\n * @param {number} port @param {string} token @param {number} [timeoutMs]\n * @returns {Promise<boolean>}\n */\nfunction probeInstance(port, token, timeoutMs = 500) {\n  return new Promise((resolve) => {\n    const req = http.get({ host: \"127.0.0.1\", port, path: `/?t=${token}`, headers: { Host: `127.0.0.1:${port}` }, timeout: timeoutMs }, (res) => {\n      res.resume();\n      resolve(res.statusCode === 200 && String(res.headers[\"set-cookie\"] || \"\").startsWith(\"dlb_dash=\"));\n    });\n    req.on(\"timeout\", () => req.destroy());\n    req.on(\"error\", () => resolve(false));\n  });\n}\n...\n  const token = crypto.randomBytes(32).toString(\"hex\");\n  const port = args.port !== undefined ? args.port : cfg.dashboard.port;\n  const server = createDashboardServer({ port, token, uiDir: UI_DIR, index, tailer, getConfig: rt.getConfig, runtimeReport:()=>({dashboardRuntimeId:mcp.history.runtimeId,runtimes:require('../../core/config-history.js').readRuntimes(path.join(runsDir,'..','history')),note:'Only processes with dashboard journaling enabled are discoverable. Heartbeat freshness is observation, not proof of liveness.'}), health: () => healthReport(rt), stats });\n  try {\n    await new Promise((resolve, reject) => {\n      server.once(\"error\", reject);\n      server.listen(port, \"127.0.0.1\", () => resolve(undefined));\n    });\n  } catch (e) {\n...\n  fs.mkdirSync(path.dirname(statePath), { recursive: true, mode: 0o700 });\n  // procStartedAt + argv let --stop prove a pid is this dashboard before signalling it.\n  fs.writeFileSync(statePath, JSON.stringify({ pid: process.pid, port: bound, token, startedAt: Date.now(), procStartedAt: Math.round(Date.now() - process.uptime() * 1000), argv: process.argv }), { mode: 0o600 });\n  fs.chmodSync(statePath, 0o600); // a stale file keeps its old mode through writeFileSync\n  const removeState = () => {\n    const s = readState(statePath);\n    if (s && s.pid === process.pid) fs.rmSync(statePath, { force: true });\n    fs.rmSync(openerPath(statePath), { force: true });\n  };\n  process.once(\"exit\", removeState);\n\nOther facts:\n- The printed URL line (`urlLine`) goes to the dashboard's stdout, which the host agent's transcript captures when `/deliberation:dashboard` starts it.\n- The state file (`statePath`) and the redirect page live under the user's cache dir (`<XDG cache>/deliberation/`), created 0700.\n- There is no logout, no token expiry while the process runs, and the cookie value is the token itself.\n\n=== Proposed changes after round 1 (the code above is unchanged; this is the remediation plan under review) ===\n\n1. Split the one token into two secrets. At start the server draws a one-time exchange code (32 random bytes) and, per browser session, a session secret (32 random bytes). `?t=<code>` is accepted once, and only within 10 minutes of start; a second use or a late one gets 401. The exchange response sets no cookie: it redirects to `/#s=<session secret>`. The fragment never reaches a server or a Referer.\n2. Header-only credential. `/` and `/assets/*` (the UI's static files, the same code as the public repo) are served without a credential. A boot script from `/assets/` reads the fragment, stores the secret in `sessionStorage`, and removes it from the address bar and history with `history.replaceState`. Every `/api/*` route requires `X-Dashboard-Session: <secret>`; no cookie is set or read. A service on another port never receives the secret, and a page on another port cannot read this origin's sessionStorage.\n3. SSE. `EventSource` cannot send headers, so `/api/events` takes `?ticket=`: a single-use, 30-second ticket the UI fetches from `GET /api/ticket` with the header. A used or expired ticket gets 401.\n4. Lifetime and revocation. A session secret expires after 8 hours idle. `GET /api/logout` with the header revokes it. A restart drops all sessions and draws a new exchange code.\n5. Output. stdout and the host transcript still get the URL, but it carries only the one-time code, which is dead after first use or after 10 minutes. The 0600 opener page is deleted as soon as the code is used, or at 10 minutes, so a crash leaves at most a dead code on disk. A new code needs `/deliberation:dashboard restart`.\n6. Unchanged: loopback bind, Host and Origin pinned to the bound port, GET/HEAD only, CSP `default-src 'self'; frame-ancestors 'none'`, nosniff, no-referrer, textContent-only rendering, constant-time comparisons for the code, the secret and tickets.\n7. Threat model rewrite in docs/dev/design-decisions.md and TECHNICAL.md: other local listeners, other OS users and containers on the same loopback are NOT inside the trust boundary; the design protects data from them as long as they cannot read the user's files or browser storage. Supported: a single-user machine with direct loopback access. Not supported: shared multi-user machines, reverse proxies, tunnels and port forwarding (the Host pin refuses most of them). On Windows the state file and opener page rely on the per-user profile ACLs, since 0600 is not enforced. `capture: \"content\"` and `showPII` say so in their schema descriptions.\n8. Tests: a second use of the code and a late use both get 401; `/api/*` without the header gets 401 and with a cookie only still gets 401; a ticket works once; idle expiry and logout; the opener page is gone after the exchange; Host and Origin tests unchanged.\n\nOut of scope (deferred): refusing to start `capture: \"content\"` on a detected multi-user machine; that needs a reliable detection method of its own.\n",
+      "revisionSummary": "One-time exchange code plus a header-only session secret instead of the token cookie; SSE tickets; idle lifetime and logout; only a dead code reaches stdout and disk; threat model narrows the trust boundary and documents Windows ACLs; shared-host enforcement deferred.",
+      "convergence": {
+        "converged": false,
+        "reason": "The panel split 2-2 among the four voices that answered: grok and openrouter:kimi-k3-1-pro voted REQUEST_CHANGES, openrouter:deepseek-v4-pro-0813 and openrouter:glm-5-3-flashx voted APPROVE but still listed issues, and openrouter:qwen3-8-max timed out at its 600 s ceiling. Every answering voice named the token on stdout, and grok matched the host's blind issue on the port-blind cookie. The host accepted 12 issues, deferred 1 and dismissed 3, so the remediation plan went to round 2."
+      }
+    },
+    {
+      "n": 2,
+      "hostBlindVerdict": {
+        "verdict": "REQUEST_CHANGES",
+        "summary": "Moving the credential out of a port-blind cookie into a header closes the round 1 gap, but the per-tab storage choice makes the dashboard unusable across tabs, so it needs one more change.",
+        "criticalIssues": [
+          {
+            "id": "r2-host-1",
+            "category": "correctness",
+            "text": "sessionStorage is per tab. Opening a run in a new tab, a reload after the tab was closed, or a second window starts with no secret, and the only way to a new one is `/deliberation:dashboard restart`, because the code in step 1 is one-time. The dashboard links between runs, so this breaks normal use. Keep the secret in `localStorage` (still scoped to this origin and port, so other ports cannot read it) with the 8-hour idle expiry enforced server-side, or let a tab with a valid secret mint a fresh one-time code for a new tab."
+          }
+        ],
+        "text": "**Verdict**: REQUEST CHANGES\n**Critical issues** (must-fix; empty = none):\n  - `[correctness]` sessionStorage is per tab. Opening a run in a new tab, a reload after the tab was closed, or a second window starts with no secret, and the only way to a new one is `/deliberation:dashboard restart`, because the code in step 1 is one-time. The dashboard links between runs, so this breaks normal use. Keep the secret in `localStorage` (still scoped to this origin and port, so other ports cannot read it) with the 8-hour idle expiry enforced server-side, or let a tab with a valid secret mint a fresh one-time code for a new tab.\n**One-line bottom line**: Moving the credential out of a port-blind cookie into a header closes the round 1 gap, but the per-tab storage choice makes the dashboard unusable across tabs, so it needs one more change.\n\nNon-blocking notes:\n- The fragment `/#s=` sits in the address bar until the boot script runs; a slow boot or a script error leaves it visible. Strip it first thing, before any fetch.\n- `/api/logout` as a GET is fine here because it needs the header, so a cross-site link cannot trigger it."
+      },
+      "peers": [
+        {
+          "source": "grok",
+          "provider": "grok",
+          "model": "grok-4.7",
+          "reasoningEffort": "medium",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r2-grok-1",
+              "category": "security",
+              "text": "Do not put the session secret in the URL fragment or query. A redirect to `/#s=<secret>` leaves an 8-hour credential in history, the address bar, and anything that records the full URL, and fragment-on-redirect is client-dependent. Return it only in a `Cache-Control: no-store` one-time exchange body that a same-origin boot script reads, then strip `?t=` with `replaceState`."
+            },
+            {
+              "id": "r2-grok-2",
+              "category": "security",
+              "text": "Reconcile `statePath` and `probeInstance`: today they store the token and redeem `/?t=`. As written, the probe burns the one-time code or a live secret stays on disk for the process lifetime (crash skips `exit`). Secrets must be memory-only; liveness checks must not present the exchange code."
+            },
+            {
+              "id": "r2-grok-3",
+              "category": "security",
+              "text": "Logout and idle expiry must abort already-open `/api/events` streams and invalidate unused tickets for that session. A ticket checked only at connect keeps streaming capture content after revocation. Tickets need 32-byte entropy, atomic single-use, and session binding, and must not be logged."
+            },
+            {
+              "id": "r2-grok-4",
+              "category": "security",
+              "text": "One-time exchange must be consume-before-respond so two in-flight `?t=` requests cannot both receive a session secret. Add a parallel-use test, not only a sequential second use."
+            },
+            {
+              "id": "r2-grok-5",
+              "category": "correctness",
+              "text": "Do not rely on native `EventSource` retry: it reuses the spent `?ticket=` and sticks on 401. Specify a client reconnect loop that mints a new ticket with the header, and whether an open stream refreshes the 8-hour idle timer."
+            },
+            {
+              "id": "r2-grok-6",
+              "category": "ops",
+              "text": "Closing the tab drops `sessionStorage` and the plan allows re-entry only via full restart, which will tempt a durable secret back onto disk or stdout. Specify an in-process re-mint of a one-time code (0600 opener, not a long-lived printed secret) and update README, SETUP, tool-guide, and commands, not only the threat-model docs."
+            }
+          ],
+          "summary": "HIGH. Top gaps: session secret in the URL fragment, pidfile/probe still tied to a replayable token, SSE logout not actually revoking live streams, non-atomic exchange, no re-open story. Confidence high from the plan plus the startup code shown. Unverified: exact probe call sites and whether the UI already uses inline scripts (CSP already forbids them).",
+          "text": "The direction is right: a one-time code, no cookie, and a header-only session secret removes the cross-port replay the current `dlb_dash` cookie allows. The rewritten boundary (other loopback listeners are not trusted) is the right model for what this server returns, including `capture: \"content\"`. It is not yet accurate or implementable as written. Several handoff and lifecycle holes would either keep a live credential on disk, put the 8-hour secret in the URL, or make logout fail to stop an open stream. Shared-host startup refusal can stay deferred.\n\n**Threat summary:** Adequate only after the exchange, pidfile, and SSE revocation stories are closed. Loopback bind, Host/Origin pinning, GET/HEAD, CSP, and nosniff should stay.\n\n**Critical vulnerabilities:**\n- Secret in `/#s=`: that is the implicit-flow leak (history, address bar, extensions, URL-recording client features), and fragment-on-redirect is client-dependent. Deliver the session secret only in the one-time exchange body.\n- `statePath` still stores `token`, and `probeInstance` redeems `/?t=`. The plan never replaces that path, so the code is burned before the browser opens or a live secret remains on disk past the opener unlink. `exit` does not run on SIGKILL.\n- Logout and idle expiry, as specified, do not abort an already-accepted `/api/events` stream, so revocation does not stop capture content.\n\n**High-risk issues:**\n- “Accepted once” is not specified as consume-before-respond. Two in-flight `?t=` requests can both win.\n- Native `EventSource` retries the same spent `?ticket=` and will sit on 401. Reconnect has to mint a new ticket. Idle vs an open stream is undefined.\n- Closing the tab drops `sessionStorage` with no re-mint path except full restart. That will push a durable secret back into the pidfile or stdout.\n\n**Recommendations:**\n- Exchange: atomic single-use, 10-minute bound, `Cache-Control: no-store`, 200 same-origin document (not a fragment redirect), secret only in that body, boot script reads it and `replaceState`s `?t=` away. Hex-only, constant-time, memory-only.\n- Re-open: a new one-time code for an already-running process, 0600 opener, nothing redeemable left in the pidfile. Probe liveness without presenting the code (`--stop` already uses pid, `procStartedAt`, and argv).\n- SSE: 32-byte single-use ticket, bound to the session, not logged; logout and expiry revoke unused tickets and end that session’s streams; client-driven reconnect. State whether an open stream refreshes the 8-hour idle timer.\n- Threat model: peers who can read the user profile, browser storage, or loopback payloads (raw socket, privileged shared netns) are out of scope. Stdout exposure is not remotely redeemable by itself. Windows DACLs do not enforce 0600, so multi-user Windows stays unsupported. Ship that on every surface AGENTS.md lists (README, SETUP, tool-guide, commands, schema), not only `design-decisions.md` and TECHNICAL.md.\n\n**Risk rating:** HIGH until those land. The control design is sound; the plan as specified is not.\n\n<SUMMARY> HIGH. Top gaps: session secret in the URL fragment, pidfile/probe still tied to a replayable token, SSE logout not actually revoking live streams, non-atomic exchange, no re-open story. Confidence high from the plan plus the startup code shown. Unverified: exact probe call sites and whether the UI already uses inline scripts (CSP already forbids them). </SUMMARY>\n\nVERDICT: REQUEST_CHANGES\n- [security] Do not put the session secret in the URL fragment or query. A redirect to `/#s=<secret>` leaves an 8-hour credential in history, the address bar, and anything that records the full URL, and fragment-on-redirect is client-dependent. Return it only in a `Cache-Control: no-store` one-time exchange body that a same-origin boot script reads, then strip `?t=` with `replaceState`.\n- [security] Reconcile `statePath` and `probeInstance`: today they store the token and redeem `/?t=`. As written, the probe burns the one-time code or a live secret stays on disk for the process lifetime (crash skips `exit`). Secrets must be memory-only; liveness checks must not present the exchange code.\n- [security] Logout and idle expiry must abort already-open `/api/events` streams and invalidate unused tickets for that session. A ticket checked only at connect keeps streaming capture content after revocation. Tickets need 32-byte entropy, atomic single-use, and session binding, and must not be logged.\n- [security] One-time exchange must be consume-before-respond so two in-flight `?t=` requests cannot both receive a session secret. Add a parallel-use test, not only a sequential second use.\n- [correctness] Do not rely on native `EventSource` retry: it reuses the spent `?ticket=` and sticks on 401. Specify a client reconnect loop that mints a new ticket with the header, and whether an open stream refreshes the 8-hour idle timer.\n- [ops] Closing the tab drops `sessionStorage` and the plan allows re-entry only via full restart, which will tempt a durable secret back onto disk or stdout. Specify an in-process re-mint of a one-time code (0600 opener, not a long-lived printed secret) and update README, SETUP, tool-guide, and commands, not only the threat-model docs.",
+          "ms": 349582
+        },
+        {
+          "source": "openrouter:deepseek-v4-pro-0813",
+          "provider": "openrouter",
+          "model": "deepseek/deepseek-v4-pro-0813",
+          "reasoningEffort": "medium",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r2-deepseek-v4-pro-0813-1",
+              "category": "security",
+              "text": "statePath` currently stores `token` in the state file. Under the new plan that value would be the live one-time exchange code (or, worse, a session secret if someone reuses the field). A local process running as the same user can read the predictable `<XDG cache>/deliberation/` file and redeem the code before the user, then read all dashboard data. Remove all auth material from `statePath`; keep only `pid`/`port`/`argv`/`procStartedAt` for `--stop`."
+            },
+            {
+              "id": "r2-deepseek-v4-pro-0813-2",
+              "category": "correctness",
+              "text": "probeInstance()` calls `GET /?t=${token}` and expects a `dlb_dash=` `Set-Cookie`. With a one-time exchange code and no cookie, any surviving probe/liveness/`--stop`/`--restart` flow consumes the code and fails. It must be replaced with an unauthenticated health/identity probe or otherwise not call the exchange endpoint with the live code."
+            },
+            {
+              "id": "r2-deepseek-v4-pro-0813-3",
+              "category": "ambiguity",
+              "text": "“Every `/api/*` route requires `X-Dashboard-Session`” conflicts with “`/api/events` takes `?ticket=`”. `EventSource` cannot send the header, so the guard must allow the ticket credential on `/api/events` only and reject ticket/query credentials on every other `/api/*` route. Specify and test the valid-ticket-without-header case, not just ticket expiry."
+            },
+            {
+              "id": "r2-deepseek-v4-pro-0813-4",
+              "category": "security",
+              "text": "The exchange response (`/?t=...`) must set `Cache-Control: no-store` and keep `Referrer-Policy: no-referrer`. The current code sets no-store only for `/api/*`, and the redirect fragment carries the session secret; caching/proxying the response would defeat the design."
+            },
+            {
+              "id": "r2-deepseek-v4-pro-0813-5",
+              "category": "ops",
+              "text": "There is no re-entry path after the tab closes: `sessionStorage` is per-tab and the code is single-use. A closed tab means the user must restart the dashboard process to view it again. This should be intentional and documented, or a safe re-auth command provided."
+            }
+          ],
+          "summary": "Risk rating: HIGH. The split-secret/header-only/SSE-ticket approach is correct, but the plan does not address the state file still holding a live token, leaves `probeInstance()` consuming the one-time code, under-specifies `/api/events` route auth, and may expire active SSE sessions. Missing context that would raise the rating: exact call sites of `probeInstance`, whether the state-file `token` field is dropped, and whether the server unlinks the opener page on exchange (not only on process exit).",
+          "text": "**Threat Summary**: The plan is a real improvement over the current cookie-equals-token design. Splitting the printed one-time exchange code from a header-only session secret, moving the secret out of an ambient cookie path, adding SSE tickets, and bounding lifetimes are all correct directions. However, as written it has several implementation-level gaps that would either break the dashboard or leave live credentials in predictable on-disk locations, so it is not ready to approve unchanged.\n\n**Critical Issues**:\n\n- [security] `statePath` currently stores `token` in the state file. Under the new plan that value would be the live one-time exchange code (or, worse, a session secret if someone reuses the field). A local process running as the same user can read the predictable `<XDG cache>/deliberation/` file and redeem the code before the user, then read all dashboard data. Remove all auth material from `statePath`; keep only `pid`/`port`/`argv`/`procStartedAt` for `--stop`.\n\n- [correctness] `probeInstance()` calls `GET /?t=${token}` and expects a `dlb_dash=` `Set-Cookie`. With a one-time exchange code and no cookie, any surviving probe/liveness/`--stop`/`--restart` flow consumes the code and fails. It must be replaced with an unauthenticated health/identity probe or otherwise not call the exchange endpoint with the live code.\n\n- [ambiguity] “Every `/api/*` route requires `X-Dashboard-Session`” conflicts with “`/api/events` takes `?ticket=`”. `EventSource` cannot send the header, so the guard must allow the ticket credential on `/api/events` only and reject ticket/query credentials on every other `/api/*` route. Specify and test the valid-ticket-without-header case, not just ticket expiry.\n\n- [correctness/ops] 8-hour idle expiry conflicts with a long-lived SSE connection. If idle is measured by request completion, a user watching `/api/events` makes no further requests and gets logged out mid-use. Idle must include open SSE connections, or the client must periodically re-arm via `/api/ticket`; otherwise the dashboard silently stops after 8h.\n\n- [security] The exchange response (`/?t=...`) must set `Cache-Control: no-store` and keep `Referrer-Policy: no-referrer`. The current code sets no-store only for `/api/*`, and the redirect fragment carries the session secret; caching/proxying the response would defeat the design.\n\n- [ops] There is no re-entry path after the tab closes: `sessionStorage` is per-tab and the code is single-use. A closed tab means the user must restart the dashboard process to view it again. This should be intentional and documented, or a safe re-auth command provided.\n\n**Risk Rating**: HIGH (plan directions are sound, but the above would introduce availability failures or preserve a live-credential file leak).\n\n`<SUMMARY>` Risk rating: HIGH. The split-secret/header-only/SSE-ticket approach is correct, but the plan does not address the state file still holding a live token, leaves `probeInstance()` consuming the one-time code, under-specifies `/api/events` route auth, and may expire active SSE sessions. Missing context that would raise the rating: exact call sites of `probeInstance`, whether the state-file `token` field is dropped, and whether the server unlinks the opener page on exchange (not only on process exit). `</SUMMARY>`\n\nVERDICT: REQUEST_CHANGES",
+          "ms": 142912
+        },
+        {
+          "source": "openrouter:qwen3-8-max",
+          "provider": "openrouter",
+          "model": "qwen/qwen3.8-max-0902",
+          "reasoningEffort": null,
+          "verdict": null,
+          "criticalIssues": [],
+          "summary": null,
+          "text": null,
+          "ms": 598854,
+          "isError": true,
+          "errorKind": "timeout",
+          "message": "Call deadline expired"
+        },
+        {
+          "source": "openrouter:kimi-k3-1-pro",
+          "provider": "openrouter",
+          "model": "moonshotai/kimi-k3.1-pro",
+          "reasoningEffort": "medium",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r2-kimi-k3-1-pro-1",
+              "category": "correctness",
+              "text": "probeInstance() must be replaced with a non-consuming probe; its current request/cookie check fails, and accepting the exchange instead would burn the one-time code."
+            },
+            {
+              "id": "r2-kimi-k3-1-pro-2",
+              "category": "security",
+              "text": "Logout, idle expiry, and restart must invalidate session-bound tickets and terminate active SSE streams so revoked sessions cannot continue receiving dashboard data."
+            },
+            {
+              "id": "r2-kimi-k3-1-pro-3",
+              "category": "correctness",
+              "text": "The UI must acquire a new ticket for every EventSource reconnect and preserve or deliberately rebuild its event cursor."
+            }
+          ],
+          "summary": "The plan fixes the principal cross-port credential disclosure and states a substantially better trust boundary. Confidence is high based on the supplied server and startup code. Blocking gaps remain: the existing instance probe is incompatible with a one-time, cookieless exchange; logout and idle expiry must revoke tickets and active SSE streams; and EventSource needs a fresh-ticket reconnect flow. Shared-host enforcement can remain deferred while that deployment is explicitly unsupported.",
+          "text": "**Threat Summary**: The exchange-code/header-only-session design correctly removes the port-insensitive bearer cookie and materially improves protection against other local listeners. The revised trust boundary is appropriate for a single-user machine with direct loopback access. However, the plan has one startup compatibility defect and two SSE lifecycle gaps that must be resolved before implementation.\n\n**Critical Vulnerabilities / Blocking Issues**\n\n- **Startup probing consumes or rejects the exchange**: `probeInstance()` in `server/dashboard/index.js` requests `/?t=${token}` and currently expects a `dlb_dash` cookie. Under the plan it will always return false because the exchange sets no cookie. Merely updating it to accept the redirect would be worse: probing would consume the one-time code and create an orphaned session, preventing the browser from exchanging it. Replace this with a non-consuming instance-identity check and test that repeated probes leave the exchange code usable.\n- **Logout and idle expiry do not necessarily revoke SSE access**: Tickets must be bound to their issuing session and accepted only while that session remains active. Logout, idle expiry, and restart must invalidate outstanding tickets and terminate already-open SSE responses. Otherwise a pre-minted ticket can still work after logout, and an established stream can continue receiving journal events indefinitely after revocation.\n- **Single-use tickets break the existing reconnect behavior**: Native `EventSource` reconnects to the same URL, so its first reconnect reuses the consumed ticket and receives 401. The UI must explicitly obtain a fresh ticket for each reconnect and either preserve the last event ID or perform a deliberate full resynchronization. Add a dropped-connection test; otherwise the live dashboard silently stops updating after an ordinary disconnect.\n\n**Recommendations**\n\n- Clarify that `/api/events` is the ticket-only exception to “every `/api/*` route requires the header”; never accept the session secret itself as a query parameter.\n- Define whether an open SSE stream counts as activity for idle expiry. Keepalive frames should not accidentally make a session immortal unless that is explicitly intended.\n- On 401 or logout, the UI should close its stream, stop retrying, clear `sessionStorage`, and explain that restart is required for a new exchange code. Document the one-exchange-per-start limitation for additional tabs or browsers.\n- Retain `Cache-Control: no-store` on the exchange response and scrub the fragment even if writing to `sessionStorage` fails.\n- Update every affected user-facing surface required by `AGENTS.md`, not only the two design documents: README, SETUP, tool guide, command prose, and stale references to `dlb_dash`, cookie authentication, and reusable `?t=` URLs.\n- Deferring automatic shared-host detection is reasonable now that shared machines are explicitly unsupported. No material performance concern is apparent.\n\n**Risk Rating**: HIGH until the probe and SSE revocation issues are addressed; the underlying authentication design is otherwise sound.\n\n<SUMMARY>The plan fixes the principal cross-port credential disclosure and states a substantially better trust boundary. Confidence is high based on the supplied server and startup code. Blocking gaps remain: the existing instance probe is incompatible with a one-time, cookieless exchange; logout and idle expiry must revoke tickets and active SSE streams; and EventSource needs a fresh-ticket reconnect flow. Shared-host enforcement can remain deferred while that deployment is explicitly unsupported.</SUMMARY>\n\nVERDICT: REQUEST_CHANGES\n- [correctness] probeInstance() must be replaced with a non-consuming probe; its current request/cookie check fails, and accepting the exchange instead would burn the one-time code.\n- [security] Logout, idle expiry, and restart must invalidate session-bound tickets and terminate active SSE streams so revoked sessions cannot continue receiving dashboard data.\n- [correctness] The UI must acquire a new ticket for every EventSource reconnect and preserve or deliberately rebuild its event cursor.",
+          "ms": 161517
+        },
+        {
+          "source": "openrouter:glm-5-3-flashx",
+          "provider": "openrouter",
+          "model": "z-ai/glm-5.3-flashx",
+          "reasoningEffort": "medium",
+          "verdict": "REQUEST_CHANGES",
+          "criticalIssues": [
+            {
+              "id": "r2-glm-5-3-flashx-1",
+              "category": "correctness",
+              "text": "probeInstance` in server/dashboard/index.js consumes the one-time exchange code and asserts a `dlb_dash=` Set-Cookie that the plan removes; duplicate-start detection breaks and is unaddressed."
+            },
+            {
+              "id": "r2-glm-5-3-flashx-2",
+              "category": "ambiguity",
+              "text": "Idle expiry vs open SSE streams is unspecified: what refreshes the idle window, and what happens to an established `/api/events` on logout/revocation."
+            },
+            {
+              "id": "r2-glm-5-3-flashx-3",
+              "category": "ops",
+              "text": "No user-facing recovery path for a burned/failed exchange; the 401 page and docs must direct users to restart to get a new code."
+            }
+          ],
+          "summary": null,
+          "text": "## Review\n\n**Threat model (item 7):** The rewrite is the right model. Explicitly moving other local listeners, other OS users and containers out of the trust boundary, and stating Windows relies on profile ACLs, matches what the design actually delivers. Supported/unsupported lists are clear and actionable in docs. Good.\n\n**Credential split (items 1–2):** Sound. Header-only secret kills the ambient-cookie cross-port replay that round 1 flagged; fragment delivery plus `history.replaceState` keeps the secret out of server logs and Referer; sessionStorage is origin-scoped and CSP confines script. Serving `/` and `/assets/*` unauthenticated is fine — it's public repo code.\n\n**SSE ticket (item 3):** Correct approach given EventSource's header limitation. Single-use, 30 s, constant-time compared. Note the UI must fetch a fresh ticket on every reconnect (Last-Event-ID resume), and a browser that opens two EventSource races (retry firing before the first CONNECT lands) can burn a ticket — the boot script should tolerate one 401-and-refetch cycle. Minor, implementable.\n\n**Real gaps:**\n\n1. **`probeInstance` is broken by this plan and the plan doesn't mention it.** `index.js` probes with `GET /?t=<token>` and requires `statusCode === 200` plus a `dlb_dash=` Set-Cookie. After the change: no cookie is ever set, and the probe itself *consumes the one-time exchange code* (or fails against an already-used one). Duplicate-start detection and any flow relying on the probe must be redesigned (e.g. a separate unauthenticated `/api/ping` that returns a startup nonce from the state file, or probe on a dedicated endpoint that doesn't accept `?t=`). This is a startup/ops correctness bug, not a polish item.\n\n2. **Idle-expiry semantics vs. SSE are undefined.** Does an open `/api/events` stream keep the session non-idle? If not, an actively-watching dashboard dies at 8 h mid-stream; if yes, say how (each event? periodic keepalive?) and specify whether SSE connects revalidate the secret against the current idle window. Also specify what an established SSE does when the session is revoked by logout (should close, not linger).\n\n3. **One-shot exchange has no recovery path.** If the browser fetch is interrupted after consuming the code (or the user opens the URL twice in tabs), the user is locked out until a full restart. Acceptable for a local tool, but the docs and the error page for a second/late `?t=` should tell the user exactly that (\"run `/deliberation:dashboard restart`\"), and `?t=` on an *expired-but-unused* code should say \"expired\" vs \"used\" ideally not distinguish — 401 for both is fine, but then the message must be generic.\n\n4. **Ops:** the printed URL line still lands in host transcripts (acknowledged, and now carrying only a dead code — fine), but the plan should state the transcript-leak rationale explicitly in TECHNICAL.md so a future reader doesn't \"fix\" it back to something worse. Also document that sessionStorage means a second tab of the same origin works only via duplicate-tab/session-restore flows, and dies on browser restart — user-facing behavior worth one line in SETUP.md.\n\nEverything else — constant-time comparisons extended to tickets, Host/Origin pinning retained, GET/HEAD only, CSP unchanged, opener deletion timing, 0600 state file with chmod-after-write, deferred multi-user gating (reasonable defer with docs) — is correct and appropriately scoped. Item 8's test list is good; add: probe/duplicate-start behavior, SSE reconnect with expired ticket, and revoked-session SSE teardown.\n\nVERDICT: REQUEST_CHANGES\n- [correctness] `probeInstance` in server/dashboard/index.js consumes the one-time exchange code and asserts a `dlb_dash=` Set-Cookie that the plan removes; duplicate-start detection breaks and is unaddressed.\n- [ambiguity] Idle expiry vs open SSE streams is unspecified: what refreshes the idle window, and what happens to an established `/api/events` on logout/revocation.\n- [ops] No user-facing recovery path for a burned/failed exchange; the 401 page and docs must direct users to restart to get a new code.",
+          "ms": 17826
+        }
+      ],
+      "roundMs": 598854,
+      "slowest": "openrouter:qwen3-8-max",
+      "adjudication": [
+        {
+          "issueId": "r2-host-1",
+          "source": "host",
+          "decision": "accept",
+          "reason": "grok and deepseek raise the same; v3 keeps the secret in localStorage (origin- and port-scoped) with the server-side idle expiry, and adds an in-process re-mint of a one-time code."
+        },
+        {
+          "issueId": "r2-grok-1",
+          "source": "grok",
+          "decision": "accept",
+          "reason": "A fragment survives in history and in anything that records full URLs; v3 has the boot script fetch the secret from a no-store JSON exchange and strip ?t= with replaceState."
+        },
+        {
+          "issueId": "r2-grok-2",
+          "source": "grok",
+          "decision": "accept",
+          "reason": "Checked index.js: the state file holds the token and probeInstance calls /?t= and expects dlb_dash. v3 keeps every secret in memory only and probes an unauthenticated identity route."
+        },
+        {
+          "issueId": "r2-grok-3",
+          "source": "grok",
+          "decision": "accept",
+          "reason": "A ticket checked only at connect would keep streaming content after revocation; adopted as proposed."
+        },
+        {
+          "issueId": "r2-grok-4",
+          "source": "grok",
+          "decision": "accept",
+          "reason": "Node handles both requests on one thread, but the plan must say consume-then-respond and test the parallel case; adopted."
+        },
+        {
+          "issueId": "r2-grok-5",
+          "source": "grok",
+          "decision": "accept",
+          "reason": "v3 replaces native retry with a client loop that mints a fresh ticket and resumes from Last-Event-ID; an open stream does not refresh the idle timer."
+        },
+        {
+          "issueId": "r2-grok-6",
+          "source": "grok",
+          "decision": "accept",
+          "reason": "Same as the host per-tab issue; v3 adds `dashboard --code`, which asks the running process for a new one-time code over the authenticated loopback, and lists every doc surface."
+        },
+        {
+          "issueId": "r2-deepseek-v4-pro-0813-1",
+          "source": "openrouter:deepseek-v4-pro-0813",
+          "decision": "accept",
+          "reason": "Same as the grok statePath issue."
+        },
+        {
+          "issueId": "r2-deepseek-v4-pro-0813-2",
+          "source": "openrouter:deepseek-v4-pro-0813",
+          "decision": "accept",
+          "reason": "Same as the grok probe issue."
+        },
+        {
+          "issueId": "r2-deepseek-v4-pro-0813-3",
+          "source": "openrouter:deepseek-v4-pro-0813",
+          "decision": "accept",
+          "reason": "v3 accepts a ticket on /api/events only and rejects query credentials on every other route, with a test for a valid ticket without the header."
+        },
+        {
+          "issueId": "r2-deepseek-v4-pro-0813-4",
+          "source": "openrouter:deepseek-v4-pro-0813",
+          "decision": "accept",
+          "reason": "Today no-store is set only on /api/*; v3 sets it on the exchange routes too."
+        },
+        {
+          "issueId": "r2-deepseek-v4-pro-0813-5",
+          "source": "openrouter:deepseek-v4-pro-0813",
+          "decision": "accept",
+          "reason": "Same as the host per-tab issue."
+        },
+        {
+          "issueId": "r2-kimi-k3-1-pro-1",
+          "source": "openrouter:kimi-k3-1-pro",
+          "decision": "accept",
+          "reason": "Same as the grok probe issue."
+        },
+        {
+          "issueId": "r2-kimi-k3-1-pro-2",
+          "source": "openrouter:kimi-k3-1-pro",
+          "decision": "accept",
+          "reason": "Same as the grok revocation issue."
+        },
+        {
+          "issueId": "r2-kimi-k3-1-pro-3",
+          "source": "openrouter:kimi-k3-1-pro",
+          "decision": "accept",
+          "reason": "Same as the grok reconnect issue."
+        },
+        {
+          "issueId": "r2-glm-5-3-flashx-1",
+          "source": "openrouter:glm-5-3-flashx",
+          "decision": "accept",
+          "reason": "Same as the grok probe issue."
+        },
+        {
+          "issueId": "r2-glm-5-3-flashx-2",
+          "source": "openrouter:glm-5-3-flashx",
+          "decision": "accept",
+          "reason": "Same as the grok reconnect and revocation issues; v3 specifies both."
+        },
+        {
+          "issueId": "r2-glm-5-3-flashx-3",
+          "source": "openrouter:glm-5-3-flashx",
+          "decision": "accept",
+          "reason": "v3's 401 page names `dashboard --code`."
+        }
+      ],
+      "hostVerdict": "REQUEST_CHANGES",
+      "revision": "Security review: the local dashboard's access control in the Deliberation repo (server/dashboard/, as on master at 4bf190b)\n\nQuestion: is this access control adequate for what the dashboard serves, and what, if anything, must change before more users turn it on? Judge it against the threat model the repo states (quoted below), and say whether that model itself is the right one.\n\nWhat the dashboard is: a separate local process (`deliberation-mcp dashboard`, `/deliberation:dashboard`) that tails the run journal every Deliberation MCP process writes, and serves it read-only to a browser: live and past runs as state graphs, config, provider health, stats and an analyzer. With `dashboard.capture: \"metadata\"` (default) it serves no prompt or response text; with `\"content\"` it serves prompts and model answers (secrets scrubbed at write time). PII is redacted at serve time unless `dashboard.showPII` is on.\n\nThreat model as written in docs/dev/design-decisions.md (verbatim):\n\n> Threat model: loopback bind, Host/Origin pinned to `127.0.0.1:<port>`/`localhost:<port>` against DNS rebinding, a per-start 32-byte token in the printed URL swapped for an `HttpOnly; SameSite=Strict` cookie (browsers send it to every 127.0.0.1 port: Host/Origin checks and `nosniff` stop a web page from reading data cross-port, but a local service that receives the cookie can replay the token server-side, e.g. curl with `Host: 127.0.0.1:<port>` plus the cookie or `?t=`, and read all dashboard data. Accepted because any local listener is already inside the same-machine trust boundary - the design scope is a single-user laptop; `dlb_dash` is only issued after the user opens the tokenized URL, and a restart rotates the token. On shared multi-user machines, do not enable the dashboard or `capture: \"content\"`), the token kept off argv via a 0600 redirect file, and CSP + `textContent`-only rendering.\n\nRoutes after the guard (all GET/HEAD): `/` (UI), `/assets/*` (static, realpath-confined to the UI dir), `/api/runs`, `/api/runs/<id>`, `/api/config`, `/api/health`, `/api/stats`, `/api/analyzer`, `/api/events` (SSE stream of journal events).\n\n=== server/dashboard/server.js ===\nconst COOKIE = \"dlb_dash\";\nconst KEEPALIVE_MS = 15000;\n// A client this far behind is dropped; it reconnects with Last-Event-ID and resumes.\nconst SSE_MAX_BUFFERED = 1 << 20;\nconst BASE_HEADERS = Object.freeze({\n  \"Content-Security-Policy\": \"default-src 'self'; frame-ancestors 'none'\",\n  \"X-Content-Type-Options\": \"nosniff\",\n  \"Referrer-Policy\": \"no-referrer\",\n});\n...\n/**\n * Constant-time token check. Length is not secret (always 64 hex chars).\n * @param {unknown} given\n * @param {Buffer} expected\n */\nfunction tokenMatches(given, expected) {\n  if (typeof given !== \"string\") return false;\n  const buf = Buffer.from(given, \"utf8\");\n  return buf.length === expected.length && crypto.timingSafeEqual(buf, expected);\n}\n\n/** @param {string|undefined} header @returns {string|undefined} */\nfunction readCookie(header) {\n  if (!header) return undefined;\n  for (const part of header.split(\";\")) {\n    const i = part.indexOf(\"=\");\n    if (i > 0 && part.slice(0, i).trim() === COOKIE) return part.slice(i + 1).trim();\n  }\n  return undefined;\n}\n\n...\n  /**\n   * Every check that must pass before routing. Sends the rejection and returns\n   * false, or returns true to continue.\n   * @param {http.IncomingMessage} req @param {http.ServerResponse} res @param {URL} url\n   */\n  function guard(req, res, url) {\n    const port = boundPort();\n    const hosts = [`127.0.0.1:${port}`, `localhost:${port}`];\n    const host = String(req.headers.host || \"\").toLowerCase();\n    if (!hosts.includes(host)) return sendJson(req, res, 403, { error: \"forbidden host\" }), false;\n    const origin = req.headers.origin;\n    if (origin !== undefined && !hosts.some((h) => origin.toLowerCase() === `http://${h}`)) {\n      return sendJson(req, res, 403, { error: \"forbidden origin\" }), false;\n    }\n    if (req.method !== \"GET\" && req.method !== \"HEAD\") {\n      res.setHeader(\"Allow\", \"GET, HEAD\");\n      return sendJson(req, res, 405, { error: \"method not allowed\" }), false;\n    }\n    const t = url.searchParams.get(\"t\");\n    if (t !== null) {\n      if (!tokenMatches(t, expected)) return sendJson(req, res, 401, { error: \"unauthorized\" }), false;\n      // Not a 302: the browser is opened through a file:// redirect page, so a redirect\n      // would still be a cross-site navigation and Chrome would withhold the Strict cookie\n      // from the redirected GET /. A same-origin page that refreshes to / is same-site.\n      res.writeHead(200, {\n        \"Content-Type\": \"text/html; charset=utf-8\",\n        \"Cache-Control\": \"no-store\",\n        \"Set-Cookie\": `${COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/`,\n      });\n      res.end(req.method === \"HEAD\" ? undefined : '<!doctype html><meta charset=\"utf-8\"><meta http-equiv=\"refresh\" content=\"0;url=/\"><title>Deliberation dashboard</title><a href=\"/\">Open the dashboard</a>\\n');\n      return false;\n    }\n    if (!tokenMatches(readCookie(req.headers.cookie), expected)) return sendJson(req, res, 401, { error: \"unauthorized\" }), false;\n    return true;\n  }\n...\n  /** @param {http.IncomingMessage} req @param {http.ServerResponse} res */\n  async function handle(req, res) {\n    for (const [k, v] of Object.entries(BASE_HEADERS)) res.setHeader(k, v);\n    const url = new URL(req.url || \"/\", \"http://127.0.0.1\");\n    if (url.pathname.startsWith(\"/api/\")) res.setHeader(\"Cache-Control\", \"no-store\");\n    if (!guard(req, res, url)) return;\n\n\n=== server/dashboard/index.js (startup) ===\n/** @param {number} port @param {string} token */\nconst urlLine = (port, token) => `Deliberation dashboard: http://127.0.0.1:${port}/?t=${token}\\n`;\n\n/** @param {string} statePath */\nconst openerPath = (statePath) => path.join(path.dirname(statePath), \"dashboard-open.html\");\n...\n/**\n * Best effort; the URL line is already printed. The tokenized URL never goes on a child's\n * argv (readable by other local users through ps or /proc): it goes into a 0600 redirect\n * page next to the pidfile, and the opener gets that file's path.\n * @param {string} url  built from an integer port and a hex token, so it needs no escaping\n * @param {{statePath: string, spawn?: typeof spawn, platform?: NodeJS.Platform}} opts\n */\nfunction openBrowser(url, opts) {\n  const spawnFn = opts.spawn || spawn;\n  const platform = opts.platform || process.platform;\n  const file = openerPath(opts.statePath);\n  try {\n    fs.writeFileSync(file, `<!doctype html><meta charset=\"utf-8\"><meta http-equiv=\"refresh\" content=\"0;url=${url}\"><title>Deliberation dashboard</title><a href=\"${url}\">Open the dashboard</a>\\n`, { mode: 0o600 });\n    fs.chmodSync(file, 0o600);\n  } catch {\n    return;\n  }\n  const target = pathToFileURL(file).href;\n  const [cmd, args] = platform === \"darwin\" ? [\"open\", [target]]\n    : platform === \"win32\" ? [\"cmd\", [\"/c\", \"start\", \"\", target]]\n    : [\"xdg-open\", [target]];\n  try {\n    const child = spawnFn(cmd, args, { detached: true, stdio: \"ignore\" });\n    child.on(\"error\", () => {});\n    child.unref();\n  } catch {\n    // no opener on this machine\n  }\n}\n...\n\n/**\n * True only when a dashboard answers the token on `port` with its 302: a live pid alone\n * may be an unrelated process that reused it.\n * @param {number} port @param {string} token @param {number} [timeoutMs]\n * @returns {Promise<boolean>}\n */\nfunction probeInstance(port, token, timeoutMs = 500) {\n  return new Promise((resolve) => {\n    const req = http.get({ host: \"127.0.0.1\", port, path: `/?t=${token}`, headers: { Host: `127.0.0.1:${port}` }, timeout: timeoutMs }, (res) => {\n      res.resume();\n      resolve(res.statusCode === 200 && String(res.headers[\"set-cookie\"] || \"\").startsWith(\"dlb_dash=\"));\n    });\n    req.on(\"timeout\", () => req.destroy());\n    req.on(\"error\", () => resolve(false));\n  });\n}\n...\n  const token = crypto.randomBytes(32).toString(\"hex\");\n  const port = args.port !== undefined ? args.port : cfg.dashboard.port;\n  const server = createDashboardServer({ port, token, uiDir: UI_DIR, index, tailer, getConfig: rt.getConfig, runtimeReport:()=>({dashboardRuntimeId:mcp.history.runtimeId,runtimes:require('../../core/config-history.js').readRuntimes(path.join(runsDir,'..','history')),note:'Only processes with dashboard journaling enabled are discoverable. Heartbeat freshness is observation, not proof of liveness.'}), health: () => healthReport(rt), stats });\n  try {\n    await new Promise((resolve, reject) => {\n      server.once(\"error\", reject);\n      server.listen(port, \"127.0.0.1\", () => resolve(undefined));\n    });\n  } catch (e) {\n...\n  fs.mkdirSync(path.dirname(statePath), { recursive: true, mode: 0o700 });\n  // procStartedAt + argv let --stop prove a pid is this dashboard before signalling it.\n  fs.writeFileSync(statePath, JSON.stringify({ pid: process.pid, port: bound, token, startedAt: Date.now(), procStartedAt: Math.round(Date.now() - process.uptime() * 1000), argv: process.argv }), { mode: 0o600 });\n  fs.chmodSync(statePath, 0o600); // a stale file keeps its old mode through writeFileSync\n  const removeState = () => {\n    const s = readState(statePath);\n    if (s && s.pid === process.pid) fs.rmSync(statePath, { force: true });\n    fs.rmSync(openerPath(statePath), { force: true });\n  };\n  process.once(\"exit\", removeState);\n\nOther facts:\n- The printed URL line (`urlLine`) goes to the dashboard's stdout, which the host agent's transcript captures when `/deliberation:dashboard` starts it.\n- The state file (`statePath`) and the redirect page live under the user's cache dir (`<XDG cache>/deliberation/`), created 0700.\n- There is no logout, no token expiry while the process runs, and the cookie value is the token itself.\n\n=== Proposed changes, revised after round 2 (the code above is unchanged; this is the remediation plan) ===\n\n1. Two secrets, memory only. At start the server draws a one-time exchange code (32 random bytes); each exchange mints a session secret (32 random bytes). Neither is written to the state file, which keeps only pid, port, argv and procStartedAt for `--stop`. Duplicate-start detection probes a new unauthenticated `GET /api/identity` (returns the pid and a per-start public id, no data), so no probe ever presents the code.\n2. Exchange. `/?t=<code>` serves the static UI shell with `Cache-Control: no-store` and `Referrer-Policy: no-referrer`; its boot script removes `?t=` from the address bar and history with `history.replaceState` before anything else, then calls `GET /api/exchange?t=<code>`, which consumes the code before it responds (a second or parallel request gets 401; tested in parallel) and returns `{ secret }` as a no-store JSON body. The secret never appears in a URL. The code also expires 10 minutes after it is minted.\n3. Header-only credential. The secret is kept in `localStorage` (scoped to this origin and port, so pages on other ports cannot read it, and new tabs of the dashboard share it). Every `/api/*` route except `/api/identity` and `/api/exchange` requires `X-Dashboard-Session`; no cookie is set or read, and query credentials are refused on every route but `/api/events`.\n4. SSE. `/api/events` accepts only `?ticket=`: 32 random bytes from `GET /api/ticket` (header required), bound to that session, single use, 30-second lifetime, never logged. The UI does not use native EventSource retry: on error it mints a new ticket and reconnects with the last event id as `since`.\n5. Lifetime and revocation. A session expires after 8 hours without an authenticated request; an open stream does not refresh it. `GET /api/logout` (header required) and idle expiry revoke the session, invalidate its unused tickets and end its open streams. A restart drops everything.\n6. Re-entry. `deliberation-mcp dashboard --code` asks the running process for a fresh one-time code over a 0600 Unix domain socket (a named pipe on Windows) in the 0700 state dir, writes a new 0600 opener page and opens it. The 401 page says to run it. stdout carries only one-time codes, never a session secret.\n7. Unchanged: loopback bind, Host and Origin pinned to the bound port, GET/HEAD only, CSP `default-src 'self'; frame-ancestors 'none'`, nosniff, no-referrer, textContent-only rendering, constant-time comparisons.\n8. Threat model rewrite in docs/dev/design-decisions.md and TECHNICAL.md as in round 1 (other local listeners, OS users and containers are outside the trust boundary; no shared machines, proxies, tunnels or port forwarding; Windows relies on profile ACLs), plus README.md, SETUP.md, docs/tool-guide.md and commands/dashboard.md for the new flow and `--code`.\n9. Tests: parallel exchange gives one secret; late and reused codes get 401; no secret on disk or in any URL; `/api/*` without the header gets 401, a cookie alone gets 401, a query credential off `/api/events` gets 401; a valid ticket without the header works once on `/api/events` only; logout and idle expiry end an open stream and void unused tickets; reconnect mints a new ticket and resumes from the last id; `--code` works while running; the identity probe needs no secret.\n\nOut of scope (deferred): refusing to start `capture: \"content\"` on a detected multi-user machine.\n",
+      "revisionSummary": "Secrets memory-only with an unauthenticated identity probe; secret delivered in a no-store exchange body, never a URL; localStorage so tabs share it; tickets scoped to /api/events, session-bound and revoked with their streams; client reconnect loop; dashboard --code for re-entry; wider docs and tests.",
+      "convergence": {
+        "converged": false,
+        "reason": "Every answering voice (4 of 5) voted REQUEST_CHANGES on the remediation plan; openrouter:qwen3-8-max timed out again. All four found that probeInstance and the state file would burn or store the new one-time code, and three that revocation must end open SSE streams. The host accepted all 18 issues, but round 2 was the cap (maxRounds 2), so the loop ended unresolved with a third plan that no reviewer saw."
+      }
+    }
+  ],
+  "outcome": {
+    "verdict": "REQUEST_CHANGES",
+    "converged": false,
+    "rounds": 2,
+    "confidence": "none",
+    "finalReportHeadline": "UNRESOLVED after 2 round(s)",
+    "openDissent": [
+      {
+        "source": "grok",
+        "issue": "The round 2 plan put the session secret in a URL fragment, left the token in the state file and the probe, and did not end open SSE streams on revocation; the v3 plan answers each point but was never reviewed."
+      },
+      {
+        "source": "openrouter:deepseek-v4-pro-0813",
+        "issue": "statePath and probeInstance still carry or redeem the exchange code, the ticket was not scoped to /api/events, and the exchange response lacked no-store."
+      },
+      {
+        "source": "openrouter:kimi-k3-1-pro",
+        "issue": "probeInstance must not consume the code, revocation must end streams and void tickets, and each reconnect needs a new ticket."
+      },
+      {
+        "source": "openrouter:glm-5-3-flashx",
+        "issue": "probeInstance breaks duplicate-start detection, the idle window versus open streams is undefined, and a burned code has no recovery path for the user."
+      }
+    ],
+    "nonBlockingThemes": [
+      {
+        "theme": "Refusing capture: \"content\" or showPII on a detected multi-user machine needs a reliable detection method of its own; deferred and listed as out of scope.",
+        "raisedBy": [
+          "openrouter:deepseek-v4-pro-0813"
+        ]
+      },
+      {
+        "theme": "probeInstance's comment says the dashboard answers the token with a 302, while the server answers 200 with a meta refresh.",
+        "raisedBy": [
+          "host (blind)"
+        ]
+      },
+      {
+        "theme": "/api/events has no cap on concurrent streams.",
+        "raisedBy": [
+          "host (blind)"
+        ]
+      }
+    ]
+  },
+  "notes": [
+    "Recorded live with the consensus-step tool of this repo's MCP server (server/mcp/index.js at v4.6.1), driven over stdio by the host acting as arbiter per commands/consensus.md. The recording config set consensus.maxRounds to 2 for this run, so a disagreement left after round 2 ends unresolved; codex and gemini were disabled on the recording machine.",
+    "The subject is the dashboard code on master at 4bf190b, quoted with the threat model paragraph from docs/dev/design-decisions.md; the host wrote the framing lines and the list of other facts. No reviewer was asked to agree or disagree. The round 1 and round 2 revisions are remediation plans the host wrote from the accepted issues; none of them is implemented.",
+    "openrouter:qwen3-8-max timed out at its 600 s ceiling in both rounds (errorKind timeout, message verbatim); an errored voice does not count toward convergence. Its summary and text are null.",
+    "Peer text, verdicts, critical issues, models, reasoning effort and ms are verbatim from the run journal (dashboard.capture: content). Model replies may contain non-ASCII punctuation; it is kept as returned.",
+    "Each peer summary is copied verbatim from the reply's <SUMMARY> block, or from its **Summary** line. openrouter:glm-5-3-flashx's replies have neither (a free-form review, then the VERDICT line and bullets), so its summary is null in both rounds.",
+    "openrouter:deepseek-v4-pro-0813 voted APPROVE in round 1 and listed six bullets, two of which the engine parsed from its OWASP checklist and closing line; the host dismissed those two as carrying no defect.",
+    "The final revision (rounds[1].revision) was submitted after the round cap, so the engine recorded it and ended the loop; no reviewer saw it.",
+    "Trimmed as boilerplate: per-call provenance (runtime, activation, attempt and config ids, the config snapshot), the full loop and session ids, and the engine finalReport body, which repeats the final plan word for word.",
+    "subject.title, revisionSummary, convergence.reason, outcome.openDissent and outcome.nonBlockingThemes are written by the host; the engine returns converged, verdict and confidence only. outcome.verdict is the host's last adjudicated verdict."
+  ]
+}

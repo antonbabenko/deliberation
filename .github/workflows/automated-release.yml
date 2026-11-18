@@ -21,6 +21,13 @@ on:
   push:
     branches:
       - master
+    # The website (site/) is not released. A push that touches only these paths does
+    # not run this workflow. Site commits must also use a non-releasing type
+    # (docs(site): / chore(site): / ci(site):) so that, merged next to other commits,
+    # they add nothing to the changelog or the version bump (CONTRIBUTING.md).
+    paths-ignore:
+      - 'site/**'
+      - '.github/workflows/site.yml'
   workflow_dispatch:
 
 permissions:

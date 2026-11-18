@@ -1,0 +1,66 @@
+<!doctype html>
+<!-- Source of site/public/og.png (1200x630). Render it with: node scripts/og.mjs
+     Design "Capture" (site/DESIGN.md): graticule paper, the mark, the pinned tagline and
+     a capture with one lane per voice and the eight experts by name (the H1 of each file
+     in prompts/). System fonts only; nothing is loaded. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Deliberation - Open Graph image</title>
+<style>
+:root{--bg:oklch(0.974 0.007 95);--bg2:oklch(0.948 0.009 95);--fg:oklch(0.25 0.012 95);--fg2:oklch(0.45 0.014 95);
+--rule:oklch(0.86 0.013 95);--rule2:oklch(0.915 0.011 95);--rule-s:oklch(0.72 0.014 95);
+--ok:oklch(0.52 0.12 150);--ok-t:oklch(0.44 0.11 150);--tmo:oklch(0.62 0.14 72);--tmo-t:oklch(0.47 0.11 65);
+--k1:oklch(0.49 0.15 258);--k2:oklch(0.49 0.13 305);--k3:oklch(0.49 0.09 200);
+--mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono","DejaVu Sans Mono",monospace;
+--sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
+*{box-sizing:border-box;margin:0}
+html,body{width:1200px;height:630px;overflow:hidden}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);display:grid;grid-template-rows:auto 1fr auto}
+.top{display:flex;align-items:center;gap:16px;padding:20px 56px;background:var(--bg2);border-bottom:1px solid var(--rule)}
+.top svg{width:40px;height:40px}
+.top b{font:700 22px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase}
+.top span{margin-left:auto;font:400 17px/1 var(--mono);color:var(--fg2)}
+main{padding:34px 56px 0}
+h1{font:600 56px/1.08 var(--sans);letter-spacing:-.022em;max-width:24ch;text-wrap:balance}
+p{margin-top:16px;font:400 25px/1.3 var(--sans);color:var(--fg2)}
+.scope{margin:0 56px;border:1px solid var(--rule);border-radius:2px;background:var(--bg)}
+.lane{display:grid;grid-template-columns:150px 1fr;align-items:center;height:44px;border-top:1px solid var(--rule2)}
+.lane:first-child{border-top:0}
+.lane b{padding-left:16px;font:600 15px/1 var(--mono)}
+.track{position:relative;height:44px;background:linear-gradient(to right,var(--rule2) 1px,transparent 1px) 0 0/12.5% 100%}
+.track::before{content:"";position:absolute;left:0;right:0;top:20px;height:1.5px;background:var(--ink)}
+.seg{position:absolute;top:0;height:44px}
+.seg i{position:absolute;left:0;right:0;top:6px;height:15.5px;border:1.5px solid var(--ink);border-bottom:0;background:var(--bg)}
+.seg u{position:absolute;left:0;top:24px;height:17px;padding:0 7px;border:1px solid var(--ok);border-radius:2px;background:color-mix(in oklch,var(--ok) 11%,var(--bg));color:var(--ok-t);font:600 11.5px/15px var(--mono);letter-spacing:.04em;text-decoration:none;white-space:nowrap}
+.seg.rc u{border-color:var(--tmo);border-style:dashed;background:color-mix(in oklch,var(--tmo) 12%,var(--bg));color:var(--tmo-t)}
+.experts{margin:22px 56px 34px;display:grid;grid-template-columns:auto repeat(4,1fr);gap:8px;align-items:stretch}
+.experts b{grid-row:span 2;display:grid;align-content:center;padding-right:22px;font:650 15px/1.35 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--fg2)}
+.experts span{display:grid;place-items:center;height:42px;border:1px solid var(--rule-s);border-radius:3px;background:var(--bg);font:600 19px/1 var(--mono);letter-spacing:.03em;text-transform:uppercase;white-space:nowrap}
+.i1{--ink:var(--k1)}.i2{--ink:var(--k2)}.i3{--ink:var(--k3)}
+</style>
+</head>
+<body>
+<div class="top">
+  <svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="10" fill="#15171a"/><g fill="none" stroke-width="6.5" stroke-linecap="round"><path d="M11.5 12H28.5A20 20 0 0 1 48.5 32" stroke="#7cb4fc"/><path d="M11.5 32H48.5" stroke="#c39dee"/><path d="M11.5 52H28.5A20 20 0 0 0 40.81 47.76" stroke="#5ecbcb"/></g><circle cx="48.5" cy="32" r="7.47" fill="#e8e6e0"/></svg>
+  <b>Deliberation</b>
+  <span>usedeliberation.com</span>
+</div>
+<main>
+  <h1>A second opinion from other models before you ship.</h1>
+  <p>Any host, any vendor, one verdict, and the disagreement stays visible.</p>
+</main>
+<!-- An illustration of the capture, not a recorded run: two rounds, one reviewer holds out in the first. -->
+<div class="scope" aria-hidden="true">
+  <div class="lane i1"><b>gpt</b><div class="track"><span class="seg rc" style="left:3%;width:22%"><i></i><u>REQ_CHANGES</u></span><span class="seg" style="left:56%;width:18%"><i></i><u>APPROVE</u></span></div></div>
+  <div class="lane i2"><b>gemini</b><div class="track"><span class="seg" style="left:3%;width:13%"><i></i><u>APPROVE</u></span><span class="seg" style="left:56%;width:11%"><i></i><u>APPROVE</u></span></div></div>
+  <div class="lane i3"><b>grok</b><div class="track"><span class="seg" style="left:3%;width:36%"><i></i><u>APPROVE</u></span><span class="seg" style="left:56%;width:30%"><i></i><u>APPROVE</u></span></div></div>
+</div>
+<!-- Names: the H1 of each file in prompts/, in the order the site lists them. -->
+<div class="experts">
+  <b>Eight<br>experts</b>
+  <span>Scope Analyst</span><span>Architect</span><span>Plan Reviewer</span><span>Researcher</span>
+  <span>Code Reviewer</span><span>Security Analyst</span><span>Debugger</span><span>Writing Editor</span>
+</div>
+</body>
+</html>

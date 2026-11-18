@@ -1,0 +1,130 @@
+/* Deliberation site: top bar chrome (version, menus, search), the capture's click cues
+   and prompt key, the install block's stable height, the scrollspy, the search dialog
+   and the talks page.
+   Loaded after site.css; same tokens, same keys. */
+
+/* ---- top bar: version beside the name ---- */
+.brand-line{display:inline-flex;align-items:baseline;gap:10px}
+.brand-line .brand{align-self:center}
+.ver{font:400 11.5px/1 var(--mono);letter-spacing:.04em;color:var(--fg2);text-decoration:none;padding:4px 0}
+.ver:hover{color:var(--fg);text-decoration:underline}
+
+/* ---- top bar: disclosure menus ---- */
+html.js .nav .no-js{display:none}
+.nav button{display:inline-flex;align-items:center;gap:7px;height:28px;padding:0 9px 0 11px;white-space:nowrap;cursor:pointer;font:500 11.5px/1 var(--mono);letter-spacing:.07em;text-transform:uppercase;color:var(--fg);background:var(--bg);border:1px solid var(--rule-s);border-radius:3px;transition:border-color .15s ease-out,background-color .15s ease-out}
+.nav button:hover,.nav button[aria-expanded=true]{border-color:var(--fg)}
+.nav button[aria-current]{background:var(--fg);border-color:var(--fg);color:var(--bg)}
+.caret{width:9px;height:6px;fill:none;stroke:currentColor;stroke-width:1.5;transition:transform .15s ease-out}
+[aria-expanded=true] .caret{transform:rotate(180deg)}
+.nav .menu-list{display:block;position:absolute;z-index:15;left:var(--gut);right:var(--gut);margin-top:6px;padding:4px;background:var(--bg);border:1px solid var(--fg);border-radius:3px;box-shadow:0 12px 28px -14px oklch(0 0 0/.4);max-height:70vh;overflow:auto;overscroll-behavior:contain}
+.nav .menu-list a{display:flex;justify-content:space-between;align-items:baseline;gap:4px 18px;flex-wrap:wrap;height:auto;min-height:40px;padding:10px;border:0;border-radius:2px;background:none;color:var(--fg);font:400 13px/1.35 var(--mono);letter-spacing:0;text-transform:none;white-space:normal}
+.nav .menu-list a:hover,.nav .menu-list a:focus-visible{background:color-mix(in oklch,var(--fg) 8%,transparent)}
+.nav .menu-list a[aria-current]{background:none;color:var(--fg);font-weight:650}
+.nav .menu-list a span{font-size:11.5px;color:var(--fg2)}
+.nav .menu-list .menu-all{font-weight:600;border-bottom:1px solid var(--rule);border-radius:2px 2px 0 0}
+.top{position:relative}
+@media (min-width:760px){
+.nav .menu{position:relative}
+.nav .menu-list{left:auto;right:0;width:max-content;min-width:260px;max-width:min(440px,90vw)}
+.nav .menu-list a{min-height:0;padding:8px 10px}}
+@media (prefers-reduced-motion:no-preference){html.motion .menu-list:not([hidden]){animation:rise .15s var(--ease) backwards}}
+
+/* ---- hero: install block sits at the top and keeps one height for every host ---- */
+@media (min-width:1000px){.hero{align-items:start}}
+.install .hosts .panels{display:grid}
+.install .hosts .panel{display:block;grid-area:1/1;min-width:0;visibility:hidden}
+.install .hosts input:nth-of-type(1):checked~.panels>.panel:nth-child(1),.install .hosts input:nth-of-type(2):checked~.panels>.panel:nth-child(2),.install .hosts input:nth-of-type(3):checked~.panels>.panel:nth-child(3),.install .hosts input:nth-of-type(4):checked~.panels>.panel:nth-child(4),.install .hosts input:nth-of-type(5):checked~.panels>.panel:nth-child(5),.install .hosts input:nth-of-type(6):checked~.panels>.panel:nth-child(6),.install .hosts input:nth-of-type(7):checked~.panels>.panel:nth-child(7),.install .hosts input:nth-of-type(8):checked~.panels>.panel:nth-child(8),.install .hosts input:nth-of-type(9):checked~.panels>.panel:nth-child(9),.install .hosts input:nth-of-type(10):checked~.panels>.panel:nth-child(10){visibility:visible}
+
+/* ---- capture: say that the boxes open, and show it ---- */
+.cap-cue{display:inline-flex;align-items:center;gap:9px}
+.cue-box{flex:none;width:22px;height:13px;border:1px solid var(--ok);border-radius:2px;background:color-mix(in oklch,var(--ok) 11%,var(--bg))}
+.cue-wide{display:none}
+@media (min-width:1000px){.cue-wide{display:inline}.cue-narrow{display:none}}
+.runs label{grid-auto-flow:column;align-items:center;gap:10px}
+.r-out{font-weight:500;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;padding:2px 5px;border:1px solid var(--ok);border-radius:2px}
+.r-out.open{border-style:dashed;border-color:var(--tmo)}
+.runs input:checked+label .r-out{border-color:currentColor}
+.ro-prompt{margin-left:auto;align-self:center}
+.ro-prompt .key{height:28px;padding:0 11px;cursor:pointer}
+.ro-prompt .key:hover{border-color:var(--fg)}
+.ro-prompt .key[aria-expanded=true]{background:var(--fg);border-color:var(--fg);color:var(--bg)}
+.ro-prompt .key:disabled{cursor:default;color:var(--fg2)}
+.ask{font-size:14px;line-height:1.5;max-width:60ch}
+/* a box lifts under the pointer or the focus ring; a row in the narrow list tints */
+.seg .dec,.seg .dt{transition:transform .15s var(--ease),background-color .15s ease-out}
+.seg:not(:disabled):hover .dec,.seg:not(:disabled):hover .dt,.seg:focus-visible .dec,.seg:focus-visible .dt{transform:translateY(-2px)}
+.seg:not(:disabled):hover .dec{outline:1px solid var(--fg);outline-offset:1px}
+.seg:not(:disabled):hover .dt{text-decoration:underline;text-underline-offset:.2em}
+.seg.err:not(:disabled):hover .dec,.seg.tmo:not(:disabled):hover .dec,.seg.rej:not(:disabled):hover .dec,.seg.nr:not(:disabled):hover .dec{outline:1px solid var(--fg);outline-offset:1px}
+.cl:not(:disabled):hover{background:color-mix(in oklch,var(--fg) 5%,transparent)}
+.cl::after{content:"";grid-row:1;grid-column:3;justify-self:end;width:7px;height:7px;margin-left:10px;border-right:1.5px solid var(--fg2);border-top:1.5px solid var(--fg2);transform:rotate(45deg)}
+.cl{grid-template-columns:12px minmax(0,1fr) auto auto}
+.cl .vd{grid-column:3}
+.cl::after{grid-column:4}
+.cl:disabled::after{content:none}
+/* one hint, after the lanes are drawn: a ring leaves the first answer box twice, then
+   stops for good. It also stops the moment any answer is opened. */
+@media (prefers-reduced-motion:no-preference){
+html.motion [data-capture]:not([data-used]) .seg.hint:not(:disabled) .dec::after{content:"";position:absolute;inset:-1px;border:1.5px solid var(--fg);border-radius:2px;opacity:0;pointer-events:none;animation:ping 1.1s var(--ease) 1.7s 2}}
+@keyframes ping{from{opacity:.9;transform:scale(1)}to{opacity:0;transform:scale(1.18,1.9)}}
+
+/* ---- "On this page": the section being read (src/scripts/scrollspy.js). Colour and
+   underline only, so the list keeps its width. ---- */
+[data-spy] a{transition:color .15s ease-out}
+[data-spy] a[aria-current]{font-weight:400;color:var(--fg);text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:.3em}
+/* doc pages: the list sits under the section list in the sticky column, which scrolls on
+   its own when the two are taller than the window. Under 980px the column is a one-line
+   strip and the list is printed above the text instead (.toc, content.css). */
+.side-toc{display:none}
+@media (min-width:980px){
+.side{overscroll-behavior:contain;scrollbar-color:var(--rule-s) transparent;padding-right:10px}
+.side-toc{display:block;margin-top:22px;padding-top:18px;border-top:1px solid var(--rule)}
+.side-toc li{padding:4px 0}
+.side-toc li.deep{padding-left:12px}
+.side-toc li.deep a{font-size:12px}}
+
+/* ---- search: the key in the top bar and the dialog ---- */
+.nav kbd,.search kbd{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 4px;font:500 10.5px/1 var(--mono);letter-spacing:0;text-transform:none;color:var(--fg2);border:1px solid var(--rule-s);border-radius:2px}
+.nav .search-key{padding-right:6px}
+.search{width:min(700px,calc(100vw - 2*var(--gut)));max-width:none;max-height:min(680px,calc(100dvh - 2*var(--gut)));margin:max(var(--gut),9vh) auto auto;padding:0;overflow:hidden;color:var(--fg);background:var(--bg);border:1px solid var(--fg);border-radius:3px;box-shadow:0 24px 48px -20px oklch(0 0 0/.45)}
+.search[open]{display:grid;grid-template-rows:auto auto minmax(0,1fr) auto}
+.search::backdrop{background:oklch(0.2 0.006 250/.5)}
+.search-bar{display:flex;align-items:center;gap:12px;padding:10px 10px 10px 16px;background:var(--bg2);border-bottom:1px solid var(--rule)}
+.search-bar h2{font:650 11px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--fg2)}
+.search-bar input{flex:1;min-width:0;height:36px;padding:0 10px;font:400 17px/1 var(--sans);color:var(--fg);caret-color:var(--fg);background:var(--bg);border:1px solid var(--rule-s);border-radius:2px;appearance:none}
+.search-bar input::placeholder{color:var(--fg2)}
+.search-bar input::-webkit-search-cancel-button{display:none}
+.search-bar input:focus-visible{outline-offset:-1px;border-color:var(--fg)}
+.search-bar .key{height:28px;padding:0 10px;cursor:pointer}
+.search-bar .key:hover{border-color:var(--fg)}
+.search-status{padding:10px 16px;font:400 12px/1.5 var(--mono);color:var(--fg2)}
+.search-results{list-style:none;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:var(--rule-s) transparent;border-top:1px solid var(--rule)}
+.search-results:empty{border-top:0}
+.search-results>li+li{border-top:1px solid var(--rule2)}
+.search-results ul{list-style:none;margin:0 16px 8px 30px;border-left:1px solid var(--rule)}
+.search-results a{display:block;padding:11px 16px;color:var(--fg);text-decoration:none}
+.search-results ul a{padding:6px 12px}
+.search-results a:hover,.search-results a:focus-visible{background:color-mix(in oklch,var(--fg) 7%,transparent)}
+.search-results a:focus-visible{outline-offset:-2px}
+.search-results b{display:block;font:600 16px/1.35 var(--sans);letter-spacing:-.006em}
+.search-results ul b{font:500 13px/1.4 var(--mono);letter-spacing:0}
+.search-ex{display:block;margin-top:3px;font-size:13.5px;line-height:1.5;color:var(--fg2);overflow-wrap:anywhere}
+.search-ex mark{padding:0 1px;color:var(--fg);font-weight:600;background:color-mix(in oklch,var(--fg) 13%,transparent);border-radius:1px}
+.search-keys{display:flex;flex-wrap:wrap;gap:6px 18px;padding:9px 16px;font:400 11px/18px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--fg2);background:var(--bg2);border-top:1px solid var(--rule)}
+.search-keys span{display:inline-flex;align-items:center;gap:5px}
+@media (pointer:coarse){.search-keys,.nav .search-key kbd{display:none}.nav .search-key{padding-right:11px}}
+@media (prefers-reduced-motion:no-preference){html.motion .search[open]{animation:rise .2s var(--ease) backwards}}
+
+/* ---- talks ---- */
+.talks{list-style:none;margin-top:28px;border-top:1px solid var(--rule-s)}
+.talks>li{display:grid;gap:20px 40px;padding:28px 0;border-bottom:1px solid var(--rule)}
+.talks>li>*{min-width:0}
+.talk-cover{display:block;border:1px solid var(--rule-s);border-radius:2px;overflow:hidden;transition:border-color .15s ease-out}
+.talk-cover:hover{border-color:var(--fg)}
+.talk-cover img{display:block;width:100%;height:auto}
+.talk-text h2{font:600 clamp(22px,2.2vw,28px)/1.2 var(--sans);letter-spacing:-.015em}
+.talk-line{margin-top:8px;font-size:17px;line-height:1.45;color:var(--fg2)}
+.talk-text .facts{margin-top:18px;padding-block:14px;border-block:1px solid var(--rule2)}
+.talk-text .facts+p{margin-top:16px;max-width:64ch}
+.talk-text .go{margin-top:18px}
+@media (min-width:900px){.talks>li{grid-template-columns:minmax(0,6fr) minmax(0,5fr);align-items:start}}

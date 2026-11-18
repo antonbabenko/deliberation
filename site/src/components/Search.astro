@@ -1,0 +1,21 @@
+---
+// Site search: a dialog over the Pagefind index that `npm run build` writes to
+// dist/pagefind/ (self-hosted, no third-party request). Opened by the Search key in the
+// top bar, by "/" and by Ctrl+K or Cmd+K. A native <dialog> keeps focus inside and closes
+// on Escape. The index does not exist under `astro dev`; the dialog then says so.
+import { BASE } from '../lib/seo.ts'
+---
+<dialog class="search" aria-labelledby="search-h" data-search data-index={`${BASE}pagefind/pagefind.js`}>
+  <form class="search-bar" role="search">
+    <h2 id="search-h"><label for="search-q">Search</label></h2>
+    <input id="search-q" type="search" name="q" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search"
+      placeholder="quorum, OpenRouter, timeout" aria-controls="search-results" aria-describedby="search-status" />
+    <button type="button" class="key" data-search-close aria-label="Close search">Esc</button>
+  </form>
+  <p id="search-status" class="search-status" role="status">Type to search the site.</p>
+  <ol id="search-results" class="search-results" aria-label="Results"></ol>
+  <p class="search-keys" aria-hidden="true"><span><kbd>Up</kbd><kbd>Down</kbd>move</span><span><kbd>Enter</kbd>open</span><span><kbd>Esc</kbd>close</span></p>
+</dialog>
+<script>
+  import '../scripts/search.js'
+</script>
