@@ -108,7 +108,7 @@ correlated by timestamp:
    - `target: "deliberation"` -> show the exact `config.json` edit
      (`configKey`), e.g. a copy-paste block the user can drop into
      `~/.config/deliberation/config.json`.
-   - `target: "external"` -> Gemini reasoning lives OUTSIDE deliberation (agy
+   - `target: "external"` -> Gemini reasoning lives OUTSIDE Deliberation (agy
      settings); surface it as advice, not an edit.
 
 6. **Print the compare links.** For each entry in `compare`, print its `group` and `url`
@@ -166,7 +166,7 @@ Slowest: <provider> p95 <x>ms on <okCalls> successful calls. Fast tier: <...>.
 ### Suggested config edits (advisory - not applied)
 ~/.config/deliberation/config.json:
   <copy-paste block>
-External (not deliberation config):
+External (not Deliberation config):
   <codex/gemini reasoning advice>
 ```
 

@@ -29,7 +29,7 @@ whole string is the question and the default OpenRouter model configured in `con
    `files: [{ path: "...", mode: "auto" }]` (text-inline; `{ dir: "..." }` also supported).
 3. Print: `OpenRouter (<alias-or-default>) working (typical 30-60s)...` where `<alias-or-default>` is the selected alias, or `default` when no alias was given.
 4. Call OpenRouter:
-   - If using the unified deliberation MCP server (`mcp__deliberation__ask-openrouter`):
+   - If using the unified Deliberation MCP server (`mcp__deliberation__ask-openrouter`):
      ```
      mcp__deliberation__ask-openrouter({
        prompt: "[7-section prompt]",

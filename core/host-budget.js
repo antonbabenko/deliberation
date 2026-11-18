@@ -74,7 +74,7 @@ function clampToHostBudget(timeoutMs, env = process.env, remainingMs) {
  */
 function hostBudgetHint(budgetMs, ceilingMs) {
   const ceiling = typeof ceilingMs === "number" && ceilingMs > 0 ? ceilingMs : Math.max(HOST_BUDGET_MIN_MS, budgetMs - HOST_BUDGET_MARGIN_MS);
-  return `Host ${HOST_BUDGET_ENV}=${budgetMs} caps every MCP tool call, so deliberation clamped this ` +
+  return `Host ${HOST_BUDGET_ENV}=${budgetMs} caps every MCP tool call, so Deliberation clamped this ` +
     `provider's ceiling to ${ceiling} ms. The plugin manifest sets a per-server "timeout": 1800000 ` +
     `(and the same ${HOST_BUDGET_ENV} in the server env), which overrides the host cap - so this is ` +
     `an older plugin install or a host without per-server timeouts. Claude Code on the web: update the ` +

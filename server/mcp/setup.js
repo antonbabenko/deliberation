@@ -144,7 +144,7 @@ function runSetup(deps) {
     for (const line of lines) out(line);
   };
 
-  out("deliberation setup");
+  out("Deliberation setup");
   out("");
 
   /**
@@ -223,7 +223,7 @@ function runSetup(deps) {
   print(providerGuidanceLines());
   out("");
   out("Next: set the env keys for the providers you use, then point your MCP");
-  out("host at the deliberation server (npx -y @antonbabenko/deliberation-mcp).");
+  out("host at the Deliberation server (npx -y @antonbabenko/deliberation-mcp).");
   return 0;
 }
 

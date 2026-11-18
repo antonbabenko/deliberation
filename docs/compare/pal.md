@@ -1,8 +1,8 @@
-# deliberation and PAL
+# Deliberation and PAL
 
 [PAL MCP server](https://github.com/BeehiveInnovations/pal-mcp-server) (formerly Zen MCP) and
-deliberation solve a similar problem: your coding agent asks other models for help over MCP.
-PAL covers more providers and has more tools. deliberation is smaller and focuses on
+Deliberation solve a similar problem: your coding agent asks other models for help over MCP.
+PAL covers more providers and has more tools. Deliberation is smaller and focuses on
 cross-model review, with rules that keep the orchestrating agent from approving its own plan.
 
 Already on PAL? The [migration guide](migrate-from-pal.md) maps tools and settings.
@@ -23,24 +23,24 @@ As of 2026-11-17, from the GitHub API and PAL's README:
 
 ## Where PAL is the better fit
 
-- **Provider breadth.** Azure OpenAI and DIAL have no deliberation equivalent. PAL calls the
-  OpenAI and Gemini APIs with keys; deliberation needs the `codex` and `agy` CLIs for those two.
+- **Provider breadth.** Azure OpenAI and DIAL have no Deliberation equivalent. PAL calls the
+  OpenAI and Gemini APIs with keys; Deliberation needs the `codex` and `agy` CLIs for those two.
 - **Code from capable models.** PAL's `chat` can return complete code from capable models.
-  deliberation's experts are prompted to advise; only Gemini, through the Claude Code plugin, can
+  Deliberation's experts are prompted to advise; only Gemini, through the Claude Code plugin, can
   edit files itself.
 - **Tool range.** `clink` starts other AI CLIs (Gemini CLI, Codex CLI, Claude Code) as subagents
   with their own context. `precommit`, `refactor`, `testgen`, `docgen`, `tracer`, `apilookup` and
-  `challenge` have no dedicated deliberation tool.
-- **Vision.** PAL sends images to models that accept them. deliberation is text only.
+  `challenge` have no dedicated Deliberation tool.
+- **Vision.** PAL sends images to models that accept them. Deliberation is text only.
 - **Long threads.** PAL carries a conversation across tools and models, and can revive Claude's
-  context after a reset ("continue with O3"). deliberation keeps follow-up threads only for
+  context after a reset ("continue with O3"). Deliberation keeps follow-up threads only for
   Gemini, Grok and OpenRouter in the Claude Code plugin, and they are lost on restart.
-- **Large prompts.** PAL works around the MCP prompt size limit. deliberation relies on each
+- **Large prompts.** PAL works around the MCP prompt size limit. Deliberation relies on each
   provider's context window.
-- **Adoption.** PAL has 11,842 GitHub stars and deliberation has 184 (both as of
+- **Adoption.** PAL has 11,842 GitHub stars and Deliberation has 184 (both as of
   2026-11-17).
 
-## Where deliberation is the better fit
+## Where Deliberation is the better fit
 
 - **Consensus that guards against the orchestrator.** In `/consensus`, the agent that runs the
   loop also votes and decides which objections count, so it could pass its own plan. These rules
@@ -69,7 +69,7 @@ As of 2026-11-17, from the GitHub API and PAL's README:
 
 ## Side by side
 
-| | PAL | deliberation |
+| | PAL | Deliberation |
 |-|-----|--------------|
 | License | Apache-2.0 | MIT |
 | Language | Python | JavaScript, no runtime dependencies |
@@ -92,5 +92,5 @@ As of 2026-11-17, from the GitHub API and PAL's README:
 ## Using both
 
 The two servers register under different server names, so you can keep both. One way to split
-the work: PAL for `clink`, `precommit`, vision and Azure, and deliberation for `/consensus` and
+the work: PAL for `clink`, `precommit`, vision and Azure, and Deliberation for `/consensus` and
 `/ask-all` reviews.

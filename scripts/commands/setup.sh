@@ -12,7 +12,7 @@ set -u
 
 # --- resolve plugin root: env var -> marketplace cache (highest semver) -> current checkout ---
 # A candidate is valid only if it contains server/mcp/index.js.
-PLUGIN_ROOT="$(resolve_plugin_root)" || { echo "Error: cannot locate the deliberation plugin root. Install via /plugin, run from the plugin checkout, or set CLAUDE_PLUGIN_ROOT."; exit 1; }
+PLUGIN_ROOT="$(resolve_plugin_root)" || { echo "Error: cannot locate the Deliberation plugin root. Install via /plugin, run from the plugin checkout, or set CLAUDE_PLUGIN_ROOT."; exit 1; }
 
 # --- config path: env override > canonical XDG ---
 # Mirrors core/paths.js: DELIBERATION_CONFIG wins; else the canonical
@@ -138,7 +138,7 @@ USERSCOPE_LEFT="$(stale_userscope)"
 
 # --- status ---
 echo
-echo "deliberation setup"
+echo "Deliberation setup"
 echo "--------------------------------------------------"
 echo "Codex CLI:       $CODEX_STATUS"
 echo "Gemini API key:  $GEMINI_KEY_STATUS"

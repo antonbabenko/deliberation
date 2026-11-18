@@ -33,7 +33,7 @@ in a Claude Code web session.
    - `failed` / `unavailable` - show the message; it names the cause (no codex CLI, GPT
      disabled in config, a login that ended).
 3. Stop. Do not run shell commands, do not read or check `~/.codex/auth.json`, and do not
-   call any other deliberation tool in the same turn.
+   call any other Deliberation tool in the same turn.
 
 ## Rules
 

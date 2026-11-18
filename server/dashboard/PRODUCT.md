@@ -12,7 +12,7 @@ Plain ES modules, CSS and inline SVG served by a zero-dependency `node:http` ser
 
 ## Users
 
-A developer who uses the deliberation plugin from Claude Code on their own laptop. They keep the dashboard open in a browser tab on a side monitor while a `/consensus` or `/ask-all` runs, glance at it to see which model is still thinking, which one failed, and whether the round is converging, and drill in when something stalls, dissents, or takes minutes. Later they open past runs to understand why a consensus did not converge or which model is slow.
+A developer who uses the Deliberation plugin from Claude Code on their own laptop. They keep the dashboard open in a browser tab on a side monitor while a `/consensus` or `/ask-all` runs, glance at it to see which model is still thinking, which one failed, and whether the round is converging, and drill in when something stalls, dissents, or takes minutes. Later they open past runs to understand why a consensus did not converge or which model is slow.
 
 ## Product Purpose
 

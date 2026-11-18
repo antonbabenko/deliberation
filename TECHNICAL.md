@@ -136,7 +136,7 @@ standalone `gemini` tool is an agy id, so the API path ignores it and uses
 **Antigravity terms.** The [Antigravity terms](https://antigravity.google/terms), section 6,
 list "Using third party software, tools, or services to access the Service (e.g. using
 OpenClaw with Antigravity OAuth)" as a breach that "may be grounds for suspension or
-termination of your Antigravity and/or Gemini CLI accounts". deliberation drives `agy` as
+termination of your Antigravity and/or Gemini CLI accounts". Deliberation drives `agy` as
 third-party software, which is why the key path is the default and `agy` is opt-in.
 
 The agy path wraps the Antigravity CLI (`agy`) in print mode (`agy -p`) and adds two
@@ -328,7 +328,7 @@ This is the single source of truth for the bridge environment variables.
 | `CODEX_BIN` | Codex | `codex` | Override the path to the `codex` binary (see [Windows CLI resolution](#windows-cli-resolution)) |
 | `CODEX_ACCESS_TOKEN` | Codex | unset | Codex access token (ChatGPT Business/Enterprise workspaces only), read by codex-cli itself. It never refreshes, so the same value works on every machine and in every web session until it expires. codex ranks it above `auth.json`. It counts as a credential for `codexHealth()`, and while it is set `CODEX_API_KEY` is dropped from the child's env |
 | `CODEX_API_KEY` | Codex | unset | Codex API key, used ONLY when there is no ChatGPT credential (`codex login` = `$CODEX_HOME/auth.json` / `~/.codex/auth.json`, or `CODEX_ACCESS_TOKEN`). With one, the provider drops the key from the `codex exec` child's env so the subscription wins. `OPENAI_API_KEY` is never used for codex and is always dropped from the child's env |
-| `MCP_TOOL_TIMEOUT` | host (all) | unset | Set by some MCP hosts (Claude Code on the web: `60000`) - the host kills any tool call longer than this. deliberation reads it and clamps every provider ceiling to `MCP_TOOL_TIMEOUT - 5000` ms so the call fails as a `timeout` naming the cap; see [Timeouts](#timeouts). Claude Code applies a per-server `timeout` ahead of this variable, so `.claude-plugin/plugin.json` sets `1800000` on every server and mirrors it into the server env under this name (the mirror is what the clamp reads) |
+| `MCP_TOOL_TIMEOUT` | host (all) | unset | Set by some MCP hosts (Claude Code on the web: `60000`) - the host kills any tool call longer than this. Deliberation reads it and clamps every provider ceiling to `MCP_TOOL_TIMEOUT - 5000` ms so the call fails as a `timeout` naming the cap; see [Timeouts](#timeouts). Claude Code applies a per-server `timeout` ahead of this variable, so `.claude-plugin/plugin.json` sets `1800000` on every server and mirrors it into the server env under this name (the mirror is what the clamp reads) |
 | `DELIBERATION_RUNS` | dashboard | `<XDG cache>/deliberation/runs` | Override the dashboard run journal directory (see [Dashboard](#dashboard)); only written when `dashboard.enabled` |
 | `DELIBERATION_DEBUG_LOG` | debug | `<XDG cache>/deliberation/debug.jsonl` | Override the debug log path (see [Observability](#observability--per-provider-progress)); only written when `debug.enabled` |
 
@@ -431,7 +431,7 @@ spent login (the refresh failure above). Instead of failing, `ask()` then:
    place would revoke a code the user is holding. A decline that arrives AFTER the login landed
    can only end the process, not the credential: the call returned long ago, so there is no
    channel left to report it. The dialog therefore says up front that declining ends the login
-   and that `codex logout` undoes one already approved in the browser. deliberation never
+   and that `codex logout` undoes one already approved in the browser. Deliberation never
    deletes a credential file itself. A settled login (landed or dead) makes the
    dialog stale, so the server then sends `notifications/cancelled` and the host can close it.
    Both the dialog and the result text carry a line saying the code signs this machine's codex
@@ -671,7 +671,7 @@ in two lenses that are **never joined** (the debug log and the session store sha
 high-error models; `recommend` turns those + the agreement signal into advisory `Suggestion`s
 naming the exact `config.json` key (`models.<id>.askAll`, `models.<id>.reasoningEffort`,
 `providers.codex.reasoningEffort`, `routing.maxFanout`). Gemini reasoning is flagged as external
-(agy) since it is outside deliberation's config. The tool writes nothing; `/deliberation:analyze`
+(agy) since it is outside Deliberation's config. The tool writes nothing; `/deliberation:analyze`
 renders it for humans and prints suggested edits without applying them. Needs `debug.enabled`
 for Lens A and `sessions.persist` for Lens B; when the log is empty it returns
 `meta.insufficientData:true` instead of fabricating numbers.
@@ -1147,7 +1147,7 @@ the config file mid-session does not redirect existing reply threads. A reply
 that explicitly specifies a different alias (compared by alias) or a raw model
 is re-resolved from the live configuration.
 
-**On `temperature`:** most deliberation work is analytical - code review, debugging,
+**On `temperature`:** most Deliberation work is analytical - code review, debugging,
 security audits, architecture and plan verdicts - where you want focused, repeatable
 answers. Leave `temperature` unset and the field is omitted, so the provider default
 applies (commonly around `1.0`); set a low value (roughly `0.1`-`0.3`) when you want
@@ -2000,10 +2000,10 @@ There is no enumeration tool, so a `sessionId` comes from one of three places:
 
 ## Dashboard
 
-A local, read-only web page that draws each deliberation run as a state graph while it
+A local, read-only web page that draws each Deliberation run as a state graph while it
 runs and after it ends: which state is running, what each provider was sent and returned,
 status, timing, and tokens. It also shows the effective config, provider health, models,
-and usage stats. Default OFF. Nothing in the dashboard changes deliberation state, and
+and usage stats. Default OFF. Nothing in the dashboard changes Deliberation state, and
 only the unified `deliberation` server is instrumented (the standalone `/ask-*` bridge
 servers write nothing).
 

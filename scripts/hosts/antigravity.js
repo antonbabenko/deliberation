@@ -36,7 +36,7 @@ function build(ctx) {
   const deliberationSkill = S.frontmatterDoc({
     name: "deliberation",
     description:
-      "When and how to delegate to GPT, Gemini, Grok, and OpenRouter expert subagents via the deliberation MCP tools.",
+      "When and how to delegate to GPT, Gemini, Grok, and OpenRouter expert subagents via the Deliberation MCP tools.",
     body: agents,
   });
 
@@ -57,7 +57,7 @@ function build(ctx) {
   // Reload MCP skill for cycle & process audits after updates
   const reloadSkill = S.frontmatterDoc({
     name: "reload-mcp",
-    description: "After a deliberation update: clear the npx cache, stop the dashboard, and restart the MCP server.",
+    description: "After a Deliberation update: clear the npx cache, stop the dashboard, and restart the MCP server.",
     body: "# Reload Deliberation MCP\n\n" + S.RELOAD_BODY,
   });
   out[".agents/skills/reload-mcp/SKILL.md"] = reloadSkill;

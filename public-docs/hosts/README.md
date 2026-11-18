@@ -1,6 +1,6 @@
 # Per-host install guides
 
-deliberation ships native plugin artifacts for non-Claude hosts, generated from
+Deliberation ships native plugin artifacts for non-Claude hosts, generated from
 the canonical sources by `scripts/sync-hosts.js` (drift-guarded in CI). Full
 install instructions per host:
 

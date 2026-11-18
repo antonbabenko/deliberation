@@ -15,12 +15,12 @@ fi
 
 # shellcheck source=scripts/commands/lib.sh
 . "$(dirname "$0")/lib.sh"
-root=$(resolve_plugin_root) || { echo "deliberation plugin root not found; set CLAUDE_PLUGIN_ROOT"; exit 1; }
+root=$(resolve_plugin_root) || { echo "Deliberation plugin root not found; set CLAUDE_PLUGIN_ROOT"; exit 1; }
 # An install that predates the dashboard exits 1 on `dashboard` with nothing on stderr,
 # which would read as a refusal with no reason.
 if [ ! -f "$root/server/dashboard/index.js" ]; then
   ver=$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' "$root/.claude-plugin/plugin.json" 2>/dev/null | head -n 1)
-  echo "deliberation ${ver:-(unknown version)} at $root has no dashboard; update it: /plugin marketplace update antonbabenko, then /reload-plugins"
+  echo "Deliberation ${ver:-(unknown version)} at $root has no dashboard; update it: /plugin marketplace update antonbabenko, then /reload-plugins"
   exit 1
 fi
 

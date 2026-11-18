@@ -196,7 +196,7 @@ in-memory `LoopState` for that `sessionId` may be gone, so recover by re-running
      grok (R{R}): ERRORED (missing-auth)
      ```
      An ERRORED codex voice whose `message` carries a login link and one-time code has no
-     ChatGPT login yet; deliberation started `codex login --device-auth`. Print that message
+     ChatGPT login yet; Deliberation started `codex login --device-auth`. Print that message
      in full under its status line: once the user approves, GPT joins from the next round.
      This is the fallback for a login that Setup step 3 cannot see (a spent `auth.json`).
      Never skip or work around the codex voice because it looks logged out; the dispatch is

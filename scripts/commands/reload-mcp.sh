@@ -178,7 +178,7 @@ if [ "$UPDATE_AGENTS" = true ]; then
       echo "    Upgrading marketplace and synchronizing plugin..."
       "$CODEX_BIN" plugin marketplace upgrade antonbabenko-deliberation >/dev/null 2>&1 || true
       "$CODEX_BIN" plugin add deliberation@antonbabenko-deliberation --json >/dev/null 2>&1 || true
-      echo "    ✔ Codex deliberation plugin synced."
+      echo "    ✔ Codex Deliberation plugin synced."
     fi
   fi
 
@@ -352,7 +352,7 @@ echo "• Auditing Deliberation MCP Server Processes..."
 PROCS=$(ps -eo pid,ppid,command 2>/dev/null | grep -E "server/(mcp|gemini|grok|openrouter)/index\.js|deliberation-mcp" | grep -v "grep" | grep -v "reload-mcp" | grep -v " dashboard" || true)
 
 if [ -z "$PROCS" ]; then
-  echo "  No active deliberation worker processes found."
+  echo "  No active Deliberation worker processes found."
 else
   WORKER_COUNT=0
   SAFEGUARD_COUNT=0

@@ -1,4 +1,4 @@
-# Contributing to deliberation
+# Contributing to Deliberation
 
 Contributions welcome. This document covers how to contribute effectively.
 

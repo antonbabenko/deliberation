@@ -1,6 +1,6 @@
 # Setup & Configuration
 
-How to configure deliberation: the two expert modes, the `config.json` schema and its
+How to configure Deliberation: the two expert modes, the `config.json` schema and its
 sections, OpenRouter model records, and opt-in session persistence. For provider
 internals, environment variables, and manual MCP setup, see [TECHNICAL.md](TECHNICAL.md).
 
@@ -35,7 +35,7 @@ In order, it:
    voices that answered. `--no-demo` skips it.
 5. Prints the install line for your host, or a short table when it cannot tell the host.
 
-Run it again any time: a second run changes nothing and says so. When deliberation was used
+Run it again any time: a second run changes nothing and says so. When Deliberation was used
 here before (a config file or saved sessions exist), the output is shorter and the demo is
 skipped unless you pass `--demo`.
 
@@ -57,7 +57,7 @@ export OPENROUTER_API_KEY=sk-or-v1-...
 ```
 
 With the key set and no OpenRouter record in `models` (or no `config.json` at all),
-deliberation uses a built-in panel of three models from three vendors:
+Deliberation uses a built-in panel of three models from three vendors:
 `z-ai/glm-5.3-flashx` (the default for a bare `ask-openrouter` call),
 `openai/gpt-6.1-sol` and `google/gemini-3.8-flash`. All three take part in `ask-all` and
 `consensus`. `openrouter-list` marks them `builtin: true`.
@@ -150,7 +150,7 @@ via their OpenAI-compatible HTTP APIs:
 Both local providers default to keyless (no `Authorization` header). If
 your local or remote instance requires authentication, set `apiKeyEnv` on
 the provider block. Note that `apiBase` for both providers is read once
-at server startup; changing it requires restarting deliberation.
+at server startup; changing it requires restarting Deliberation.
 
 Declare models in `models` targeting `provider: "ollama"` or
 `provider: "lmstudio"`:
@@ -176,7 +176,7 @@ Declare models in `models` targeting `provider: "ollama"` or
 > their key. Keyless proxies leave it unset.
 >
 > Note: Per-record `apiBase` and `apiKeyEnv` are honored ONLY by the standalone
-> OpenRouter bridge (e.g. `/ask-openrouter`); the unified deliberation server
+> OpenRouter bridge (e.g. `/ask-openrouter`); the unified Deliberation server
 > ignores them.
 
 
@@ -262,7 +262,7 @@ needed for those calls, and the key is never passed to `agy`.
 working. Before you use it, read the [Antigravity terms](https://antigravity.google/terms).
 Section 6 lists "Using third party software, tools, or services to access the Service (e.g.
 using OpenClaw with Antigravity OAuth)" as a breach that "may be grounds for suspension or
-termination of your Antigravity and/or Gemini CLI accounts". deliberation drives `agy` as
+termination of your Antigravity and/or Gemini CLI accounts". Deliberation drives `agy` as
 third-party software.
 
 `providers.gemini.model` (the agy path) and `providers.grok.model` pin those two providers without
@@ -309,7 +309,7 @@ GPT and Gemini on the agy path launch a real CLI (`codex`, `agy`); Gemini with a
 and OpenRouter are HTTP calls and launch nothing, so they need none of this.
 
 `npm install -g` on Windows installs `codex.cmd`, a shell shim rather than an executable, and
-Node cannot launch one directly. deliberation resolves the CLI before spawning it - preferring a
+Node cannot launch one directly. Deliberation resolves the CLI before spawning it - preferring a
 real `.exe` on PATH, otherwise running the package's own entry point with Node - so a standard
 npm install works with no setup.
 
@@ -333,9 +333,9 @@ Three things differ in a web container, and the plugin now handles each:
 - **The host caps every tool call.** Claude Code on the web exports `MCP_TOOL_TIMEOUT=60000`,
   which kills any MCP call after 60s - far below the provider ceilings below. Claude Code
   applies a per-server `timeout` ahead of that variable, so the plugin manifest declares
-  `"timeout": 1800000` (30 min) on every deliberation server and mirrors it into the server's
+  `"timeout": 1800000` (30 min) on every Deliberation server and mirrors it into the server's
   env as `MCP_TOOL_TIMEOUT` (the process inherits the host's 60000 otherwise, and
-  deliberation's own clamp would cancel the override). Nothing to configure. If a `timeout`
+  Deliberation's own clamp would cancel the override). Nothing to configure. If a `timeout`
   result still names `MCP_TOOL_TIMEOUT=60000`, the install is older than this manifest:
   `claude plugin update deliberation@antonbabenko` and start a new session. Installing by hand
   through `.mcp.json` on a capped host: add the same `"timeout": 1800000` and
@@ -475,7 +475,7 @@ and `session-annotate` (append a note to the audit trail). Full details:
 
 ## Dashboard
 
-A local, read-only browser view of deliberation runs: each `/consensus`, `/ask-all`, and
+A local, read-only browser view of Deliberation runs: each `/consensus`, `/ask-all`, and
 `/ask-*` run drawn as a state graph while it runs (which state is active, what each
 provider was sent and returned, timing, tokens), plus run history, the effective config,
 provider health, usage stats, and an Analyzer (which models agree more than they add,

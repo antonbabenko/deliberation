@@ -1,13 +1,13 @@
 ---
 name: doctor
-description: Check deliberation's health - config, provider CLIs, sessions/debug, and path drift - and suggest fixes. Read-only; never changes anything.
+description: Check Deliberation's health - config, provider CLIs, sessions/debug, and path drift - and suggest fixes. Read-only; never changes anything.
 allowed-tools: Bash, Read, mcp__deliberation__doctor
 timeout: 60000
 ---
 
 # Doctor
 
-A quick health check for deliberation. It looks at what is actually set up on
+A quick health check for Deliberation. It looks at what is actually set up on
 this machine - your config, the provider CLIs, the session store - and tells you
 what is fine, what is off, and the exact command to fix each problem.
 
@@ -59,7 +59,7 @@ finding in order, verbatim; do not drop, merge or reword them.
 
 - Print one summary line from `summary`: `N OK, M warnings, K failures`.
 - If there are failures, lead with the single most important one.
-- Offer (do NOT run): "Want me to check for a newer deliberation release?" If the user
+- Offer (do NOT run): "Want me to check for a newer Deliberation release?" If the user
   says yes, `/plugin marketplace update antonbabenko` then `/reload-plugins` - their call.
 
 ## Rules

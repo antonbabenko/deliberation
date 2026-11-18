@@ -357,12 +357,12 @@ model = "gpt-5.5"
 model_reasoning_effort = "high"
 ```
 
-The **sandbox is not yours to set here.** Every delegation runs `codex exec --sandbox read-only`, passed as argv on each call, so a `sandbox_mode = "workspace-write"` in this file cannot widen a deliberation run. That is deliberate: a writable global default must never turn an advisory second opinion into a write.
+The **sandbox is not yours to set here.** Every delegation runs `codex exec --sandbox read-only`, passed as argv on each call, so a `sandbox_mode = "workspace-write"` in this file cannot widen a Deliberation run. That is deliberate: a writable global default must never turn an advisory second opinion into a write.
 
 ### Project Trust Levels
 
 Codex also supports per-project trust configuration, which still applies to the `codex exec`
-runs deliberation spawns:
+runs Deliberation spawns:
 
 ```toml
 [projects."/path/to/your/project"]
@@ -370,7 +370,7 @@ trust_level = "trusted"
 ```
 
 Trusted projects skip Codex's own trust prompt. They do NOT widen the sandbox: the
-`--sandbox read-only` argv above still bounds every deliberation run.
+`--sandbox read-only` argv above still bounds every Deliberation run.
 
 ---
 
