@@ -183,6 +183,9 @@ function consensusInputSchema() {
   };
 }
 
+function doctorInputSchema() {
+  return { type: "object", properties: { shellSessionsDir: { type: "string", description: "Optional: the session store dir your shell resolves (DELIBERATION_SESSIONS, else $XDG_CACHE_HOME or ~/.cache, then deliberation/sessions). When set, doctor reports drift against the dir this server uses." } } };
+}
 // Session tools take a sessionId (+ note for annotate), NOT a prompt - so they
 // need their OWN input schemas rather than the prompt-required inputSchema().
 function sessionGetInputSchema() {
@@ -225,6 +228,7 @@ function toolList() {
     { name: "panel", description: "Return the names of the providers `ask-all` WOULD dispatch for the current config + expert (enabled built-ins + eligible OpenRouter aliases, fanout cap applied), WITHOUT calling them. Use this to discover the panel, then issue one `ask-one` call per provider in parallel for visible per-provider progress. Pass `for: \"consensus\"` for the /consensus panel instead. `needsLogin` lists panel members with no login yet (codex on a fresh machine): run `codex-login` and let the user approve BEFORE dispatching, so they answer from the first call. No provider calls and never starts a login; when the dashboard journal is enabled (`dashboard.enabled`) it writes one local journal line opening a fan-out run and returns its `runId` - pass that to every `ask-one`. Returns a text-wrapped JSON envelope { providers[], omitted[], unavailable[], needsLogin[], runId? }.", inputSchema: panelInputSchema(), annotations: LOCAL_RO },
     { name: "ask-one", description: "Second opinion from ONE named provider in the active panel (e.g. `codex`, `gemini`, `grok`, `openrouter:<alias>` - get the names from `panel`). Issue N in parallel (one per panel name) so each renders independently as it lands. For `codex` with no login, the call itself starts a device login and returns its link + code (errorKind auth): never skip it for that reason. Better: when `panel` lists codex in `needsLogin`, run `codex-login` first so GPT answers from this call. Calls one external LLM provider (needs its key/CLI; rate limits apply); returns a text-wrapped JSON envelope { result }, or { error, panel } when the name is not in the panel. Advisory, single-shot.", inputSchema: askOneInputSchema(), annotations: EXT_RO },
     { name: "analyze", description: "Analyze recent runs from the opt-in debug log (latency/tokens/reasoning-effort per model) plus the session store (verdict agreement rate), and return advisory tuning suggestions (disable a slow/redundant model in ask-all, lower an OpenRouter model's reasoning, adjust maxFanout). Two lenses reported side by side - timing and agreement are NOT joined (no shared run id). Requires `debug.enabled` for the timing lens. Local and read-only (no provider calls, writes nothing); returns a text-wrapped JSON envelope with the two lenses + suggestions. The `/deliberation:analyze` slash command renders this for humans.", inputSchema: analyzeInputSchema(), annotations: LOCAL_RO },
+    { name: "doctor", description: "Health check for this deliberation install: config validity (config/config.schema.json), provider CLIs and keys (codex, agy, XAI_API_KEY, OpenRouter key, local providers), sessions/debug flags, the host tool-call cap, the session store dir and, when `shellSessionsDir` is passed, path drift between your shell and this server. Local and read-only: stat/env probes plus `codex --version`, no provider API calls, no login, writes nothing. Returns a text-wrapped JSON envelope { findings[] (check, status ok|warn|fail|info, message, fix?), summary, paths }. The `/deliberation:doctor` slash command renders this for humans.", inputSchema: doctorInputSchema(), annotations: LOCAL_RO },
   ];
   for (const t of Object.keys(ASK_PROVIDER)) {
     const prov = ASK_PROVIDER[t];
@@ -385,11 +389,12 @@ const PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05
  * @param {() => any} deps.getConfig
  * @param {() => (string|null)} [deps.getConfigError]  // last config load error (e.g. JSON parse), or null
  * @param {string} [deps.sessionsDir]  // dir for the opt-in session store; omit to disable persistence
+ * @param {string} [deps.configPath]  // config file `doctor` checks; default: the resolved config path
  * @param {(method:string, params:any) => void} [deps.notify]  // server->client JSON-RPC notification sender (Phase 4); no-op if omitted
  * @param {(msg:any) => void} [deps.write]  // raw server->client JSON-RPC writer, for requests the server makes (elicitation); none -> no dialogs
  * @param {import("../../core/journal.js").Journal} [deps.journal]  // dashboard run journal; default NULL_JOURNAL (writes nothing)
  */
-function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify, write, journal = NULL_JOURNAL }) {
+function buildServer({ providers, getConfig, getConfigError, sessionsDir, configPath, notify, write, journal = NULL_JOURNAL }) {
   const registry = makeRegistry(providers);
   const startupConfig = structuredClone(getConfig() || {});
   const {resolveSettings,effectiveConfig} = require('../../core/settings.js');
@@ -1692,6 +1697,17 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify
     }
     if (name === "analyze") {
       return jsonResult(runAnalyze(args));
+    }
+    if (name === "doctor") {
+      const paths = require("../../core/paths.js");
+      // Session verdict counts come from analyze; with persistence off there are no records to count.
+      // A failing analyze only loses that one info finding, never the health check.
+      let meta = null;
+      try { meta = persistEnabled() ? /** @type {any} */ (runAnalyze({ sessions: 20, configuredOnly: false })).meta || null : null; } catch { /* no verdict info */ }
+      return jsonResult(await require("./doctor.js").runDoctor({
+        providers, configPath: configPath || paths.resolveConfigPath(), sessionsDir: sessionsDir || paths.resolveSessionsDir(),
+        shellSessionsDir: typeof args.shellSessionsDir === "string" ? args.shellSessionsDir : undefined, analyzeMeta: meta,
+      }));
     }
     if (name === "ask-all") {
       // selectForAskAll returns a FLAT provider list: enabled built-ins + per-alias OR wrappers.

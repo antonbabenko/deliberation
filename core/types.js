@@ -119,6 +119,7 @@
  * @property {string} [alias]
  * @property {string} [provider]
  * @property {string} [model]
+ * @property {string} [transport]  how the provider reaches its model when that matters to a check ("agy": the Antigravity CLI)
  */
 
 module.exports = {};

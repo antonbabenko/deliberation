@@ -33,6 +33,7 @@ function makeAntigravityProvider(opts = {}) {
 
   return {
     name: "gemini",
+    transport: "agy",
     // canImplement reflects the construction lock so discovery (panel) is honest about THIS process.
     capabilities: { canImplement: allowImplement, fileUpload: false, multiTurn: true, walksFilesystem: true, fixedModelEffort: true },
     async health() {

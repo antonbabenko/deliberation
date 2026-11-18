@@ -22,7 +22,9 @@ How the repo is put together. Read before changing `core/`, `server/`, or the co
 - **`server/mcp/`** - stdio JSON-RPC MCP server over `core`. Published as
   `@antonbabenko/deliberation-mcp`: an esbuild `prepack` step bundles `core` + the three bridges
   into a self-contained `dist/index.js` (build-time devDep only; `dist/` gitignored). `server.json`
-  at the repo root is the Official MCP Registry manifest.
+  at the repo root is the Official MCP Registry manifest. `server/mcp/doctor.js` holds the
+  health checks behind the read-only `doctor` tool; `/deliberation:doctor` renders its
+  findings (see Key Design Decision #20).
 - **`server/{gemini,grok,openrouter}/`** - the provider bridges (gemini wraps the `agy` CLI;
   grok = xAI HTTP; openrouter = any OpenAI-compatible HTTP) plus openrouter `config.js`
   (`validateConfig` / `makeConfigReader`, the config SSOT). Registered (with the unified
