@@ -1,3 +1,15 @@
+## [4.6.0](https://github.com/antonbabenko/deliberation/compare/v4.5.0...v4.6.0) (2026-11-18)
+
+
+### Features
+
+* **kiro:** ship the Power in the Agent Plugins format ([#290](https://github.com/antonbabenko/deliberation/issues/290)) ([046db3e](https://github.com/antonbabenko/deliberation/commit/046db3e4d6c217e8026646f5cd1de8fbe23d00e4))
+
+
+### Bug Fixes
+
+* **release:** bump the root plugin.json version in the release commit ([#292](https://github.com/antonbabenko/deliberation/issues/292)) ([6829173](https://github.com/antonbabenko/deliberation/commit/68291736597619b4a03cd3b054540aba8f30d41e))
+
 ## [4.5.0](https://github.com/antonbabenko/deliberation/compare/v4.4.0...v4.5.0) (2026-11-18)
 
 
@@ -31,11 +43,4 @@
 ### Bug Fixes
 
 * **mcp:** restore the Node 18 engines floor and stop Renovate raising it ([#266](https://github.com/antonbabenko/deliberation/issues/266)) ([6bc17a7](https://github.com/antonbabenko/deliberation/commit/6bc17a7bab26bd1291451e17eeb8a2e43b2bb778))
-
-## [4.1.1](https://github.com/antonbabenko/deliberation/compare/v4.1.0...v4.1.1) (2026-11-04)
-
-
-### Bug Fixes
-
-* **writing-editor:** locked-text precedence and step reference after review of [#257](https://github.com/antonbabenko/deliberation/issues/257) ([#259](https://github.com/antonbabenko/deliberation/issues/259)) ([7e83a6b](https://github.com/antonbabenko/deliberation/commit/7e83a6bc147a222296275f892702d9fdd1ea59dc))
 
