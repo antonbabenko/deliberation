@@ -18,6 +18,10 @@ can also implement changes; Grok and OpenRouter only advise.
 
 ## Install
 
+First run, any host: `npx -y @antonbabenko/deliberation-mcp init` finds your keys and CLI
+logins, writes the config, pings each provider, runs one short demo consensus, and prints the
+install line for your host (`--yes` for no prompts, `--no-demo` to skip the demo).
+
 Add the server to your MCP host (most hosts use the `mcpServers` key):
 
 ```json

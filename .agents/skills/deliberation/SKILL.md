@@ -22,6 +22,10 @@ here is ADVISORY: this server reads and reasons, it never edits your files.
 (Implementation exists only in the Claude Code plugin's standalone Gemini
 bridge, which this server does not expose.)
 
+If no provider answers yet, ask the user to run `npx -y @antonbabenko/deliberation-mcp init`
+in a terminal: it finds their keys and CLI logins, writes the config, pings each provider and
+runs one short demo consensus. It never prints key values.
+
 ## Tools
 
 Fan-out and single-provider:

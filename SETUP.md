@@ -13,6 +13,32 @@ Every expert supports two modes, chosen automatically from your request:
 | Advisory | `read-only` | Analysis, recommendations, reviews |
 | Implementation | `workspace-write` | Making changes, fixing issues |
 
+## Quick setup: `init`
+
+```bash
+npx -y @antonbabenko/deliberation-mcp init
+```
+
+`init` is the fastest way to a working config on any host. `/deliberation:setup` runs it first.
+In order, it:
+
+1. Finds the credentials you already have: a logged-in `codex` CLI, `agy` on `PATH`,
+   `XAI_API_KEY` and `OPENROUTER_API_KEY`. `GEMINI_API_KEY` / `GOOGLE_API_KEY` are reported
+   but not used yet. Key values are never printed.
+2. Writes the config at the normal path (`DELIBERATION_CONFIG` wins). A new file enables each
+   provider it found and has no model records, so `OPENROUTER_API_KEY` alone gives the
+   [built-in panel](#one-key-quickstart). An existing file only gains the missing
+   `providers.<name>.enabled: true` flags; init shows them as a diff, asks on a terminal, and
+   applies them without asking only with `--yes`. An `enabled: false` you set is kept.
+3. Pings each enabled provider with one tiny prompt and prints `OK` or `FAIL <errorKind>`.
+4. Runs one short demo consensus (one round, low effort) and prints the verdict and the
+   voices that answered. `--no-demo` skips it.
+5. Prints the install line for your host, or a short table when it cannot tell the host.
+
+Run it again any time: a second run changes nothing and says so. When deliberation was used
+here before (a config file or saved sessions exist), the output is shorter and the demo is
+skipped unless you pass `--demo`.
+
 ## OpenRouter config
 
 OpenRouter models are declared in `~/.config/deliberation/config.json` - the canonical
@@ -41,8 +67,9 @@ deliberation uses a built-in panel of three models from three vendors:
 - Local `ollama` / `lmstudio` records keep the panel but come first in `ask-all`, so they
   use `routing.maxFanout` slots (default 3) before it; raise `maxFanout` to keep all three.
 - Set `providers.openrouter.enabled: false` to turn OpenRouter off.
-- The starter file from `/setup` sets `providers.openrouter.enabled: false`; set it to
-  `true` to use the panel with that file.
+- `init` (and `/setup`, which runs it first) writes `providers.openrouter.enabled: true` when
+  the key is set. An older starter file from `/setup` has `enabled: false`; init keeps that
+  choice and tells you, so set it to `true` yourself to use the panel with that file.
 
 Details: [TECHNICAL.md - Built-in panel](TECHNICAL.md#built-in-panel-key-only).
 

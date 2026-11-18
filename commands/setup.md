@@ -15,6 +15,18 @@ This command runs in three phases: ONE main Bash call (checks + seed config + mi
 isolated question turns for the optional aliases and the optional GitHub star. Do not batch a Bash
 call with an AskUserQuestion, and do not split the main block.
 
+## Step 0: Run init first
+
+Run this as ONE Bash call with the sandbox DISABLED and a 600000 ms timeout. It finds the
+credentials already on this machine, writes or merges the config (OpenRouter on when
+`OPENROUTER_API_KEY` is set), pings each provider, and runs one short demo consensus. Report its
+output, then go on to Step 1 whatever its exit code; Step 1 keeps the config init wrote. On
+another host, `npx -y @antonbabenko/deliberation-mcp init` does the same.
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/server/mcp/index.js" init --yes
+```
+
 ## Step 1: Run setup
 
 > Run the block below as ONE Bash call. Do NOT split it into smaller calls, and do NOT batch it
