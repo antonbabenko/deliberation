@@ -5,6 +5,7 @@
 /** @typedef {import("../../core/types.js").DelegationRequest} DelegationRequest */
 
 const { makeRegistry, pinAlias } = require("../../core/registry.js");
+const { providerEnabled, disabledMessage } = require("../../core/provider.js");
 const { askAll, askOne, consensus, runToConvergence } = require("../../core/orchestrate.js");
 const { orientationFilesFor } = require("../../core/orientation.js");
 const { resolveProject } = require("../../core/project.js");
@@ -321,18 +322,6 @@ async function resolveArbiter(spec, selected, registry, getConfig) {
 }
 
 /**
- * Whether a provider is enabled in config. Mirrors core/registry.js: a missing
- * flag means enabled; only an explicit enabled:false disables it.
- * @param {any} cfg
- * @param {string} name
- * @returns {boolean}
- */
-function providerEnabled(cfg, name) {
-  const p = cfg && cfg.providers && cfg.providers[name];
-  return !p || p.enabled !== false;
-}
-
-/**
  * Best-effort health probe. A provider whose health() throws is treated as not
  * healthy rather than crashing arbiter selection.
  * @param {Provider} p
@@ -411,6 +400,8 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, config
   const runContext=new AsyncLocalStorage();
   history.observe();
   const dispatchConfig=()=>runContext.getStore()?.config || activeConfig();
+  /** The ask-* envelope for a provider disabled in config: no call made, not retried. @param {string} name */
+  const disabledResult=(name)=>({ provider: name, isError: true, errorKind: "disabled", retryable: false, ms: 0, message: disabledMessage(name, configPath || require("../../core/paths.js").resolveConfigPath()) });
 
 
   // ---- Dashboard run journal --------------------------------------------------------------
@@ -1681,6 +1672,9 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, config
         req.signal=combined.signal;disposeSignals=combined.dispose;
       }
       if (!p) {
+        // A disabled provider is simply absent from the panel; say so, and how to turn it back on.
+        const base = want.split(":")[0];
+        if (base && !providerEnabled(dispatchConfig(), base)) return jsonResult({ result: disabledResult(base) });
         const dead = (unavailable || []).find((u) => u.name === want);
         return jsonResult({
           error: dead ? `provider "${want}" is unavailable: ${dead.reason}` : `provider "${want}" is not in the active panel`,
@@ -1797,6 +1791,7 @@ function buildServer({ providers, getConfig, getConfigError, sessionsDir, config
     if (Object.prototype.hasOwnProperty.call(ASK_PROVIDER, name)) {
       const p = registry.get(ASK_PROVIDER[name]);
       if (!p) return { content: [{ type: "text", text: JSON.stringify({ error: `provider ${ASK_PROVIDER[name]} not registered` }) }] };
+      if (!providerEnabled(dispatchConfig(), p.name)) return { content: [{ type: "text", text: JSON.stringify({ result: disabledResult(p.name) }) }] };
       if (name === "ask-openrouter") {
         const or = dispatchConfig().openrouter || {};
         const dm = or.defaultModel;

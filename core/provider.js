@@ -341,7 +341,37 @@ function resolveIssues(lines) {
   return out;
 }
 
+/**
+ * Whether a provider is enabled in config: a missing block or flag means enabled, only an
+ * explicit `providers.<name>.enabled: false` disables it. The one rule every tool uses
+ * (fan-out selection, ask-*, the standalone bridges). For OpenRouter this is the explicit
+ * opt-out only; "no block and no key" is a missing credential, not a disabled provider.
+ * @param {any} config  resolved config (anything with a `providers` map)
+ * @param {string} name provider name (codex, gemini, grok, openrouter, ollama, lmstudio)
+ * @returns {boolean}
+ */
+function providerEnabled(config, name) {
+  const p = config && config.providers && config.providers[name];
+  return !p || p.enabled !== false;
+}
+
+const PROVIDER_LABELS = /** @type {Record<string,string>} */ ({ codex: "GPT (Codex)", gemini: "Gemini", grok: "Grok", openrouter: "OpenRouter", ollama: "Ollama", lmstudio: "LM Studio" });
+
+/**
+ * The message a tool returns, instead of calling the provider, when it is disabled in config.
+ * Names the key that turns it back on and the file it lives in.
+ * @param {string} name
+ * @param {string} [configPath]
+ * @returns {string}
+ */
+function disabledMessage(name, configPath) {
+  const label = PROVIDER_LABELS[name] || name;
+  return `${label} is disabled in config (providers.${name}.enabled: false${configPath ? ` in ${configPath}` : ""}). Set providers.${name}.enabled to true, or remove it, to turn ${label} back on.`;
+}
+
 module.exports = {
+  providerEnabled,
+  disabledMessage,
   toErrorResult,
   plainMessage,
   parseRetryAfterMs,

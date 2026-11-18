@@ -42,6 +42,7 @@ const DEFAULT_MODEL = process.env.GROK_DEFAULT_MODEL || "grok-4.6";
 // empty block, falling through to the env var then the built-in.
 /** @type {any} */
 let configReader;
+const { providerEnabled, disabledMessage } = require("../../core/provider.js");
 /** @returns {{model?:string, reasoningEffort?:string}} */
 function grokConfigBlock() {
   try {
@@ -1197,6 +1198,13 @@ const handlers = {
     }
     if (!isNonEmptyString(args.prompt)) {
       if (shouldRespond) sendError(id, -32602, "Invalid params: 'prompt' is required");
+      return;
+    }
+
+    // providers.grok.enabled: false - answer before any xAI request. Read per call (hot reload).
+    if ((name === "grok" || name === "grok-reply") && !providerEnabled({ providers: { grok: grokConfigBlock() } }, "grok")) {
+      logCall(id, name, "disabled", 0);
+      if (shouldRespond) sendResponse(id, { content: [{ type: "text", text: `Error: ${disabledMessage("grok", require("../../core/paths.js").resolveConfigPath())}` }], isError: true, errorKind: "disabled", retryable: false });
       return;
     }
 

@@ -189,6 +189,11 @@ These apply to every MCP host, not just Claude Code:
   `ask-all` and `consensus`; `openrouter-list` marks those records `builtin: true`. Any
   OpenRouter record in `models` replaces the panel; `providers.openrouter.enabled: false`
   turns it off.
+- **Disabled providers** - `providers.<name>.enabled: false` turns a provider off for every
+  tool. Fan-out tools leave it out; `ask-gpt` / `ask-gemini` / `ask-grok` / `ask-openrouter`,
+  `ask-one` and the standalone bridges return `errorKind: "disabled"` (not retried) without
+  calling it, and the message names the key and config file that turn it back on. Read per call.
+  `openrouter-list` still answers (it reads the config and calls nothing).
 - **OpenRouter presets** - set presets by ID via `providers.openrouter.preset`, `providers.openrouter.defaults.preset`, or `models.<id>.preset` (or pass `preset` directly) to apply upstream provider routing rules (such as price-based sorting to save cost, or automatic fallback routing) and parameter defaults.
 - **Retries** - a failed call is retried once, and only for `network`, `rate-limit` (waiting
   for the upstream's `Retry-After`), and `empty` (a provider that exited clean but returned a

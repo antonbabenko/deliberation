@@ -161,15 +161,7 @@ function makeRegistry(providers) {
     byName.set(p.name, p);
   }
 
-  /**
-   * @param {RegistryConfig} config
-   * @param {string} name
-   * @returns {boolean}
-   */
-  const enabled = (config, name) => {
-    const p = config && config.providers && config.providers[name];
-    return !p || p.enabled !== false; // missing = enabled
-  };
+  const enabled = require("./provider.js").providerEnabled;
   /**
    * Enabled built-ins, split by health. `unhealthy` (name -> reason) comes from the server's
    * stat-only probes; a provider that cannot answer (no CLI, no credential) is reported in

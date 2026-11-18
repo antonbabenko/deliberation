@@ -331,7 +331,7 @@
         "enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Whether this provider participates."
+          "description": "false turns this provider off: fan-out tools (ask-all, consensus, expert tools) skip it, and every tool that would call it directly (ask-*, ask-one, a standalone bridge) returns errorKind \"disabled\" without a network call or CLI spawn. Read per call, so a config edit applies without a restart."
         },
         "model": {
           "type": "string",
@@ -387,7 +387,7 @@
         "enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Whether this provider participates."
+          "description": "false turns this provider off: fan-out tools (ask-all, consensus, expert tools) skip it, and every tool that would call it directly (ask-*, ask-one, a standalone bridge) returns errorKind \"disabled\" without a network call or CLI spawn. Read per call, so a config edit applies without a restart."
         },
         "transport": {
           "type": "string",
@@ -429,7 +429,8 @@
       "properties": {
         "enabled": {
           "type": "boolean",
-          "default": true
+          "default": true,
+          "description": "false turns this provider off: fan-out tools (ask-all, consensus, expert tools) skip it, and every tool that would call it directly (ask-*, ask-one, a standalone bridge) returns errorKind \"disabled\" without a network call or CLI spawn. Read per call, so a config edit applies without a restart."
         },
         "apiKeyEnv": {
           "type": "string",
@@ -478,7 +479,7 @@
         "enabled": {
           "type": "boolean",
           "default": true,
-          "description": "false turns OpenRouter off, including the built-in panel. With no providers.openrouter block, OpenRouter is on only when the apiKeyEnv variable is set; then, if no models record targets openrouter, three built-in records (z-ai/glm-5.3-flashx, openai/gpt-6.1-sol, google/gemini-3.8-flash) join ask-all and consensus. Any openrouter models record replaces them."
+          "description": "false turns OpenRouter off, including the built-in panel. With no providers.openrouter block, OpenRouter is on only when the apiKeyEnv variable is set; then, if no models record targets openrouter, three built-in records (z-ai/glm-5.3-flashx, openai/gpt-6.1-sol, google/gemini-3.8-flash) join ask-all and consensus. Any openrouter models record replaces them. When false, the ask-openrouter tool, ask-one for an openrouter:<id> name, and the standalone openrouter / openrouter-reply tools return errorKind \"disabled\" without a request; openrouter-list still answers."
         },
         "apiKeyEnv": {
           "type": "string",
@@ -569,7 +570,7 @@
         "enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Whether this provider participates."
+          "description": "false turns this provider off: fan-out tools (ask-all, consensus, expert tools) skip it, and every tool that would call it directly (ask-*, ask-one, a standalone bridge) returns errorKind \"disabled\" without a network call or CLI spawn. Read per call, so a config edit applies without a restart."
         },
         "apiKeyEnv": {
           "type": "string",
@@ -595,7 +596,7 @@
         "enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Whether this provider participates."
+          "description": "false turns this provider off: fan-out tools (ask-all, consensus, expert tools) skip it, and every tool that would call it directly (ask-*, ask-one, a standalone bridge) returns errorKind \"disabled\" without a network call or CLI spawn. Read per call, so a config edit applies without a restart."
         },
         "apiKeyEnv": {
           "type": "string",
