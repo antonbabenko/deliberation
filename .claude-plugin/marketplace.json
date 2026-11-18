@@ -9,7 +9,7 @@
       "name": "deliberation",
       "source": "./",
       "description": "A second opinion from other models before you ship. Any host, any vendor, one verdict, and the disagreement stays visible. GPT (Codex), Gemini, Grok (xAI), local, and OpenRouter (400+) models review your plan or diff through eight expert subagents (Architect, Plan Reviewer, Scope Analyst, Code Reviewer, Security Analyst, Researcher, Debugger, Writing Editor) and the ask-gpt/ask-gemini/ask-grok/ask-openrouter/ask-all/consensus commands. Every provider advises (read-only); only Gemini can also implement (write).",
-      "version": "4.3.0",
+      "version": "4.4.0",
       "author": {
         "name": "Anton Babenko",
         "url": "https://github.com/antonbabenko"

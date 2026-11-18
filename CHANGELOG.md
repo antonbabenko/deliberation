@@ -1,3 +1,10 @@
+## [4.4.0](https://github.com/antonbabenko/deliberation/compare/v4.3.0...v4.4.0) (2026-11-18)
+
+
+### Features
+
+* **mcp:** add read-only doctor tool behind /deliberation:doctor ([#275](https://github.com/antonbabenko/deliberation/issues/275)) ([0eabbce](https://github.com/antonbabenko/deliberation/commit/0eabbcee5a4311e04d417b4fc8c6c966857bd3b8))
+
 ## [4.3.0](https://github.com/antonbabenko/deliberation/compare/v4.2.0...v4.3.0) (2026-11-18)
 
 
@@ -31,20 +38,4 @@
 ### Features
 
 * **writing-editor:** reader test, locked-text author decisions, landing-copy routing ([#257](https://github.com/antonbabenko/deliberation/issues/257)) ([185b8be](https://github.com/antonbabenko/deliberation/commit/185b8be6b7d6d950e0ad5aaa02e6906c91b740fb))
-
-## [4.0.0](https://github.com/antonbabenko/deliberation/compare/v3.32.0...v4.0.0) (2026-10-27)
-
-
-### ⚠ BREAKING CHANGES
-
-* **deps:** the package now requires Node.js >=24.22.1 (was >=18.20.8). CI runs on Node 24.
-
-### Features
-
-* **deps:** require Node.js >=24.22.1 ([0f3a373](https://github.com/antonbabenko/deliberation/commit/0f3a373f4c2c92c65d5968cb205c7e8790c9bef3))
-
-
-### Bug Fixes
-
-* **deps:** require node >=18.20.8 ([67216d7](https://github.com/antonbabenko/deliberation/commit/67216d70b4d62eef3eb0b2ffb8236e62ab3617f2))
 
