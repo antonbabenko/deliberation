@@ -17,8 +17,8 @@ install instructions per host:
 - [OpenCode](opencode.md) - `.opencode/commands/` + `.opencode/agents/` + an `opencode.json` MCP snippet.
 
 All route the same MCP tools (`ask-all`, `consensus`, `ask-gpt` / `ask-gemini`
-/ `ask-grok` / `ask-openrouter`, plus `panel` + `ask-one` for per-provider progress)
-and the eight expert personas (`architect`, `plan-reviewer`, `scope-analyst`,
+/ `ask-grok` / `ask-openrouter`, plus `panel` + `ask-one` for per-provider progress,
+and the read-only `analyze` and `doctor`) and the eight expert personas (`architect`, `plan-reviewer`, `scope-analyst`,
 `code-reviewer`, `security-analyst`, `researcher`, `debugger`, `writing-editor`). Every result carries
 `ms` + reasoning effort (HTTP providers add token usage), and an optional config-gated
 debug log records latency / tokens / votes - all server-side, so they apply on every

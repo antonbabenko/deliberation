@@ -102,6 +102,17 @@ Fan-out and single-provider:
   agreement are NOT joined. `configuredOnly` (default true) hides models missing from the
   current config so a retired model cannot drive the numbers; `since` (`24h`, `7d`, ...)
   windows both lenses. Needs `debug.enabled` for the timing lens. Writes nothing.
+- `doctor` - read-only health check, the same one the Claude Code doctor command runs. Returns
+  `{ findings[], summary, paths }`; each finding has `check`, `status`
+  (`ok`/`warn`/`fail`/`info`), `message` and an optional `fix`. It covers config validity
+  (including unknown top-level keys the schema rejects), provider CLIs and keys (codex with
+  its credential source, agy, `XAI_API_KEY`, the OpenRouter key, local provider records), the
+  `sessions.persist` / `debug.enabled` flags, the host tool-call cap, the session store, and a
+  warning when Gemini runs through the Antigravity CLI (its terms list third-party OAuth
+  access as grounds for account suspension; a Gemini API key avoids that). Pass
+  `shellSessionsDir` (the dir your shell resolves) to get a path-drift finding. Stat and env
+  probes plus `codex --version` only: no provider API calls, no login, writes nothing. Call
+  it first when a provider is missing from `panel` or `analyze` comes back empty.
 
 Every result carries `provider`, `model`, `text`, `ms` (wall time), and the effective
 `reasoningEffort` (real value for HTTP providers; `null` for the Codex CLI and Gemini on

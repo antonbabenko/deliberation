@@ -340,7 +340,7 @@ Three things differ in a web container, and the plugin now handles each:
   `claude plugin update deliberation@antonbabenko` and start a new session. Installing by hand
   through `.mcp.json` on a capped host: add the same `"timeout": 1800000` and
   `"env": {"MCP_TOOL_TIMEOUT": "1800000"}` to the server entry. `/deliberation:doctor`
-  explains the shell's residual value.
+  (or the `doctor` MCP tool) reports the cap the server process sees.
 - **Codex needs a credential of its own in the container.** `OPENAI_API_KEY` is never used
   for codex and never reaches the `codex exec` child. A ChatGPT credential (a `codex login` or
   `CODEX_ACCESS_TOKEN`) always wins, and a `CODEX_API_KEY` in the env is then dropped so it
