@@ -1,6 +1,6 @@
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
-  <img src="assets/logo.svg" alt="Deliberation" width="322" height="64">
+  <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.png">
+  <img src="assets/logo.png" alt="Deliberation" width="322" height="64">
 </picture>
 
 # Deliberation - second opinion for coding agents

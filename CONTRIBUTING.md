@@ -123,6 +123,25 @@ You never bump versions by hand.
 (`.github/release/pre-commit.js`). Do not edit those version fields by hand - the `validate`
 check fails if they drift.
 
+### Fresh-machine check
+
+Before you merge a release that touches setup, `init`, providers or the README quickstart, check
+that a new user with one API key still gets a first verdict in under two minutes. Use an empty
+home directory, an empty npm cache, and a `PATH` that holds only `node`, `npm` and `npx`, so no
+logged-in CLI or other key on your machine joins the panel:
+
+```bash
+F=$(mktemp -d); mkdir -p "$F/home" "$F/cache" "$F/bin"
+for b in node npm npx; do ln -s "$(command -v $b)" "$F/bin/$b"; done
+time env -i HOME="$F/home" PATH="$F/bin:/usr/bin:/bin" npm_config_cache="$F/cache" \
+  OPENROUTER_API_KEY="$OPENROUTER_API_KEY" npx -y @antonbabenko/deliberation-mcp@latest init --yes
+```
+
+Pass when the command exits 0, prints `found: OpenRouter`, a `demo verdict:` line and the install
+lines, prints no part of the key, and the `real` time is under two minutes. Run it a second time:
+it should change nothing and skip the demo. Delete `$F` afterwards; it holds a config file that
+names your providers.
+
 ---
 
 ## Adding a New Provider
