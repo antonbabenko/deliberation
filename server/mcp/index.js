@@ -1924,6 +1924,7 @@ function makeRuntime({ getServer = () => null } = {}) {
   const { makeOpenAICompatibleProvider } = require("../../core/providers/openai-compatible.js");
   const { makeGrokProvider } = require("../../core/providers/grok.js");
   const { makeAntigravityProvider } = require("../../core/providers/antigravity.js");
+  const { makeGeminiProvider, makeGeminiApiProvider } = require("../../core/providers/gemini.js");
   const { makeCodexProvider } = require("../../core/providers/codex.js");
   const configMod = /** @type {any} */ (require("../openrouter/config.js"));
   const { makeConfigReader, DEFAULT_API_BASE, DEFAULT_API_KEY_ENV } = configMod;
@@ -1973,10 +1974,21 @@ function makeRuntime({ getServer = () => null } = {}) {
     // args), so unlike the hot-reloading models map a change needs an MCP restart. Absent
     // -> undefined, letting each adapter fall through to its env var then its built-in
     // (for codex: its own ~/.codex/config.toml).
-    makeAntigravityProvider({
-      bridge: require("../gemini/index.js"),
-      model: geminiCfg.model,
-      timeoutMs: providerTimeout("gemini"),
+    // Advisory Gemini calls use the AI Studio key when GEMINI_API_KEY is set (or transport "api");
+    // agy stays for installs without a key, for providers.gemini.transport "agy", and for
+    // implementation outside transport "api". The key is never handed to agy.
+    makeGeminiProvider({
+      agy: makeAntigravityProvider({
+        bridge: require("../gemini/index.js"),
+        model: geminiCfg.model,
+        timeoutMs: providerTimeout("gemini"),
+      }),
+      api: makeGeminiApiProvider({
+        bridge: require("../openrouter/index.js"),
+        model: geminiCfg.apiModel,
+        timeoutMs: providerTimeout("gemini"),
+      }),
+      transport: geminiCfg.transport,
     }),
     makeGrokProvider({
       bridge: require("../grok/index.js"),

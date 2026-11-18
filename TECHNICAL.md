@@ -113,7 +113,33 @@ prose.
 
 ### Gemini bridge
 
-The bridge wraps the Antigravity CLI (`agy`) in print mode (`agy -p`) and adds two
+Gemini has two paths. Which one an advisory call takes is set by
+`providers.gemini.transport` (`auto` default, `api`, `agy`):
+
+| Path | When | How |
+|------|------|-----|
+| API key (default) | advisory call with `GEMINI_API_KEY` set (`auto`), or any call with `transport: "api"` | `POST {GEMINI_API_BASE}/chat/completions` on Google's OpenAI-compatible endpoint, `Authorization: Bearer <key>`, model `providers.gemini.apiModel` (default `gemini-flash-latest`). Same HTTP client as OpenRouter (`server/openrouter` `callOpenRouter`), with `reasoning_effort` as a top-level field and errors labelled `Gemini`. Multi-turn sessions are in memory. File-blind, so fan-outs attach the orientation bundle. |
+| agy (opt-in) | `workspace-write` calls under `auto` and `agy`; advisory calls with no `GEMINI_API_KEY` (`auto`) or with `transport: "agy"`. Never under `transport: "api"` | the Antigravity CLI, described below |
+
+`GEMINI_API_KEY` wins over `GOOGLE_API_KEY`, and `GOOGLE_API_KEY` alone does not switch
+`auto` (it is often a key for another Google API). The key is never passed to `agy`: the API path
+does not spawn it, and the agy child env scrubs every `*_KEY` variable anyway. In the
+standalone bridge, a `gemini-reply` to a thread that started on the API path continues on
+the API path; asking for `workspace-write` on such a thread is an invalid-params error. Under
+`transport: "api"` one gate in front of `agy` refuses everything that would run it
+(`workspace-write`, or a reply to a thread the API path does not know) with invalid params.
+With the API path selected, the standalone bridge starts even when `agy` is missing (a
+stderr warning; `workspace-write` calls then fail). The per-call `model` argument of the
+standalone `gemini` tool is an agy id, so the API path ignores it and uses
+`providers.gemini.apiModel`.
+
+**Antigravity terms.** The [Antigravity terms](https://antigravity.google/terms), section 6,
+list "Using third party software, tools, or services to access the Service (e.g. using
+OpenClaw with Antigravity OAuth)" as a breach that "may be grounds for suspension or
+termination of your Antigravity and/or Gemini CLI accounts". deliberation drives `agy` as
+third-party software, which is why the key path is the default and `agy` is opt-in.
+
+The agy path wraps the Antigravity CLI (`agy`) in print mode (`agy -p`) and adds two
 reliability behaviors:
 
 - **Soft-timeout drain** - on timeout it keeps `agy` alive, keeps buffering its
@@ -282,7 +308,10 @@ This is the single source of truth for the bridge environment variables.
 
 | Variable | Provider | Default | Purpose |
 |----------|----------|---------|---------|
-| `GEMINI_DEFAULT_MODEL` | Gemini | `auto-gemini-3` | Default model when neither the call nor `providers.gemini.model` sets one |
+| `GEMINI_API_KEY` | Gemini | unset | Google AI Studio key. Set, it routes advisory Gemini calls to the Gemini API (`providers.gemini.transport` `auto`). Never passed to `agy` |
+| `GOOGLE_API_KEY` | Gemini | unset | Read only with `providers.gemini.transport: "api"`, when `GEMINI_API_KEY` is unset. Does not switch `auto` |
+| `GEMINI_API_BASE` | Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` | API endpoint override for the key path (mainly for tests) |
+| `GEMINI_DEFAULT_MODEL` | Gemini | `auto-gemini-3` | agy path: default model when neither the call nor `providers.gemini.model` sets one |
 | `GEMINI_DISABLE_TIMEOUT_RECOVERY` | Gemini | unset | `1` forces legacy timeout (no drain) |
 | `GEMINI_MIN_ANSWER_CHARS` | Gemini | `1` | Minimum trimmed stdout length for a clean exit to count as an answer; shorter output, or a reply under 400 chars that only announces intent ("I will begin by..."), fails as `empty` (see [Answer floor](#answer-floor-gemini-grok)). `0` disables both checks |
 | `AGY_BIN` | Gemini | `agy` | Override the path to the `agy` binary |
@@ -719,7 +748,8 @@ DELIB_ROOT="${DELIB_ROOT%/server/mcp/index.js}"
 claude mcp remove deliberation >/dev/null 2>&1 || true
 claude mcp add --transport stdio --scope user deliberation -- node "$DELIB_ROOT/server/mcp/index.js"
 
-# Gemini
+# Gemini - export GEMINI_API_KEY (AI Studio key) for advisory calls; agy is opt-in
+# (workspace-write, or no key). Same env-vs-manifest tradeoff as Grok below.
 claude mcp remove deliberation-gemini >/dev/null 2>&1 || true
 claude mcp add --transport stdio --scope user deliberation-gemini -- node "$DELIB_ROOT/server/gemini/index.js"
 
@@ -2316,10 +2346,10 @@ to invoke or not invoke. Edit these to change expert behavior for your workflow.
 | Issue | Solution |
 |-------|----------|
 | MCP server not found | Restart Claude Code after setup |
-| Provider not authenticated | Codex: `codex login` (ChatGPT subscription; `codex login --device-auth` on a remote or headless machine), `CODEX_ACCESS_TOKEN` (ChatGPT Business/Enterprise), or export `CODEX_API_KEY` when there is neither; `OPENAI_API_KEY` is never used. Gemini: run `agy` once (or set `GOOGLE_API_KEY`). Grok: export `XAI_API_KEY` (else calls return `errorKind: missing-auth`) |
+| Provider not authenticated | Codex: `codex login` (ChatGPT subscription; `codex login --device-auth` on a remote or headless machine), `CODEX_ACCESS_TOKEN` (ChatGPT Business/Enterprise), or export `CODEX_API_KEY` when there is neither; `OPENAI_API_KEY` is never used. Gemini: export `GEMINI_API_KEY` (a Google AI Studio key), or for the opt-in agy path run `agy` once. Grok: export `XAI_API_KEY` (else calls return `errorKind: missing-auth`) |
 | `tool "ask-grok" timed out after 60s` from the host, or a `timeout` result naming `MCP_TOOL_TIMEOUT=60000` (Claude Code on the web) | The host exports `MCP_TOOL_TIMEOUT=60000`. The current manifest overrides it per server (`"timeout": 1800000` + env mirror), so either message means the plugin install predates that manifest: `claude plugin update deliberation@antonbabenko`, start a new session. Hand-written `.mcp.json`: add `"timeout": 1800000` and `"env": {"MCP_TOOL_TIMEOUT": "1800000"}` to the entry. `/deliberation:doctor` reports it. See [Timeouts](#timeouts) |
 | GPT returns `errorKind: "auth"` with `refresh token was already used` / `has expired` / `was revoked` | The `auth.json` in use was copied from another machine, and one of the copies refreshed first (a ChatGPT refresh token works once), or the login expired. Give each machine its own login: the next GPT call starts `codex login --device-auth` and shows its link and code (see "Login on first use"), or set `CODEX_ACCESS_TOKEN` (Business/Enterprise). A seeded secret must come from a login used for nothing else and must be re-seeded after its first refresh. See "One login per machine" under [Environment variables](#environment-variables) |
-| `deliberation-gemini` shows `CONNECTION_CLOSED` (Claude Code on the web) | No `agy` in the container: the standalone Gemini bridge refuses to start rather than advertise tools it cannot serve. The unified server keeps working and lists gemini under `panel.unavailable`; `/consensus` and `/ask-all` run on the remaining providers |
+| `deliberation-gemini` shows `CONNECTION_CLOSED` (Claude Code on the web) | No `agy` in the container and no Gemini key: the standalone Gemini bridge refuses to start rather than advertise tools it cannot serve. Export `GEMINI_API_KEY` and it starts and answers advisory calls over the API. The unified server keeps working and lists gemini under `panel.unavailable`; `/consensus` and `/ask-all` run on the remaining providers |
 | `panel` lists a provider under `unavailable` | Its stat-only health check failed; the `reason` names the missing piece (CLI on PATH, credential). Fix that and call again - nothing is cached |
 | Tool not appearing | Run `claude mcp list` and verify registration |
 | Expert not triggered | Ask explicitly: "Ask GPT to review...", "Ask Gemini to review...", or "Ask Grok to review..." |

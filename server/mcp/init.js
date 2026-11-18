@@ -4,7 +4,7 @@
  * `deliberation-mcp init` - first-run setup from the command line, on any host.
  *
  * 1. Detect credentials: codex (CLI + login) and agy via the providers' own stat-only health
- *    checks, plus the XAI / OpenRouter keys. GEMINI_API_KEY / GOOGLE_API_KEY are reported only.
+ *    checks, plus the XAI / OpenRouter / Gemini keys (gemini's health covers GEMINI_API_KEY).
  * 2. Write the config (core/paths.js; DELIBERATION_CONFIG wins): a new file enables each
  *    provider found; an existing file only gains the missing `enabled` flags, shown as a diff.
  * 3. Ping each enabled provider with one tiny prompt; OK or FAIL with the errorKind.
@@ -22,7 +22,7 @@ const paths = require("../../core/paths.js");
 const SCHEMA_URL = "https://raw.githubusercontent.com/antonbabenko/deliberation/master/config/config.schema.json";
 const CORE = /** @type {const} */ (["codex", "gemini", "grok", "openrouter"]);
 /** @type {Record<string,string>} */
-const LABEL = { codex: "GPT (codex)", gemini: "Gemini (agy)", grok: "Grok (xAI)", openrouter: "OpenRouter" };
+const LABEL = { codex: "GPT (codex)", gemini: "Gemini", grok: "Grok (xAI)", openrouter: "OpenRouter" };
 /** @type {Record<string,string>} */
 const KEY_ENV = { grok: "XAI_API_KEY", openrouter: "OPENROUTER_API_KEY" };
 const PING_PROMPT = "Reply with the single word OK.";
@@ -216,13 +216,13 @@ async function runInit(argv, deps) {
     if (unhealthy.has(n)) { notes.push(`${LABEL[n]}: ${KEY_ENV[n] ? `${KEY_ENV[n]} not set` : "not found"}`); continue; }
     found.push(n);
   }
-  for (const k of ["GEMINI_API_KEY", "GOOGLE_API_KEY"]) {
-    if (env[k]) notes.push(`${k} is set; this version reaches Gemini through agy only, so the key is not used`);
+  if (env.GOOGLE_API_KEY && !env.GEMINI_API_KEY) {
+    notes.push('GOOGLE_API_KEY is set; Gemini reads it only with providers.gemini.transport "api" (set GEMINI_API_KEY to use the Gemini API)');
   }
   out(`found: ${found.length ? found.map((n) => LABEL[n]).join(", ") : "none"}`);
   if (!returning) for (const n of notes) out(`  ${n}`);
   if (!found.length) {
-    out("No provider credential found. Set one of OPENROUTER_API_KEY or XAI_API_KEY, or log in to");
+    out("No provider credential found. Set OPENROUTER_API_KEY, GEMINI_API_KEY or XAI_API_KEY, or log in to");
     out("the codex or agy CLI, then rerun init.");
     printInstall(out, env, returning);
     return 1;

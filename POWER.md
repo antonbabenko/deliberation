@@ -16,8 +16,9 @@ are generated from this file by `scripts/sync-hosts.js`.
 
 ## What deliberation is
 
-A single MCP server that exposes GPT (via the Codex CLI), Gemini 3 (via the
-Antigravity CLI), Grok (via the xAI API), local models (Ollama, LM Studio), and
+A single MCP server that exposes GPT (via the Codex CLI), Gemini (via a Google
+AI Studio API key, `GEMINI_API_KEY`; the Antigravity CLI `agy` is an opt-in
+fallback), Grok (via the xAI API), local models (Ollama, LM Studio), and
 OpenRouter models (400+, advisory) as expert subagents. You stay the primary
 agent. When a task benefits from a second opinion or cross-model review, call
 one of the tools below, read the result, and apply your own judgment. Every tool
@@ -28,6 +29,18 @@ bridge, which this server does not expose.)
 If no provider answers yet, ask the user to run `npx -y @antonbabenko/deliberation-mcp init`
 in a terminal: it finds their keys and CLI logins, writes the config, pings each provider and
 runs one short demo consensus. It never prints key values.
+
+### Gemini credentials
+
+Set `GEMINI_API_KEY` (a Google AI Studio key from https://aistudio.google.com/apikey) in
+the server's environment and every Gemini call goes to the
+Gemini API, model `providers.gemini.apiModel` (default `gemini-flash-latest`). Without a key,
+Gemini falls back to the Antigravity CLI (`agy`); `providers.gemini.transport` (`auto` /
+`api` / `agy`) pins the choice; `api` never runs `agy` and also reads `GOOGLE_API_KEY`. Before choosing `agy`, read the Antigravity terms
+(https://antigravity.google/terms, section 6): they list "Using third party software, tools,
+or services to access the Service (e.g. using OpenClaw with Antigravity OAuth)" as a breach
+that "may be grounds for suspension or termination of your Antigravity and/or Gemini CLI
+accounts". This server drives `agy` as third-party software.
 
 ## Tools
 
@@ -111,8 +124,8 @@ Fan-out and single-provider:
   it first when a provider is missing from `panel` or `analyze` comes back empty.
 
 Every result carries `provider`, `model`, `text`, `ms` (wall time), and the effective
-`reasoningEffort` (real value for HTTP providers; `null` for the Codex/Gemini CLIs). HTTP
-providers (Grok, OpenRouter) also include token `usage`.
+`reasoningEffort` (real value for HTTP providers; `null` for the Codex CLI and Gemini on
+`agy`). HTTP providers (Gemini on the API key, Grok, OpenRouter) also include token `usage`.
 
 Expert personas (pass as the tool, or via the `expert` argument on the fan-out
 tools to apply one persona to every delegate):
@@ -157,8 +170,9 @@ These apply to every MCP host, not just Claude Code:
   manifests, and README.md, up to `maxFiles` files, default 6, within a `maxBytes`
   content budget, default 16000 bytes, about 4K tokens; a file that does not fit is
   cut and marked as truncated) to file-blind
-  providers (Grok, OpenRouter) when they carry no files of their own. This gives them the
-  same repo grounding that Codex and Gemini get by walking the filesystem. Set `enabled` to
+  providers (Gemini on the API key, Grok, OpenRouter) when they carry no files of their own.
+  This gives them the same repo grounding that Codex and Gemini on `agy` get by walking the
+  filesystem. Set `enabled` to
   `false` to opt out when the repo root holds files you do not want sent to those providers.
 - **Timeouts** - each provider ships its own ceiling (codex 600s, gemini 300s, grok 180s,
   OpenRouter 180s). Raise them all with `"providers": { "defaults": { "timeout": 600000 } }`;

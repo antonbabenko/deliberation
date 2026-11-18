@@ -415,7 +415,8 @@ function resolveDefaults(raw, shared) {
 // models.<id>.timeout still wins - registry.js merges that into the
 // request itself. `defaults` is a shared block, NOT a provider: it never becomes an
 // entry in the resolved map.
-const PINNABLE_KEYS = ["model", "reasoningEffort", "consensusReasoningEffort", "apiBase", "apiKeyEnv"];
+// apiModel / transport: providers.gemini only (the schema keeps them off the other blocks).
+const PINNABLE_KEYS = ["model", "reasoningEffort", "consensusReasoningEffort", "apiBase", "apiKeyEnv", "apiModel", "transport"];
 const KNOWN_PROVIDERS = ["codex", "gemini", "grok", "openrouter", "ollama", "lmstudio"];
 const positiveInt = (/** @type {any} */ v) => (Number.isInteger(v) && v > 0 ? v : undefined);
 function resolveProviders(providersRaw) {

@@ -65,7 +65,9 @@ function parseCompletion(data) {
 }
 
 // One chat/completions call. Returns { text }. Errors carry .status and/or .code.
-async function callOpenRouter({ apiBase, apiKey, model, preset, messages, reasoningEffort, temperature, timeoutMs, fetchImpl, hostBudgetRemainingMs, signal }) {
+// label: provider name in error messages. reasoningParam "reasoning_effort" sends the plain
+// OpenAI field (the Gemini API) instead of OpenRouter's `reasoning: {effort}` object.
+async function callOpenRouter({ apiBase, apiKey, model, preset, messages, reasoningEffort, temperature, timeoutMs, fetchImpl, hostBudgetRemainingMs, signal, label = "OpenRouter", reasoningParam }) {
   const f = fetchImpl || globalThis.fetch;
   if (typeof f !== "function") { const e = new Error("global fetch unavailable; Node 18+ required"); e.code = "network"; throw e; }
   const base = (apiBase || "https://openrouter.ai/api/v1").replace(/\/+$/, "");
@@ -74,7 +76,10 @@ async function callOpenRouter({ apiBase, apiKey, model, preset, messages, reason
   if (isNonEmptyString(model)) payload.model = model;
   const p = isNonEmptyString(preset) ? preset.trim().replace(/^@preset\//, "") : undefined;
   if (p) payload.preset = p;
-  if (isNonEmptyString(reasoningEffort)) payload.reasoning = { effort: reasoningEffort };
+  if (isNonEmptyString(reasoningEffort)) {
+    if (reasoningParam === "reasoning_effort") payload.reasoning_effort = reasoningEffort;
+    else payload.reasoning = { effort: reasoningEffort };
+  }
   if (typeof temperature === "number") payload.temperature = temperature;
 
   const headers = {
@@ -110,11 +115,11 @@ async function callOpenRouter({ apiBase, apiKey, model, preset, messages, reason
       bodyText = "";
     }
   } catch (err) {
-    throw annotateTimeout(fetchFailureError("OpenRouter", err, t), hostClamp);
+    throw annotateTimeout(fetchFailureError(label, err, t), hostClamp);
   } finally { clearTimeout(timer); signal?.removeEventListener("abort",abort); }
 
   if (!res.ok) {
-    const e = new Error(`OpenRouter API error ${res.status}: ${truncate(bodyText, 500)}`);
+    const e = new Error(`${label} API error ${res.status}: ${truncate(bodyText, 500)}`);
     e.status = res.status;
     if (res.status === 429) { const ra = parseRetryAfterMs(res.headers && res.headers.get("retry-after")); if (ra !== undefined) e.retryAfterMs = ra; }
     throw e;

@@ -406,19 +406,57 @@ function stdoutIsError(s) {
 // the 300s built-in no matter what the config says. Lazy + fail-soft, mirroring the Grok
 // bridge: a broken config must never take the bridge down, only lose the pin.
 let _cfgReader = null;
-/** @returns {(number|undefined)} */
-function configuredTimeout() {
+/** The resolved providers.gemini block, or {} on any config problem. */
+function geminiConfig() {
   try {
     if (!_cfgReader) {
       const { makeConfigReader } = require("../openrouter/config.js");
       _cfgReader = makeConfigReader(require("../../core/paths.js").resolveConfigPath());
     }
     const r = _cfgReader.get();
-    const t = r && r.resolved && r.resolved.providers && r.resolved.providers.gemini && r.resolved.providers.gemini.timeout;
-    return typeof t === "number" && t > 0 ? t : undefined;
+    return (r && r.resolved && r.resolved.providers && r.resolved.providers.gemini) || {};
   } catch {
-    return undefined;
+    return {};
   }
+}
+/** @returns {(number|undefined)} */
+function configuredTimeout() {
+  const t = geminiConfig().timeout;
+  return typeof t === "number" && t > 0 ? t : undefined;
+}
+
+// --- API key path (GEMINI_API_KEY / GOOGLE_API_KEY) ---
+// Advisory calls go to the Gemini API over the shared OpenAI-compatible client when a key is
+// set (providers.gemini.transport "auto", the default) or transport is "api". agy then never
+// runs for them, and the key is never passed to agy (advisoryEnv scrubs *_KEY anyway).
+// workspace-write uses agy unless transport is "api" (refused). API thread ids are tracked so gemini-reply routes back here.
+const geminiCore = require("../../core/providers/gemini.js");
+let _apiProvider = null;
+const apiThreads = new Set();
+const { MAX_SESSIONS: MAX_API_SESSIONS } = require("../../core/providers/openai-compatible.js");
+function apiSelected() {
+  return geminiCore.useGeminiApi(geminiConfig().transport);
+}
+function apiProvider() {
+  if (!_apiProvider) {
+    _apiProvider = geminiCore.makeGeminiApiProvider({ bridge: require("../openrouter/index.js"), model: geminiConfig().apiModel });
+  }
+  return _apiProvider;
+}
+/** One advisory API call; returns the bridge's tool result shape. */
+// The per-call `model` is an agy id (the tool schema even defaults it to one), so the API path
+// ignores it and uses providers.gemini.apiModel.
+async function runGeminiApi({ prompt, developerInstructions, threadId, timeoutMs, cwd }) {
+  const r = await apiProvider().ask({ prompt, developerInstructions, threadId, timeoutMs, cwd });
+  if (r.isError) {
+    const e = new Error(r.message || `Gemini API call failed (${r.errorKind})`);
+    e.apiResult = r;
+    throw e;
+  }
+  apiThreads.add(r.threadId);
+  // Same cap and insertion order as the provider's own session map, so both forget a thread together.
+  if (apiThreads.size > MAX_API_SESSIONS) apiThreads.delete(apiThreads.values().next().value);
+  return { response: r.text, threadId: r.threadId };
 }
 
 // Answer floor, shared with the Grok bridge (core/answer-floor.js). agy sometimes exits 0
@@ -796,7 +834,7 @@ const handlers = {
               "developer-instructions": { type: "string", description: "Expert system instructions" },
               sandbox: { type: "string", enum: ["read-only", "workspace-write"], default: "read-only" },
               cwd: { type: "string", description: "Current working directory" },
-              model: { type: "string", default: DEFAULT_MODEL, description: "agy model id fusing family + effort, e.g. \"gemini-3.6-flash-high\" (see `agy models`; display names also work). Passed as --model; defaults to providers.gemini.model, then GEMINI_DEFAULT_MODEL, then the \"auto-gemini-3\" router alias." },
+              model: { type: "string", default: DEFAULT_MODEL, description: "agy path only (the API key path ignores it and uses providers.gemini.apiModel). An agy model id fusing family + effort, e.g. \"gemini-3.6-flash-high\" (see `agy models`), passed as --model; defaults to providers.gemini.model, then GEMINI_DEFAULT_MODEL, then the \"auto-gemini-3\" router alias." },
               "include-directories": {
                 type: "array",
                 items: { type: "string" },
@@ -883,6 +921,35 @@ const handlers = {
     }
 
     try {
+      // Advisory calls on the API key path, and replies to threads it started, skip agy.
+      const writeMode = args.sandbox === "workspace-write";
+      const replyToApi = name === "gemini-reply" && isNonEmptyString(args.threadId) && apiThreads.has(args.threadId.trim());
+      if (replyToApi && writeMode) {
+        if (shouldRespond) sendError(id, -32602, "Invalid params: this thread ran on the Gemini API key path, which is advisory only; start a new 'gemini' call with sandbox 'workspace-write' to use agy");
+        return;
+      }
+      if (replyToApi || (name === "gemini" && !writeMode && apiSelected())) {
+        if (!isNonEmptyString(args.prompt)) {
+          if (shouldRespond) sendError(id, -32602, "Invalid params: 'prompt' is required");
+          return;
+        }
+        const out = await runGeminiApi({
+          prompt: args.prompt,
+          developerInstructions: name === "gemini" && typeof args["developer-instructions"] === "string" ? args["developer-instructions"] : undefined,
+          threadId: replyToApi ? args.threadId.trim() : undefined,
+          timeoutMs: (typeof args.timeout === "number" && args.timeout > 0) ? args.timeout : configuredTimeout(),
+          cwd: args.cwd,
+        });
+        if (shouldRespond) sendResponse(id, { content: [{ type: "text", text: out.response }], threadId: out.threadId, transport: "api" });
+        return;
+      }
+      // The one gate before agy: transport "api" is the operator saying agy must never run, so a
+      // workspace-write call or a reply to a thread the API path does not know is refused here.
+      if (geminiConfig().transport === "api") {
+        if (shouldRespond) sendError(id, -32602, "Invalid params: providers.gemini.transport is \"api\", which never runs agy; workspace-write and replies to agy threads need agy (set transport to \"auto\" or \"agy\" to allow it)");
+        return;
+      }
+
       const agyArgs = [];
 
       // Sandbox / permissions mapping is common to both tools.
@@ -971,7 +1038,7 @@ const handlers = {
     } catch (e) {
       const errMsg = (e && e.message) || String(e);
       const errCode = e && e.code;
-      const { errorKind, retryable } = classifyGeminiError(errMsg, errCode);
+      const { errorKind, retryable } = e && e.apiResult ? e.apiResult : classifyGeminiError(errMsg, errCode);
 
       if (shouldRespond) {
         sendResponse(id, {
@@ -1035,16 +1102,24 @@ if (require.main === module) {
   // Startup Check
   // A found-but-unspawnable shim is a different problem from a missing install, and the
   // generic message below sends the user off to reinstall something they already have.
+  // With the API key path selected agy is optional (needed only for workspace-write), so a
+  // missing agy is a warning, not a reason to exit.
+  const agyOptional = apiSelected();
   const bootShimErr = agyShimError(AGY_TARGET, AGY_BIN);
   if (bootShimErr) {
     console.error(bootShimErr.message);
-    process.exit(1);
-  }
-  try {
-    execFileSync(AGY_CMD, [...AGY_PREFIX_ARGS, "--help"], { stdio: "ignore" });
-  } catch (e) {
-    console.error("Antigravity CLI (agy) not found. Install from https://antigravity.google and run `agy` once to sign in.");
-    process.exit(1);
+    if (!agyOptional) process.exit(1);
+  } else {
+    try {
+      execFileSync(AGY_CMD, [...AGY_PREFIX_ARGS, "--help"], { stdio: "ignore" });
+    } catch (e) {
+      if (agyOptional) {
+        console.error("Antigravity CLI (agy) not found; advisory calls use the Gemini API key, workspace-write calls will fail.");
+      } else {
+        console.error("Antigravity CLI (agy) not found. Set GEMINI_API_KEY (an AI Studio key from https://aistudio.google.com/apikey), or install agy from https://antigravity.google and run `agy` once to sign in.");
+        process.exit(1);
+      }
+    }
   }
 }
 
@@ -1060,6 +1135,8 @@ if (typeof module !== "undefined" && module.exports) {
 
   // Production exports (used by core adapters as well as tests)
   module.exports.runGemini = runGemini;
+  module.exports.runGeminiApi = runGeminiApi;
+  module.exports.apiSelected = apiSelected;
   module.exports.buildAgyArgs = buildAgyArgs;
   module.exports.cliAvailable = cliAvailable;
 

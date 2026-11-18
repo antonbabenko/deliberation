@@ -13,6 +13,12 @@
   "contextFileName": "docs/tool-guide.md",
   "settings": [
     {
+      "name": "Gemini API key",
+      "description": "Google AI Studio key (https://aistudio.google.com/apikey). Enables Gemini without the Antigravity CLI. Leave blank to skip.",
+      "envVar": "GEMINI_API_KEY",
+      "sensitive": true
+    },
+    {
       "name": "xAI API key",
       "description": "Enables Grok. Leave blank to skip.",
       "envVar": "XAI_API_KEY",
