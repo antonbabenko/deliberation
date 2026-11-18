@@ -246,7 +246,7 @@ Beyond the raw MCP config above, deliberation ships **native plugin artifacts** 
 | **Gemini CLI** | `gemini-extension.json` (a Gemini CLI extension) | `gemini extensions install https://github.com/antonbabenko/deliberation` |
 | **Cursor** | `.cursor/rules/deliberation.mdc` | The "Install in Cursor" button above, then copy the `.mdc` into your project's `.cursor/rules/`. |
 | **Codex CLI** | `plugins/deliberation/` (`.codex-plugin/plugin.json` + `.mcp.json` + `skills/`) and a repo-scoped `.agents/plugins/marketplace.json` | `codex plugin marketplace add antonbabenko/deliberation`, then install **deliberation** from `/plugins`. |
-| **Kiro** | `POWER.md` + `mcp.json` + `steering/` (a "Kiro Power") | In Kiro, "Add power from GitHub" -> this repo URL. |
+| **Kiro** | `plugin.json` + `mcp.json` (a "Kiro Power"), plus the legacy `POWER.md` + `steering/` | In Kiro, "Add power from GitHub" -> this repo URL. |
 | **OpenCode** | `.opencode/commands/*.md` + `.opencode/agents/*.md` | Add the MCP server to `opencode.json` (`mcp` key, `type: "local"`, `command: ["npx","-y","@antonbabenko/deliberation-mcp"]`), then copy `.opencode/commands/` and `.opencode/agents/` into your project. |
 
 Provider credentials work the same as the standalone server (GPT via the Codex CLI, Gemini via `agy`, `XAI_API_KEY` for Grok, `OPENROUTER_API_KEY` for OpenRouter) - set only the providers you use. The MCP server already injects each expert persona server-side, so these native files add the host's command/steering surface, not duplicated logic.
@@ -502,3 +502,5 @@ Contributions welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow, 
 [MIT](LICENSE)
 
 Privacy: see [PRIVACY.md](PRIVACY.md) for what deliberation sends and stores.
+
+Support: open an issue at https://github.com/antonbabenko/deliberation/issues.

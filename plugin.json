@@ -1,0 +1,32 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "deliberation",
+  "version": "4.3.0",
+  "description": "A second opinion from other models before you ship. Any host, any vendor, one verdict, and the disagreement stays visible.",
+  "author": {
+    "name": "Anton Babenko",
+    "url": "https://github.com/antonbabenko"
+  },
+  "homepage": "https://github.com/antonbabenko/deliberation",
+  "repository": "https://github.com/antonbabenko/deliberation",
+  "license": "MIT",
+  "keywords": [
+    "architecture review",
+    "security review",
+    "second opinion",
+    "consensus",
+    "council",
+    "code review",
+    "plan review",
+    "debug",
+    "writing editor",
+    "edit this post",
+    "in my voice",
+    "sound like me",
+    "grok",
+    "openrouter",
+    "gpt",
+    "gemini",
+    "deliberation"
+  ]
+}
