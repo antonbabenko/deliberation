@@ -70,7 +70,7 @@ const LICENSE_AND_SUPPORT_FOOTER = [
   "Deliberation is licensed MIT (`MIT`).",
   "",
   `- [Privacy policy](${S.REPO_URL}/blob/master/PRIVACY.md): each delegation goes only to` +
-    " the providers you configure, under their own privacy policies. deliberation sends" +
+    " the providers you configure, under their own privacy policies. Deliberation sends" +
     " no telemetry, and its local session store, debug log and dashboard journal are off" +
     " by default.",
   `- [Support](${S.REPO_URL}/issues)`,

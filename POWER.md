@@ -294,5 +294,5 @@ If you use the dashboard, start it again on the new version with
 
 Deliberation is licensed MIT (`MIT`).
 
-- [Privacy policy](https://github.com/antonbabenko/deliberation/blob/master/PRIVACY.md): each delegation goes only to the providers you configure, under their own privacy policies. deliberation sends no telemetry, and its local session store, debug log and dashboard journal are off by default.
+- [Privacy policy](https://github.com/antonbabenko/deliberation/blob/master/PRIVACY.md): each delegation goes only to the providers you configure, under their own privacy policies. Deliberation sends no telemetry, and its local session store, debug log and dashboard journal are off by default.
 - [Support](https://github.com/antonbabenko/deliberation/issues)
