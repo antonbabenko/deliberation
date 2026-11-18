@@ -1,3 +1,10 @@
+## [4.3.0](https://github.com/antonbabenko/deliberation/compare/v4.2.0...v4.3.0) (2026-11-18)
+
+
+### Features
+
+* **openrouter:** built-in three-vendor panel from OPENROUTER_API_KEY alone ([#274](https://github.com/antonbabenko/deliberation/issues/274)) ([1bf310d](https://github.com/antonbabenko/deliberation/commit/1bf310d8cf857208a1dc060e4a1866289229f9ba))
+
 ## [4.2.0](https://github.com/antonbabenko/deliberation/compare/v4.1.1...v4.2.0) (2026-11-17)
 
 
@@ -39,11 +46,4 @@
 ### Bug Fixes
 
 * **deps:** require node >=18.20.8 ([67216d7](https://github.com/antonbabenko/deliberation/commit/67216d70b4d62eef3eb0b2ffb8236e62ab3617f2))
-
-## [3.32.0](https://github.com/antonbabenko/deliberation/compare/v3.31.0...v3.32.0) (2026-10-27)
-
-
-### Features
-
-* add Writing Editor expert for prose review and rewrites ([#246](https://github.com/antonbabenko/deliberation/issues/246)) ([bb6611e](https://github.com/antonbabenko/deliberation/commit/bb6611ed301e5658dc2f828820109658376a2482))
 
