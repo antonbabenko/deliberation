@@ -132,6 +132,12 @@ Minimal example:
 }
 ```
 
+`providers.<name>.enabled: false` turns that provider off everywhere: fan-out tools skip it,
+and a tool that names it (`ask-grok`, `ask-one`, the standalone `grok` bridge, and so on)
+returns `errorKind: "disabled"` without calling it. The error names the key and config file
+to change. The flag is read on every call, so no restart is needed. `openrouter-list` still
+answers, since it calls no model.
+
 `debug.enabled` (default `false`) appends one JSON line per provider call and per consensus
 round to `<XDG cache>/deliberation/debug.jsonl` (override with `debug.path` or
 `DELIBERATION_DEBUG_LOG`): latency, reasoning effort, HTTP token usage, and voting/approval

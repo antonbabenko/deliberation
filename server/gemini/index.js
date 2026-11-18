@@ -406,6 +406,11 @@ function stdoutIsError(s) {
 // the 300s built-in no matter what the config says. Lazy + fail-soft, mirroring the Grok
 // bridge: a broken config must never take the bridge down, only lose the pin.
 let _cfgReader = null;
+const { providerEnabled, disabledMessage } = require("../../core/provider.js");
+/** MCP result for a call to a provider disabled in config. @param {string} name */
+function disabledResponse(name) {
+  return { content: [{ type: "text", text: `Error: ${disabledMessage(name, require("../../core/paths.js").resolveConfigPath())}` }], isError: true, errorKind: "disabled", retryable: false };
+}
 /** The resolved providers.gemini block, or {} on any config problem. */
 function geminiConfig() {
   try {
@@ -918,6 +923,12 @@ const handlers = {
           return;
         }
       }
+    }
+
+    // providers.gemini.enabled: false - answer before any agy spawn or API call. Read per call (hot reload).
+    if ((name === "gemini" || name === "gemini-reply") && !providerEnabled({ providers: { gemini: geminiConfig() } }, "gemini")) {
+      if (shouldRespond) sendResponse(id, disabledResponse("gemini"));
+      return;
     }
 
     try {

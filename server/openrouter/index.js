@@ -143,6 +143,7 @@ function normalizeUsage(u) {
 
 const crypto = require("node:crypto");
 const { makeConfigReader } = require("./config.js");
+const { providerEnabled, disabledMessage } = require("../../core/provider.js");
 const { resolveAlias, RESERVED_ALIAS, askAllDelegates, consensusDelegates } = require("./routing.js");
 const { inlineFiles } = require("./files.js");
 
@@ -320,6 +321,12 @@ const handlers = {
       return;
     }
     const or = cfg.resolved.openrouter;
+    // providers.openrouter.enabled: false - answer before any request. openrouter-list stays (no network).
+    if ((name === "openrouter" || name === "openrouter-reply") && !providerEnabled(cfg.resolved, "openrouter")) {
+      logCall(id, name, "disabled", Date.now() - startedAt);
+      if (respond) sendResponse(id, { content: [{ type: "text", text: `Error: ${disabledMessage("openrouter", CONFIG_PATH)}` }], isError: true, errorKind: "disabled", retryable: false });
+      return;
+    }
 
     if (name === "openrouter-list") {
       if (!respond) return;

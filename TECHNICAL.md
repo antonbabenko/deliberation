@@ -1023,7 +1023,14 @@ there is no config file at all.
 The config has four top-level sections, each with one job:
 
 - **`providers`** - transport / connection only. Per provider: `enabled` (default true)
-  plus auth/endpoint keys. `providers.openrouter` also carries the OpenRouter-specific
+  plus auth/endpoint keys. `enabled: false` turns the provider off for every tool:
+  `ask-all`, `consensus`, `panel` and the expert tools leave it out, and a tool that names it
+  (`ask-gpt` / `ask-gemini` / `ask-grok` / `ask-openrouter`, `ask-one`, and the standalone
+  `gemini`, `grok` and `openrouter` bridges with their `-reply` tools) returns
+  `errorKind: "disabled"` without a network call or CLI spawn. The flag is read on every
+  call, so editing the config applies without a restart. Only an explicit `false` disables;
+  a missing block or flag means enabled (for OpenRouter, a missing block with no key is a
+  missing credential, not `disabled`). `providers.openrouter` also carries the OpenRouter-specific
   connection keys (`apiBase`, `allowRawModel`, `defaultModel`, per-call `defaults`).
 - **`models`** - named model records, keyed by id. Each record names its `provider` and
   `model` slug and sets routing flags. This is where you declare the models the panel uses.
@@ -1403,6 +1410,7 @@ token count. There is no hard spend cap - the warning is informational only.
 | `parse` | Response body could not be parsed |
 | `upstream` | Non-2xx from the endpoint (other than auth/rate-limit) |
 | `config` | Config file missing, invalid JSON, or schema violation |
+| `disabled` | The provider is off in config (`providers.<name>.enabled: false`). Returned before any network call or CLI spawn; the message names the key and the config file. Not retried |
 | `model-not-allowed` | OpenRouter: requested alias is not in the config, or a raw `model` was passed with `allowRawModel:false`, or no alias/model was given and no `defaultModel` is set. Gemini: agy rejected an operator-pinned `--model` id with `invalid model selection` (the shipped alias falls back instead - see the `--model` notes) |
 | `unknown-thread` | `-reply` called with a threadId that does not exist |
 | `unknown` | Catch-all for unclassified errors |

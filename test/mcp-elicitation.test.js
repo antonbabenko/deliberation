@@ -187,7 +187,7 @@ test("EL-e2e: over real stdio, a login that dies cancels the open dialog (the wi
   // Prints a device prompt, then dies before anyone approves.
   fs.writeFileSync(fake, "#!/bin/sh\nprintf 'Open this link\\n   https://auth.openai.com/codex/device\\n\\nEnter this one-time code (expires in 15 minutes)\\n   WXYZ-98765\\n\\n'\nsleep 0.3\nexit 1\n", { mode: 0o755 });
   const srv = spawn(process.execPath, [path.resolve(__dirname, "../server/mcp/index.js")], {
-    env: { ...process.env, CODEX_HOME: home, CODEX_BIN: fake, CODEX_API_KEY: "", CODEX_ACCESS_TOKEN: "" }, stdio: ["pipe", "pipe", "ignore"],
+    env: { ...process.env, CODEX_HOME: home, CODEX_BIN: fake, CODEX_API_KEY: "", CODEX_ACCESS_TOKEN: "", DELIBERATION_CONFIG: path.join(home, "none.json") }, stdio: ["pipe", "pipe", "ignore"],
   });
   try {
     /** @type {any[]} */ const seen = [];

@@ -29,6 +29,9 @@ function startBridge({ env = {}, fakeBin = "fake-agy.sh" } = {}) {
       // the fake agy. Tests of the API path set these via `env`.
       GEMINI_API_KEY: "",
       GOOGLE_API_KEY: "",
+      // Never the developer's own config: providers.gemini.enabled:false there would turn
+      // every call into a `disabled` error. Tests that need a config pass their own.
+      DELIBERATION_CONFIG: path.join(tmpDir, "missing-config.json"),
       ...env,
     },
     stdio: ["pipe", "pipe", "pipe"],
