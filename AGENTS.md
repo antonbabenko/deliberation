@@ -48,6 +48,9 @@ user-visible behavior is not done until every surface it touches is current:
 - `config/config.schema.json` AND `config/config.default.json` - every new key needs both
   (state any threat model in the schema description); the `validate` check fails on drift
 - `commands/` and skill prose, when the behavior they describe changed
+- the website's hand-written pages, when they describe what changed: most of the site is
+  generated from the files above, but the home page, the features page and the install
+  steps are written by hand (see [Website (site/)](#website-site) for the list)
 
 **Product name.** Prose writes the product as Deliberation, with a capital D, in sentences,
 headings and user-visible messages. Identifiers stay lowercase: the npm package, MCP server
@@ -70,8 +73,9 @@ list above and `npm run sync:check`, which fails on any stale output.
 the release automation. Commits follow Conventional Commits; only `feat:`, `fix:` and
 breaking changes cut a release ([CONTRIBUTING.md](CONTRIBUTING.md#release-process)).
 
-**Done means:** `npm run check` and `npm run sync:check` pass, and `git grep` for any old name or flag finds no
-stale reference in docs.
+**Done means:** `npm run check` and `npm run sync:check` pass, the site's hand-written pages
+match the change (and `cd site && npm test && npm run build` passes when `site/` changed),
+and `git grep` for any old name or flag finds no stale reference in docs.
 
 ## Website (site/)
 
@@ -91,6 +95,33 @@ npm run dev                   # local dev server
 The site is not released. Commit site work as `docs(site):`, `chore(site):` or `ci(site):`,
 never `feat`/`fix`/`perf`/`revert` or `!` ([CONTRIBUTING.md](CONTRIBUTING.md#the-website-is-not-released)).
 Root `npm run check` does not cover `site/`; run the commands above when you change it.
+
+### Keep the site's hand-written pages current
+
+Most of the site follows the repository by itself. These parts are generated at build time
+and need no site edit: every doc page (README.md, SETUP.md, TECHNICAL.md, PRIVACY.md,
+CHANGELOG.md, `docs/compare/`, `docs/hosts/`, `docs/tool-guide.md`), the experts list
+(`prompts/*.md` plus the README expert table), config defaults on the features page
+(`config/config.default.json`), the changelog (GitHub Releases), the version next to the
+logo (`version.json`), the star count, `llms.txt`, the sitemap and the search index.
+
+The rest is written by hand and goes stale silently. When a PR adds or changes a feature,
+a host, a provider, a command, an install step or a config key, check each file below and
+update it in the same PR:
+
+| File | What it holds | Update when |
+|------|---------------|-------------|
+| `site/src/data/features.ts` | the features page and the short feature list on the home page | a feature or config key is added, renamed or changes meaning (a new key does not appear by itself; a removed key fails the build) |
+| `site/src/data/site-copy.ts` | home page lede, the stated limits, per-host install commands and steps (home switcher and `/install/`) | an install command, host, provider or first-run step changes |
+| `site/src/lib/host-pages.ts` | which `docs/hosts/*.md` sections are replaced by a link to `/install/` | a host guide's install headings change (the build fails on a missing heading) |
+| `site/src/pages.config.ts` and the `paths` lists in `.github/workflows/site.yml` | which repo files become pages, and which edits rebuild the site | a doc file is added, moved or should be published |
+| `site/src/data/talks.ts` | the talks page | a talk is given |
+| `site/src/data/replay/` | recorded consensus runs on the home page and `/sample-runs/` | the engine's run output changes shape (update `run-model.ts` and the README there); never edit recorded reviewer text |
+| `site/PRODUCT.md`, `site/DESIGN.md` | product facts and the design system the pages follow | positioning, supported hosts or providers, or the visual system changes |
+
+Then build the site (`cd site && npm test && npm run build`) and look at the pages you
+touched. Commit the site edit as `docs(site):` in the same PR as the feature; the feature
+commit keeps its own type.
 
 ## Pre-PR cross-model review
 

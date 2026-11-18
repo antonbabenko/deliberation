@@ -66,7 +66,11 @@ Details: [docs/dev/architecture.md](docs/dev/architecture.md).
 
 1. **Test your changes** - `npm run check`, then try the change through a real MCP host
 2. **Update docs** - If you change behavior, update relevant docs
-3. **Keep commits atomic** - One logical change per commit
+3. **Check the website** - If you add or change a feature, host, provider, command, install
+   step or config key, update the site's hand-written pages too. Doc pages are generated
+   from the Markdown, but the home page, the features page and the install steps are not
+   (list in [AGENTS.md](AGENTS.md#keep-the-sites-hand-written-pages-current))
+4. **Keep commits atomic** - One logical change per commit
 
 ### PR Guidelines
 

@@ -47,7 +47,9 @@ How the repo is put together. Read before changing `core/`, `server/`, or the co
   source files; `site/src/lib/docs-loader.ts` renders each file whole with Astro's Markdown
   processor and slices it at H2s, rewriting links to site routes or GitHub. Deployed to GitHub
   Pages by `.github/workflows/site.yml`; excluded from releases. Not covered by the root
-  `npm run check`.
+  `npm run check`. The home page, the features page (`site/src/data/features.ts`) and the
+  per-host install steps (`site/src/data/site-copy.ts`) are hand-written; AGENTS.md lists what
+  to update when a feature changes.
 - **Typecheck gate** - `tsconfig.json` strict `checkJs` over `core/**` + `server/mcp/**/*.js`
   (excludes `server/mcp/dist`). `npm run check` = `typecheck` + `node --test test/*.test.js`,
   enforced in CI by `.github/workflows/validate.yml`.
