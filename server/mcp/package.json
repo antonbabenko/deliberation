@@ -1,6 +1,6 @@
 {
   "name": "@antonbabenko/deliberation-mcp",
-  "version": "4.5.0",
+  "version": "4.6.0",
   "description": "A second opinion from other models before you ship. Any host, any vendor, one verdict, and the disagreement stays visible.",
   "keywords": ["mcp", "mcp-server", "second-opinion", "council", "consensus", "code-review", "multi-model", "claude-code", "codex", "gpt", "gemini", "grok", "openrouter"],
   "mcpName": "io.github.antonbabenko/deliberation",
