@@ -1,7 +1,7 @@
 {
   "name": "deliberation",
   "version": "4.2.0",
-  "description": "GPT, Gemini, Grok, and OpenRouter as expert subagents - second opinions, cross-model consensus, and review.",
+  "description": "A second opinion from other models before you ship. Any host, any vendor, one verdict, and the disagreement stays visible.",
   "author": {
     "name": "Anton Babenko",
     "url": "https://github.com/antonbabenko"
@@ -16,8 +16,8 @@
       "Interactive",
       "Write"
     ],
-    "shortDescription": "GPT, Gemini, Grok, and OpenRouter as expert subagents - second opinions, cross-model consensus, and review.",
-    "longDescription": "Eight expert subagents (Architect, Plan Reviewer, Scope Analyst, Code Reviewer, Security Analyst, Researcher, Debugger, Writing Editor) backed by GPT, Gemini, Grok, and OpenRouter, plus ask-all fan-out and arbiter-mediated consensus. Advisory or implementation.",
+    "shortDescription": "A second opinion from other models before you ship. Any host, any vendor, one verdict, and the disagreement stays visible.",
+    "longDescription": "GPT, Gemini, Grok, local, and OpenRouter models review the same plan or diff. In the consensus loop your agent commits a blind verdict before it sees the panel, every dismissed issue keeps a written reason, and the built-in analyzer measures what each model adds. Eight expert skills (Architect, Plan Reviewer, Scope Analyst, Code Reviewer, Security Analyst, Researcher, Debugger, Writing Editor) plus ask-all fan-out and arbiter-mediated consensus. Consensus can be wrong, so dissent stays visible and the final call stays with a human.",
     "websiteURL": "https://github.com/antonbabenko/deliberation"
   }
 }

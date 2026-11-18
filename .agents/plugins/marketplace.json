@@ -3,7 +3,7 @@
   "plugins": [
     {
       "name": "deliberation",
-      "description": "GPT, Gemini, Grok, and OpenRouter as expert subagents - second opinions, cross-model consensus, and review.",
+      "description": "A second opinion from other models before you ship. Any host, any vendor, one verdict, and the disagreement stays visible.",
       "source": {
         "source": "local",
         "path": "./plugins/deliberation"

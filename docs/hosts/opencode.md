@@ -18,9 +18,9 @@ The MCP server itself is registered in your `opencode.json` (see below).
 
 ## 1. Register the MCP server
 
-OpenCode loads MCP servers from the `mcp` key in `opencode.json` (project root)
-or `~/.config/opencode/opencode.json` (global). The config file does **not** live
-inside `.opencode/`. Add a local (stdio) server:
+OpenCode loads MCP servers from the `mcp` key in `opencode.json` at the project
+root. The config file does **not** live inside `.opencode/`. Add a local (stdio)
+server:
 
 ```json
 {
@@ -45,13 +45,18 @@ your shell (or add them under `environment`).
 ## 2. Drop in the commands and agents
 
 Copy the generated `.opencode/commands/` and `.opencode/agents/` directories into
-your project (or into `~/.config/opencode/` for global use - OpenCode uses the
-same plural subdirectory names in both locations). The filename becomes the
-command / agent name (`ask-all.md` -> `/ask-all`, `architect.md` -> the
-`architect` subagent).
+your project. The filename becomes the command / agent name (`ask-all.md` ->
+`/ask-all`, `architect.md` -> the `architect` subagent).
 
 Source: [opencode.ai/docs/commands](https://opencode.ai/docs/commands/),
 [opencode.ai/docs/agents](https://opencode.ai/docs/agents/).
+
+### Other ways to install
+
+Global install, for every project: put the `mcp` block in
+`~/.config/opencode/opencode.json` and copy `commands/` and `agents/` into
+`~/.config/opencode/`. OpenCode uses the same plural subdirectory names in both
+locations.
 
 ## Provider credentials
 

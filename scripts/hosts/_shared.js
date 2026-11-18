@@ -19,7 +19,7 @@ const REPO_URL = "https://github.com/antonbabenko/deliberation";
 const MCP_PACKAGE = "@antonbabenko/deliberation-mcp";
 
 const SHORT_DESCRIPTION =
-  "GPT, Gemini, Grok, and OpenRouter as expert subagents - second opinions, cross-model consensus, and review.";
+  "A second opinion from other models before you ship. Any host, any vendor, one verdict, and the disagreement stays visible.";
 
 /** The 8 expert personas + a one-line description for host skill/agent frontmatter. */
 const EXPERTS = {
