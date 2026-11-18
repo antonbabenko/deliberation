@@ -76,9 +76,12 @@ Claude: "I found 3 issues..." (synthesizes, applies judgment)
 the core state machine (`core/consensus-loop.js`). Each round: Claude commits a blind verdict,
 the server fans out to the panel (`dispatch_peers`) and parses each voice's verdict + critical
 issues, Claude adjudicates (accept/dismiss/defer, every dismiss carries a reason), then revises
-the plan. The loop converges only when at least one responding peer APPROVES, none REJECT, zero
-accepted critical issues remain, and Claude's adjudicated verdict is APPROVE - so Claude cannot
-self-approve. The cap is `consensus.maxRounds` (default 5).
+the plan. The loop converges only when at least `quorumFloor` peers respond, every responding
+peer APPROVES, none REJECT, zero accepted critical issues remain, and Claude's adjudicated
+verdict is APPROVE - so Claude cannot self-approve. `quorumFloor` is `consensus.quorumFloor`
+(default 2) capped at the size of the selected panel and never below 1, so a one-peer panel
+needs that one peer. An errored or unparsed review does not count as responding. The cap is
+`consensus.maxRounds` (default 5).
 
 **Critical-issue taxonomy** (the closed set every critical issue is tagged with, parsed by
 `parseReview` in `core/provider.js`):
@@ -1226,7 +1229,9 @@ The loop ends `unresolved` once it hits the cap without converging.
 the global wall-time budget (ms) for the server-side provider-arbiter convergence loop (the
 `consensus` tool). When the budget is spent the loop stops BEFORE starting the next round and
 returns UNRESOLVED with `stopReason: "budget-exhausted"`; it never aborts an in-flight
-provider call. Does not apply to the host-driven `/consensus` (`consensus-step`) path.
+provider call. The host-driven `/consensus` (`consensus-step`) path applies the same budget:
+`dispatch_peers` ends the loop as UNRESOLVED with the same `stopReason` instead of starting
+another fan-out once the budget, counted from `init`, is spent.
 
 - **Default.** `1800000` (30 min). A non-integer or non-positive value is ignored (no budget
   is applied) without failing the config.
@@ -1448,7 +1453,9 @@ Key rules and invariants pinned here:
 - **Every genuine error kind counts**, not just `timeout`. Transport errors (`network`,
   `timeout`, `upstream`, `empty`) and unparseable outputs count toward the streak.
 - **Quorum floor ($N \ge 2$).** Under `consensus.quorumFloor` (default 2), `checkConvergence`
-  refuses convergence unless `responding.length >= quorumFloor`. When circuit breaks drop
+  refuses convergence unless `responding.length >= quorumFloor`. Both drivers cap the configured
+  value at the selected panel size at init (`Math.min(panel, quorumFloor)`, at least 1), so a
+  one-peer panel is still valid and needs that peer to respond. When circuit breaks drop
   surviving active providers below the quorum floor, the loop terminates with
   `stopReason: "quorum-lost"`.
 - **Mid-session peer substitution / identity drift prevention.** In `consensus-step`, round 1

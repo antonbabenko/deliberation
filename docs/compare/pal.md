@@ -24,7 +24,7 @@ As of 2026-11-17, from the GitHub API and PAL's README:
 ## Where PAL is the better fit
 
 - **Provider breadth.** Azure OpenAI and DIAL have no Deliberation equivalent. PAL calls the
-  OpenAI and Gemini APIs with keys; Deliberation needs the `codex` and `agy` CLIs for those two.
+  OpenAI API with a key; Deliberation reaches GPT only through the `codex` CLI.
 - **Code from capable models.** PAL's `chat` can return complete code from capable models.
   Deliberation's experts are prompted to advise; only Gemini, through the Claude Code plugin, can
   edit files itself.
@@ -47,16 +47,19 @@ As of 2026-11-17, from the GitHub API and PAL's README:
   stop that:
   - The agent records its verdict before the panel answers, and the engine holds the panel back
     until it does.
-  - A round converges only when at least `consensus.quorumFloor` models answer (default 2), every
-    one of them approves, no accepted critical issue is left, and the agent approves too.
+  - A round converges only when at least `consensus.quorumFloor` models answer (default 2, capped
+    at the panel size), every one of them approves, no accepted critical issue is left, and the
+    agent approves too.
   - Every dismissed issue needs a written reason, and the engine rejects a dismissal without one.
 
   The loop stops at `consensus.maxRounds` (default 5). PAL's `consensus` assigns stances (for,
   against, neutral) and the agent combines the answers.
 - **Disagreement you can read.** `/ask-all` returns each model's answer separately and the
   synthesis lists where they agree and where they split.
-- **CLI logins instead of API keys.** GPT runs through `codex exec` and Gemini through `agy`, so
-  those calls use your CLI logins and plans instead of separate API keys.
+- **A CLI login for GPT.** GPT runs through `codex exec`, so those calls use your Codex login and
+  plan instead of an OpenAI API key. Gemini uses a `GEMINI_API_KEY` by default; the Antigravity
+  CLI (`agy`) is an opt-in path (read the
+  [terms note](../../SETUP.md#gemini-api-key-default-or-agy-opt-in) first).
 - **Live config.** Model records, routing and the OpenRouter block in
   `~/.config/deliberation/config.json` take effect without a restart. Each record says whether it
   joins `ask-all` and `consensus`, and which experts it serves.
@@ -75,7 +78,7 @@ As of 2026-11-17, from the GitHub API and PAL's README:
 | Language | Python | JavaScript, no runtime dependencies |
 | Install | `git clone` + `./run-server.sh`, or `uvx` | Claude Code plugin, `npx -y @antonbabenko/deliberation-mcp`, native host plugins |
 | GPT | OpenAI API key | Codex CLI login |
-| Gemini | Gemini API key | Antigravity CLI login |
+| Gemini | Gemini API key | `GEMINI_API_KEY` (AI Studio); Antigravity CLI (`agy`) opt-in |
 | Grok | `XAI_API_KEY` | `XAI_API_KEY` |
 | OpenRouter | `OPENROUTER_API_KEY`, models in `conf/openrouter_models.json` | `OPENROUTER_API_KEY`, models as records in `config.json` |
 | Local models | Custom endpoint (Ollama, vLLM, LM Studio) | Ollama and LM Studio providers; other endpoints through `providers.openrouter.apiBase` |

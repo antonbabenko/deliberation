@@ -13,7 +13,7 @@ Apache-2.0, latest release v1.0.6 (published 2026-07-08).
 
 | | Codex plugin | Deliberation |
 |-|--------------|--------------|
-| Models | Codex (OpenAI) | GPT through the Codex CLI, Gemini through the Antigravity CLI, Grok, OpenRouter models, local Ollama and LM Studio models |
+| Models | Codex (OpenAI) | GPT through the Codex CLI, Gemini through an AI Studio API key (Antigravity CLI opt-in), Grok, OpenRouter models, local Ollama and LM Studio models |
 | Review | `/codex:review` (read-only, current changes or `--base <ref>`), `/codex:adversarial-review` (takes focus text) | `/deliberation:ask-all` (parallel answers from the panel), `/deliberation:consensus` (multi-round review until the panel agrees), eight expert personas |
 | Hand off work | `/codex:rescue` lets Codex investigate and fix, `/codex:transfer` moves the session into Codex | GPT is advisory only. Only Gemini can edit files, through Deliberation's Gemini bridge (Claude Code plugin) |
 | Background jobs | `--background`, `/codex:status`, `/codex:result`, `/codex:cancel` | Calls run in the foreground. `panel` plus parallel `ask-one` calls show per-provider progress |

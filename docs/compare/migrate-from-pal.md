@@ -61,7 +61,7 @@ Code command, where one exists.
 | `analyze` (code analysis) | `architect` or `code-reviewer` expert | Deliberation also has a tool named `analyze`, but it does something else: it reports latency, tokens and verdict agreement from your own past runs. |
 | `refactor`, `testgen`, `docgen`, `tracer` | no equivalent | |
 | `challenge` | no dedicated tool | `/consensus` has rules against an agent approving its own plan (see below), which covers a related problem. |
-| `clink` | no equivalent | Deliberation calls `codex exec` and `agy` for one answer each, not interactive CLI subagents. For a Codex subagent in Claude Code, see [the Codex plugin page](codex-plugin.md). |
+| `clink` | no equivalent | Deliberation calls `codex exec` (and `agy` when you opt in to it for Gemini) for one answer each, not interactive CLI subagents. For a Codex subagent in Claude Code, see [the Codex plugin page](codex-plugin.md). |
 | `listmodels` | `panel` tool, `/deliberation:doctor` | `panel` lists the providers a fan-out would call and the ones that cannot answer right now. |
 | `continuation_id` threads | `threadId` on the `gemini-reply`, `grok-reply` and `openrouter-reply` tools (Claude Code plugin) | GPT calls are single-shot. Threads live in memory and are lost when the server restarts. |
 | Context revival ("continue with O3") | no equivalent | |
@@ -90,7 +90,7 @@ It never overwrites an existing file. In Claude Code, run `/deliberation:setup` 
 | PAL setting | Deliberation |
 |-------------|--------------|
 | `OPENAI_API_KEY` | Not read. GPT runs through the Codex CLI: `npm install -g @openai/codex`, then `codex login` (a ChatGPT subscription). A ChatGPT Business or Enterprise workspace can set `CODEX_ACCESS_TOKEN` instead. With neither a login nor that token, Codex uses `CODEX_API_KEY`. |
-| `GEMINI_API_KEY` | Not read. Gemini runs through the Antigravity CLI (`agy`) and its own login. See [Getting Started with Antigravity CLI](https://antigravity.google/docs/cli-getting-started). |
+| `GEMINI_API_KEY` | Same variable (a Google AI Studio key). Gemini calls the Gemini API with it by default. The Antigravity CLI (`agy`) is opt-in: `providers.gemini.transport` (`auto` / `api` / `agy`) picks the path, and with no key `auto` falls back to `agy`. Read the [terms note](../../SETUP.md#gemini-api-key-default-or-agy-opt-in) before you use `agy`. |
 | `XAI_API_KEY` | Same variable. The Grok provider reads it (`providers.grok.apiKeyEnv`). |
 | `OPENROUTER_API_KEY` | Same variable. Also set `providers.openrouter.enabled: true` and declare each model you want as a record in `models` (next section). |
 | `CUSTOM_API_URL`, `CUSTOM_API_KEY`, `CUSTOM_MODEL_NAME` (Ollama, LM Studio) | `providers.ollama.apiBase` (default `http://localhost:11434/v1`) or `providers.lmstudio.apiBase` (default `http://localhost:1234/v1`). Both are keyless by default; set `apiKeyEnv` to the name of a variable that holds a key. Declare models with `provider: "ollama"` or `provider: "lmstudio"`. |
@@ -168,20 +168,21 @@ Claude Code goes through `/deliberation:setup`.
 - **Writes.** PAL providers can return code for your agent to apply. In Deliberation every
   provider advises. Only Gemini, through the Claude Code plugin's Gemini bridge, can also edit
   files (`workspace-write`). The standalone MCP server is advisory only.
-- **Login instead of API keys for GPT and Gemini.** Deliberation shells out to the `codex` and
-  `agy` CLIs, so these calls use your existing CLI logins and plans. PAL calls the OpenAI and
-  Gemini APIs with keys.
+- **Login instead of an API key for GPT.** Deliberation shells out to the `codex` CLI, so GPT
+  calls use your existing Codex login and plan. PAL calls the OpenAI API with a key. Gemini uses
+  `GEMINI_API_KEY` in both; Deliberation can also drive the `agy` CLI if you opt in.
 - **Consensus.** PAL's `consensus` gives each model a stance and your agent combines the
   answers. Deliberation's `/consensus` has your agent record its own verdict before it sees the
-  panel. A round converges only when at least `consensus.quorumFloor` models answer (default 2),
-  every one of them approves, no accepted critical issue is left, and the agent approves too. The
-  agent cannot approve a plan on its own vote. For every issue the agent dismisses, the
-  final report includes a written reason. The loop stops at `consensus.maxRounds` (default 5).
+  panel. A round converges only when at least `consensus.quorumFloor` models answer (default 2,
+  capped at the panel size), every one of them approves, no accepted critical issue is left, and
+  the agent approves too. The agent cannot approve a plan on its own vote. For every issue the
+  agent dismisses, the final report includes a written reason. The loop stops at `consensus.maxRounds` (default 5).
 - **Disagreement stays visible.** `ask-all` returns each model's answer separately, and the
   synthesis names where they agree and where they split.
-- **Repo context for HTTP models.** GPT and Gemini read the repository through their CLIs. Grok,
-  OpenRouter and local models get a small bundle of repo files (AGENTS.md or CLAUDE.md,
-  manifests, README) attached automatically. Turn it off with `orientation.enabled: false`.
+- **Repo context for HTTP models.** GPT, and Gemini on the opt-in `agy` path, read the repository
+  through their CLIs. Gemini on its default API key, Grok, OpenRouter and local models get a small
+  bundle of repo files (AGENTS.md or CLAUDE.md, manifests, README) attached automatically. Turn it
+  off with `orientation.enabled: false`.
 - **Run history and metrics.** These features are opt-in: a debug log of latency, tokens and votes
   (`debug.enabled`), saved runs (`sessions.persist`), and a local read-only dashboard
   (`dashboard.enabled`).
