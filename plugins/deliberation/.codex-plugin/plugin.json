@@ -1,6 +1,6 @@
 {
   "name": "deliberation",
-  "version": "4.3.0",
+  "version": "4.4.0",
   "description": "A second opinion from other models before you ship. Any host, any vendor, one verdict, and the disagreement stays visible.",
   "author": {
     "name": "Anton Babenko",
