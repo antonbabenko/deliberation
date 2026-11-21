@@ -218,7 +218,16 @@ on every read-only run:
 1. **macOS OS sandbox** - the `agy` process is wrapped in `sandbox-exec` with a
    Seatbelt profile that denies all file writes except `~/.gemini` (OAuth + the
    conversation cache that backs `threadId` continuity) and temp dirs. Workspace
-   writes are blocked at the kernel. Disable with `DELIBERATION_DISABLE_OS_SANDBOX=1`.
+   writes are blocked at the kernel. To keep `~/.npm` and `~/.local/share`
+   read-only without breaking `agy` user hooks or MCP servers that invoke `npx`
+   or write XDG state (which npm otherwise misreports as root-owned `~/.npm`
+   files), Seatbelt runs redirect `npm_config_cache`, `XDG_DATA_HOME`,
+   `XDG_CACHE_HOME`, and `XDG_STATE_HOME` into a fresh per-run mode-0700
+   directory under the system temp dir (with `npm_config_update_notifier=false`).
+   Redirected directories start empty per run (`XDG_CONFIG_HOME` is left
+   untouched) and are removed on exit, so hook/cache writes are discarded. If
+   preparing that temp dir fails, the run fails before spawning the sandboxed
+   `agy` process. Disable with `DELIBERATION_DISABLE_OS_SANDBOX=1`.
 2. **Prompt guard** - a hard advisory instruction block is prepended to the prompt.
 3. **Git mutation detection** (all platforms) - the bridge snapshots `git rev-parse
    HEAD` + `git status --porcelain` of the consulted cwd (and any `--add-dir` roots)

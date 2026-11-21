@@ -219,21 +219,69 @@ const ADVISORY_ENV_SCRUB = ["GIT_ASKPASS", "SSH_AUTH_SOCK"];
 // and no need for the operator's keys). Denylist-by-shape, not a pass-allowlist:
 // agy still needs PATH/HOME/TMPDIR/locale + its own ~/.gemini auth (not an env var).
 const CREDENTIAL_NAME_RE = /(?:^|_)(?:KEY|TOKEN|SECRET|SECRETS|PASSWORD|PASSWD|CREDENTIAL|CREDENTIALS)$|API_KEY|ACCESS_KEY|SESSION_TOKEN|PRIVATE_KEY/i;
+// npm reads config env vars case-insensitively, so drop any case-variant before
+// pinning the Seatbelt-writable cache path on macOS read-only runs.
+const SANDBOX_NPM_ENV_RE = /^(?:npm_config_cache|npm_config_update_notifier)$/i;
+const SANDBOX_CACHE_SUBDIRS = ["npm", "xdg-data", "xdg-cache", "xdg-state"];
+
+/**
+ * Create a fresh, mode-0700 per-run directory inside the Seatbelt-writable tmpdir
+ * for child-process caches (npm/npx hooks and MCP servers, XDG data/cache/state).
+ * Per-run allocation keeps ~/.npm and ~/.local/share read-only (avoiding host
+ * cache poisoning), prevents sequential cache reuse or subdir-symlink carryover
+ * across runs, and discards redirected writes on exit. Throws on setup failure so
+ * runGeminiOnce fails fast before spawning the sandboxed agy run instead of
+ * silently falling back to unredirected ~/.npm paths.
+ * @param {string} tmpdir
+ * @returns {string}
+ */
+function createSandboxCacheRoot(tmpdir) {
+  let root = null;
+  try {
+    root = fs.mkdtempSync(path.join(tmpdir, "deliberation-agy-sandbox-"));
+    for (const sub of SANDBOX_CACHE_SUBDIRS) {
+      fs.mkdirSync(path.join(root, sub), { mode: 0o700 });
+    }
+    return root;
+  } catch (err) {
+    if (root) {
+      try { fs.rmSync(root, { recursive: true, force: true }); } catch (_) {}
+    }
+    const msg = err && err.message ? err.message : String(err);
+    throw new Error(`Failed to prepare sandbox temp cache under ${tmpdir}: ${msg}`);
+  }
+}
 
 /**
  * Build the scrubbed child env (used for EVERY run - read-only and workspace-write):
  * drop the OS-sandbox kill-switch (so it never inherits into the delegate), scrub the
  * explicit push/exfil credential denylist, then scrub any remaining var whose NAME is
- * credential-shaped.
+ * credential-shaped. When `opts.sandboxCacheRoot` is set (macOS Seatbelt read-only
+ * runs), redirect npm/npx cache and XDG data/cache/state dirs into that fresh
+ * Seatbelt-writable temp root so user hooks (e.g. `npx -y cc-safety-net`, XDG
+ * observers) do not fail with EPERM on ~/.npm or ~/.local/share while keeping the
+ * host dirs read-only.
  * @param {NodeJS.ProcessEnv} env
+ * @param {{sandboxCacheRoot?:string|null}} [opts]
  * @returns {NodeJS.ProcessEnv}
  */
-function advisoryEnv(env) {
+function advisoryEnv(env, opts) {
   const out = { ...env };
   delete out.DELIBERATION_DISABLE_OS_SANDBOX;
   for (const k of ADVISORY_ENV_SCRUB) delete out[k];
   for (const k of Object.keys(out)) {
     if (CREDENTIAL_NAME_RE.test(k)) delete out[k];
+  }
+  const cacheRoot = opts && opts.sandboxCacheRoot;
+  if (cacheRoot) {
+    for (const k of Object.keys(out)) {
+      if (SANDBOX_NPM_ENV_RE.test(k)) delete out[k];
+    }
+    out.npm_config_cache = path.join(cacheRoot, "npm");
+    out.npm_config_update_notifier = "false";
+    out.XDG_DATA_HOME = path.join(cacheRoot, "xdg-data");
+    out.XDG_CACHE_HOME = path.join(cacheRoot, "xdg-cache");
+    out.XDG_STATE_HOME = path.join(cacheRoot, "xdg-state");
   }
   return out;
 }
@@ -574,32 +622,55 @@ async function runGeminiOnce(args, cwd, timeoutMs, recoveryGraceMs, opts = {}) {
     // read-only (the OS write-deny is a no-op for workspace-write - writes must land).
     // The credential env scrub, by contrast, runs in BOTH modes (see env: below): a
     // write-capable run still has no need for the operator's keys / SSH agent.
+    const tmpdir = (() => { try { return fs.realpathSync(os.tmpdir()); } catch (_) { return os.tmpdir(); } })();
     const spawnPlan = buildSpawnCommand({
       bin: AGY_CMD,
       args: [...AGY_PREFIX_ARGS, ...agyArgs],
       readOnly,
       platform: process.platform,
       home: os.homedir(),
-      tmpdir: (() => { try { return fs.realpathSync(os.tmpdir()); } catch (_) { return os.tmpdir(); } })(),
+      tmpdir,
       sandboxExecPath: readOnly ? resolveSandboxExecPath() : null,
       disabled: process.env.DELIBERATION_DISABLE_OS_SANDBOX === "1",
     });
+    let sandboxCacheRoot = null;
     if (spawnPlan.osSandbox) {
+      try {
+        sandboxCacheRoot = createSandboxCacheRoot(tmpdir);
+      } catch (err) {
+        reject(err);
+        return;
+      }
       process.stderr.write("[deliberation] agy read-only run wrapped in sandbox-exec (workspace writes denied)\n");
     }
-    const agyProcess = spawn(spawnPlan.cmd, spawnPlan.argv, {
-      // Scrub credentials in BOTH read-only and workspace-write runs. A write run
-      // legitimately mutates the worktree but still has no need for the operator's
-      // API keys / GIT_ASKPASS / SSH_AUTH_SOCK - the human commits and pushes, not agy.
-      env: advisoryEnv(process.env),
-      shell: false,
-      detached: process.platform !== "win32",
-      cwd: effCwd,
-      // agy -p (print mode) waits for stdin EOF before returning; if the stdin
-      // pipe is left open it hangs until the timeout. Give it /dev/null so it
-      // sees EOF immediately and runs to completion.
-      stdio: ["ignore", "pipe", "pipe"]
-    });
+    let cacheCleaned = false;
+    function cleanupSandboxCache() {
+      if (cacheCleaned || !sandboxCacheRoot) return;
+      try {
+        fs.rmSync(sandboxCacheRoot, { recursive: true, force: true });
+        cacheCleaned = true;
+      } catch (_) {}
+    }
+    let agyProcess;
+    try {
+      agyProcess = spawn(spawnPlan.cmd, spawnPlan.argv, {
+        // Scrub credentials in BOTH read-only and workspace-write runs. A write run
+        // legitimately mutates the worktree but still has no need for the operator's
+        // API keys / GIT_ASKPASS / SSH_AUTH_SOCK - the human commits and pushes, not agy.
+        env: advisoryEnv(process.env, sandboxCacheRoot ? { sandboxCacheRoot } : undefined),
+        shell: false,
+        detached: process.platform !== "win32",
+        cwd: effCwd,
+        // agy -p (print mode) waits for stdin EOF before returning; if the stdin
+        // pipe is left open it hangs until the timeout. Give it /dev/null so it
+        // sees EOF immediately and runs to completion.
+        stdio: ["ignore", "pipe", "pipe"]
+      });
+    } catch (err) {
+      cleanupSandboxCache();
+      reject(err);
+      return;
+    }
 
     function clearTimers() { clearTimeout(killTimer); if (graceTimer) clearTimeout(graceTimer); opts.signal?.removeEventListener("abort",abort); }
     function killGroup(signal) {
@@ -621,6 +692,7 @@ async function runGeminiOnce(args, cwd, timeoutMs, recoveryGraceMs, opts = {}) {
       clearTimers();
       killGroup("SIGKILL");
       destroyStreams();
+      cleanupSandboxCache();
       reject(timeoutError());
     }
 
@@ -644,9 +716,9 @@ async function runGeminiOnce(args, cwd, timeoutMs, recoveryGraceMs, opts = {}) {
       }, 1_000);
     }, t);
 
-    agyProcess.on("close", clearTimers);
+    agyProcess.on("close", () => { clearTimers(); cleanupSandboxCache(); });
     opts.signal?.addEventListener("abort",abort,{once:true});if(opts.signal?.aborted)abort();
-    agyProcess.on("error", clearTimers);
+    agyProcess.on("error", () => { clearTimers(); cleanupSandboxCache(); });
 
     // exit fires when the process itself exits even if child pipes are still
     // open. Surface the legacy timeout early without waiting for pipe drain.
@@ -655,6 +727,7 @@ async function runGeminiOnce(args, cwd, timeoutMs, recoveryGraceMs, opts = {}) {
         settled = true;
         clearTimers();
         destroyStreams();
+        cleanupSandboxCache();
         reject(timeoutError());
       }
     });
@@ -1155,6 +1228,7 @@ if (typeof module !== "undefined" && module.exports) {
   module.exports.READ_ONLY_GUARD = READ_ONLY_GUARD;
   module.exports.applyReadOnlyGuard = applyReadOnlyGuard;
   module.exports.advisoryEnv = advisoryEnv;
+  module.exports.createSandboxCacheRoot = createSandboxCacheRoot;
   module.exports.THREAD_ID_RE = THREAD_ID_RE;
   module.exports.buildSeatbeltProfile = buildSeatbeltProfile;
   module.exports.buildSpawnCommand = buildSpawnCommand;

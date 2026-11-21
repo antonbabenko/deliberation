@@ -559,6 +559,7 @@ test("S3: advisoryEnv drops the kill-switch and scrubs push/exfil + credential-s
     // Gemini auth lives in ~/.gemini (OAuth), NOT in GEMINI_API_KEY, so the
     // credential-name scrub correctly drops API_KEY-shaped vars too.
     GEMINI_API_KEY: "drop", PATH: "/usr/bin", HOME: "/Users/x", LANG: "en_US.UTF-8",
+    XDG_DATA_HOME: "/Users/x/.local/share",
   });
   assert.equal("DELIBERATION_DISABLE_OS_SANDBOX" in out, false);
   for (const k of ["GITHUB_TOKEN", "GH_TOKEN", "GIT_ASKPASS", "SSH_AUTH_SOCK", "GEMINI_API_KEY"]) {
@@ -567,6 +568,58 @@ test("S3: advisoryEnv drops the kill-switch and scrubs push/exfil + credential-s
   assert.equal(out.PATH, "/usr/bin", "PATH preserved");
   assert.equal(out.HOME, "/Users/x", "HOME preserved");
   assert.equal(out.LANG, "en_US.UTF-8", "locale preserved");
+  assert.equal(out.XDG_DATA_HOME, "/Users/x/.local/share", "XDG preserved without sandboxCacheRoot");
+  assert.equal("npm_config_cache" in out, false, "no sandbox redirect without sandboxCacheRoot");
+});
+
+test("S3b: advisoryEnv redirects npm cache and XDG dirs into sandboxCacheRoot when Seatbelt is active", () => {
+  const { advisoryEnv } = require("../server/gemini/index.js");
+  const root = "/private/var/folders/zz/deliberation-agy-sandbox-abc";
+  for (const baseEnv of [
+    { PATH: "/usr/bin", NPM_CONFIG_CACHE: "/Users/x/.npm", NPM_CONFIG_UPDATE_NOTIFIER: "true", XDG_DATA_HOME: "/Users/x/.local/share" },
+    { PATH: "/usr/bin", npm_config_cache: "/Users/x/.npm", npm_config_update_notifier: "true", XDG_CACHE_HOME: "/Users/x/.cache" },
+  ]) {
+    const out = advisoryEnv(baseEnv, { sandboxCacheRoot: root });
+    assert.equal("NPM_CONFIG_CACHE" in out, false, "uppercase NPM_CONFIG_CACHE cleared");
+    assert.equal("NPM_CONFIG_UPDATE_NOTIFIER" in out, false, "uppercase notifier override cleared");
+    assert.equal(out.npm_config_cache, path.join(root, "npm"));
+    assert.equal(out.npm_config_update_notifier, "false");
+    assert.equal(out.XDG_DATA_HOME, path.join(root, "xdg-data"));
+    assert.equal(out.XDG_CACHE_HOME, path.join(root, "xdg-cache"));
+    assert.equal(out.XDG_STATE_HOME, path.join(root, "xdg-state"));
+  }
+});
+
+test("S3c: createSandboxCacheRoot allocates fresh mode-0700 per-run dirs and throws on unusable tmpdir", () => {
+  const { createSandboxCacheRoot } = require("../server/gemini/index.js");
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "cdg-sbx-cache-"));
+  try {
+    const first = createSandboxCacheRoot(tmp);
+    const second = createSandboxCacheRoot(tmp);
+    assert.notEqual(first, second, "each launch gets its own isolated cache root");
+    for (const root of [first, second]) {
+      if (process.platform !== "win32") {
+        assert.equal(fs.lstatSync(root).mode & 0o777, 0o700, "cache root is mode 0700");
+      }
+      for (const sub of ["npm", "xdg-data", "xdg-cache", "xdg-state"]) {
+        const subPath = path.join(root, sub);
+        assert.ok(fs.lstatSync(subPath).isDirectory(), `${sub} created`);
+        if (process.platform !== "win32") {
+          assert.equal(fs.lstatSync(subPath).mode & 0o777, 0o700, `${sub} is mode 0700`);
+        }
+      }
+    }
+
+    const notADir = path.join(tmp, "file-not-dir");
+    fs.writeFileSync(notADir, "x");
+    assert.throws(
+      () => createSandboxCacheRoot(notADir),
+      /Failed to prepare sandbox temp cache/,
+      "unusable tmpdir throws a clear error instead of silently returning null"
+    );
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
 });
 
 test("S4: buildSpawnCommand wraps in sandbox-exec on darwin read-only with sandbox-exec present", () => {
@@ -666,6 +719,73 @@ test("S9: a clean advisory run carries no workspaceMutated flag", { skip: !hasGi
   const r = responses.find((x) => x.id === 2);
   assert.ok(r && r.result, "got a result");
   assert.equal("workspaceMutated" in r.result, false, "no mutation flag on a clean run");
+});
+
+test("S10: darwin Seatbelt run redirects npm/XDG into a writable per-run temp dir, denies outside writes, and cleans up", {
+  skip: process.platform !== "darwin" || !fs.existsSync("/usr/bin/sandbox-exec"),
+}, async () => {
+  const probeDir = fs.mkdtempSync(path.join(os.tmpdir(), "cdg-s10-"));
+  const fakeAgy = path.join(probeDir, "fake-agy-seatbelt.js");
+  // Choose a path outside ~/.gemini and outside Seatbelt-allowed temp dirs to verify writes are denied.
+  const repoReal = fs.realpathSync(path.resolve(__dirname, ".."));
+  const inAllowedTmp = repoReal.startsWith("/private/tmp") || repoReal.startsWith("/private/var/folders");
+  const deniedBase = inAllowedTmp ? os.homedir() : repoReal;
+  const deniedTarget = path.join(deniedBase, `.deliberation-seatbelt-probe-${process.pid}`);
+  fs.writeFileSync(
+    fakeAgy,
+    `#!${process.execPath}
+const fs = require("node:fs");
+const path = require("node:path");
+if (process.argv.includes("--help")) { console.log("--model"); process.exit(0); }
+const npmCache = process.env.npm_config_cache || "";
+const xdgData = process.env.XDG_DATA_HOME || "";
+fs.writeFileSync(path.join(npmCache, "ok"), "1");
+fs.writeFileSync(path.join(xdgData, "ok"), "1");
+let deniedCode = null;
+try { fs.writeFileSync(${JSON.stringify(deniedTarget)}, "nope"); } catch (e) { deniedCode = e.code; }
+console.log(JSON.stringify({
+  npmCache,
+  updateNotifier: process.env.npm_config_update_notifier,
+  xdgData,
+  xdgCache: process.env.XDG_CACHE_HOME,
+  xdgState: process.env.XDG_STATE_HOME,
+  deniedCode,
+}));
+`,
+    { mode: 0o755 }
+  );
+  const child = startBridge({
+    env: {
+      AGY_BIN: fakeAgy,
+      DELIBERATION_DISABLE_OS_SANDBOX: "0",
+      NPM_CONFIG_CACHE: "/should/be/overridden",
+      XDG_DATA_HOME: "/should/be/overridden",
+    },
+  });
+  try {
+    const responsesP = collectResponses(child);
+    send(child, { jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+    send(child, {
+      jsonrpc: "2.0", id: 2, method: "tools/call",
+      params: { name: "gemini", arguments: { prompt: "check sandbox", cwd: probeDir } },
+    });
+    setTimeout(() => child.stdin.end(), 2000);
+    const responses = await responsesP;
+    const r = responses.find((x) => x.id === 2);
+    assert.ok(r && r.result && !r.result.isError, `expected success, got: ${JSON.stringify(r)}`);
+    const report = JSON.parse(r.result.content[0].text.trim());
+    const cacheRoot = path.dirname(report.npmCache);
+    assert.match(path.basename(cacheRoot), /^deliberation-agy-sandbox-/, "redirected into per-run sandbox root");
+    assert.equal(report.updateNotifier, "false");
+    assert.equal(report.xdgData, path.join(cacheRoot, "xdg-data"));
+    assert.equal(report.xdgCache, path.join(cacheRoot, "xdg-cache"));
+    assert.equal(report.xdgState, path.join(cacheRoot, "xdg-state"));
+    assert.equal(report.deniedCode, "EPERM", "Seatbelt still blocks writes outside ~/.gemini and tmpdir");
+    assert.equal(fs.existsSync(cacheRoot), false, "per-run sandbox cache root cleaned up after exit");
+  } finally {
+    try { fs.unlinkSync(deniedTarget); } catch (_) {}
+    fs.rmSync(probeDir, { recursive: true, force: true });
+  }
 });
 
 function hasGit() {
