@@ -1,3 +1,10 @@
+## [4.6.2](https://github.com/antonbabenko/deliberation/compare/v4.6.1...v4.6.2) (2026-11-21)
+
+
+### Bug Fixes
+
+* **gemini:** redirect npm cache and XDG dirs inside macOS Seatbelt sandbox ([#300](https://github.com/antonbabenko/deliberation/issues/300)) ([3db40ed](https://github.com/antonbabenko/deliberation/commit/3db40edef652a21fb85e9b1d4f7cce9aa3f39ff9))
+
 ## [4.6.1](https://github.com/antonbabenko/deliberation/compare/v4.6.0...v4.6.1) (2026-11-18)
 
 
@@ -30,12 +37,4 @@
 ### Features
 
 * **mcp:** add read-only doctor tool behind /deliberation:doctor ([#275](https://github.com/antonbabenko/deliberation/issues/275)) ([0eabbce](https://github.com/antonbabenko/deliberation/commit/0eabbcee5a4311e04d417b4fc8c6c966857bd3b8))
-
-## [4.3.0](https://github.com/antonbabenko/deliberation/compare/v4.2.0...v4.3.0) (2026-11-18)
-
-
-### Features
-
-* **mcp:** add init subcommand that detects credentials, writes the config, pings providers and runs a demo consensus ([#279](https://github.com/antonbabenko/deliberation/issues/279)) ([f37ec58](https://github.com/antonbabenko/deliberation/commit/f37ec58e7af572a50132eb7a3a50d0add9079e7e))
-* **openrouter:** built-in three-vendor panel from OPENROUTER_API_KEY alone ([#274](https://github.com/antonbabenko/deliberation/issues/274)) ([1bf310d](https://github.com/antonbabenko/deliberation/commit/1bf310d8cf857208a1dc060e4a1866289229f9ba))
 
