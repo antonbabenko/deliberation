@@ -9,7 +9,7 @@
 --tmo:oklch(0.62 0.14 72);--tmo-t:oklch(0.47 0.11 65);
 --fault:oklch(0.55 0.19 28);--fault-t:oklch(0.48 0.18 28);
 --k1:oklch(0.49 0.15 258);--k2:oklch(0.49 0.13 305);--k3:oklch(0.49 0.09 200);--k4:oklch(0.50 0.15 345);--k5:oklch(0.47 0.10 280);--kh:var(--fg);
---gut:clamp(16px,2.6vw,36px);--w:1280px;
+--gut:clamp(16px,2.6vw,36px);--w:calc(1280px + 2*var(--gut));
 --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono","DejaVu Sans Mono",monospace;
 --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
 --ease:cubic-bezier(.16,1,.3,1);
@@ -291,7 +291,6 @@ html.motion .insp-panel{animation:rise .2s var(--ease) backwards}}
 
 /* ---- read pages ---- */
 .doc{padding-block:32px 0}
-.doc.narrow{max-width:860px}
 .doc h1{margin-top:12px;font-size:clamp(36.5px,4vw,49.5px)}
 .crumbs ol{display:flex;flex-wrap:wrap;gap:0 8px;list-style:none}
 .crumbs li+li::before{content:"/";margin-right:8px;color:var(--rule-s)}
