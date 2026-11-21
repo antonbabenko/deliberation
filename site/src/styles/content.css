@@ -22,7 +22,7 @@
 
 /* ---- measure and rhythm: text, lists, tables, code and images all run the width of the
    article, so a diagram and the paragraph under it share both edges. The article is at
-   most 942px wide (page 1280px less the gutters and the section column); from 980px the
+   most 1014px wide (1280px of page content less the section column); from 980px the
    text is a step larger and more openly leaded to carry that line. ---- */
 .doc .prose{max-width:none;line-height:1.62}
 @media (min-width:980px){.doc .prose{font-size:22px;line-height:1.7}}

@@ -3,7 +3,7 @@ import Layout from '../layouts/Layout.astro'
 import { routeOf } from '../lib/seo.ts'
 ---
 <Layout title="Page not found" description="This page does not exist." noindex>
-  <div class="doc narrow">
+  <div class="doc">
     <h1>Page not found</h1>
     <p class="lede">This page does not exist.</p>
     <p><a class="go" href={routeOf('')}>Home</a><a class="go alt" href={routeOf('install')}>Install</a><a class="go alt" href={routeOf('quickstart')}>Docs</a></p>
