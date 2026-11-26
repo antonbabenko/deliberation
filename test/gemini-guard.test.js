@@ -36,6 +36,19 @@ test("GG2: advisoryEnv does not mutate the input env", () => {
   assert.equal(env.XAI_API_KEY, "x");
 });
 
+test("GG2b: advisoryEnv drops the host's CLAUDE_PLUGIN_* vars so agy hooks resolve their own plugin root", () => {
+  const out = advisoryEnv({
+    CLAUDE_PLUGIN_ROOT: "/cache/deliberation/4.6.2",
+    CLAUDE_PLUGIN_DATA: "/data/deliberation",
+    CLAUDE_PROJECT_DIR: "/repo",
+    PATH: "/usr/bin",
+  });
+  assert.equal(out.CLAUDE_PLUGIN_ROOT, undefined);
+  assert.equal(out.CLAUDE_PLUGIN_DATA, undefined);
+  assert.equal(out.CLAUDE_PROJECT_DIR, "/repo");
+  assert.equal(out.PATH, "/usr/bin");
+});
+
 test("GG3: THREAD_ID_RE accepts a well-formed conversation id", () => {
   assert.equal(THREAD_ID_RE.test("abc-123_DEF"), true);
 });

@@ -215,6 +215,9 @@ function buildAgyArgs(req) {
 // PASSWORD suffix) but still hand sensitive material to a child, so they must be
 // scrubbed explicitly. Do NOT fold this list into the regex — that would re-leak them.
 const ADVISORY_ENV_SCRUB = ["GIT_ASKPASS", "SSH_AUTH_SOCK"];
+// Claude Code sets these to THIS plugin's dirs; agy runs other plugins' hooks (ecc etc.)
+// that trust CLAUDE_PLUGIN_ROOT when set, so a leaked value breaks every hook call.
+const HOST_PLUGIN_ENV = ["CLAUDE_PLUGIN_ROOT", "CLAUDE_PLUGIN_DATA"];
 // Strip any var whose NAME looks like a credential (advisory agy has open network
 // and no need for the operator's keys). Denylist-by-shape, not a pass-allowlist:
 // agy still needs PATH/HOME/TMPDIR/locale + its own ~/.gemini auth (not an env var).
@@ -268,7 +271,7 @@ function createSandboxCacheRoot(tmpdir) {
 function advisoryEnv(env, opts) {
   const out = { ...env };
   delete out.DELIBERATION_DISABLE_OS_SANDBOX;
-  for (const k of ADVISORY_ENV_SCRUB) delete out[k];
+  for (const k of [...ADVISORY_ENV_SCRUB, ...HOST_PLUGIN_ENV]) delete out[k];
   for (const k of Object.keys(out)) {
     if (CREDENTIAL_NAME_RE.test(k)) delete out[k];
   }
