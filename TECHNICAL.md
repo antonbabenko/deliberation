@@ -235,7 +235,10 @@ on every read-only run:
    warning and sets `workspaceMutated: true` on the result. No auto-revert - the
    result is surfaced as tainted for the caller to act on.
 4. **Env scrub** - the child env drops the kill-switch and push/exfil credentials
-   (`GITHUB_TOKEN`, `GH_TOKEN`, `GIT_ASKPASS`, `SSH_AUTH_SOCK`).
+   (`GITHUB_TOKEN`, `GH_TOKEN`, `GIT_ASKPASS`, `SSH_AUTH_SOCK`). It also drops the host's
+   `CLAUDE_PLUGIN_ROOT` and `CLAUDE_PLUGIN_DATA`, which point at Deliberation's own plugin
+   directory; hooks from other plugins that `agy` runs would otherwise look for their
+   scripts there and fail.
 
 The network is intentionally NOT isolated (`agy` needs its API + OAuth token
 refresh), so a determined delegate could still push pre-existing commits or exfil
