@@ -2,13 +2,13 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.antonbabenko/deliberation",
   "description": "A second opinion from other models before you ship. Any host or vendor, one verdict, dissent shown.",
-  "version": "4.6.2",
+  "version": "4.6.3",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@antonbabenko/deliberation-mcp",
-      "version": "4.6.2",
+      "version": "4.6.3",
       "transport": { "type": "stdio" }
     }
   ]
