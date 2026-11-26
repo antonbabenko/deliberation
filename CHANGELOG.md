@@ -1,3 +1,10 @@
+## [4.6.3](https://github.com/antonbabenko/deliberation/compare/v4.6.2...v4.6.3) (2026-11-26)
+
+
+### Bug Fixes
+
+* **gemini:** drop CLAUDE_PLUGIN_ROOT and CLAUDE_PLUGIN_DATA from the agy env ([#305](https://github.com/antonbabenko/deliberation/issues/305)) ([5a9d0a6](https://github.com/antonbabenko/deliberation/commit/5a9d0a6ce7b9c506e926693503c30783347bd74d))
+
 ## [4.6.2](https://github.com/antonbabenko/deliberation/compare/v4.6.1...v4.6.2) (2026-11-21)
 
 
@@ -30,11 +37,4 @@
 ### Features
 
 * **gemini:** default to an AI Studio API key, keep agy as opt-in ([#278](https://github.com/antonbabenko/deliberation/issues/278)) ([995c34c](https://github.com/antonbabenko/deliberation/commit/995c34c80e4d09ed63448f190fcfb80580108847))
-
-## [4.4.0](https://github.com/antonbabenko/deliberation/compare/v4.3.0...v4.4.0) (2026-11-18)
-
-
-### Features
-
-* **mcp:** add read-only doctor tool behind /deliberation:doctor ([#275](https://github.com/antonbabenko/deliberation/issues/275)) ([0eabbce](https://github.com/antonbabenko/deliberation/commit/0eabbcee5a4311e04d417b4fc8c6c966857bd3b8))
 
