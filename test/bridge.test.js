@@ -464,6 +464,21 @@ test("M1f: an explicit pin agy rejects fails loudly as model-not-allowed - no si
   assert.ok(runs[0].includes("--model"), "the operator's pin was sent as asked");
 });
 
+test("M1g: agy auto-denying a read in print mode fails as permission with a read-only hint, not retried", async () => {
+  const child = startBridge({ fakeBin: "fake-agy.sh", env: { FAKE_AGY_DENY_READ: "1" } });
+  const responsesP = collectResponses(child);
+  send(child, { jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+  send(child, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "gemini", arguments: { prompt: "hi" } } });
+  setTimeout(() => child.stdin.end(), 1500);
+  const r = (await responsesP).find((x) => x.id === 2);
+  assert.ok(r, "got tools/call response");
+  assert.equal(r.result.isError, true);
+  assert.equal(r.result.errorKind, "permission");
+  assert.equal(r.result.retryable, false);
+  assert.match(r.result.content[0].text, /auto-denied/, "agy's own message is forwarded");
+  assert.match(r.result.content[0].text, /^Error: \[deliberation\][^]*never use --dangerously-skip-permissions/, "hint leads the message and steers away from skip-permissions");
+});
+
 test("M1: model empty string -> -32602", async () => {
   const child = startBridge({ fakeBin: "fake-agy.sh" });
   const responsesP = collectResponses(child);
@@ -495,6 +510,30 @@ test("C2: classifyGeminiError preserves timeout / parse / missing-cli / abort", 
   const shim = classifyGeminiError("agy resolved only to a shell shim (C:\\npm\\agy.cmd)", "missing-cli");
   assert.equal(shim.errorKind, "missing-cli");
   assert.equal(shim.retryable, false);
+});
+
+test("C2b: classifyGeminiError maps only the stderr-backed permission code, never message text", () => {
+  const { classifyGeminiError } = require("../server/gemini/index.js");
+  // Verbatim agy 1.5 print-mode text: a read outside the workspace (e.g. through a symlink)
+  // needs a confirmation that headless mode cannot show, so agy denies it and prints nothing.
+  const msg = 'jetski: no output produced \u2014 a tool required the "read_file" permission that headless mode cannot prompt for, so it was auto-denied.';
+  assert.deepEqual(classifyGeminiError(msg, "permission"), { errorKind: "permission", retryable: false });
+  // runGeminiOnce sets the code only from agy's stderr; the same text without it (stdout
+  // sentinel, abort, other paths) is not a permission denial.
+  assert.equal(classifyGeminiError(msg, undefined).errorKind, "unknown");
+  assert.equal(classifyGeminiError("AbortError: aborted; " + msg, undefined).errorKind, "upstream-abort");
+  assert.deepEqual(classifyGeminiError(msg, "timeout"), { errorKind: "timeout", retryable: true });
+});
+
+test("C2c: the permission hint survives the core adapter's message cap", () => {
+  const { classifyGeminiError, PERMISSION_HINT } = require("../server/gemini/index.js");
+  const { toErrorResult } = require("../core/provider.js");
+  // A long agy stderr after the hint must not push the read-only warning past the cap.
+  const err = { code: "permission", message: PERMISSION_HINT + "x".repeat(2000) };
+  const r = /** @type {any} */ (toErrorResult("gemini", "m", Date.now(), err, (_s, code) => classifyGeminiError(err.message, code)));
+  assert.equal(r.errorKind, "permission");
+  assert.equal(r.retryable, false);
+  assert.match(r.message, /never use --dangerously-skip-permissions/);
 });
 
 test("C3: classifyGeminiError falls back to unknown for unrelated text", () => {

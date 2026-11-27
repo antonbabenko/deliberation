@@ -688,6 +688,8 @@ test("OT8: consensus with a trace still reports arbiter-failed when the arbiter 
   assert.equal(events.filter((e) => e.k === "call_start" && e.f.role === "arbiter").length, 1);
   const end = events.find((e) => e.k === "call_end" && e.f.provider === "arb");
   assert.equal(end.f.isError, true);
+  // The failure text reaches the journal (as a content field), so a failed leg is diagnosable.
+  assert.match(String(end.f.message), /arbiter boom/);
 });
 
 test("HBX7: with the host budget already spent, runToConvergence stops with budget-exhausted before any leg starts", async () => {

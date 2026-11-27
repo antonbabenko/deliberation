@@ -8,6 +8,7 @@
 #   FAKE_AGY_REPLY=<text>        the answer to print instead of "FAKE AGY OK"
 #   FAKE_AGY_REJECT_MODEL=1      reject any --model pin the way agy 1.1.x rejects an id
 #                                that is not in its catalog (after logging the argv)
+#   FAKE_AGY_DENY_READ=1         exit 1 with agy 1.5's print-mode auto-denied read_file text
 set -euo pipefail
 
 # Startup probe + capability probe: bridge runs `agy --help`. Mimics agy >= 1.0.9,
@@ -24,6 +25,12 @@ fi
 
 printf '%s\0' "$@" >> "${CDG_ARGV_LOG:-/tmp/cdg-argv.log}"
 printf '\n' >> "${CDG_ARGV_LOG:-/tmp/cdg-argv.log}"
+
+# agy 1.5 print mode auto-denies a tool that needs a confirmation it cannot show.
+if [ "${FAKE_AGY_DENY_READ:-}" = "1" ] && [ "${1:-}" != "--help" ]; then
+  echo 'jetski: no output produced - a tool required the "read_file" permission that headless mode cannot prompt for, so it was auto-denied. Add an allow-rule under permissions.allow in settings.json (e.g. read_file(<target>)). Alternatively, re-run with --dangerously-skip-permissions to auto-approve all tools.' >&2
+  exit 1
+fi
 
 # agy validates --model against its fetched catalog and exits 1 with this text when the
 # id is unknown (e.g. the built-in "auto-gemini-3" alias on agy 1.1.x).

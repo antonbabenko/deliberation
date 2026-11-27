@@ -157,6 +157,21 @@ let modelFlagSupported = null;
 // take Gemini offline; an id the operator typed themselves fails loudly instead.
 let aliasRejected = false;
 const INVALID_MODEL_RE = /invalid model selection/i;
+// agy print mode cannot show a tool confirmation (e.g. read_file on a path outside the
+// workspace, often reached through a symlink), so it denies the call and prints nothing.
+// Both parts must match, so unrelated text that merely says "auto-denied" stays unknown.
+const PERMISSION_DENIED_RE = /headless mode cannot prompt|auto-denied/i;
+/** @param {string} text @returns {boolean} */
+function isPermissionDenial(text) {
+  return PERMISSION_DENIED_RE.test(text) && /permission/i.test(text) && !/timed out/i.test(text);
+}
+// agy's own text suggests --dangerously-skip-permissions; an advisory run must never take that path.
+// Prepended, not appended: core/provider.js caps error messages, so a trailing hint would be cut.
+const PERMISSION_HINT =
+  "[deliberation] agy denied a tool it cannot confirm in print mode. Advisory runs stay read-only: " +
+  "never use --dangerously-skip-permissions or sandbox workspace-write to get past this. Allow the read " +
+  "under permissions.allow in agy's CLI settings (~/.gemini/antigravity-cli/settings.json with agy 1.5 " +
+  "on macOS), or on the gemini tool pass the directory in include-directories (agy --add-dir). agy said: ";
 /** @returns {boolean} */
 function agySupportsModelFlag() {
   if (modelFlagSupported !== null) return modelFlagSupported;
@@ -537,6 +552,8 @@ function classifyGeminiError(errMsg, errCode) {
   if (errCode === "parse")   return { errorKind: "parse",   retryable: false };
   if (errCode === "missing-cli") return { errorKind: "missing-cli", retryable: false };
   if (msg.includes("(agy) not found")) return { errorKind: "missing-cli", retryable: false };
+  // Set only by runGeminiOnce from agy's stderr; message text alone never counts.
+  if (errCode === "permission") return { errorKind: "permission", retryable: false };
   if (lower.includes("aborterror") || lower.includes("aborted")) {
     return { errorKind: "upstream-abort", retryable: true };
   }
@@ -812,7 +829,9 @@ async function runGeminiOnce(args, cwd, timeoutMs, recoveryGraceMs, opts = {}) {
       else if (!out) message = `No output from agy`;
       else message = `agy exited with code ${code}`;
 
-      const err = new Error(message);
+      // Only agy's own stderr diagnostic counts, and only after the outcomes checked first below.
+      const permissionDenied = !tooShort && !!trimmedErr && !INVALID_MODEL_RE.test(message) && isPermissionDenial(trimmedErr);
+      const err = new Error(permissionDenied ? PERMISSION_HINT + message : message);
       if (tooShort) {
         err.code = "empty";
       } else if (INVALID_MODEL_RE.test(message)) {
@@ -821,6 +840,9 @@ async function runGeminiOnce(args, cwd, timeoutMs, recoveryGraceMs, opts = {}) {
         err.code = "model-not-allowed";
       } else if (/timed out/i.test(message)) {
         err.code = "timeout";
+      } else if (permissionDenied) {
+        // Deterministic: the same prompt asks for the same read again. Never retried.
+        err.code = "permission";
       } else if (!trimmedErr && !out) {
         // Clean exit, nothing on either stream: empty/garbage output.
         err.code = "parse";
@@ -1229,6 +1251,7 @@ if (typeof module !== "undefined" && module.exports) {
 
   // Advisory read-only enforcement (pure helpers; unit-tested)
   module.exports.READ_ONLY_GUARD = READ_ONLY_GUARD;
+  module.exports.PERMISSION_HINT = PERMISSION_HINT;
   module.exports.applyReadOnlyGuard = applyReadOnlyGuard;
   module.exports.advisoryEnv = advisoryEnv;
   module.exports.createSandboxCacheRoot = createSandboxCacheRoot;
