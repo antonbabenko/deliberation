@@ -48,6 +48,19 @@ test("J2: metadata capture keeps whitelisted meta fields, drops content", () => 
   assert.ok(!("response" in line), "content field must be absent under metadata capture");
 });
 
+test("J2b: call_end error message is a content field", () => {
+  const dir = tmpDir();
+  const jMeta = createJournal({ dir, getSettings: () => settings({ capture: "metadata" }) });
+  jMeta.emit("run-msg-meta", "call_end", { ms: 1, isError: true, errorKind: "permission", message: "read_file auto-denied" });
+  const [meta] = readLines(dir, "run-msg-meta");
+  assert.equal(meta.errorKind, "permission");
+  assert.ok(!("message" in meta), "error text must be absent under metadata capture");
+  const jContent = createJournal({ dir, getSettings: () => settings({ capture: "content" }) });
+  jContent.emit("run-msg-content", "call_end", { ms: 1, isError: true, errorKind: "permission", message: "read_file auto-denied" });
+  const [content] = readLines(dir, "run-msg-content");
+  assert.equal(content.message, "read_file auto-denied");
+});
+
 test("J3: content capture scrubs secrets in content fields", () => {
   const dir = tmpDir();
   const j = createJournal({ dir, getSettings: () => settings({ capture: "content" }) });
@@ -202,7 +215,7 @@ test("JOURNAL_KEYS matches the spec table for all six kinds", () => {
   assert.deepEqual(JOURNAL_KEYS.call_start.meta, ["callId", "provider", "model", "role", "round", "timeoutMs", "reasoningEffort", "settings", "configuredTimeoutMs", "deadlineAt", "limitingReason", "promptChars", "fileCount", "orientationFiles", "fileBytes", "grantedMs", "hostCapMs", "ceilingSource", "sharedBy", "sharedLimitMs"]);
   assert.deepEqual(JOURNAL_KEYS.call_start.content, ["request"]);
   assert.deepEqual(JOURNAL_KEYS.call_end.meta, ["callId", "provider", "model", "ms", "usage", "isError", "errorKind", "errorCode", "verdict", "criticalIssues[].category", "cached", "provenance", "reasoningEffort"]);
-  assert.deepEqual(JOURNAL_KEYS.call_end.content, ["response", "criticalIssues[].description"]);
+  assert.deepEqual(JOURNAL_KEYS.call_end.content, ["response", "message", "criticalIssues[].description"]);
   assert.deepEqual(JOURNAL_KEYS.arbiter.meta, ["action", "round", "verdict", "decisions[].source", "decisions[].category", "decisions[].action"]);
   assert.deepEqual(JOURNAL_KEYS.arbiter.content, ["text", "decisions[].description", "decisions[].reason"]);
   assert.deepEqual(JOURNAL_KEYS.run_end.meta, ["status", "stopReason", "rounds", "droppedProviders", "undispatched"]);

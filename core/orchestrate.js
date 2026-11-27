@@ -110,6 +110,7 @@ function traceCallEnd(trace, callId, r) {
       errorCode: r.isError ? /** @type {any} */ (r).transportCode : undefined,
       cached:r.cached, provenance:r.provenance, reasoningEffort:r.reasoningEffort,
       response: r.isError ? undefined : /** @type {any} */ (r).text,
+      message: r.isError ? /** @type {any} */ (r).message : undefined,
     });
   } catch {
     // Journaling must never throw into a delegation.

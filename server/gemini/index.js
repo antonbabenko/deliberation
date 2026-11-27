@@ -157,6 +157,13 @@ let modelFlagSupported = null;
 // take Gemini offline; an id the operator typed themselves fails loudly instead.
 let aliasRejected = false;
 const INVALID_MODEL_RE = /invalid model selection/i;
+// agy print mode cannot show a tool confirmation (e.g. read_file on a path outside the
+// workspace, often reached through a symlink), so it denies the call and prints nothing.
+const PERMISSION_DENIED_RE = /headless mode cannot prompt|auto-denied/i;
+const PERMISSION_HINT =
+  " [deliberation] Advisory runs stay read-only: allow that read under permissions.allow in " +
+  "~/.gemini/antigravity-cli/settings.json (agy 1.5+) or pass the directory in include-directories. Do not switch to " +
+  "workspace-write to get past it.";
 /** @returns {boolean} */
 function agySupportsModelFlag() {
   if (modelFlagSupported !== null) return modelFlagSupported;
@@ -535,6 +542,7 @@ function classifyGeminiError(errMsg, errCode) {
   if (errCode === "empty")   return { errorKind: "empty",   retryable: true };
   if (errCode === "model-not-allowed") return { errorKind: "model-not-allowed", retryable: false };
   if (errCode === "parse")   return { errorKind: "parse",   retryable: false };
+  if (errCode === "permission" || PERMISSION_DENIED_RE.test(msg)) return { errorKind: "permission", retryable: false };
   if (errCode === "missing-cli") return { errorKind: "missing-cli", retryable: false };
   if (msg.includes("(agy) not found")) return { errorKind: "missing-cli", retryable: false };
   if (lower.includes("aborterror") || lower.includes("aborted")) {
@@ -812,9 +820,13 @@ async function runGeminiOnce(args, cwd, timeoutMs, recoveryGraceMs, opts = {}) {
       else if (!out) message = `No output from agy`;
       else message = `agy exited with code ${code}`;
 
-      const err = new Error(message);
+      const permissionDenied = !tooShort && PERMISSION_DENIED_RE.test(message);
+      const err = new Error(permissionDenied ? message + PERMISSION_HINT : message);
       if (tooShort) {
         err.code = "empty";
+      } else if (permissionDenied) {
+        // Deterministic: the same prompt asks for the same read again. Never retried.
+        err.code = "permission";
       } else if (INVALID_MODEL_RE.test(message)) {
         // agy validated --model against its catalog and refused; agy's text lists the
         // catalog, so the message is the diagnosis. Deterministic - never retried.

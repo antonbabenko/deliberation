@@ -259,7 +259,7 @@ Error (Gemini bridge only - bridge sets `isError: true` and adds these fields):
 | Field | Type | Description |
 |-------|------|-------------|
 | `isError` | boolean | `true` on bridge-side failure. |
-| `errorKind` | `timeout` \| `parse` \| `missing-cli` \| `upstream-abort` \| `unknown` | Machine-readable category. |
+| `errorKind` | `timeout` \| `parse` \| `missing-cli` \| `permission` \| `upstream-abort` \| `unknown` | Machine-readable category. |
 | `retryable` | boolean | `true` means the orchestrator may retry; see `orchestration.md`. |
 
 ## OpenRouter Parameters Reference

@@ -1429,6 +1429,7 @@ token count. There is no hard spend cap - the warning is informational only.
 | `config` | Config file missing, invalid JSON, or schema violation |
 | `disabled` | The provider is off in config (`providers.<name>.enabled: false`). Returned before any network call or CLI spawn; the message names the key and the config file. Not retried |
 | `model-not-allowed` | OpenRouter: requested alias is not in the config, or a raw `model` was passed with `allowRawModel:false`, or no alias/model was given and no `defaultModel` is set. Gemini: agy rejected an operator-pinned `--model` id with `invalid model selection` (the shipped alias falls back instead - see the `--model` notes) |
+| `permission` | Gemini: agy print mode needed a tool confirmation it cannot show (for example `read_file` on a path outside the workspace, often reached through a symlink), denied the call and printed nothing. Not retried: the same prompt asks for the same read. Allow the read under `permissions.allow` in `~/.gemini/antigravity-cli/settings.json` (agy 1.5+; for example `read_file(/abs/dir)`) or pass the directory in `include-directories`; do not switch to `workspace-write` to get past it |
 | `unknown-thread` | `-reply` called with a threadId that does not exist |
 | `unknown` | Catch-all for unclassified errors |
 
@@ -2085,7 +2086,7 @@ debug log, whose `ALLOWED_KEYS` whitelist is unchanged and still excludes all co
 | `run_start` | `tool`, `pid`, `procStartedAt`, `expert`, `workflow` (`single` \| `fanout` \| `consensus-step` \| `consensus`), `providers[]`, `project` (`{id, name, root, ws}`) | `prompt` |
 | `state` | `state`, `round`, `status`, `verdicts[]` (`{provider, verdict, categories[]}`, on adjudicate) | none |
 | `call_start` | `callId`, `provider`, `model`, `role` (`peer` \| `arbiter` \| `blind` \| `single`), `round`, `timeoutMs`, `reasoningEffort`, `promptChars`, `fileCount`, `orientationFiles`, `fileBytes`, `grantedMs`, `hostCapMs`, `ceilingSource` (`own` \| `shared` \| `outer` \| `host`), `sharedBy[]`, `sharedLimitMs` | `request` |
-| `call_end` | `callId`, `provider`, `model`, `ms`, `usage`, `isError`, `errorKind`, `errorCode`, `verdict`, `criticalIssues[].category` | `response`, `criticalIssues[].description` |
+| `call_end` | `callId`, `provider`, `model`, `ms`, `usage`, `isError`, `errorKind`, `errorCode`, `verdict`, `criticalIssues[].category` | `response`, `message` (the error text of a failed call), `criticalIssues[].description` |
 | `arbiter` | `action` (`record_blind` \| `submit_adjudication` \| `submit_revision`), `round`, `verdict`, `decisions[]` (`{source, category, action}`, consensus-step adjudication only) | `text`, `decisions[].description`, `decisions[].reason` |
 | `run_end` | `status` (`converged` \| `unresolved` \| `done` \| `error`), `stopReason`, `rounds`, `droppedProviders[]` | `finalReport` |
 
@@ -2381,6 +2382,7 @@ to invoke or not invoke. Edit these to change expert behavior for your workflow.
 | Tool not appearing | Run `claude mcp list` and verify registration |
 | Expert not triggered | Ask explicitly: "Ask GPT to review...", "Ask Gemini to review...", or "Ask Grok to review..." |
 | An advisory Gemini run returned `workspaceMutated: true` | The delegate wrote to the consulted repo despite read-only mode (the OS sandbox is macOS-only; Linux relies on detection). Nothing was auto-reverted - review `git status` / `git log` and discard unwanted changes. Treat that result as tainted. |
+| Gemini fails with `errorKind: "permission"` (agy: `headless mode cannot prompt for`, `auto-denied`) | The delegate tried to read a file outside the workspace, usually through a symlink in the consulted repo or a file its `AGENTS.md` tells it to read. Add `read_file(<absolute dir>)` to `permissions.allow` in `~/.gemini/antigravity-cli/settings.json` (agy 1.5+), or pass the symlink target's directory in `include-directories` |
 | Advisory Gemini run errors with a `sandbox-exec` failure on macOS | The Seatbelt wrapper could not start. Set `DELIBERATION_DISABLE_OS_SANDBOX=1` to fall back to prompt-guard + detection while investigating. |
 
 `agy` print mode does not enforce folder trust, so there is no trust prompt to clear. Soft-timeout recovery (stdout-drain) is documented in [Gemini timeout recovery](#gemini-timeout-recovery).
