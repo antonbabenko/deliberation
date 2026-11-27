@@ -56,9 +56,11 @@ test("J2b: call_end error message is a content field", () => {
   assert.equal(meta.errorKind, "permission");
   assert.ok(!("message" in meta), "error text must be absent under metadata capture");
   const jContent = createJournal({ dir, getSettings: () => settings({ capture: "content" }) });
-  jContent.emit("run-msg-content", "call_end", { ms: 1, isError: true, errorKind: "permission", message: "read_file auto-denied" });
+  const secret = "sk-ant-api03-" + "y".repeat(30);
+  jContent.emit("run-msg-content", "call_end", { ms: 1, isError: true, errorKind: "permission", message: `read_file auto-denied ${secret}` });
   const [content] = readLines(dir, "run-msg-content");
-  assert.equal(content.message, "read_file auto-denied");
+  assert.match(content.message, /^read_file auto-denied /);
+  assert.ok(!content.message.includes(secret), "error text passes through the secret scrubber");
 });
 
 test("J3: content capture scrubs secrets in content fields", () => {
