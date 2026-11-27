@@ -1,3 +1,10 @@
+## [4.6.4](https://github.com/antonbabenko/deliberation/compare/v4.6.3...v4.6.4) (2026-11-27)
+
+
+### Bug Fixes
+
+* **gemini:** classify agy print-mode permission denials and journal error text ([#307](https://github.com/antonbabenko/deliberation/issues/307)) ([4a7841f](https://github.com/antonbabenko/deliberation/commit/4a7841f1ea65461386f4d7393d1a743a6c86a43c))
+
 ## [4.6.3](https://github.com/antonbabenko/deliberation/compare/v4.6.2...v4.6.3) (2026-11-26)
 
 
@@ -30,11 +37,4 @@
 ### Bug Fixes
 
 * **release:** bump the root plugin.json version in the release commit ([#292](https://github.com/antonbabenko/deliberation/issues/292)) ([6829173](https://github.com/antonbabenko/deliberation/commit/68291736597619b4a03cd3b054540aba8f30d41e))
-
-## [4.5.0](https://github.com/antonbabenko/deliberation/compare/v4.4.0...v4.5.0) (2026-11-18)
-
-
-### Features
-
-* **gemini:** default to an AI Studio API key, keep agy as opt-in ([#278](https://github.com/antonbabenko/deliberation/issues/278)) ([995c34c](https://github.com/antonbabenko/deliberation/commit/995c34c80e4d09ed63448f190fcfb80580108847))
 
